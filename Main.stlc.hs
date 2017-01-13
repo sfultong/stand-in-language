@@ -278,6 +278,7 @@ test_h2c2 = h2c 2 (\n -> Pair n Zero) Zero
 -- layer recurf i churchf churchbase
 -- layer :: (Data -> baseType) -> Data -> (baseType -> baseType) -> baseType
 --           -> baseType
+-- converts plain data type number (0-255) to church numeral
 d2c baseType =
   let layer = Lam (Lam (Lam (Lam (CI (ITE
                              (Var $ i2g 2)
@@ -290,7 +291,6 @@ d2c baseType =
                              (Var Zero)
                             )))))
       base = Lam (Lam (Lam (CI (Var Zero))))
-      d2c_type = Arr (Arr Data baseType) (Arr Data (Arr (Arr baseType baseType) (Arr baseType baseType)))
       outer_type = Arr Data (Arr (Arr baseType baseType) (Arr baseType baseType))
       inner 0 = Var Zero
       inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
@@ -299,6 +299,18 @@ d2c baseType =
       fixf = App (App (Anno nested nested_type) layer) base
   in Anno (Lam (CI (App fixf (CI $ Var Zero)))) outer_type
 
+-- d_equality_h iexpr = (\d -> if d > 0
+--                                then \x -> d_equals_one ((d2c (pleft d) pleft) x)
+--                                else \x -> if x == 0 then 1 else 0
+--                         )
+--
+
+d_equals_one = Anno (Lam (CI (ITE (Var Zero) (ITE (PLeft (Var Zero)) Zero (i2g 1)) Zero))) (Arr Data Data)
+
+d_to_equality = Anno (Lam (Lam (CI (ITE (Var $ i2g 1)
+                                          (App d_equals_one (CI (App (App (App (d2c Data) (CI . PLeft . Var $ i2g 1)) (Lam . CI . PLeft $ Var Zero)) (CI $ Var Zero))))
+                                          (ITE (Var Zero) Zero (i2g 1))
+                                         )))) (Arr Data (Arr Data Data))
 
 plus_ x y =
   let succ = Lam (CI (Pair (Var Zero) Zero))
@@ -323,9 +335,6 @@ test_plus255 = App c2d (CI (plus_
 test_plus256 = App c2d (CI (plus_
                          (toChurch 3)
                          (CI (App (d2c Data) (CI $ i2g 256)))))
-test_plus257 = App c2d (CI (plus_
-                         (toChurch 3)
-                         (CI (App (d2c Data) (CI $ i2g 257)))))
 
 -- m f (n f x)
 -- App (App m f) (App (App n f) x)
@@ -360,13 +369,14 @@ three_pow_two =
 
 main = do
   -- print . inferType [] $ Anno (toChurch 0) (Arr (Arr Data Data) (Arr Data Data))
-  print . inferType [] $ d2c Data
-  prettyEval test_plus0
-  prettyEval test_plus1
-  prettyEval test_plus254
-  prettyEval test_plus255
-  prettyEval test_plus256
-  prettyEval test_plus257
+  prettyEval $ App (App d_to_equality (CI Zero)) (CI Zero)
+  prettyEval $ App (App d_to_equality (CI Zero)) (CI $ i2g 1)
+  prettyEval $ App (App d_to_equality (CI $ i2g 1)) (CI Zero)
+  prettyEval $ App (App d_to_equality (CI $ i2g 1)) (CI $ i2g 1)
+  prettyEval $ App (App d_to_equality (CI $ i2g 1)) (CI $ i2g 2)
+  prettyEval $ App (App d_to_equality (CI $ i2g 2)) (CI $ i2g 1)
+  prettyEval $ App (App d_to_equality (CI $ i2g 2)) (CI $ i2g 2)
+  prettyEval $ App (App d_to_equality (CI $ i2g 2)) (CI $ i2g 3)
   {-
   prettyEval three_succ
   prettyEval three_plus_two
