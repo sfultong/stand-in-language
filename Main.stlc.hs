@@ -222,6 +222,12 @@ just_abort = Anno (Lam (CI Zero)) (Arr Data Data)
 
 message_then_abort = Anno (Lam (CI (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero)))) (Arr Data Data)
 
+quit_to_exit =
+  let check_input = ITE (App (App list_equality (CI . PLeft $ Var Zero)) (CI $ s2g "quit"))
+                    Zero
+                    (Pair (s2g "type quit to exit") (i2g 1))
+  in Anno (Lam (CI check_input)) (Arr Data Data)
+
 three_succ = App (App (Anno (toChurch 3) (Arr (Arr Data Data) (Arr Data Data)))
                   (Lam (CI (Pair (Var Zero) Zero))))
              (CI Zero)
@@ -260,10 +266,6 @@ foldr_h =
 -}
 
 foldr_ =
-  --let layer recurf f accum l =
-  --2 - 0
-  --1 - 2
-  --0 - 1
   let layer = Lam (Lam (Lam (Lam (CI
                                  (ITE (Var $ i2g 0)
                                  (App (App (App (Var $ i2g 3) (CI . Var $ i2g 2))
@@ -284,10 +286,6 @@ foldr_ =
   in fixf
 
 zipWith_ =
-  --let layer recurf zipf a b =
-  --2 - 1
-  --1 - 0
-  --0 - 2
   let layer = Lam (Lam (Lam (Lam (CI
                                   (ITE (Var $ i2g 1)
                                    (ITE (Var $ i2g 0)
@@ -347,19 +345,13 @@ d_to_equality = Anno (Lam (Lam (CI (ITE (Var $ i2g 1)
                                           (ITE (Var Zero) Zero (i2g 1))
                                          )))) (Arr Data (Arr Data Data))
 
-{-
 list_equality =
   let pairs_equal = App (App (App zipWith_ (CI d_to_equality)) (CI $ Var Zero)) (CI . Var $ i2g 1)
       length_equal = App (App d_to_equality (CI (App list_length (CI . Var $ i2g 1))))
                      (CI (App list_length (CI $ Var Zero)))
       and_ = Lam (Lam (CI (ITE (Var $ i2g 1) (Var Zero) Zero)))
-      folded = foldr_ 
-
-      
-        in
-  Anno (Lam (Lam (CI (
-                                   )))) (Arr Data (Arr Data Data))
--}
+      folded = App (App (App foldr_ and_) (CI $ i2g 1)) (CI $ Pair length_equal pairs_equal)
+  in Anno (Lam (Lam (CI folded))) (Arr Data (Arr Data Data))
 
 list_length = Anno (Lam (CI (App (App (App foldr_ (Lam (Lam (CI $ Pair (Var Zero) Zero))))
                                   (CI Zero))
@@ -438,9 +430,13 @@ unitTests = do
     $ App (App (App zipWith_ (Lam (Lam (CI (Pair (Var $ i2g 1) (Var $ i2g 0))))))
            (CI $ ints2g [4,5,6]))
     (CI $ ints2g [1,1,2,3])
+  unitTest "listequal1" "1" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hey")
+  unitTest "listequal0" "Zero" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "he")
+  unitTest "listequal00" "Zero" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hel")
 
 main = do
   unitTests
   --evalLoop just_abort
   evalLoop message_then_abort
+  evalLoop quit_to_exit
 
