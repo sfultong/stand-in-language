@@ -20,7 +20,8 @@ data IExpr
   | IfZ !IExpr
   | ITE !IExpr !IExpr !IExpr
   | PLeft !IExpr
-  | Flip !IExpr
+  | PRight !IExpr
+  | Trace !IExpr
   deriving (Eq, Show, Ord)
 
 data CExpr
@@ -39,7 +40,7 @@ instance Show PrettyIExpr where
   show (PrettyIExpr iexpr) = case iexpr of
     p@(Pair a b) -> if isNum p
       then show $ g2i p
-      else concat ["(", show a, ", ", show b, ")"]
+      else concat ["(", show (PrettyIExpr a), ", ", show (PrettyIExpr b), ")"]
     x -> show x
 
 newtype PrettyResult = PrettyResult Result
@@ -98,7 +99,8 @@ inferType env (ITE i t e) =
   let tt = inferType env t in if tt == inferType env e then tt else Nothing
 inferType env (IfZ p) = inferType env p
 inferType env (PLeft p) = inferType env p
-inferType env (Flip p) = inferType env p
+inferType env (PRight p) = inferType env p
+inferType env (Trace p) = inferType env p
 
 checkType :: [Type] -> CExpr -> Type -> Bool
 checkType env (Lam c) (Arr l r) = checkType (l : env) c r
@@ -107,8 +109,10 @@ checkType env (CI e) t =
   Just t == inferType env e
 checkType _ _ _ = False
 
+{-
 iEval :: Monad m => ([Result] -> IExpr -> m Result)
   -> [Result] -> IExpr -> m Result
+-}
 iEval f env g = let f' = f env in case g of
   Zero -> pure $ RData Zero
   Pair a b -> do
@@ -132,17 +136,24 @@ iEval f env g = let f' = f env in case g of
   PLeft g -> f' g >>= \g -> case g of
     (RData (Pair a _)) -> pure $ RData a
     --x -> error $ "left on " ++ show x
-    x -> pure $ RData Zero
-  Flip g -> f' g >>= \g -> case g of
-    (RData (Pair a b)) -> pure . RData $ Pair b a
-    x -> error $ "flip on " ++ show x
+    _ -> pure $ RData Zero
+  PRight g -> f' g >>= \g -> case g of
+    (RData (Pair _ x)) -> pure $ RData x
+    _ -> pure $ RData Zero
+  Trace g -> f' g >>= \g -> do
+    putStrLn $ "trace " ++ show g
+    pure g
 
+{-
 apply :: Monad m => ([Result] -> IExpr -> m Result) -> Result -> Result -> m Result
+-}
 apply f (Closure env (CI g)) v = f (v : env) g
 apply _ (Closure env (Lam c)) v = pure $ Closure (v:env) c
 apply _ g _ = error $ "not a closure" ++ show g
 
+{-
 cEval :: Monad m => ([Result] -> IExpr -> m Result) -> [Result] -> CExpr -> m Result
+-}
 cEval f env (Lam c) = pure $ Closure env c
 cEval f env (CI g) = f env g
 
@@ -177,6 +188,15 @@ debugEval iexpr = case inferType [] iexpr of
     putStrLn $ "Type is: " ++ show t
     tEval iexpr >>= (print . PrettyResult)
 
+unitTest :: String -> String -> IExpr -> IO ()
+unitTest name expected iexpr = case inferType [] iexpr of
+  Nothing -> putStrLn $ name ++ " failed typecheck"
+  Just _ -> do
+    result <- (show . PrettyResult) <$> simpleEval iexpr
+    if result == expected
+      then pure ()
+      else putStrLn $ concat [name, ": expected ", expected, " result ", result ]
+
 fullEval i = typedEval i print
 
 prettyEval i = typedEval i (print . PrettyResult)
@@ -200,58 +220,7 @@ evalLoop iexpr = case inferType [] iexpr of
 
 just_abort = Anno (Lam (CI Zero)) (Arr Data Data)
 
-
-zero_equals_one =
-  let descend = Lam (Lam (CI (IfZ (Pair
-                                   (IfZ (Pair (Var Zero) (i2g 1)))
-                                   (App (Var (i2g 1)) (CI (PLeft (Var Zero))))
-                    ))))
-      church_type = Arr (Arr Data Data) (Arr Data Data)
-  in App (App (Anno descend church_type)
-          (Lam (CI (IfZ (Pair (Var Zero) (i2g 1)) ))  )
-         )
-         (CI Zero)
-
-one_equals_one =
-  let descend = Lam (Lam (CI (IfZ (Pair
-                                   (IfZ (Pair (Var Zero) (i2g 1)))
-                                   (App (Var (i2g 1)) (CI (PLeft (Var Zero))))
-                    ))))
-      church_type = Arr (Arr Data Data) (Arr Data Data)
-  in App (App (Anno descend church_type)
-          (Lam (CI (IfZ (Pair (Var Zero) (i2g 1)) ))  )
-         )
-         (CI $ i2g 1)
-two_equals_one =
-  let descend = Lam (Lam (CI (IfZ (Pair
-                                   (IfZ (Pair (Var Zero) (i2g 1)))
-                                   (App (Var (i2g 1)) (CI (PLeft (Var Zero))))
-                    ))))
-      church_type = Arr (Arr Data Data) (Arr Data Data)
-  in App (App (Anno descend church_type)
-          (Lam (CI (IfZ (Pair (Var Zero) (i2g 1)) ))  )
-         )
-         (CI $ i2g 2)
--- (limit (n desc)) x
-one_equals_two =
-  let descend = Lam (CI (IfZ (Pair
-                                   (IfZ (Pair (Var Zero) (i2g 1)))
-                                   (PLeft (Var Zero))
-                    )))
-      limit = Lam (CI (IfZ (Pair
-                    (App
-                     (App (Anno (toChurch 2) church_type) descend)
-                     (CI . Var $ Zero)
-                    )
-                    (i2g 1)
-                  )))
-      church_type = Arr (Arr Data Data) (Arr Data Data)
-      equality_type = Arr church_type (Arr Data Data)
-  in App (Anno limit (Arr Data Data)) (CI $ i2g 2)
-
--- isTwo :: Data -> Data
---three_equals_two =
---  let descend x = IfZ (Pair (IfZ (Pair )) (PLeft x)) 
+message_then_abort = Anno (Lam (CI (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero)))) (Arr Data Data)
 
 three_succ = App (App (Anno (toChurch 3) (Arr (Arr Data Data) (Arr Data Data)))
                   (Lam (CI (Pair (Var Zero) Zero))))
@@ -271,9 +240,75 @@ h2c i =
       stopf i churchf churchbase = churchbase
   in \cf cb -> layer (layer (layer (layer stopf))) i cf cb
 
-test_h2c0 = h2c 0 (\n -> Pair n Zero) Zero
-test_h2c1 = h2c 1 (\n -> Pair n Zero) Zero
-test_h2c2 = h2c 2 (\n -> Pair n Zero) Zero
+
+{-
+h_zipWith a b f =
+  let layer recurf zipf a b =
+        if a > 0
+        then if b > 0
+             then Pair (zipf (PLeft a) (PLeft b)) (recurf zipf (PRight a) (PRight b))
+             else Zero
+        else Zero
+      stopf _ _ _ = Zero
+  in layer (layer (layer (layer stopf))) a b f
+
+foldr_h =
+  let layer recurf f accum l =
+        if not $ nil l
+        then recurf f (f (PLeft l) accum) (PRight l)
+        else accum
+-}
+
+foldr_ =
+  --let layer recurf f accum l =
+  --2 - 0
+  --1 - 2
+  --0 - 1
+  let layer = Lam (Lam (Lam (Lam (CI
+                                 (ITE (Var $ i2g 0)
+                                 (App (App (App (Var $ i2g 3) (CI . Var $ i2g 2))
+
+                                       (CI (App (App (Var $ i2g 2) (CI . PLeft . Var $ i2g 0))
+                                            (CI . Var $ i2g 1))))
+                                  (CI . PRight . Var $ i2g 0))
+                                 (Var $ i2g 1)
+                                 )
+                                 ))))
+      layerType = Arr (Arr Data (Arr Data Data)) (Arr Data (Arr Data Data))
+      base = Lam (Lam (Lam (CI Zero))) -- var 0?
+      inner 0 = Var Zero
+      inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
+      nested = Lam (Lam (CI $ inner 255))
+      fixType = Arr (Arr layerType layerType) (Arr layerType layerType)
+      fixf = App (App (Anno nested fixType) layer) base
+  in fixf
+
+zipWith_ =
+  --let layer recurf zipf a b =
+  --2 - 1
+  --1 - 0
+  --0 - 2
+  let layer = Lam (Lam (Lam (Lam (CI
+                                  (ITE (Var $ i2g 1)
+                                   (ITE (Var $ i2g 0)
+                                    (Pair
+                                     (App (App (Var $ i2g 2) (CI . PLeft . Var $ i2g 1))
+                                      (CI . PLeft . Var $ i2g 0))
+                                     (App (App (App (Var $ i2g 3) (CI . Var $ i2g 2))
+                                           (CI . PRight . Var $ i2g 1))
+                                      (CI . PRight . Var $ i2g 0))
+                                    )
+                                    Zero)
+                                   Zero)
+                                 ))))
+      base = Lam (Lam (Lam (CI Zero)))
+      layerType = Arr (Arr Data (Arr Data Data)) (Arr Data (Arr Data Data))
+      inner 0 = Var Zero
+      inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
+      nested = Lam (Lam (CI $ inner 255))
+      fixType = Arr (Arr layerType layerType) (Arr layerType layerType)
+      fixf = App (App (Anno nested fixType) layer) base
+  in fixf
 
 -- layer recurf i churchf churchbase
 -- layer :: (Data -> baseType) -> Data -> (baseType -> baseType) -> baseType
@@ -312,6 +347,24 @@ d_to_equality = Anno (Lam (Lam (CI (ITE (Var $ i2g 1)
                                           (ITE (Var Zero) Zero (i2g 1))
                                          )))) (Arr Data (Arr Data Data))
 
+{-
+list_equality =
+  let pairs_equal = App (App (App zipWith_ (CI d_to_equality)) (CI $ Var Zero)) (CI . Var $ i2g 1)
+      length_equal = App (App d_to_equality (CI (App list_length (CI . Var $ i2g 1))))
+                     (CI (App list_length (CI $ Var Zero)))
+      and_ = Lam (Lam (CI (ITE (Var $ i2g 1) (Var Zero) Zero)))
+      folded = foldr_ 
+
+      
+        in
+  Anno (Lam (Lam (CI (
+                                   )))) (Arr Data (Arr Data Data))
+-}
+
+list_length = Anno (Lam (CI (App (App (App foldr_ (Lam (Lam (CI $ Pair (Var Zero) Zero))))
+                                  (CI Zero))
+  (CI . Var $ Zero)))) (Arr Data Data)
+
 plus_ x y =
   let succ = Lam (CI (Pair (Var Zero) Zero))
       plus_app = App (App (Var $ i2g 3) (CI . Var $ i2g 1)) (CI $ App (App (Var $ i2g 2) (CI . Var $ i2g 1)) (CI . Var $ Zero))
@@ -319,6 +372,11 @@ plus_ x y =
       plus_type = Arr church_type (Arr church_type church_type)
       plus = Lam (Lam (Lam (Lam $ CI plus_app)))
   in App (App (Anno plus plus_type) x) y
+
+d_plus = Anno (Lam (Lam (CI (App c2d (CI (plus_
+                                   (CI (App (d2c Data) (CI . Var $ i2g 1)))
+                                   (CI (App (d2c Data) (CI $ Var Zero)))
+                                   )))))) (Arr Data (Arr Data Data))
 
 test_plus0 = App c2d (CI (plus_
                          (toChurch 3)
@@ -367,26 +425,22 @@ three_pow_two =
       pow = Lam (Lam (Lam (Lam $ CI pow_app)))
   in App (App (App (App (Anno pow pow_type) (toChurch 2)) (toChurch 3)) succ) (CI Zero)
 
+unitTests = do
+  unitTest "three" "3" three_succ
+  unitTest "church 3+2" "5" three_plus_two
+  unitTest "3*2" "6" three_times_two
+  unitTest "3^2" "9" three_pow_two
+  unitTest "data 3+5" "8" $ App (App d_plus (CI $ i2g 3)) (CI $ i2g 5)
+  unitTest "foldr" "13" $ App (App (App foldr_ (CI d_plus)) (CI $ i2g 1)) (CI $ ints2g [2,4,6])
+  unitTest "listlength0" "Zero" $ App list_length (CI $ Zero)
+  unitTest "listlength3" "3" $ App list_length (CI $ ints2g [1,2,3])
+  unitTest "zipwith" "((4, 1), ((5, 1), ((6, 2), Zero)))"
+    $ App (App (App zipWith_ (Lam (Lam (CI (Pair (Var $ i2g 1) (Var $ i2g 0))))))
+           (CI $ ints2g [4,5,6]))
+    (CI $ ints2g [1,1,2,3])
+
 main = do
-  -- print . inferType [] $ Anno (toChurch 0) (Arr (Arr Data Data) (Arr Data Data))
-  prettyEval $ App (App d_to_equality (CI Zero)) (CI Zero)
-  prettyEval $ App (App d_to_equality (CI Zero)) (CI $ i2g 1)
-  prettyEval $ App (App d_to_equality (CI $ i2g 1)) (CI Zero)
-  prettyEval $ App (App d_to_equality (CI $ i2g 1)) (CI $ i2g 1)
-  prettyEval $ App (App d_to_equality (CI $ i2g 1)) (CI $ i2g 2)
-  prettyEval $ App (App d_to_equality (CI $ i2g 2)) (CI $ i2g 1)
-  prettyEval $ App (App d_to_equality (CI $ i2g 2)) (CI $ i2g 2)
-  prettyEval $ App (App d_to_equality (CI $ i2g 2)) (CI $ i2g 3)
-  {-
-  prettyEval three_succ
-  prettyEval three_plus_two
-  prettyEval three_times_two
-  prettyEval three_pow_two
-  -}
-  {-
-  prettyEval zero_equals_one
-  prettyEval one_equals_one
-  prettyEval two_equals_one
-  -}
+  unitTests
   --evalLoop just_abort
+  evalLoop message_then_abort
 
