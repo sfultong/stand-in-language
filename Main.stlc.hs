@@ -6,17 +6,12 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Debug.Trace
 
-data Type
-  = Data
-  | Arr !Type !Type
-  deriving (Eq, Show, Ord)
-
 data IExpr
   = Zero
   | Pair !IExpr !IExpr
   | Var !IExpr
   | App !IExpr !CExpr
-  | Anno !CExpr !Type
+  | Anno !CExpr !IExpr
   | IfZ !IExpr
   | ITE !IExpr !IExpr !IExpr
   | PLeft !IExpr
@@ -82,17 +77,18 @@ isNum _ = False
 lookupEnv :: [a] -> Int -> Maybe a
 lookupEnv env ind = if ind < length env then Just (env !! ind) else Nothing
 
-inferType :: [Type] -> IExpr -> Maybe Type
-inferType _ Zero = Just Data
+-- types are give by IExpr. Zero represents Data and Pair represents Arrow
+inferType :: [IExpr] -> IExpr -> Maybe IExpr
+inferType _ Zero = Just Zero
 inferType env (Pair a b) = do
   ta <- inferType env a
   tb <- inferType env b
-  if ta == Data && tb == Data
-    then pure Data
+  if ta == Zero && tb == Zero
+    then pure Zero
     else Nothing -- can't have functions in pairs
 inferType env (Var v) = lookupEnv env $ g2i v
 inferType env (App g i) = case inferType env g of
-  Just (Arr l r) -> if checkType env i l then Just r else Nothing
+  Just (Pair l r) -> if checkType env i l then Just r else Nothing
   _ -> Nothing
 inferType env (Anno c t) = if checkType env c t then Just t else Nothing
 inferType env (ITE i t e) =
@@ -102,8 +98,8 @@ inferType env (PLeft p) = inferType env p
 inferType env (PRight p) = inferType env p
 inferType env (Trace p) = inferType env p
 
-checkType :: [Type] -> CExpr -> Type -> Bool
-checkType env (Lam c) (Arr l r) = checkType (l : env) c r
+checkType :: [IExpr] -> CExpr -> IExpr -> Bool
+checkType env (Lam c) (Pair l r) = checkType (l : env) c r
 checkType env (CI e) t =
   -- trace (concat [show e, " env ", show env, " expected ", show t, " inferred ", show (inferType env e)])
   Just t == inferType env e
@@ -216,24 +212,24 @@ evalLoop iexpr = case inferType [] iexpr of
                   mainLoop . CI $ Pair inp newState
     in mainLoop (CI Zero)
 
-just_abort = Anno (Lam (CI Zero)) (Arr Data Data)
+just_abort = Anno (Lam (CI Zero)) (Pair Zero Zero)
 
-message_then_abort = Anno (Lam (CI (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero)))) (Arr Data Data)
+message_then_abort = Anno (Lam (CI (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero)))) (Pair Zero Zero)
 
 quit_to_exit =
   let check_input = ITE (App (App list_equality (CI . PLeft $ Var Zero)) (CI $ s2g "quit"))
                     Zero
                     (Pair (s2g "type quit to exit") (i2g 1))
-  in Anno (Lam (CI check_input)) (Arr Data Data)
+  in Anno (Lam (CI check_input)) (Pair Zero Zero)
 
-three_succ = App (App (Anno (toChurch 3) (Arr (Arr Data Data) (Arr Data Data)))
+three_succ = App (App (Anno (toChurch 3) (Pair (Pair Zero Zero) (Pair Zero Zero)))
                   (Lam (CI (Pair (Var Zero) Zero))))
              (CI Zero)
 
-church_type = Arr (Arr Data Data) (Arr Data Data)
+church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
 
 c2d = Anno (Lam (CI (App (App (Var Zero) (Lam (CI (Pair (Var Zero) Zero)))) (CI Zero))))
-  (Arr church_type Data)
+  (Pair church_type Zero)
 
 h2c i =
   let layer recurf i churchf churchbase =
@@ -267,7 +263,7 @@ fixl l base layer layerType  =
   let inner 0 = Var Zero
       inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
       nested = Lam (Lam (CI $ inner l))
-      fixType = Arr (Arr layerType layerType) (Arr layerType layerType)
+      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
   in App (App (Anno nested fixType) layer) base
 
 map_ =
@@ -280,7 +276,7 @@ map_ =
                               (CI . PRight $ Var Zero)))
                             Zero
                             ))))
-      layerType = Arr (Arr Data Data) (Arr Data Data)
+      layerType = Pair (Pair Zero Zero) (Pair Zero Zero)
       base = Lam (Lam (CI Zero))
   in fixl 255 base layer layerType
 
@@ -295,7 +291,7 @@ foldr_ =
                                  (Var $ i2g 1)
                                  )
                                  ))))
-      layerType = Arr (Arr Data (Arr Data Data)) (Arr Data (Arr Data Data))
+      layerType = Pair (Pair Zero (Pair Zero Zero)) (Pair Zero (Pair Zero Zero))
       base = Lam (Lam (Lam (CI Zero))) -- var 0?
   in fixl 255 base layer layerType
 
@@ -314,11 +310,11 @@ zipWith_ =
                                    Zero)
                                  ))))
       base = Lam (Lam (Lam (CI Zero)))
-      layerType = Arr (Arr Data (Arr Data Data)) (Arr Data (Arr Data Data))
+      layerType = Pair (Pair Zero (Pair Zero Zero)) (Pair Zero (Pair Zero Zero))
   in fixl 255 base layer layerType
 
 -- layer recurf i churchf churchbase
--- layer :: (Data -> baseType) -> Data -> (baseType -> baseType) -> baseType
+-- layer :: (Zero -> baseType) -> Zero -> (baseType -> baseType) -> baseType
 --           -> baseType
 -- converts plain data type number (0-255) to church numeral
 d2c baseType =
@@ -333,7 +329,7 @@ d2c baseType =
                              (Var Zero)
                             )))))
       base = Lam (Lam (Lam (CI (Var Zero))))
-      layerType = Arr Data (Arr (Arr baseType baseType) (Arr baseType baseType))
+      layerType = Pair Zero (Pair (Pair baseType baseType) (Pair baseType baseType))
   in fixl 255 base layer layerType
 
 -- d_equality_h iexpr = (\d -> if d > 0
@@ -342,12 +338,12 @@ d2c baseType =
 --                         )
 --
 
-d_equals_one = Anno (Lam (CI (ITE (Var Zero) (ITE (PLeft (Var Zero)) Zero (i2g 1)) Zero))) (Arr Data Data)
+d_equals_one = Anno (Lam (CI (ITE (Var Zero) (ITE (PLeft (Var Zero)) Zero (i2g 1)) Zero))) (Pair Zero Zero)
 
 d_to_equality = Anno (Lam (Lam (CI (ITE (Var $ i2g 1)
-                                          (App d_equals_one (CI (App (App (App (d2c Data) (CI . PLeft . Var $ i2g 1)) (Lam . CI . PLeft $ Var Zero)) (CI $ Var Zero))))
+                                          (App d_equals_one (CI (App (App (App (d2c Zero) (CI . PLeft . Var $ i2g 1)) (Lam . CI . PLeft $ Var Zero)) (CI $ Var Zero))))
                                           (ITE (Var Zero) Zero (i2g 1))
-                                         )))) (Arr Data (Arr Data Data))
+                                         )))) (Pair Zero (Pair Zero Zero))
 
 list_equality =
   let pairs_equal = App (App (App zipWith_ (CI d_to_equality)) (CI $ Var Zero)) (CI . Var $ i2g 1)
@@ -355,40 +351,40 @@ list_equality =
                      (CI (App list_length (CI $ Var Zero)))
       and_ = Lam (Lam (CI (ITE (Var $ i2g 1) (Var Zero) Zero)))
       folded = App (App (App foldr_ and_) (CI $ i2g 1)) (CI $ Pair length_equal pairs_equal)
-  in Anno (Lam (Lam (CI folded))) (Arr Data (Arr Data Data))
+  in Anno (Lam (Lam (CI folded))) (Pair Zero (Pair Zero Zero))
 
 list_length = Anno (Lam (CI (App (App (App foldr_ (Lam (Lam (CI $ Pair (Var Zero) Zero))))
                                   (CI Zero))
-  (CI . Var $ Zero)))) (Arr Data Data)
+  (CI . Var $ Zero)))) (Pair Zero Zero)
 
 plus_ x y =
   let succ = Lam (CI (Pair (Var Zero) Zero))
       plus_app = App (App (Var $ i2g 3) (CI . Var $ i2g 1)) (CI $ App (App (Var $ i2g 2) (CI . Var $ i2g 1)) (CI . Var $ Zero))
-      church_type = Arr (Arr Data Data) (Arr Data Data)
-      plus_type = Arr church_type (Arr church_type church_type)
+      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
+      plus_type = Pair church_type (Pair church_type church_type)
       plus = Lam (Lam (Lam (Lam $ CI plus_app)))
   in App (App (Anno plus plus_type) x) y
 
 d_plus = Anno (Lam (Lam (CI (App c2d (CI (plus_
-                                   (CI (App (d2c Data) (CI . Var $ i2g 1)))
-                                   (CI (App (d2c Data) (CI $ Var Zero)))
-                                   )))))) (Arr Data (Arr Data Data))
+                                   (CI (App (d2c Zero) (CI . Var $ i2g 1)))
+                                   (CI (App (d2c Zero) (CI $ Var Zero)))
+                                   )))))) (Pair Zero (Pair Zero Zero))
 
 test_plus0 = App c2d (CI (plus_
                          (toChurch 3)
-                         (CI (App (d2c Data) (CI Zero)))))
+                         (CI (App (d2c Zero) (CI Zero)))))
 test_plus1 = App c2d (CI (plus_
                          (toChurch 3)
-                         (CI (App (d2c Data) (CI $ i2g 1)))))
+                         (CI (App (d2c Zero) (CI $ i2g 1)))))
 test_plus254 = App c2d (CI (plus_
                          (toChurch 3)
-                         (CI (App (d2c Data) (CI $ i2g 254)))))
+                         (CI (App (d2c Zero) (CI $ i2g 254)))))
 test_plus255 = App c2d (CI (plus_
                          (toChurch 3)
-                         (CI (App (d2c Data) (CI $ i2g 255)))))
+                         (CI (App (d2c Zero) (CI $ i2g 255)))))
 test_plus256 = App c2d (CI (plus_
                          (toChurch 3)
-                         (CI (App (d2c Data) (CI $ i2g 256)))))
+                         (CI (App (d2c Zero) (CI $ i2g 256)))))
 
 -- m f (n f x)
 -- App (App m f) (App (App n f) x)
@@ -396,8 +392,8 @@ test_plus256 = App c2d (CI (plus_
 three_plus_two =
   let succ = Lam (CI (Pair (Var Zero) Zero))
       plus_app = App (App (Var $ i2g 3) (CI . Var $ i2g 1)) (CI $ App (App (Var $ i2g 2) (CI . Var $ i2g 1)) (CI . Var $ Zero))
-      church_type = Arr (Arr Data Data) (Arr Data Data)
-      plus_type = Arr church_type (Arr church_type church_type)
+      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
+      plus_type = Pair church_type (Pair church_type church_type)
       plus = Lam (Lam (Lam (Lam $ CI plus_app)))
   in App c2d (CI (App (App (Anno plus plus_type) (toChurch 3)) (toChurch 2)))
 
@@ -406,8 +402,8 @@ three_plus_two =
 three_times_two =
   let succ = Lam (CI (Pair (Var Zero) Zero))
       times_app = App (App (Var $ i2g 3) (CI $ App (Var $ i2g 2) (CI . Var $ i2g 1))) (CI . Var $ i2g 0)
-      church_type = Arr (Arr Data Data) (Arr Data Data)
-      times_type = Arr church_type (Arr church_type church_type)
+      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
+      times_type = Pair church_type (Pair church_type church_type)
       times = Lam (Lam (Lam (Lam $ CI times_app)))
   in App (App (App (App (Anno times times_type) (toChurch 3)) (toChurch 2)) succ) (CI Zero)
 
@@ -416,8 +412,8 @@ three_times_two =
 three_pow_two =
   let succ = Lam (CI (Pair (Var Zero) Zero))
       pow_app = App (App (App (Var $ i2g 3) (CI . Var $ i2g 2)) (CI . Var $ i2g 1)) (CI . Var $ i2g 0)
-      church_type = Arr (Arr Data Data) (Arr Data Data)
-      pow_type = Arr (Arr church_type church_type) (Arr church_type church_type)
+      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
+      pow_type = Pair (Pair church_type church_type) (Pair church_type church_type)
       pow = Lam (Lam (Lam (Lam $ CI pow_app)))
   in App (App (App (App (Anno pow pow_type) (toChurch 2)) (toChurch 3)) succ) (CI Zero)
 
@@ -452,11 +448,11 @@ displayBoard =
       row2 = ch . ch . ch . ch . ch $ cn row3
       row1 = Pair (Var $ i2g 8) (ch (Pair (Var $ i2g 7) (ch (Pair (Var $ i2g 6) row2))))
       rows = Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (CI row1)))))))))
-      rowsType = Arr Data (Arr Data (Arr Data (Arr Data (Arr Data (Arr Data (Arr Data (Arr Data (Arr Data Data))))))))
+      rowsType = Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero Zero))))))))
       repRight x = foldr (.) id $ replicate x PRight
       appl 0 = App (Anno rows rowsType) (CI . PLeft $ Var Zero)
       appl x = App (appl (x - 1)) (CI . PLeft . repRight x $ Var Zero)
-  in Anno (Lam . CI $ appl 8) (Arr Data Data)
+  in Anno (Lam . CI $ appl 8) (Pair Zero Zero)
 
 
 main = do
