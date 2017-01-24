@@ -163,8 +163,6 @@ toChurch x =
       inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
   in Lam (Lam (CI $ inner x))
 
-testG = App (Anno (Lam (CI (Pair Zero (Var Zero)))) (Arr Data Data)) (CI Zero)
-
 simpleEval :: IExpr -> IO Result
 simpleEval = fix iEval []
 
@@ -265,6 +263,27 @@ foldr_h =
         else accum
 -}
 
+fixl l base layer layerType  =
+  let inner 0 = Var Zero
+      inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
+      nested = Lam (Lam (CI $ inner l))
+      fixType = Arr (Arr layerType layerType) (Arr layerType layerType)
+  in App (App (Anno nested fixType) layer) base
+
+map_ =
+  -- layer recurf f l = Pair (f (PLeft l)) (recurf f (PRight l))
+  let layer = Lam (Lam (Lam (CI
+                            (ITE (Var Zero)
+                            (Pair
+                             (App (Var $ i2g 1) (CI . PLeft $ Var Zero))
+                             (App (App (Var $ i2g 2) (CI . Var $ i2g 1))
+                              (CI . PRight $ Var Zero)))
+                            Zero
+                            ))))
+      layerType = Arr (Arr Data Data) (Arr Data Data)
+      base = Lam (Lam (CI Zero))
+  in fixl 255 base layer layerType
+
 foldr_ =
   let layer = Lam (Lam (Lam (Lam (CI
                                  (ITE (Var $ i2g 0)
@@ -278,12 +297,7 @@ foldr_ =
                                  ))))
       layerType = Arr (Arr Data (Arr Data Data)) (Arr Data (Arr Data Data))
       base = Lam (Lam (Lam (CI Zero))) -- var 0?
-      inner 0 = Var Zero
-      inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
-      nested = Lam (Lam (CI $ inner 255))
-      fixType = Arr (Arr layerType layerType) (Arr layerType layerType)
-      fixf = App (App (Anno nested fixType) layer) base
-  in fixf
+  in fixl 255 base layer layerType
 
 zipWith_ =
   let layer = Lam (Lam (Lam (Lam (CI
@@ -301,12 +315,7 @@ zipWith_ =
                                  ))))
       base = Lam (Lam (Lam (CI Zero)))
       layerType = Arr (Arr Data (Arr Data Data)) (Arr Data (Arr Data Data))
-      inner 0 = Var Zero
-      inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
-      nested = Lam (Lam (CI $ inner 255))
-      fixType = Arr (Arr layerType layerType) (Arr layerType layerType)
-      fixf = App (App (Anno nested fixType) layer) base
-  in fixf
+  in fixl 255 base layer layerType
 
 -- layer recurf i churchf churchbase
 -- layer :: (Data -> baseType) -> Data -> (baseType -> baseType) -> baseType
@@ -324,13 +333,8 @@ d2c baseType =
                              (Var Zero)
                             )))))
       base = Lam (Lam (Lam (CI (Var Zero))))
-      outer_type = Arr Data (Arr (Arr baseType baseType) (Arr baseType baseType))
-      inner 0 = Var Zero
-      inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
-      nested = Lam (Lam (CI $ inner 255))
-      nested_type = Arr (Arr outer_type outer_type) (Arr outer_type outer_type)
-      fixf = App (App (Anno nested nested_type) layer) base
-  in Anno (Lam (CI (App fixf (CI $ Var Zero)))) outer_type
+      layerType = Arr Data (Arr (Arr baseType baseType) (Arr baseType baseType))
+  in fixl 255 base layer layerType
 
 -- d_equality_h iexpr = (\d -> if d > 0
 --                                then \x -> d_equals_one ((d2c (pleft d) pleft) x)
@@ -433,10 +437,32 @@ unitTests = do
   unitTest "listequal1" "1" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hey")
   unitTest "listequal0" "Zero" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "he")
   unitTest "listequal00" "Zero" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hel")
+  -- because of the way lists are represented, the last number will be prettyPrinted + 1
+  unitTest "map" "(2, (3, 5))" $ App (App map_ (Lam (CI (Pair (Var Zero) Zero))))
+    (CI $ ints2g [1,2,3])
+
+-- game section
+displayBoard =
+  let cc c l = Pair (i2g $ ord c) l
+      ch = cc '#'
+      cn = cc '\n'
+      row5 = Pair (Var $ i2g 2) (ch (Pair (Var $ i2g 1) (ch (Pair (Var Zero) Zero))))
+      row4 = ch . ch . ch . ch . ch $ cn row5
+      row3 = Pair (Var $ i2g 5) (ch (Pair (Var $ i2g 4) (ch (Pair (Var $ i2g 3) row4))))
+      row2 = ch . ch . ch . ch . ch $ cn row3
+      row1 = Pair (Var $ i2g 8) (ch (Pair (Var $ i2g 7) (ch (Pair (Var $ i2g 6) row2))))
+      rows = Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (CI row1)))))))))
+      rowsType = Arr Data (Arr Data (Arr Data (Arr Data (Arr Data (Arr Data (Arr Data (Arr Data (Arr Data Data))))))))
+      repRight x = foldr (.) id $ replicate x PRight
+      appl 0 = App (Anno rows rowsType) (CI . PLeft $ Var Zero)
+      appl x = App (appl (x - 1)) (CI . PLeft . repRight x $ Var Zero)
+  in Anno (Lam . CI $ appl 8) (Arr Data Data)
+
 
 main = do
   unitTests
+  --prettyEval $ App displayBoard (CI Zero)
   --evalLoop just_abort
   evalLoop message_then_abort
-  evalLoop quit_to_exit
+  --evalLoop quit_to_exit
 
