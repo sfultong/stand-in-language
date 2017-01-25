@@ -2,21 +2,20 @@ module Main where
 
 import Control.Monad.Fix
 import Data.Char
-import Data.Map (Map)
-import qualified Data.Map as Map
+-- import Data.Map (Map)
+-- import qualified Data.Map as Map
 import Debug.Trace
 
 data IExpr
-  = Zero
-  | Pair !IExpr !IExpr
-  | Var !IExpr
-  | App !IExpr !CExpr
-  | Anno !CExpr !IExpr
-  | IfZ !IExpr
-  | ITE !IExpr !IExpr !IExpr
-  | PLeft !IExpr
-  | PRight !IExpr
-  | Trace !IExpr
+  = Zero                     -- no special syntax necessary
+  | Pair !IExpr !IExpr       -- {,}
+  | Var !IExpr               -- identifier
+  | App !IExpr !CExpr        -- 
+  | Anno !CExpr !IExpr       -- :
+  | ITE !IExpr !IExpr !IExpr -- if a b c
+  | PLeft !IExpr             -- left
+  | PRight !IExpr            -- right
+  | Trace !IExpr             -- trace
   deriving (Eq, Show, Ord)
 
 data CExpr
@@ -93,7 +92,6 @@ inferType env (App g i) = case inferType env g of
 inferType env (Anno c t) = if checkType env c t then Just t else Nothing
 inferType env (ITE i t e) =
   let tt = inferType env t in if tt == inferType env e then tt else Nothing
-inferType env (IfZ p) = inferType env p
 inferType env (PLeft p) = inferType env p
 inferType env (PRight p) = inferType env p
 inferType env (Trace p) = inferType env p
@@ -123,9 +121,6 @@ iEval f env g = let f' = f env in case g of
     ng <- f' g
     i <- cEval f env cexp
     apply f ng i
-  IfZ g -> f' g >>= \g -> case g of
-    (RData (Pair Zero a)) -> pure $ RData a
-    _  -> pure $ RData Zero
   ITE c t e -> f' c >>= \g -> case g of
     (RData Zero) -> f' e
     _ -> f' t

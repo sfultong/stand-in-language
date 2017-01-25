@@ -1,0 +1,6 @@
+
+resolver: lts-7.16
+packages:
+
+nix:
+  enable: true
