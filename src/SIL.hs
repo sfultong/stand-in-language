@@ -2,8 +2,6 @@ module SIL where
 
 import Control.Monad.Fix
 import Data.Char
--- import Data.Map (Map)
--- import qualified Data.Map as Map
 import Debug.Trace
 
 data IExpr
@@ -12,7 +10,7 @@ data IExpr
   | Var !IExpr               -- identifier
   | App !IExpr !CExpr        -- 
   | Anno !CExpr !IExpr       -- :
-  | ITE !IExpr !IExpr !IExpr -- if a b c
+  | ITE !IExpr !IExpr !IExpr -- if a then b else c
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace !IExpr             -- trace

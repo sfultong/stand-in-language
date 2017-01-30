@@ -2,7 +2,7 @@ module Main where
 
 import Data.Char
 import SIL
-
+import SIL.Parser
 
 just_abort = Anno (Lam (CI Zero)) (Pair Zero Zero)
 
@@ -245,7 +245,12 @@ displayBoard =
 
 
 main = do
-  unitTests
+  --unitTests
+  print $ parseSIL "0"
+  print $ parseSIL "1"
+  print $ parseSIL "{0,0}"
+  print $ parseSIL "\\x -> {0,x}:{0,0}"
+  print $ parseSIL "(\\x -> {0,x}:{0,0}) 0"
   --prettyEval $ App displayBoard (CI Zero)
   --evalLoop just_abort
   evalLoop message_then_abort
