@@ -250,9 +250,13 @@ main = do
   print $ parseSIL "1"
   print $ parseSIL "{0,0}"
   print $ parseSIL "\\x -> {0,x}:{0,0}"
+  print $ parseSIL "\\x y-> {x,y}:{0,0}"
   print $ parseSIL "(\\x -> {0,x}:{0,0}) 0"
+  print $ parseSIL "\\f -> f 0:{{0,0},0}"
+  print $ parseSIL "(\\f -> f 0:{{0,0},0}) (\\x -> x)"
+  print $ parseSIL "(\\f g x -> g (f x):{{0,0},{{0,0},{0,0}}}) (\\x->{x,0}) (\\x->{0,x}) 0"
   --prettyEval $ App displayBoard (CI Zero)
   --evalLoop just_abort
-  evalLoop message_then_abort
+  -- evalLoop message_then_abort
   --evalLoop quit_to_exit
 

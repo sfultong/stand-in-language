@@ -49,51 +49,51 @@ parseNumber = (i2g . read) <$> (many1 digit) <* spaces
 parsePair :: SILParser IExpr
 parsePair = do
   char '{' <* spaces
-  a <- parseIExpr
+  a <- parseApplied
   char ',' <* spaces
-  b <- parseIExpr
+  b <- parseApplied
   char '}' <* spaces
   return $ Pair a b
 
 parseITE :: SILParser IExpr
 parseITE = do
   string "if" <* spaces
-  cond <- parseIExpr
+  cond <- parseApplied
   string "then" <* spaces
-  thenExpr <- parseIExpr
+  thenExpr <- parseApplied
   string "else" <* spaces
-  elseExpr <- parseIExpr
+  elseExpr <- parseApplied
   return $ ITE cond thenExpr elseExpr
 
 parseAnnotation :: SILParser IExpr
 parseAnnotation = do
-  cexpr <- try parseCExpr
+  cexpr <- try parseLambda
   char ':' <* spaces
-  iexpr <- parseIExpr
+  iexpr <- parseApplied
   return $ Anno cexpr iexpr
 
 parsePLeft :: SILParser IExpr
 parsePLeft = do
   string "pleft" <* spaces
-  iexpr <- parseIExpr
+  iexpr <- parseApplied
   return $ PLeft iexpr
 
 parsePRight :: SILParser IExpr
 parsePRight = do
   string "pright" <* spaces
-  iexpr <- parseIExpr
+  iexpr <- parseApplied
   return $ PRight iexpr
 
 parseTrace :: SILParser IExpr
 parseTrace = do
   string "trace" <* spaces
-  iexpr <- parseIExpr
+  iexpr <- parseApplied
   return $ Trace iexpr
 
 parseParenthesis :: SILParser IExpr
 parseParenthesis = do
   char '(' <* spaces
-  iexpr <- parseIExpr
+  iexpr <- parseApplied
   char ')' <* spaces
   return $ iexpr
 
@@ -110,7 +110,7 @@ parseIExpr = choice [ parseParenthesis
                     , parseVariable]
 
 parseApplied :: SILParser IExpr
-parseApplied = let applicator = (CI <$> parseIExpr) <|> parseLambda
+parseApplied = let applicator = try parseCExpr <|> (CI <$> parseIExpr)
                in do
   iexpr <- parseIExpr
   applicants <- many applicator
@@ -123,11 +123,18 @@ parseLambda = do
   string "->" <* spaces
   oldVars <- getState
   setState $ reverse variables ++ oldVars
-  iexpr <- parseIExpr
+  iexpr <- parseApplied
   setState oldVars
   return $ foldr (\v e -> Lam (e)) (CI iexpr) variables
 
+parseLambdaParenthesis :: SILParser CExpr
+parseLambdaParenthesis = do
+  char '(' <* spaces
+  lambda <- parseLambda
+  char ')' <* spaces
+  return lambda
+
 parseCExpr :: SILParser CExpr
-parseCExpr = parseLambda -- choice [parseLambda, CI <$> parseIExpr]
+parseCExpr = choice [parseLambda, parseLambdaParenthesis]
 
 parseSIL = runParser parseApplied [] "SIL"
