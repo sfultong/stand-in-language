@@ -1,15 +1,35 @@
 module SIL.Parser where
 
 import Data.List (elemIndex)
---import Data.Map (Map)
---import qualified Data.Map as Map
+import Data.Map (Map)
+import qualified Data.Map as Map
 import SIL
---import Text.ParserCombinators.Parsec
 import Text.Parsec
+import Text.Parsec.Indent
 
 type VarList = [String]
 
-type SILParser = Parsec String VarList
+data ParserState = ParserState
+  { unbound :: VarList
+  , bound :: Map String IExpr
+  }
+
+addUnbound :: String -> ParserState -> Maybe ParserState
+addUnbound s (ParserState unbound bound) = if Map.member s bound || elem s unbound
+  then Nothing
+  else pure $ ParserState (s:unbound) bound
+
+addBound :: String -> IExpr -> ParserState -> Maybe ParserState
+addBound name iexpr (ParserState unbound bound) = if Map.member name bound || elem name unbound
+  then Nothing
+  else pure $ ParserState unbound (Map.insert name iexpr bound)
+
+resolve :: String -> ParserState -> Maybe IExpr
+resolve name (ParserState unbound bound) = if Map.member name bound
+  then Map.lookup name bound
+  else (Var . i2g) <$> elemIndex name unbound
+
+type SILParser a = IndentParser String ParserState a
 
 {-
 symbol :: Parser Char
@@ -38,10 +58,10 @@ parseVar = do
 parseVariable :: SILParser IExpr
 parseVariable = do
               varName <- parseVar
-              vars <- getState
-              case elemIndex varName vars of
+              parserState <- getState
+              case resolve varName parserState of
                 Nothing -> fail $ concat ["identifier ", varName, " undeclared"]
-                Just i -> return . Var $ i2g i
+                Just i -> pure i
 
 parseNumber :: SILParser IExpr
 parseNumber = (i2g . read) <$> (many1 digit) <* spaces
@@ -106,6 +126,7 @@ parseIExpr = choice [ parseParenthesis
                     , parsePLeft
                     , parsePRight
                     , parseTrace
+                    , parseLet
                     , parseAnnotation
                     , parseVariable]
 
@@ -121,11 +142,14 @@ parseLambda = do
   char '\\' <* spaces
   variables <- many1 parseVar
   string "->" <* spaces
-  oldVars <- getState
-  setState $ reverse variables ++ oldVars
-  iexpr <- parseApplied
-  setState oldVars
-  return $ foldr (\v e -> Lam (e)) (CI iexpr) variables
+  oldState <- getState
+  case foldl (\ps n -> ps >>= addUnbound n) (pure oldState) variables of
+    Nothing -> fail $ concat ["shadowing of bindings not allowed, ", show variables]
+    Just ps -> do
+      setState ps
+      iexpr <- parseApplied
+      setState oldState
+      return $ foldr (\v e -> Lam (e)) (CI iexpr) variables
 
 parseLambdaParenthesis :: SILParser CExpr
 parseLambdaParenthesis = do
@@ -137,4 +161,33 @@ parseLambdaParenthesis = do
 parseCExpr :: SILParser CExpr
 parseCExpr = choice [parseLambda, parseLambdaParenthesis]
 
-parseSIL = runParser parseApplied [] "SIL"
+parseAssignment :: SILParser ()
+parseAssignment = do
+  var <- parseVar
+  char '=' <* spaces
+  applied <- parseApplied
+  modifyState (\ps -> ps {bound = Map.insert var applied $ bound ps})
+
+parseLet :: SILParser IExpr
+parseLet = withPos $ do
+  initialState <- getState
+  lets <- withBlock' (string "let" <* spaces) parseAssignment
+  checkIndent *> string "in" *> spaces
+  expr <- parseApplied
+  setState initialState
+  pure expr
+
+parseTopLevel :: SILParser IExpr
+parseTopLevel = do
+  many parseAssignment
+  (ParserState _ bound) <- getState
+  case Map.lookup "main" bound of
+    Nothing -> fail "no main method found"
+    Just main -> pure main
+
+parseSIL = let startState = ParserState [] Map.empty
+           in runIndent "indent" . runParserT parseTopLevel startState "SIL"
+
+testSIL = showResult . parseSIL
+  where showResult (Left err) = "parse error: " ++ show err
+        showResult (Right iexpr) = show iexpr
