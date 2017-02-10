@@ -246,23 +246,32 @@ displayBoard =
 
 testExpr = concat
   [ "main = let a = 0\n"
---  , "           b = 1\n"
---  , "       in {a,1}"
+  , "           b = 1\n"
+  , "       in {a,1}\n"
+  ]
+
+testExpr2 = concat
+  [ "let a = 0\n"
+  , "    b = 1\n"
+  , "in {a,b}"
   ]
 
 main = do
   --unitTests
-  print $ parseSIL "main = 0"
-  print $ parseSIL "main = 1"
-  print $ parseSIL "main = {0,0}"
-  print $ parseSIL "main = \\x -> {0,x}:{0,0}"
-  print $ parseSIL "main = \\x y-> {x,y}:{0,0}"
-  print $ parseSIL "main = (\\x -> {0,x}:{0,0}) 0"
-  print $ parseSIL "main = \\f -> f 0:{{0,0},0}"
-  print $ parseSIL "main = (\\f -> f 0:{{0,0},0}) (\\x -> x)"
-  print $ parseSIL "main = (\\f g x -> g (f x):{{0,0},{{0,0},{0,0}}}) (\\x->{x,0}) (\\x->{0,x}) 0"
-  print $ parseSIL "main = \\f g -> (g 0) (f 0) : {{0,0},{{0,{0,0}}, 0}}"
-  print $ parseSIL testExpr
+  print $ parseSIL "main = 0\n"
+  print $ parseSIL "main = 1\n"
+  print $ parseSIL "main = {0,0}\n"
+  print $ parseSIL "main = \"HI\"\n"
+  print $ parseSIL "main = \\x -> {0,x}:{0,0}\n"
+  print $ parseSIL "main = \\x y-> {x,y}:{0,0}\n"
+  print $ parseSIL "main = (\\x -> {0,x}:{0,0}) 0\n"
+  print $ parseSIL "main = \\f -> f 0:{{0,0},0}\n"
+  print $ parseSIL "main = (\\f -> f 0:{{0,0},0}) (\\x -> x)\n"
+  print $ parseSIL "main = (\\f g x -> g (f x):{{0,0},{{0,0},{0,0}}}) (\\x->{x,0}) (\\x->{0,x}) 0\n"
+  print $ parseSIL "main = \\f g -> (g 0) (f 0) : {{0,0},{{0,{0,0}}, 0}}\n"
+  --print $ parseSIL testExpr
+  print $ testLet testExpr2
+  print test1
 
   --print test1
   --prettyEval $ App displayBoard (CI Zero)

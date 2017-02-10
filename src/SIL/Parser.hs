@@ -6,6 +6,8 @@ import qualified Data.Map as Map
 import SIL
 import Text.Parsec
 import Text.Parsec.Indent
+import Text.Parsec.Language
+import qualified Text.Parsec.Token as Token
 
 type VarList = [String]
 
@@ -30,156 +32,142 @@ resolve name (ParserState unbound bound) = if Map.member name bound
   else (Var . i2g) <$> elemIndex name unbound
 
 type SILParser a = IndentParser String ParserState a
-
 {-
-symbol :: Parser Char
-symbol = oneOf "{,}:()"
--}
-
-data ParseResult
-  = CResult CExpr
-  | IResult IExpr
-  | Identifier String
+languageDef = haskellStyle
+  { Token.reservedOpNames = ["\\","->", ":"]
+  , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
+  }
+  -}
+languageDef = Token.LanguageDef
+  { Token.commentStart   = "{-"
+  , Token.commentEnd     = "-}"
+  , Token.commentLine    = "--"
+  , Token.nestedComments = True
+  , Token.identStart     = letter
+  , Token.identLetter    = alphaNum <|> oneOf "_'"
+  , Token.opStart        = Token.opLetter languageDef
+  , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
+  , Token.reservedOpNames = ["\\","->", ":", "="]
+  , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
+  , Token.caseSensitive  = True
+  }
+lexer = Token.makeTokenParser languageDef
+identifier = Token.identifier lexer -- parses an identifier
+reserved   = Token.reserved   lexer -- parses a reserved name
+reservedOp = Token.reservedOp lexer -- parses an operator
+parens     = Token.parens     lexer -- parses surrounding parenthesis:
+integer    = Token.integer    lexer
 
 parseString :: SILParser IExpr
-parseString = do
-  char '"'
-  x <- many (noneOf "\"")
-  char '"' <* spaces
-  return $ s2g x
-
-parseVar :: SILParser String
-parseVar = do
-              first <- letter
-              rest <- many (letter <|> digit)
-              spaces
-              return (first:rest)
+parseString = s2g <$> Token.stringLiteral lexer
 
 parseVariable :: SILParser IExpr
 parseVariable = do
-              varName <- parseVar
+              varName <- identifier
               parserState <- getState
               case resolve varName parserState of
                 Nothing -> fail $ concat ["identifier ", varName, " undeclared"]
                 Just i -> pure i
 
 parseNumber :: SILParser IExpr
-parseNumber = (i2g . read) <$> (many1 digit) <* spaces
+parseNumber = (i2g . fromInteger) <$> integer
 
 parsePair :: SILParser IExpr
-parsePair = do
+parsePair = withPos $ do
   char '{' <* spaces
-  a <- parseApplied
-  char ',' <* spaces
-  b <- parseApplied
-  char '}' <* spaces
+  a <- parseIExpr2
+  sameOrIndented <* char ',' <* spaces
+  b <- parseIExpr2
+  sameOrIndented <* char '}' <* spaces
   return $ Pair a b
 
 parseITE :: SILParser IExpr
-parseITE = do
-  string "if" <* spaces
-  cond <- parseApplied
-  string "then" <* spaces
-  thenExpr <- parseApplied
-  string "else" <* spaces
-  elseExpr <- parseApplied
+parseITE = withPos $ do
+  reserved "if"
+  cond <- parseIExpr2
+  sameOrIndented <* reserved "then"
+  thenExpr <- parseIExpr2
+  sameOrIndented <* reserved "else"
+  elseExpr <- parseIExpr2
   return $ ITE cond thenExpr elseExpr
 
 parseAnnotation :: SILParser IExpr
-parseAnnotation = do
-  cexpr <- try parseLambda
-  char ':' <* spaces
-  iexpr <- parseApplied
+parseAnnotation = withPos $ do
+  cexpr <- parseLambda
+  sameOrIndented <* reservedOp ":"
+  iexpr <- parseIExpr2
   return $ Anno cexpr iexpr
 
 parsePLeft :: SILParser IExpr
-parsePLeft = do
-  string "pleft" <* spaces
-  iexpr <- parseApplied
-  return $ PLeft iexpr
+parsePLeft = PLeft <$> (reserved "left" *> parseIExpr2)
 
 parsePRight :: SILParser IExpr
-parsePRight = do
-  string "pright" <* spaces
-  iexpr <- parseApplied
-  return $ PRight iexpr
+parsePRight = PRight <$> (reserved "right" *> parseIExpr2)
 
 parseTrace :: SILParser IExpr
-parseTrace = do
-  string "trace" <* spaces
-  iexpr <- parseApplied
-  return $ Trace iexpr
-
-parseParenthesis :: SILParser IExpr
-parseParenthesis = do
-  char '(' <* spaces
-  iexpr <- parseApplied
-  char ')' <* spaces
-  return $ iexpr
+parseTrace = Trace <$> (reserved "trace" *> parseIExpr2)
 
 parseIExpr :: SILParser IExpr
-parseIExpr = choice [ parseParenthesis
-                    , parseString
+parseIExpr = choice [ parseString
                     , parseNumber
                     , parsePair
                     , parseITE
                     , parsePLeft
                     , parsePRight
                     , parseTrace
-                    , parseLet
-                    , parseAnnotation
                     , parseVariable]
 
 parseApplied :: SILParser IExpr
-parseApplied = let applicator = try parseCExpr <|> (CI <$> parseIExpr)
-               in do
-  iexpr <- parseIExpr
-  applicants <- many applicator
+parseApplied = let ciApp = CI <$> parseIExpr2
+                   applicator = sameOrIndented *> parens (parseLambda <|> ciApp) <|> ciApp
+               in withPos $ do
+  iexpr <- parens (parseAnnotation <|> parseApplied) <|> parseVariable
+  applicants <- many1 applicator
   pure $ foldr (flip App) iexpr applicants
+
+parseIExpr2 :: SILParser IExpr
+parseIExpr2 = choice [ parseLet
+                     , parseAnnotation
+                     , try parseApplied
+                     , parseIExpr
+                     ]
 
 parseLambda :: SILParser CExpr
 parseLambda = do
-  char '\\' <* spaces
-  variables <- many1 parseVar
-  string "->" <* spaces
+  reservedOp "\\"
+  variables <- many1 identifier
+  sameOrIndented <* reservedOp "->"
   oldState <- getState
   case foldl (\ps n -> ps >>= addUnbound n) (pure oldState) variables of
     Nothing -> fail $ concat ["shadowing of bindings not allowed, ", show variables]
     Just ps -> do
       setState ps
-      iexpr <- parseApplied
+      iexpr <- parseIExpr2
       setState oldState
       return $ foldr (\v e -> Lam (e)) (CI iexpr) variables
 
-parseLambdaParenthesis :: SILParser CExpr
-parseLambdaParenthesis = do
-  char '(' <* spaces
-  lambda <- parseLambda
-  char ')' <* spaces
-  return lambda
-
 parseCExpr :: SILParser CExpr
-parseCExpr = choice [parseLambda, parseLambdaParenthesis]
+parseCExpr = choice [parens parseLambda, parseLambda]
 
 parseAssignment :: SILParser ()
 parseAssignment = do
-  var <- parseVar
-  char '=' <* spaces
-  applied <- parseApplied
-  modifyState (\ps -> ps {bound = Map.insert var applied $ bound ps})
+  var <- identifier
+  reservedOp "="
+  expr <- parseIExpr2
+  modifyState (\ps -> ps {bound = Map.insert var expr $ bound ps})
 
 parseLet :: SILParser IExpr
 parseLet = withPos $ do
   initialState <- getState
-  lets <- withBlock' (string "let" <* spaces) parseAssignment
-  checkIndent *> string "in" *> spaces
-  expr <- parseApplied
+  _ <- withBlock' (string "let" <* spaces) parseAssignment
+  checkIndent *> reserved "in"
+  expr <- parseIExpr2
   setState initialState
   pure expr
 
 parseTopLevel :: SILParser IExpr
 parseTopLevel = do
-  many parseAssignment
+  many parseAssignment <* eof
   (ParserState _ bound) <- getState
   case Map.lookup "main" bound of
     Nothing -> fail "no main method found"
@@ -187,6 +175,9 @@ parseTopLevel = do
 
 parseSIL = let startState = ParserState [] Map.empty
            in runIndent "indent" . runParserT parseTopLevel startState "SIL"
+
+testLet = let startState = ParserState [] Map.empty
+          in runIndent "indent" . runParserT parseLet startState "let"
 
 testSIL = showResult . parseSIL
   where showResult (Left err) = "parse error: " ++ show err
