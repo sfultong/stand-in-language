@@ -1,5 +1,6 @@
 module SIL.Parser where
 
+import Control.Monad.State
 import Data.List (elemIndex)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -7,6 +8,7 @@ import SIL
 import Text.Parsec
 import Text.Parsec.Indent
 import Text.Parsec.Language
+import Text.Parsec.Pos
 import qualified Text.Parsec.Token as Token
 
 type VarList = [String]
@@ -76,25 +78,25 @@ parsePair :: SILParser IExpr
 parsePair = withPos $ do
   char '{' <* spaces
   a <- parseIExpr2
-  sameOrIndented <* char ',' <* spaces
+  sameOrIndented <* char ',' <* spaces <?> "pair: ,"
   b <- parseIExpr2
-  sameOrIndented <* char '}' <* spaces
+  sameOrIndented <* char '}' <* spaces <?> "pair: }"
   return $ Pair a b
 
 parseITE :: SILParser IExpr
 parseITE = withPos $ do
   reserved "if"
   cond <- parseIExpr2
-  sameOrIndented <* reserved "then"
+  sameOrIndented <* reserved "then" <?> "ITE: then"
   thenExpr <- parseIExpr2
-  sameOrIndented <* reserved "else"
+  sameOrIndented <* reserved "else" <?> "ITE: else"
   elseExpr <- parseIExpr2
   return $ ITE cond thenExpr elseExpr
 
 parseAnnotation :: SILParser IExpr
 parseAnnotation = withPos $ do
   cexpr <- parseLambda
-  sameOrIndented <* reservedOp ":"
+  sameOrIndented <* reservedOp ":" <?> "annotation :"
   iexpr <- parseIExpr2
   return $ Anno cexpr iexpr
 
@@ -136,7 +138,7 @@ parseLambda :: SILParser CExpr
 parseLambda = do
   reservedOp "\\"
   variables <- many1 identifier
-  sameOrIndented <* reservedOp "->"
+  sameOrIndented <* reservedOp "->" <?> "lambda ->"
   oldState <- getState
   case foldl (\ps n -> ps >>= addUnbound n) (pure oldState) variables of
     Nothing -> fail $ concat ["shadowing of bindings not allowed, ", show variables]
@@ -144,7 +146,7 @@ parseLambda = do
       setState ps
       iexpr <- parseIExpr2
       setState oldState
-      return $ foldr (\v e -> Lam (e)) (CI iexpr) variables
+      return $ foldr (\_ e -> Lam e) (CI iexpr) variables
 
 parseCExpr :: SILParser CExpr
 parseCExpr = choice [parens parseLambda, parseLambda]
@@ -152,15 +154,15 @@ parseCExpr = choice [parens parseLambda, parseLambda]
 parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
-  reservedOp "="
+  reservedOp "=" <?> "assignment ="
   expr <- parseIExpr2
   modifyState (\ps -> ps {bound = Map.insert var expr $ bound ps})
 
 parseLet :: SILParser IExpr
 parseLet = withPos $ do
+  string "let" <* spaces
   initialState <- getState
-  _ <- withBlock' (string "let" <* spaces) parseAssignment
-  checkIndent *> reserved "in"
+  manyTill parseAssignment (reserved "in")
   expr <- parseIExpr2
   setState initialState
   pure expr
@@ -173,11 +175,13 @@ parseTopLevel = do
     Nothing -> fail "no main method found"
     Just main -> pure main
 
+debugIndent i = show $ runState i (initialPos "debug")
+
 parseSIL = let startState = ParserState [] Map.empty
            in runIndent "indent" . runParserT parseTopLevel startState "SIL"
 
 testLet = let startState = ParserState [] Map.empty
-          in runIndent "indent" . runParserT parseLet startState "let"
+          in debugIndent . runParserT parseLet startState "let"
 
 testSIL = showResult . parseSIL
   where showResult (Left err) = "parse error: " ++ show err
