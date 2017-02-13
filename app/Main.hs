@@ -51,13 +51,6 @@ foldr_h =
         else accum
 -}
 
-fixl l base layer layerType  =
-  let inner 0 = Var Zero
-      inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
-      nested = Lam (Lam (CI $ inner l))
-      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
-  in App (App (Anno nested fixType) layer) base
-
 map_ =
   -- layer recurf f l = Pair (f (PLeft l)) (recurf f (PRight l))
   let layer = Lam (Lam (Lam (CI
@@ -69,8 +62,9 @@ map_ =
                             Zero
                             ))))
       layerType = Pair (Pair Zero Zero) (Pair Zero Zero)
+      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
       base = Lam (Lam (CI Zero))
-  in fixl 255 base layer layerType
+  in App (App (Anno (toChurch 255) fixType) layer) base
 
 foldr_ =
   let layer = Lam (Lam (Lam (Lam (CI
@@ -84,8 +78,9 @@ foldr_ =
                                  )
                                  ))))
       layerType = Pair (Pair Zero (Pair Zero Zero)) (Pair Zero (Pair Zero Zero))
+      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
       base = Lam (Lam (Lam (CI Zero))) -- var 0?
-  in fixl 255 base layer layerType
+  in App (App (Anno (toChurch 255) fixType) layer) base
 
 zipWith_ =
   let layer = Lam (Lam (Lam (Lam (CI
@@ -103,7 +98,8 @@ zipWith_ =
                                  ))))
       base = Lam (Lam (Lam (CI Zero)))
       layerType = Pair (Pair Zero (Pair Zero Zero)) (Pair Zero (Pair Zero Zero))
-  in fixl 255 base layer layerType
+      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
+  in App (App (Anno (toChurch 255) fixType) layer) base
 
 -- layer recurf i churchf churchbase
 -- layer :: (Zero -> baseType) -> Zero -> (baseType -> baseType) -> baseType
@@ -122,7 +118,8 @@ d2c baseType =
                             )))))
       base = Lam (Lam (Lam (CI (Var Zero))))
       layerType = Pair Zero (Pair (Pair baseType baseType) (Pair baseType baseType))
-  in fixl 255 base layer layerType
+      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
+  in App (App (Anno (toChurch 255) fixType) layer) base
 
 -- d_equality_h iexpr = (\d -> if d > 0
 --                                then \x -> d_equals_one ((d2c (pleft d) pleft) x)
