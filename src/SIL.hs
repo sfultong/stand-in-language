@@ -138,7 +138,7 @@ apply :: Monad m => ([Result] -> IExpr -> m Result) -> Result -> Result -> m Res
 -}
 apply f (Closure env (CI g)) v = f (v : env) g
 apply _ (Closure env (Lam c)) v = pure $ Closure (v:env) c
-apply _ g _ = error $ "not a closure" ++ show g
+apply _ g _ = error $ "not a closure " ++ show g
 
 {-
 cEval :: Monad m => ([Result] -> IExpr -> m Result) -> [Result] -> CExpr -> m Result

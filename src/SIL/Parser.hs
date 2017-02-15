@@ -49,7 +49,7 @@ languageDef = Token.LanguageDef
   , Token.identLetter    = alphaNum <|> oneOf "_'"
   , Token.opStart        = Token.opLetter languageDef
   , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
-  , Token.reservedOpNames = ["\\","->", ":", "="]
+  , Token.reservedOpNames = ["\\","->", ":", "=", "$"]
   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
   , Token.caseSensitive  = True
   }
@@ -95,7 +95,7 @@ parseITE = withPos $ do
 
 parseAnnotation :: SILParser IExpr
 parseAnnotation = withPos $ do
-  cexpr <- parseLambda
+  cexpr <- parseCExpr
   sameOrIndented <* reservedOp ":" <?> "annotation :"
   iexpr <- parseIExpr2
   return $ Anno cexpr iexpr
@@ -120,12 +120,14 @@ parseIExpr = choice [ parseString
                     , parseVariable]
 
 parseApplied :: SILParser IExpr
-parseApplied = let ciApp = CI <$> parseIExpr2
-                   applicator = sameOrIndented *> parens (parseLambda <|> ciApp) <|> ciApp
+parseApplied = let ciApp = CI <$> parseIExpr
+                   ciApp2 = CI <$> parseIExpr2
+                   applicator = sameOrIndented *> parens (parseLambda <|> ciApp2) <|> parseChurch
+                     <|> ciApp
                in withPos $ do
   iexpr <- parens (parseAnnotation <|> parseApplied) <|> parseVariable
   applicants <- many1 applicator
-  pure $ foldr (flip App) iexpr applicants
+  pure $ foldl App iexpr applicants
 
 parseIExpr2 :: SILParser IExpr
 parseIExpr2 = choice [ parseLet
@@ -148,8 +150,11 @@ parseLambda = do
       setState oldState
       return $ foldr (\_ e -> Lam e) (CI iexpr) variables
 
+parseChurch :: SILParser CExpr
+parseChurch = (toChurch . fromInteger) <$> (reservedOp "$" *> integer)
+
 parseCExpr :: SILParser CExpr
-parseCExpr = choice [parens parseLambda, parseLambda]
+parseCExpr = choice [parseChurch, parseLambda]
 
 parseAssignment :: SILParser ()
 parseAssignment = do

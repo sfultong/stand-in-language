@@ -207,6 +207,18 @@ three_pow_two =
       pow = Lam (Lam (Lam (Lam $ CI pow_app)))
   in App (App (App (App (Anno pow pow_type) (toChurch 2)) (toChurch 3)) succ) (CI Zero)
 
+unitTestP s g = case parseSIL s of
+  Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+  Right pg -> if pg == g
+    then pure ()
+    else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
+
+unitTest2 s r = case parseSIL s of
+  Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+  Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
+    then pure ()
+    else putStrLn $ concat [s, " result ", r2]
+
 unitTests = do
   unitTest "three" "3" three_succ
   unitTest "church 3+2" "5" three_plus_two
@@ -250,8 +262,15 @@ testExpr = concat
   , "       in {a,1}\n"
   ]
 
+three_plus_two_string = concat
+  [ "main = let churchT = {{0,0},{0,0}}\n"
+  , "           plus = \\m n f x -> m f (n f x) : {churchT,{churchT,churchT}}\n"
+  , "       in plus $3 $2 (\\x -> {x,0}) 0"
+  ]
+
 main = do
   --unitTests
+  {-
   print $ parseSIL "main = 0\n"
   print $ parseSIL "main = 1\n"
   print $ parseSIL "main = {0,0}\n"
@@ -264,6 +283,11 @@ main = do
   print $ parseSIL "main = (\\f g x -> g (f x):{{0,0},{{0,0},{0,0}}}) (\\x->{x,0}) (\\x->{0,x}) 0\n"
   print $ parseSIL "main = \\f g -> (g 0) (f 0) : {{0,0},{{0,{0,0}}, 0}}\n"
   print $ parseSIL testExpr
+  -}
+  unitTest2 "main = ($5 : {{0,0},{0,0}}) (\\x -> {x,0}) 0" "5"
+  --print $ parseSIL just_plus
+  unitTest2 three_plus_two_string "5"
+
 
   --print test1
   --prettyEval $ App displayBoard (CI Zero)
