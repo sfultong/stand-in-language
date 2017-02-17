@@ -165,29 +165,32 @@ parseAssignment = do
 
 parseLet :: SILParser IExpr
 parseLet = withPos $ do
-  string "let" <* spaces
+  reserved "let" <* spaces
   initialState <- getState
   manyTill parseAssignment (reserved "in")
   expr <- parseIExpr2
   setState initialState
   pure expr
 
-parseTopLevel :: SILParser IExpr
+parseTopLevel :: SILParser (Map String IExpr)
 parseTopLevel = do
   many parseAssignment <* eof
   (ParserState _ bound) <- getState
-  case Map.lookup "main" bound of
-    Nothing -> fail "no main method found"
-    Just main -> pure main
+  pure bound
 
 debugIndent i = show $ runState i (initialPos "debug")
 
-parseSIL = let startState = ParserState [] Map.empty
-           in runIndent "indent" . runParserT parseTopLevel startState "SIL"
+parsePrelude = parseWithPrelude Map.empty
+
+parseWithPrelude :: Map String IExpr -> String -> Either ParseError (Map String IExpr)
+parseWithPrelude prelude = let startState = ParserState [] prelude
+                           in runIndent "indent" . runParserT parseTopLevel startState "topLevel"
+
+parseMain :: (Map String IExpr) -> String -> Either ParseError IExpr
+parseMain prelude s = getMain <$> parseWithPrelude prelude s where
+  getMain bound = case Map.lookup "main" bound of
+    Nothing -> error "no main method found"
+    Just main -> main
 
 testLet = let startState = ParserState [] Map.empty
           in debugIndent . runParserT parseLet startState "let"
-
-testSIL = showResult . parseSIL
-  where showResult (Left err) = "parse error: " ++ show err
-        showResult (Right iexpr) = show iexpr

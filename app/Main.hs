@@ -4,6 +4,7 @@ import Data.Char
 import SIL
 import SIL.Parser
 import SIL.Parser2
+import qualified System.IO.Strict as Strict
 
 just_abort = Anno (Lam (CI Zero)) (Pair Zero Zero)
 
@@ -207,17 +208,6 @@ three_pow_two =
       pow = Lam (Lam (Lam (Lam $ CI pow_app)))
   in App (App (App (App (Anno pow pow_type) (toChurch 2)) (toChurch 3)) succ) (CI Zero)
 
-unitTestP s g = case parseSIL s of
-  Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-  Right pg -> if pg == g
-    then pure ()
-    else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
-
-unitTest2 s r = case parseSIL s of
-  Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-  Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
-    then pure ()
-    else putStrLn $ concat [s, " result ", r2]
 
 unitTests = do
   unitTest "three" "3" three_succ
@@ -268,8 +258,31 @@ three_plus_two_string = concat
   , "       in plus $3 $2 (\\x -> {x,0}) 0"
   ]
 
+three_times_two_string = concat
+  [ "main = let churchT = {{0,0},{0,0}}\n"
+  , "           times = \\m n f x -> m (n f) x : {churchT,{churchT,churchT}}\n"
+  , "       in times $3 $2 (\\x -> {x,0}) 0"
+  ]
+
 main = do
   --unitTests
+  preludeFile <- Strict.readFile "Prelude.sil"
+
+  let
+    prelude = case parsePrelude preludeFile of
+      Right p -> p
+      Left pe -> error $ show pe
+    unitTestP s g = case parseMain prelude s of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+      Right pg -> if pg == g
+        then pure ()
+        else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
+
+    unitTest2 s r = case parseMain prelude s of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+      Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
+        then pure ()
+        else putStrLn $ concat [s, " result ", r2]
   {-
   print $ parseSIL "main = 0\n"
   print $ parseSIL "main = 1\n"
@@ -287,6 +300,7 @@ main = do
   unitTest2 "main = ($5 : {{0,0},{0,0}}) (\\x -> {x,0}) 0" "5"
   --print $ parseSIL just_plus
   unitTest2 three_plus_two_string "5"
+  unitTest2 three_times_two_string "6"
 
 
   --print test1

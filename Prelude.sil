@@ -1,0 +1,31 @@
+CT = {{0,0},{0,0}}
+
+and = \a b -> if a then b else 0 : {0,{0,0}}
+
+mapG = \r f -> let BT = {0,0}
+                   layer = \recur l -> {f (left l), recur (right l)} : {BT,BT}
+                   base = \l -> 0 : BT
+               in (r : {{BT,BT},{BT,BT}}) layer base
+map = mapG $255
+
+foldrG = \r f -> let BT = {0,{0,0}}
+                     layer = (\recur accum l -> if l
+                                                  then recur (f (left l) accum) (right l)
+                                                  else accum) : {BT,BT}
+                     base = \accum l -> accum : BT
+                 in (r : {{BT,BT},{BT,BT}}) layer base 
+foldr = foldrG $255
+
+zipWithG = \r f -> let BT = {0,{0,0}}
+                       layer = (\recur a b -> if (and a b)
+                                                 then {f (left a) (left b)
+                                                       , recur (right a) (right b)}
+                                                 else 0) : {BT,BT}
+                       base = \a b -> 0 : BT
+                   in (r : {{BT,BT},{BT,BT}}) layer base 
+zipWith = zipWithG $255
+
+d2c = let layer = (\recur i f b -> if i
+                                     then f (recur (left i) f b)
+                                     else b) : {{0,CT},{0,CT}}
+      in ($1024 : {{{0,CT},{0,CT}},{{0,CT},{0,CT}}}) layer (\i f b -> 0)

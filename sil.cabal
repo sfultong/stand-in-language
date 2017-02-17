@@ -29,6 +29,7 @@ executable sil-exe
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , sil
+                     , strict
   default-language:    Haskell2010
 
 test-suite sil-test
