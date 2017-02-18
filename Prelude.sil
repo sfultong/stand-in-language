@@ -1,31 +1,34 @@
 CT = {{0,0},{0,0}}
 
-and = \a b -> if a then b else 0 : {0,{0,0}}
+and : {0,{0,0}} = \a b -> if a then b else 0
 
-mapG = \r f -> let BT = {0,0}
-                   layer = \recur l -> {f (left l), recur (right l)} : {BT,BT}
-                   base = \l -> 0 : BT
-               in (r : {{BT,BT},{BT,BT}}) layer base
+makeGT : {0,0} = \FT -> {{{FT,FT},{FT,FT}}, {{FT,FT},{FT,FT}}}
+
+mapG : makeGT {{0,0},{0,0}} = \r f -> let layer = \recur l -> {f (left l), recur (right l)}
+                                          base = \l -> 0
+                                      in r layer base
 map = mapG $255
 
-foldrG = \r f -> let BT = {0,{0,0}}
-                     layer = (\recur accum l -> if l
-                                                  then recur (f (left l) accum) (right l)
-                                                  else accum) : {BT,BT}
-                     base = \accum l -> accum : BT
-                 in (r : {{BT,BT},{BT,BT}}) layer base 
+foldrT = makeGT {{0,{0,0}},{0,{0,0}}}
+foldrG : foldrT = \r f -> let layer = \recur accum l -> if l
+                                                          then recur (f (left l) accum) (right l)
+                                                          else accum
+                              base = \accum l -> accum
+                          in r layer base 
 foldr = foldrG $255
 
-zipWithG = \r f -> let BT = {0,{0,0}}
-                       layer = (\recur a b -> if (and a b)
-                                                 then {f (left a) (left b)
-                                                       , recur (right a) (right b)}
-                                                 else 0) : {BT,BT}
-                       base = \a b -> 0 : BT
-                   in (r : {{BT,BT},{BT,BT}}) layer base 
+zipWithT = makeGT {{0,{0,0}},{0,{0,0}}}
+zipWithG : zipWithT = r f -> let layer = \recur a b -> if (and a b)
+                                                        then {f (left a) (left b)
+                                                              , recur (right a) (right b)}
+                                                        else 0
+                                 base = \a b -> 0
+                             in r layer base 
 zipWith = zipWithG $255
 
-d2c = let layer = (\recur i f b -> if i
+d2c = let layer = \recur i f b -> if i
                                      then f (recur (left i) f b)
-                                     else b) : {{0,CT},{0,CT}}
-      in ($1024 : {{{0,CT},{0,CT}},{{0,CT},{0,CT}}}) layer (\i f b -> 0)
+                                     else b
+          fixer : {{{0,CT},{0,CT}},{{0,CT},{0,CT}}} = $1024
+      in fixer layer (\i f b -> 0)
+

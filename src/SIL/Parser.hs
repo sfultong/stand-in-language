@@ -11,11 +11,27 @@ import Text.Parsec.Language
 import Text.Parsec.Pos
 import qualified Text.Parsec.Token as Token
 
+{-
+
+
+"
+[a-z]
+0
+{
+if
+left
+right
+trace
+let
+
+-}
+
 type VarList = [String]
+type Bindings = Map String (Either CExpr IExpr)
 
 data ParserState = ParserState
   { unbound :: VarList
-  , bound :: Map String IExpr
+  , bound :: Bindings
   }
 
 addUnbound :: String -> ParserState -> Maybe ParserState
@@ -23,15 +39,15 @@ addUnbound s (ParserState unbound bound) = if Map.member s bound || elem s unbou
   then Nothing
   else pure $ ParserState (s:unbound) bound
 
-addBound :: String -> IExpr -> ParserState -> Maybe ParserState
-addBound name iexpr (ParserState unbound bound) = if Map.member name bound || elem name unbound
+addBound :: String -> (Either CExpr IExpr) -> ParserState -> Maybe ParserState
+addBound name expr (ParserState unbound bound) = if Map.member name bound || elem name unbound
   then Nothing
-  else pure $ ParserState unbound (Map.insert name iexpr bound)
+  else pure $ ParserState unbound (Map.insert name expr bound)
 
-resolve :: String -> ParserState -> Maybe IExpr
+resolve :: String -> ParserState -> Maybe (Either CExpr IExpr)
 resolve name (ParserState unbound bound) = if Map.member name bound
   then Map.lookup name bound
-  else (Var . i2g) <$> elemIndex name unbound
+  else (Right . Var . i2g) <$> elemIndex name unbound
 
 type SILParser a = IndentParser String ParserState a
 {-
@@ -63,7 +79,7 @@ integer    = Token.integer    lexer
 parseString :: SILParser IExpr
 parseString = s2g <$> Token.stringLiteral lexer
 
-parseVariable :: SILParser IExpr
+parseVariable :: SILParser (Either CExpr IExpr)
 parseVariable = do
               varName <- identifier
               parserState <- getState
@@ -77,64 +93,77 @@ parseNumber = (i2g . fromInteger) <$> integer
 parsePair :: SILParser IExpr
 parsePair = withPos $ do
   char '{' <* spaces
-  a <- parseIExpr2
+  a <- parseLongIExpr
   sameOrIndented <* char ',' <* spaces <?> "pair: ,"
-  b <- parseIExpr2
+  b <- parseLongIExpr
   sameOrIndented <* char '}' <* spaces <?> "pair: }"
   return $ Pair a b
 
 parseITE :: SILParser IExpr
 parseITE = withPos $ do
   reserved "if"
-  cond <- parseIExpr2
+  cond <- parseLongIExpr
   sameOrIndented <* reserved "then" <?> "ITE: then"
-  thenExpr <- parseIExpr2
+  thenExpr <- parseLongIExpr
   sameOrIndented <* reserved "else" <?> "ITE: else"
-  elseExpr <- parseIExpr2
+  elseExpr <- parseLongIExpr
   return $ ITE cond thenExpr elseExpr
 
+{-
 parseAnnotation :: SILParser IExpr
 parseAnnotation = withPos $ do
   cexpr <- parseCExpr
   sameOrIndented <* reservedOp ":" <?> "annotation :"
   iexpr <- parseIExpr2
   return $ Anno cexpr iexpr
+-}
 
 parsePLeft :: SILParser IExpr
-parsePLeft = PLeft <$> (reserved "left" *> parseIExpr2)
+parsePLeft = PLeft <$> (reserved "left" *> parseSingleIExpr)
 
 parsePRight :: SILParser IExpr
-parsePRight = PRight <$> (reserved "right" *> parseIExpr2)
+parsePRight = PRight <$> (reserved "right" *> parseSingleIExpr)
 
 parseTrace :: SILParser IExpr
-parseTrace = Trace <$> (reserved "trace" *> parseIExpr2)
+parseTrace = Trace <$> (reserved "trace" *> parseSingleIExpr)
 
-parseIExpr :: SILParser IExpr
-parseIExpr = choice [ parseString
-                    , parseNumber
-                    , parsePair
-                    , parseITE
-                    , parsePLeft
-                    , parsePRight
-                    , parseTrace
-                    , parseVariable]
+parseSingleExpr :: SILParser (Either CExpr IExpr)
+parseSingleExpr = Right <$> choice [ parseString
+                                   , parseNumber
+                                   , parsePair
+                                   , parsePLeft
+                                   , parsePRight
+                                   , parseTrace
+                                   ] <|> (Left <$> parseChurch)
+                  <|> choice [ parseVariable
+                             , parens parseLongExpr
+                             ]
+
+parseSingleIExpr :: SILParser IExpr
+parseSingleIExpr = promote <$> parseSingleExpr where
+  promote (Left _) = error "expecting typed expression"
+  promote (Right i) = i
 
 parseApplied :: SILParser IExpr
-parseApplied = let ciApp = CI <$> parseIExpr
-                   ciApp2 = CI <$> parseIExpr2
-                   applicator = sameOrIndented *> parens (parseLambda <|> ciApp2) <|> parseChurch
-                     <|> ciApp
+parseApplied = let combine i (Right app) = combine i (Left $ CI app)
+                   combine iexpr (Left cexpr) = App iexpr cexpr
                in withPos $ do
-  iexpr <- parens (parseAnnotation <|> parseApplied) <|> parseVariable
-  applicants <- many1 applicator
-  pure $ foldl App iexpr applicants
+  exprs <- many1 (sameOrIndented *> parseSingleExpr)
+  let f = case head exprs of
+        (Left _) -> error "expecting typed expression"
+        (Right i) -> i
+  pure $ foldl combine f (tail exprs)
 
-parseIExpr2 :: SILParser IExpr
-parseIExpr2 = choice [ parseLet
-                     , parseAnnotation
-                     , try parseApplied
-                     , parseIExpr
-                     ]
+parseLongExpr :: SILParser (Either CExpr IExpr)
+parseLongExpr = Right <$> choice [ parseLet
+                                 , parseITE
+                                 , parseApplied
+                                 ] <|> (Left <$> parseLambda)
+
+parseLongIExpr :: SILParser IExpr
+parseLongIExpr = promote <$> parseLongExpr where
+  promote (Left _) = error "expecting typed expression"
+  promote (Right i) = i
 
 parseLambda :: SILParser CExpr
 parseLambda = do
@@ -146,33 +175,38 @@ parseLambda = do
     Nothing -> fail $ concat ["shadowing of bindings not allowed, ", show variables]
     Just ps -> do
       setState ps
-      iexpr <- parseIExpr2
+      iexpr <- parseLongIExpr
       setState oldState
       return $ foldr (\_ e -> Lam e) (CI iexpr) variables
 
 parseChurch :: SILParser CExpr
 parseChurch = (toChurch . fromInteger) <$> (reservedOp "$" *> integer)
 
-parseCExpr :: SILParser CExpr
-parseCExpr = choice [parseChurch, parseLambda]
-
 parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
+  annotation <- optionMaybe (reservedOp ":" *> parseLongIExpr)
   reservedOp "=" <?> "assignment ="
-  expr <- parseIExpr2
-  modifyState (\ps -> ps {bound = Map.insert var expr $ bound ps})
+  expr <- parseLongExpr
+  let annoExp = case (annotation, expr) of
+        (Just a, Left cexpr) -> Right $ Anno cexpr a
+        (Just a, Right iexpr) ->  Right $ Anno (CI iexpr) a
+        _ -> expr
+      assign ps = case addBound var annoExp ps of
+        Just nps -> nps
+        _ -> error $ "shadowing of binding not allowed " ++ var
+  modifyState assign
 
 parseLet :: SILParser IExpr
 parseLet = withPos $ do
-  reserved "let" <* spaces
+  reserved "let"
   initialState <- getState
   manyTill parseAssignment (reserved "in")
-  expr <- parseIExpr2
+  expr <- parseLongIExpr
   setState initialState
   pure expr
 
-parseTopLevel :: SILParser (Map String IExpr)
+parseTopLevel :: SILParser Bindings
 parseTopLevel = do
   many parseAssignment <* eof
   (ParserState _ bound) <- getState
@@ -182,15 +216,16 @@ debugIndent i = show $ runState i (initialPos "debug")
 
 parsePrelude = parseWithPrelude Map.empty
 
-parseWithPrelude :: Map String IExpr -> String -> Either ParseError (Map String IExpr)
+parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState [] prelude
                            in runIndent "indent" . runParserT parseTopLevel startState "topLevel"
 
-parseMain :: (Map String IExpr) -> String -> Either ParseError IExpr
+parseMain :: Bindings -> String -> Either ParseError IExpr
 parseMain prelude s = getMain <$> parseWithPrelude prelude s where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> error "no main method found"
-    Just main -> main
+    Just (Right main) -> main
+    _ -> error "main must be a typed binding"
 
 testLet = let startState = ParserState [] Map.empty
           in debugIndent . runParserT parseLet startState "let"

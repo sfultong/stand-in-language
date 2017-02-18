@@ -254,13 +254,13 @@ testExpr = concat
 
 three_plus_two_string = concat
   [ "main = let churchT = {{0,0},{0,0}}\n"
-  , "           plus = \\m n f x -> m f (n f x) : {churchT,{churchT,churchT}}\n"
+  , "           plus : {churchT,{churchT,churchT}} = \\m n f x -> m f (n f x)\n"
   , "       in plus $3 $2 (\\x -> {x,0}) 0"
   ]
 
 three_times_two_string = concat
   [ "main = let churchT = {{0,0},{0,0}}\n"
-  , "           times = \\m n f x -> m (n f) x : {churchT,{churchT,churchT}}\n"
+  , "           times : {churchT,{churchT,churchT}} = \\m n f x -> m (n f) x\n"
   , "       in times $3 $2 (\\x -> {x,0}) 0"
   ]
 
@@ -297,7 +297,7 @@ main = do
   print $ parseSIL "main = \\f g -> (g 0) (f 0) : {{0,0},{{0,{0,0}}, 0}}\n"
   print $ parseSIL testExpr
   -}
-  unitTest2 "main = ($5 : {{0,0},{0,0}}) (\\x -> {x,0}) 0" "5"
+  unitTest2 "main = let fiveApp : {{0,0},{0,0}} = $5 in fiveApp (\\x -> {x,0}) 0" "5"
   --print $ parseSIL just_plus
   unitTest2 three_plus_two_string "5"
   unitTest2 three_times_two_string "6"
