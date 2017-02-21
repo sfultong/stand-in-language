@@ -140,18 +140,18 @@ parseSingleExpr = Right <$> choice [ parseString
                              ]
 
 parseSingleIExpr :: SILParser IExpr
-parseSingleIExpr = promote <$> parseSingleExpr where
-  promote (Left _) = error "expecting typed expression"
-  promote (Right i) = i
+parseSingleIExpr = parseSingleExpr >>= promote where
+  promote (Left g) = fail $ "(single) expecting typed expression " ++ show g
+  promote (Right i) = pure i
 
 parseApplied :: SILParser IExpr
 parseApplied = let combine i (Right app) = combine i (Left $ CI app)
                    combine iexpr (Left cexpr) = App iexpr cexpr
                in withPos $ do
   exprs <- many1 (sameOrIndented *> parseSingleExpr)
-  let f = case head exprs of
-        (Left _) -> error "expecting typed expression"
-        (Right i) -> i
+  f <- case head exprs of
+        (Left g) -> fail $ "(applied) expecting typed expression " ++ show g
+        (Right i) -> pure i
   pure $ foldl combine f (tail exprs)
 
 parseLongExpr :: SILParser (Either CExpr IExpr)
@@ -161,9 +161,9 @@ parseLongExpr = Right <$> choice [ parseLet
                                  ] <|> (Left <$> parseLambda)
 
 parseLongIExpr :: SILParser IExpr
-parseLongIExpr = promote <$> parseLongExpr where
-  promote (Left _) = error "expecting typed expression"
-  promote (Right i) = i
+parseLongIExpr = parseLongExpr >>= promote where
+  promote (Left g) = fail $ "(long) expecting typed expression " ++ show g
+  promote (Right i) = pure i
 
 parseLambda :: SILParser CExpr
 parseLambda = do
@@ -187,7 +187,7 @@ parseAssignment = do
   var <- identifier
   annotation <- optionMaybe (reservedOp ":" *> parseLongIExpr)
   reservedOp "=" <?> "assignment ="
-  expr <- parseLongExpr
+  expr <- (Left <$> parseChurch) <|> parseLongExpr
   let annoExp = case (annotation, expr) of
         (Just a, Left cexpr) -> Right $ Anno cexpr a
         (Just a, Right iexpr) ->  Right $ Anno (CI iexpr) a
@@ -218,7 +218,7 @@ parsePrelude = parseWithPrelude Map.empty
 
 parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState [] prelude
-                           in runIndent "indent" . runParserT parseTopLevel startState "topLevel"
+                           in runIndentParser parseTopLevel startState "sil"
 
 parseMain :: Bindings -> String -> Either ParseError IExpr
 parseMain prelude s = getMain <$> parseWithPrelude prelude s where
@@ -226,6 +226,3 @@ parseMain prelude s = getMain <$> parseWithPrelude prelude s where
     Nothing -> error "no main method found"
     Just (Right main) -> main
     _ -> error "main must be a typed binding"
-
-testLet = let startState = ParserState [] Map.empty
-          in debugIndent . runParserT parseLet startState "let"

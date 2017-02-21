@@ -15,7 +15,7 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     SIL, SIL.Parser, SIL.Parser2
+  exposed-modules:     SIL, SIL.Parser
   build-depends:       base >= 4.7 && < 5
                      , parsec
                      , indents

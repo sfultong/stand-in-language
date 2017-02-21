@@ -3,7 +3,7 @@ module Main where
 import Data.Char
 import SIL
 import SIL.Parser
-import SIL.Parser2
+--import SIL.Parser2
 import qualified System.IO.Strict as Strict
 
 just_abort = Anno (Lam (CI Zero)) (Pair Zero Zero)
@@ -252,16 +252,9 @@ testExpr = concat
   , "       in {a,1}\n"
   ]
 
-three_plus_two_string = concat
-  [ "main = let churchT = {{0,0},{0,0}}\n"
-  , "           plus : {churchT,{churchT,churchT}} = \\m n f x -> m f (n f x)\n"
-  , "       in plus $3 $2 (\\x -> {x,0}) 0"
-  ]
-
-three_times_two_string = concat
-  [ "main = let churchT = {{0,0},{0,0}}\n"
-  , "           times : {churchT,{churchT,churchT}} = \\m n f x -> m (n f) x\n"
-  , "       in times $3 $2 (\\x -> {x,0}) 0"
+fiveApp = concat
+  [ "main = let fiveApp : {{0,0},{0,0}} = $5\n"
+  , "       in fiveApp (\\x -> {x,0}) 0"
   ]
 
 main = do
@@ -283,27 +276,28 @@ main = do
       Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
         then pure ()
         else putStrLn $ concat [s, " result ", r2]
+    parseSIL s = case parseMain prelude s of
+      Left e -> concat ["failed to parse ", s, " ", show e]
+      Right g -> show g
+
   {-
   print $ parseSIL "main = 0\n"
   print $ parseSIL "main = 1\n"
   print $ parseSIL "main = {0,0}\n"
   print $ parseSIL "main = \"HI\"\n"
-  print $ parseSIL "main = \\x -> {0,x}:{0,0}\n"
-  print $ parseSIL "main = \\x y-> {x,y}:{0,0}\n"
-  print $ parseSIL "main = (\\x -> {0,x}:{0,0}) 0\n"
-  print $ parseSIL "main = \\f -> f 0:{{0,0},0}\n"
-  print $ parseSIL "main = (\\f -> f 0:{{0,0},0}) (\\x -> x)\n"
-  print $ parseSIL "main = (\\f g x -> g (f x):{{0,0},{{0,0},{0,0}}}) (\\x->{x,0}) (\\x->{0,x}) 0\n"
-  print $ parseSIL "main = \\f g -> (g 0) (f 0) : {{0,0},{{0,{0,0}}, 0}}\n"
+  print $ parseSIL "main : {0,0} = \\x -> {0,x}\n"
+  print $ parseSIL "main : {0,0} = \\x y-> {x,y}\n"
+  print $ parseSIL "main : {{0,0},{{0,{0,0}}, 0}} = \\f g -> (g 0) (f 0)\n"
   print $ parseSIL testExpr
   -}
-  unitTest2 "main = let fiveApp : {{0,0},{0,0}} = $5 in fiveApp (\\x -> {x,0}) 0" "5"
-  --print $ parseSIL just_plus
-  unitTest2 three_plus_two_string "5"
-  unitTest2 three_times_two_string "6"
 
+  unitTest2 "main = 0" "Zero"
+  unitTest2 fiveApp "5"
+  unitTest2 "main = plus $3 $2 succ 0" "5"
+  unitTest2 "main = times $3 $2 succ 0" "6"
+  unitTest2 "main = pow $3 $2 succ 0" "8"
+  unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
 
-  --print test1
   --prettyEval $ App displayBoard (CI Zero)
   --evalLoop just_abort
   -- evalLoop message_then_abort
