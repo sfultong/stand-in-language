@@ -7,24 +7,8 @@ import qualified Data.Map as Map
 import SIL
 import Text.Parsec
 import Text.Parsec.Indent
-import Text.Parsec.Language
 import Text.Parsec.Pos
 import qualified Text.Parsec.Token as Token
-
-{-
-
-
-"
-[a-z]
-0
-{
-if
-left
-right
-trace
-let
-
--}
 
 type VarList = [String]
 type Bindings = Map String (Either CExpr IExpr)
@@ -74,6 +58,10 @@ identifier = Token.identifier lexer -- parses an identifier
 reserved   = Token.reserved   lexer -- parses a reserved name
 reservedOp = Token.reservedOp lexer -- parses an operator
 parens     = Token.parens     lexer -- parses surrounding parenthesis:
+brackets   = Token.brackets   lexer
+braces     = Token.braces     lexer
+commaSep   = Token.commaSep   lexer
+commaSep1  = Token.commaSep1  lexer
 integer    = Token.integer    lexer
 
 parseString :: SILParser IExpr
@@ -99,6 +87,11 @@ parsePair = withPos $ do
   sameOrIndented <* char '}' <* spaces <?> "pair: }"
   return $ Pair a b
 
+parseList :: SILParser IExpr
+parseList = do
+  exprs <- brackets (commaSep parseLongIExpr)
+  return $ foldr Pair Zero exprs
+
 parseITE :: SILParser IExpr
 parseITE = withPos $ do
   reserved "if"
@@ -108,15 +101,6 @@ parseITE = withPos $ do
   sameOrIndented <* reserved "else" <?> "ITE: else"
   elseExpr <- parseLongIExpr
   return $ ITE cond thenExpr elseExpr
-
-{-
-parseAnnotation :: SILParser IExpr
-parseAnnotation = withPos $ do
-  cexpr <- parseCExpr
-  sameOrIndented <* reservedOp ":" <?> "annotation :"
-  iexpr <- parseIExpr2
-  return $ Anno cexpr iexpr
--}
 
 parsePLeft :: SILParser IExpr
 parsePLeft = PLeft <$> (reserved "left" *> parseSingleIExpr)
@@ -131,6 +115,7 @@ parseSingleExpr :: SILParser (Either CExpr IExpr)
 parseSingleExpr = Right <$> choice [ parseString
                                    , parseNumber
                                    , parsePair
+                                   , parseList
                                    , parsePLeft
                                    , parsePRight
                                    , parseTrace

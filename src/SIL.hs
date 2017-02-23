@@ -175,15 +175,6 @@ debugEval iexpr = case inferType [] iexpr of
     putStrLn $ "Type is: " ++ show t
     tEval iexpr >>= (print . PrettyResult)
 
-unitTest :: String -> String -> IExpr -> IO ()
-unitTest name expected iexpr = case inferType [] iexpr of
-  Nothing -> putStrLn $ name ++ " failed typecheck"
-  Just _ -> do
-    result <- (show . PrettyResult) <$> simpleEval iexpr
-    if result == expected
-      then pure ()
-      else putStrLn $ concat [name, ": expected ", expected, " result ", result ]
-
 fullEval i = typedEval i print
 
 prettyEval i = typedEval i (print . PrettyResult)

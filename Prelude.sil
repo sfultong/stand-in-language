@@ -4,6 +4,8 @@ and : {0,{0,0}} = \a b -> if a then b else 0
 
 or : {0,{0,0}} = \a b -> if a then 1 else b
 
+not : {0,0} = \x -> if x then 0 else 1
+
 succ : {0,0} = \x -> {x,0}
 
 plus : {CT,{CT,CT}} = \m n f x -> m f (n f x)
@@ -42,3 +44,10 @@ d2c = let layer = \recur i f b -> if i
           fixer : {{{0,CT},{0,CT}},{{0,CT},{0,CT}}} = $1024
       in fixer layer (\i f b -> 0)
 
+c2d : {CT,0} = \c -> c succ 0
+
+dEqual : {0,{0,0}} = \a b -> let equalsOne : {0,0} = \x -> if x then (not (left x)) else 0
+                             in if a then equalsOne (d2c (left a) (\x -> left x) b)
+                                     else not b
+
+listLength = foldr (\a b -> succ b) 0
