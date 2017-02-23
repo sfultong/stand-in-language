@@ -51,3 +51,7 @@ dEqual : {0,{0,0}} = \a b -> let equalsOne : {0,0} = \x -> if x then (not (left 
                                      else not b
 
 listLength = foldr (\a b -> succ b) 0
+
+listEqual : {0,{0,0}} = \a b -> let pairsEqual = zipWith dEqual a b
+                                    lengthEqual = dEqual (listLength a) (listLength b)
+                                in foldr and 1 {lengthEqual,pairsEqual}

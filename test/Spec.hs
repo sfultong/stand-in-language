@@ -244,6 +244,9 @@ unitTests unitTest2 = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = dEqual 2 2" "1"
   , unitTest2 "main = listLength []" "Zero"
   , unitTest2 "main = listLength [1,2,3]" "3"
+  , unitTest2 "main = listEqual \"hey\" \"hey\"" "1"
+  , unitTest2 "main = listEqual \"hey\" \"he\"" "Zero"
+  , unitTest2 "main = listEqual \"hey\" \"hel\"" "Zero"
   ]
 
 testExpr = concat
