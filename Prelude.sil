@@ -23,11 +23,19 @@ map = mapG $255
 
 foldrT = makeGT {{0,{0,0}},{0,{0,0}}}
 foldrG : foldrT = \r f -> let layer = \recur accum l -> if l
-                                                          then recur (f (left l) accum) (right l)
+                                                          then f (left l) (recur accum (right l))
                                                           else accum
                               base = \accum l -> accum
                           in r layer base 
 foldr = foldrG $255
+
+foldlT = makeGT {{0,{0,0}},{0,{0,0}}}
+foldlG : foldlT = \r f -> let layer = \recur accum l -> if l
+                                                          then recur (f accum (left l)) (right l)
+                                                          else accum
+                              base = \accum l -> accum
+                          in r layer base 
+foldl = foldlG $255
 
 zipWithT = makeGT {{0,{0,0}},{0,{0,0}}}
 zipWithG : zipWithT = \r f -> let layer = \recur a b -> if (and a b)
@@ -55,3 +63,7 @@ listLength = foldr (\a b -> succ b) 0
 listEqual : {0,{0,0}} = \a b -> let pairsEqual = zipWith dEqual a b
                                     lengthEqual = dEqual (listLength a) (listLength b)
                                 in foldr and 1 {lengthEqual,pairsEqual}
+
+listPlus : {0,{0,0}} = \a b -> foldr (\x l -> {x,l}) b a
+
+concat : {0,0} = foldr listPlus 0

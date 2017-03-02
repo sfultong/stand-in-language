@@ -216,19 +216,19 @@ unitTests unitTest2 = foldl (liftA2 (&&)) (pure True)
   , unitTest "3^2" "9" three_pow_two
   , unitTest "data 3+5" "8" $ App (App d_plus (CI $ i2g 3)) (CI $ i2g 5)
   , unitTest "foldr" "13" $ App (App (App foldr_ (CI d_plus)) (CI $ i2g 1)) (CI $ ints2g [2,4,6])
-  , unitTest "listlength0" "Zero" $ App list_length (CI $ Zero)
+  , unitTest "listlength0" "0" $ App list_length (CI $ Zero)
   , unitTest "listlength3" "3" $ App list_length (CI $ ints2g [1,2,3])
-  , unitTest "zipwith" "((4, 1), ((5, 1), ((6, 2), Zero)))"
+  , unitTest "zipwith" "{{4,1},{{5,1},{{6,2},0}}}"
     $ App (App (App zipWith_ (Lam (Lam (CI (Pair (Var $ i2g 1) (Var $ i2g 0))))))
            (CI $ ints2g [4,5,6]))
     (CI $ ints2g [1,1,2,3])
   , unitTest "listequal1" "1" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hey")
-  , unitTest "listequal0" "Zero" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "he")
-  , unitTest "listequal00" "Zero" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hel")
+  , unitTest "listequal0" "0" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "he")
+  , unitTest "listequal00" "0" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hel")
   -- because of the way lists are represented, the last number will be prettyPrinted + 1
-  , unitTest "map" "(2, (3, 5))" $ App (App map_ (Lam (CI (Pair (Var Zero) Zero))))
+  , unitTest "map" "{2,{3,5}}" $ App (App map_ (Lam (CI (Pair (Var Zero) Zero))))
     (CI $ ints2g [1,2,3])
-  , unitTest2 "main = 0" "Zero"
+  , unitTest2 "main = 0" "0"
   , unitTest2 fiveApp "5"
   , unitTest2 "main = plus $3 $2 succ 0" "5"
   , unitTest2 "main = times $3 $2 succ 0" "6"
@@ -236,17 +236,19 @@ unitTests unitTest2 = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
   , unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
   , unitTest2 "main = dEqual 0 0" "1"
-  , unitTest2 "main = dEqual 1 0" "Zero"
-  , unitTest2 "main = dEqual 0 1" "Zero"
+  , unitTest2 "main = dEqual 1 0" "0"
+  , unitTest2 "main = dEqual 0 1" "0"
   , unitTest2 "main = dEqual 1 1" "1"
-  , unitTest2 "main = dEqual 2 1" "Zero"
-  , unitTest2 "main = dEqual 1 2" "Zero"
+  , unitTest2 "main = dEqual 2 1" "0"
+  , unitTest2 "main = dEqual 1 2" "0"
   , unitTest2 "main = dEqual 2 2" "1"
-  , unitTest2 "main = listLength []" "Zero"
+  , unitTest2 "main = listLength []" "0"
   , unitTest2 "main = listLength [1,2,3]" "3"
   , unitTest2 "main = listEqual \"hey\" \"hey\"" "1"
-  , unitTest2 "main = listEqual \"hey\" \"he\"" "Zero"
-  , unitTest2 "main = listEqual \"hey\" \"hel\"" "Zero"
+  , unitTest2 "main = listEqual \"hey\" \"he\"" "0"
+  , unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
+  , unitTest2 "main = listPlus [1,2] [3,4]" "{1,{2,{3,5}}}"
+  , unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "{97,{98,100}}"
   ]
 
 testExpr = concat

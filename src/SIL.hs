@@ -32,7 +32,8 @@ instance Show PrettyIExpr where
   show (PrettyIExpr iexpr) = case iexpr of
     p@(Pair a b) -> if isNum p
       then show $ g2i p
-      else concat ["(", show (PrettyIExpr a), ", ", show (PrettyIExpr b), ")"]
+      else concat ["{", show (PrettyIExpr a), ",", show (PrettyIExpr b), "}"]
+    Zero -> "0"
     x -> show x
 
 newtype PrettyResult = PrettyResult Result
