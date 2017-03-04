@@ -14,7 +14,7 @@ times : {CT,{CT,CT}} = \m n f -> m (n f)
 
 pow : {{CT,CT},{CT,CT}} = \m n -> m n
 
-makeGT : {0,0} = \FT -> {{{FT,FT},{FT,FT}}, {{FT,FT},{FT,FT}}}
+makeGT : {0,0} = \FT -> {{FT,FT},FT}
 
 mapG : makeGT {{0,0},{0,0}} = \r f -> let layer = \recur l -> {f (left l), recur (right l)}
                                           base = \l -> 0
@@ -66,4 +66,4 @@ listEqual : {0,{0,0}} = \a b -> let pairsEqual = zipWith dEqual a b
 
 listPlus : {0,{0,0}} = \a b -> foldr (\x l -> {x,l}) b a
 
-concat : {0,0} = foldr listPlus 0
+concat = foldr listPlus 0

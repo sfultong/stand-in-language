@@ -2,6 +2,7 @@ module SIL where
 
 import Control.Monad.Fix
 import Data.Char
+import Data.Functor.Identity
 import Debug.Trace
 
 data IExpr
@@ -88,7 +89,10 @@ inferType env (Var v) = lookupEnv env $ g2i v
 inferType env (App g i) = case inferType env g of
   Just (Pair l r) -> if checkType env i l then Just r else Nothing
   _ -> Nothing
-inferType env (Anno c t) = if checkType env c t then Just t else Nothing
+--inferType env (Anno c t) = if checkType env c t then Just t else Nothing
+inferType env (Anno c t) = case pureEval t of
+  (RData g) -> if checkType env c g then Just g else Nothing
+  _ -> Nothing
 inferType env (ITE i t e) =
   let tt = inferType env t in if tt == inferType env e then tt else Nothing
 inferType env (PLeft p) = inferType env p
@@ -130,9 +134,7 @@ iEval f env g = let f' = f env in case g of
   PRight g -> f' g >>= \g -> case g of
     (RData (Pair _ x)) -> pure $ RData x
     _ -> pure $ RData Zero
-  Trace g -> f' g >>= \g -> do
-    putStrLn $ "trace " ++ show g
-    pure g
+  Trace g -> f' g >>= \g -> pure $ trace (show g) g
 
 {-
 apply :: Monad m => ([Result] -> IExpr -> m Result) -> Result -> Result -> m Result
@@ -156,6 +158,9 @@ toChurch x =
 simpleEval :: IExpr -> IO Result
 simpleEval = fix iEval []
 
+pureEval :: IExpr -> Result
+pureEval g = runIdentity $ fix iEval [] g
+
 showPass :: Show a => IO a -> IO a
 showPass a = a >>= print >> a
 
@@ -175,6 +180,11 @@ debugEval iexpr = case inferType [] iexpr of
   Just t -> do
     putStrLn $ "Type is: " ++ show t
     tEval iexpr >>= (print . PrettyResult)
+
+printType :: IExpr -> IO ()
+printType iexpr = case inferType [] iexpr of
+  Nothing -> putStrLn "type failure"
+  Just t -> print t
 
 fullEval i = typedEval i print
 

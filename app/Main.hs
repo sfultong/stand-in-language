@@ -1,6 +1,7 @@
 module Main where
 
 import Data.Char
+import qualified Data.Map as Map
 import SIL
 import SIL.Parser
 import qualified System.IO.Strict as Strict
@@ -47,7 +48,6 @@ main = do
       Right pg -> if pg == g
         then pure ()
         else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
-
     unitTest2 s r = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
@@ -56,8 +56,21 @@ main = do
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
+    runMain s = case parseMain prelude s of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+      Right g -> evalLoop g
+    displayType s = case parseMain prelude s of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+      Right g -> printType g
+    showHeader (s, Left x) = concat [s, " untyped"]
+    showHeader (s, Right x) = concat [s, ": ", show $ inferType [] x]
+    showTypeError (s, Right g) = case inferType [] g of
+      Nothing -> putStrLn $ concat [s, " has bad type signature"]
+      _ -> pure ()
+    showTypeError _ = pure ()
 
-  prettyEval $ App displayBoard (CI Zero)
+  mapM_ showTypeError $ Map.toList prelude
+  Strict.readFile "tictactoe.sil" >>= runMain
   --evalLoop just_abort
   -- evalLoop message_then_abort
   --evalLoop quit_to_exit

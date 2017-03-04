@@ -129,21 +129,20 @@ parseSingleIExpr = parseSingleExpr >>= promote where
   promote (Left g) = fail $ "(single) expecting typed expression " ++ show g
   promote (Right i) = pure i
 
-parseApplied :: SILParser IExpr
+parseApplied :: SILParser (Either CExpr IExpr)
 parseApplied = let combine i (Right app) = combine i (Left $ CI app)
                    combine iexpr (Left cexpr) = App iexpr cexpr
                in withPos $ do
-  exprs <- many1 (sameOrIndented *> parseSingleExpr)
-  f <- case head exprs of
-        (Left g) -> fail $ "(applied) expecting typed expression " ++ show g
-        (Right i) -> pure i
-  pure $ foldl combine f (tail exprs)
+  (f:args) <- many1 (sameOrIndented *> parseSingleExpr)
+  case (f,args) of
+    (Left g, []) -> pure $ Left g
+    (Left g, _) -> fail $ "(applied) expecting typed expression " ++ show g
+    (Right g, _) -> pure . Right $ foldl combine g args
 
 parseLongExpr :: SILParser (Either CExpr IExpr)
 parseLongExpr = Right <$> choice [ parseLet
                                  , parseITE
-                                 , parseApplied
-                                 ] <|> (Left <$> parseLambda)
+                                 ] <|> (Left <$> parseLambda) <|> parseApplied
 
 parseLongIExpr :: SILParser IExpr
 parseLongIExpr = parseLongExpr >>= promote where
@@ -172,7 +171,7 @@ parseAssignment = do
   var <- identifier
   annotation <- optionMaybe (reservedOp ":" *> parseLongIExpr)
   reservedOp "=" <?> "assignment ="
-  expr <- (Left <$> parseChurch) <|> parseLongExpr
+  expr <- parseLongExpr
   let annoExp = case (annotation, expr) of
         (Just a, Left cexpr) -> Right $ Anno cexpr a
         (Just a, Right iexpr) ->  Right $ Anno (CI iexpr) a
