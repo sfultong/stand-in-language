@@ -249,6 +249,7 @@ unitTests unitTest2 = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
   , unitTest2 "main = listPlus [1,2] [3,4]" "{1,{2,{3,5}}}"
   , unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "{97,{98,100}}"
+  , unitTest2 nestedNamedFunctionsIssue "2"
   ]
 
 testExpr = concat
@@ -260,6 +261,13 @@ testExpr = concat
 fiveApp = concat
   [ "main = let fiveApp : {{0,0},{0,0}} = $5\n"
   , "       in fiveApp (\\x -> {x,0}) 0"
+  ]
+
+nestedNamedFunctionsIssue = concat
+  [ "main = let bindTest : {0,0} = \\tlb -> let f1 : {{0,0},0} = \\f -> f tlb\n"
+  , "                                           f2 : {{0,0},0} = \\f -> succ (f1 f)\n"
+  , "                                       in f2 succ\n"
+  , "       in bindTest 0"
   ]
 
 main = do
