@@ -1,6 +1,7 @@
 module Main where
 
 import Control.Applicative (liftA2)
+import Debug.Trace
 import Data.Char
 import SIL
 import SIL.Parser
@@ -282,7 +283,6 @@ main = do
       Right pg -> if pg == g
         then pure ()
         else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
-
     unitTest2 s r = case parseMain prelude s of
       Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
       Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r

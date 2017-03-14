@@ -1,9 +1,35 @@
+{-# LANGUAGE DeriveFunctor #-}
 module SIL where
 
 import Control.Monad.Fix
 import Data.Char
 import Data.Functor.Identity
 import Debug.Trace
+
+data IExprF c i
+  = FZero
+  | FPair i i
+  | FVar i
+  | FApp i c
+  | FAnno c i
+  | FITE i i i
+  | FLeft i
+  | FRight i
+  | FTrace i
+  deriving (Eq, Show, Ord, Functor)
+
+data CExprF i c
+  = FLam c
+  | FCI i
+  deriving (Eq, Show, Ord, Functor)
+
+newtype IExpr' = IExpr' (IExprF CExpr' IExpr')
+newtype CExpr' = CExpr' (CExprF IExpr' CExpr')
+
+{-
+foldI :: (IExpr' -> a -> a) -> (CExpr' -> a -> a) -> a -> IExpr' -> a
+foldI 
+-}
 
 data IExpr
   = Zero                     -- no special syntax necessary

@@ -17,6 +17,7 @@ library
   hs-source-dirs:      src
   exposed-modules:     SIL, SIL.Parser
   build-depends:       base >= 4.7 && < 5
+                     , recursion-schemes
                      , parsec
                      , indents
                      , containers

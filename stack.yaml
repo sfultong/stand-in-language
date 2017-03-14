@@ -4,3 +4,5 @@ packages:
 
 nix:
   enable: true
+
+extra-deps:

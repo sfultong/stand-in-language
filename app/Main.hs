@@ -69,7 +69,7 @@ main = do
       _ -> pure ()
     showTypeError _ = pure ()
 
-  mapM_ showTypeError $ Map.toList prelude
+  printTypeErrors prelude
   Strict.readFile "tictactoe.sil" >>= runMain
   --evalLoop just_abort
   -- evalLoop message_then_abort
