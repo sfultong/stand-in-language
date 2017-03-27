@@ -251,6 +251,13 @@ unitTests unitTest2 = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = listPlus [1,2] [3,4]" "{1,{2,{3,5}}}"
   , unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "{97,{98,100}}"
   , unitTest2 nestedNamedFunctionsIssue "2"
+  , unitTest2 "main = take $0 [1,2,3]" "0"
+  , unitTest2 "main = take $1 [1,2,3]" "2"
+  , unitTest2 "main = take $5 [1,2,3]" "{1,{2,4}}"
+  , unitTest2 "main = c2d (minus $4 $3)" "1"
+  , unitTest2 "main = c2d (minus $4 $4)" "0"
+  , unitTest2 "main = dMinus 4 3" "1"
+  , unitTest2 "main = dMinus 4 4" "0"
   ]
 
 testExpr = concat

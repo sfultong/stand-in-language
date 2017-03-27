@@ -53,6 +53,9 @@ main = do
       Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
         then pure ()
         else putStrLn $ concat [s, " result ", r2]
+    testMethod n s = case resolveBinding n <$> parseWithPrelude prelude s of
+      Right (Just iexpr) -> simpleEval iexpr >>= \r -> print (PrettyResult r)
+      x -> print x
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
@@ -71,6 +74,9 @@ main = do
 
   printTypeErrors prelude
   Strict.readFile "tictactoe.sil" >>= runMain
+  --Strict.readFile "tictactoe.sil" >>= testMethod "test"
+  --Strict.readFile "tictactoe.sil" >>= testMethod "test2"
+  --Strict.readFile "tictactoe.sil" >>= testMethod "test3"
   --evalLoop just_abort
   -- evalLoop message_then_abort
   --evalLoop quit_to_exit

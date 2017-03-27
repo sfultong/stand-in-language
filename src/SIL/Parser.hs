@@ -242,6 +242,10 @@ parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState prelude
                            in runIndentParser parseTopLevel startState "sil"
 
+resolveBinding :: String -> Bindings -> Maybe IExpr
+resolveBinding name bindings = Map.lookup name bindings >>=
+  \b -> (unCI . convertPT) <$> debruijinize [] b
+
 printTypeErrors :: Bindings -> IO ()
 printTypeErrors bindings =
   let showTypeError (s, CI g) = case inferType [] g of

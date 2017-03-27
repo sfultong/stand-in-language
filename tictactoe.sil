@@ -1,0 +1,108 @@
+drawPiece : {0,{0,0}}
+ = \piece alt -> if piece
+                    then if left piece
+                             then "O"
+                             else "X"
+                    else alt
+
+drawBoard : {0,0}
+ = \pieces -> let getPiece : {CT,0} = \n -> left (n (\x -> right x) pieces)
+                  alt = {n succ (left "1"), 0}
+                  dp : {CT,0} = \n -> drawPiece (getPiece n) alt
+                  blankRow = "-+-+-\n"
+                  row5 = concat [dp $6, "|", dp $7, "|", dp $8, "\n"]
+                  row4 = concat [blankRow, row5]
+                  row3 = concat [dp $3, "|", dp $4, "|", dp $5, "\n", row4]
+                  row2 = concat [blankRow, row3]
+                  row1 = concat [dp $0, "|", dp $1, "|", dp $2, "\n", row2]
+              in row1                                  
+
+setPiece : {0,{CT,{0,0}}}
+ = \player pos board -> let before = take pos board
+                            after = right (drop pos board)
+                        in concat [before, {player,0}, after]
+
+getSquare : {CT,{0,0}}
+ = \pos board -> left (drop pos board)
+
+fullBoard : {0,0}
+ = \board -> let squares = map (\x -> getSquare (d2c x) board) [0,1,2,3,4,5,6,7,8]
+             in foldr and 1 squares
+
+emptyBoard = [0,0,0,0,0,0,0,0,0]
+
+processInput : {0,0}
+ = \string -> if dEqual (listLength string) 1
+                 then let num = dMinus (left string) (left "0")
+                      in if and num (dMinus 10 num)
+                            then num
+                            else 0
+                 else 0
+
+whoWon : {0,0}
+ = \board -> let rows = [[0,1,2]
+                        ,[3,4,5]
+                        ,[6,7,8]
+                        ,[0,3,6]
+                        ,[1,4,7]
+                        ,[2,5,8]
+                        ,[0,4,8]
+                        ,[2,4,6]
+                        ]
+                 doRow : {0,0}
+                   = \row -> let pieces = map (\x -> getSquare (d2c x) board) row
+                                 oneWins = foldr and 1 (map (dEqual 1) pieces)
+                                 twoWins = foldr and 1 (map (dEqual 2) pieces)
+                             in if oneWins then 1 else if twoWins then 2 else 0
+                 combineRow : {0,{0,0}}
+                   = \row winAcc -> if winAcc then winAcc else doRow row
+             in foldr combineRow 0 rows
+
+main : {0,0}
+ = \input -> let placeString = left input
+                 boardIn = right (right input)
+                 playerIn = left (right input)
+                 oldBoard = if boardIn then boardIn else emptyBoard
+                 place = processInput placeString
+                 placeOccupied = getSquare (d2c (left place)) oldBoard
+                 validPlace = and place (not placeOccupied)
+                 newBoard = if validPlace
+                               then setPiece (succ playerIn) (d2c (left place)) oldBoard
+                               else oldBoard
+                 winner = whoWon newBoard
+                 filledBoard = fullBoard newBoard
+                 showBoard = or (and validPlace
+                                     (and (not winner)
+                                          (not filledBoard)
+                                     )
+                                )
+                                (not boardIn)
+                 doEnd = if winner then concat [ "Player "
+                                               , {d2c winner succ (left "0"), 0}
+                                               , " wins!"
+                                               ]
+                                   else "the game is a tie"
+                 nextPlayer = if showBoard then not playerIn else playerIn
+                 output = if showBoard
+                             then concat [ (drawBoard newBoard)
+                                         , "Player "
+                                         , {d2c nextPlayer succ (left "1"), 0}
+                                         , "'s turn\n"
+                                         , "please input number of square: "
+                                         ]
+                             else if dEqual placeString "q"
+                                     then 0
+                                     else if not place
+                                             then "please enter a number 1-9"
+                                             else if not validPlace
+                                                     then "please choose unoccupied space"
+                                                     else doEnd
+                 nextState = if and output
+                                    (and (not filledBoard)
+                                         (not winner)
+                                    )
+                                then {nextPlayer,newBoard}
+                                else 0
+             in {output, nextState}
+
+
