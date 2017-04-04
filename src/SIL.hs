@@ -46,12 +46,15 @@ data IExpr
 data CExpr
   = Lam !CExpr
   | CI !IExpr
+  | Closure !CExpr !CExpr
   deriving (Eq, Show, Ord)
 
+{-
 data Result
   = RData !IExpr
   | Closure ![Result] !CExpr
   deriving (Eq, Show, Ord)
+-}
 
 newtype PrettyIExpr = PrettyIExpr IExpr
 
@@ -63,12 +66,12 @@ instance Show PrettyIExpr where
     Zero -> "0"
     x -> show x
 
-newtype PrettyResult = PrettyResult Result
+newtype PrettyResult = PrettyResult CExpr
 
 instance Show PrettyResult where
   show (PrettyResult r) = case r of
-    RData iexpr -> show $ PrettyIExpr iexpr
-    (Closure env cexpr) -> concat [show (map PrettyResult env), " expression ", show cexpr]
+    CI iexpr -> show $ PrettyIExpr iexpr
+    x -> show x
 
 g2i :: IExpr -> Int
 g2i Zero = 0
@@ -99,8 +102,8 @@ isNum Zero = True
 isNum (Pair n Zero) = isNum n
 isNum _ = False
 
-lookupEnv :: [a] -> Int -> Maybe a
-lookupEnv env ind = if ind < length env then Just (env !! ind) else Nothing
+lookupTypeEnv :: [a] -> Int -> Maybe a
+lookupTypeEnv env ind = if ind < length env then Just (env !! ind) else Nothing
 
 -- types are give by IExpr. Zero represents Data and Pair represents Arrow
 inferType :: [IExpr] -> IExpr -> Maybe IExpr
@@ -111,13 +114,13 @@ inferType env (Pair a b) = do
   if ta == Zero && tb == Zero
     then pure Zero
     else Nothing -- can't have functions in pairs
-inferType env (Var v) = lookupEnv env $ g2i v
+inferType env (Var v) = lookupTypeEnv env $ g2i v
 inferType env (App g i) = case inferType env g of
   Just (Pair l r) -> if checkType env i l then Just r else Nothing
   _ -> Nothing
 --inferType env (Anno c t) = if checkType env c t then Just t else Nothing
 inferType env (Anno c t) = case pureEval t of
-  (RData g) -> if checkType env c g then Just g else Nothing
+  (CI g) -> if checkType env c g then Just g else Nothing
   _ -> Nothing
 inferType env (ITE i t e) =
   let tt = inferType env t in if tt == inferType env e then tt else Nothing
@@ -132,16 +135,21 @@ checkType env (CI e) t =
   Just t == inferType env e
 checkType _ _ _ = False
 
+lookupEnv :: CExpr -> Int -> Maybe CExpr
+lookupEnv (Closure i _) 0 = Just i
+lookupEnv (Closure _ c) n = lookupEnv c (n - 1)
+lookupEnv _ _ = Nothing
+
 {-
 iEval :: Monad m => ([Result] -> IExpr -> m Result)
   -> [Result] -> IExpr -> m Result
 -}
 iEval f env g = let f' = f env in case g of
-  Zero -> pure $ RData Zero
+  Zero -> pure $ CI Zero
   Pair a b -> do
-    (RData na) <- f' a
-    (RData nb) <- f' b
-    pure . RData $ Pair na nb
+    (CI na) <- f' a
+    (CI nb) <- f' b
+    pure . CI $ Pair na nb
   Var v -> case lookupEnv env $ g2i v of
     Nothing -> error $ "variable not found " ++ show v
     Just var -> pure var
@@ -151,28 +159,28 @@ iEval f env g = let f' = f env in case g of
     i <- cEval f env cexp
     apply f ng i
   ITE c t e -> f' c >>= \g -> case g of
-    (RData Zero) -> f' e
+    (CI Zero) -> f' e
     _ -> f' t
   PLeft g -> f' g >>= \g -> case g of
-    (RData (Pair a _)) -> pure $ RData a
+    (CI (Pair a _)) -> pure $ CI a
     --x -> error $ "left on " ++ show x
-    _ -> pure $ RData Zero
+    _ -> pure $ CI Zero
   PRight g -> f' g >>= \g -> case g of
-    (RData (Pair _ x)) -> pure $ RData x
-    _ -> pure $ RData Zero
+    (CI (Pair _ x)) -> pure $ CI x
+    _ -> pure $ CI Zero
   Trace g -> f' g >>= \g -> pure $ trace (show g) g
 
 {-
 apply :: Monad m => ([Result] -> IExpr -> m Result) -> Result -> Result -> m Result
 -}
-apply f (Closure env (CI g)) v = f (v : env) g
-apply _ (Closure env (Lam c)) v = pure $ Closure (v:env) c
+apply f (Closure env (CI g)) v = f (Closure v env) g
+apply _ (Closure env (Lam c)) v = pure $ Closure (Closure v env) c
 apply _ g _ = error $ "not a closure " ++ show g
 
 {-
 cEval :: Monad m => ([Result] -> IExpr -> m Result) -> [Result] -> CExpr -> m Result
 -}
-cEval f env (Lam c) = pure $ Closure env c
+cEval _ env (Lam c) = pure $ Closure env c
 cEval f env (CI g) = f env g
 
 toChurch :: Int -> CExpr
@@ -181,19 +189,19 @@ toChurch x =
       inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
   in Lam (Lam (CI $ inner x))
 
-simpleEval :: IExpr -> IO Result
-simpleEval = fix iEval []
+simpleEval :: IExpr -> IO CExpr
+simpleEval = fix iEval (CI Zero)
 
-pureEval :: IExpr -> Result
-pureEval g = runIdentity $ fix iEval [] g
+pureEval :: IExpr -> CExpr
+pureEval g = runIdentity $ fix iEval (CI Zero) g
 
 showPass :: Show a => IO a -> IO a
 showPass a = a >>= print >> a
 
-tEval :: IExpr -> IO Result
-tEval = fix (\f e g -> showPass $ iEval f e g) []
+tEval :: IExpr -> IO CExpr
+tEval = fix (\f e g -> showPass $ iEval f e g) (CI Zero)
 
-typedEval :: IExpr -> (Result -> IO ()) -> IO ()
+typedEval :: IExpr -> (CExpr -> IO ()) -> IO ()
 typedEval iexpr prettyPrint = case inferType [] iexpr of
   Nothing -> putStrLn "Failed typecheck"
   Just t -> do
@@ -223,8 +231,8 @@ evalLoop iexpr = case inferType [] iexpr of
     let mainLoop s = do
           result <- simpleEval $ App iexpr s
           case result of
-            RData Zero -> putStrLn "aborted"
-            RData (Pair disp newState) -> do
+            CI Zero -> putStrLn "aborted"
+            CI (Pair disp newState) -> do
               putStrLn . g2s $ disp
               case newState of
                 Zero -> putStrLn "done"
