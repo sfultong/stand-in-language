@@ -55,10 +55,6 @@ i2c x =
       inner x = TApp (TVar $ Left 1) (inner $ x - 1)
   in TLam (TLam (inner x))
 
-unCI :: CExpr -> IExpr
-unCI (CI x) = x
-unCI _ = error "unexpected lambda"
-
 debruijinize :: Monad m => VarList -> Term1 -> m (ParserTerm Int)
 debruijinize _ TZero = pure TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
@@ -76,16 +72,16 @@ debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
 debruijinize vl (TLam x) = TLam <$> debruijinize ("-- dummy" : vl) x
 debruijinize vl (TNamedLam n l) = TLam <$> debruijinize (n : vl) l
 
-convertPT :: ParserTerm Int -> CExpr
-convertPT TZero = CI Zero
-convertPT (TPair a b) = CI $ Pair (unCI $ convertPT a) (unCI $ convertPT b)
-convertPT (TVar n) = CI . Var $ i2g n
-convertPT (TApp i c) = CI $ App (unCI $ convertPT i) (convertPT c)
-convertPT (TAnno c i) = CI $ Anno (convertPT c) (unCI $ convertPT i)
-convertPT (TITE i t e) = CI $ ITE (unCI $ convertPT i) (unCI $ convertPT t) (unCI $ convertPT e)
-convertPT (TLeft i) = CI $ PLeft (unCI $ convertPT i)
-convertPT (TRight i) = CI $ PRight (unCI $ convertPT i)
-convertPT (TTrace i) = CI $ Trace (unCI $ convertPT i)
+convertPT :: ParserTerm Int -> IExpr
+convertPT TZero = Zero
+convertPT (TPair a b) = Pair (convertPT a) (convertPT b)
+convertPT (TVar n) = Var $ i2g n
+convertPT (TApp i c) = App (convertPT i) (convertPT c)
+convertPT (TAnno c i) = Anno (convertPT c) (convertPT i)
+convertPT (TITE i t e) = ITE (convertPT i) (convertPT t) (convertPT e)
+convertPT (TLeft i) = PLeft (convertPT i)
+convertPT (TRight i) = PRight (convertPT i)
+convertPT (TTrace i) = Trace (convertPT i)
 convertPT (TLam c) = Lam (convertPT c)
 convertPT (TNamedLam n l) = error $ "should be no named lambdas at this stage, name " ++ n
 
@@ -244,11 +240,11 @@ parseWithPrelude prelude = let startState = ParserState prelude
 
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
-  \b -> (unCI . convertPT) <$> debruijinize [] b
+  \b -> convertPT <$> debruijinize [] b
 
 printTypeErrors :: Bindings -> IO ()
 printTypeErrors bindings =
-  let showTypeError (s, CI g) = case inferType [] g of
+  let showTypeError (s, g) = case inferType [] g of
         Nothing -> putStrLn $ concat [s, " has bad type signature"]
         _ -> pure ()
       resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
@@ -259,4 +255,4 @@ parseMain :: Bindings -> String -> Either ParseError IExpr
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"
-    Just main -> (unCI . convertPT) <$> debruijinize [] main
+    Just main -> convertPT <$> debruijinize [] main
