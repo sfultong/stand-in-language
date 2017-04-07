@@ -6,9 +6,9 @@ import SIL
 import SIL.Parser
 import qualified System.IO.Strict as Strict
 
-just_abort = Anno (Lam (CI Zero)) (Pair Zero Zero)
+just_abort = Anno (Lam Zero) (Pair Zero Zero)
 
-message_then_abort = Anno (Lam (CI (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero)))) (Pair Zero Zero)
+message_then_abort = Anno (Lam (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
 
 {- TODO implement listEquality in Prelude
 quit_to_exit =
@@ -28,12 +28,12 @@ displayBoard =
       row3 = Pair (Var $ i2g 5) (ch (Pair (Var $ i2g 4) (ch (Pair (Var $ i2g 3) row4))))
       row2 = ch . ch . ch . ch . ch $ cn row3
       row1 = Pair (Var $ i2g 8) (ch (Pair (Var $ i2g 7) (ch (Pair (Var $ i2g 6) row2))))
-      rows = Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (CI row1)))))))))
+      rows = Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam row1))))))))
       rowsType = Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero Zero))))))))
       repRight x = foldr (.) id $ replicate x PRight
-      appl 0 = App (Anno rows rowsType) (CI . PLeft $ Var Zero)
-      appl x = App (appl (x - 1)) (CI . PLeft . repRight x $ Var Zero)
-  in Anno (Lam . CI $ appl 8) (Pair Zero Zero)
+      appl 0 = App (Anno rows rowsType) (PLeft $ Var Zero)
+      appl x = App (appl (x - 1)) (PLeft . repRight x $ Var Zero)
+  in Anno (Lam $ appl 8) (Pair Zero Zero)
 
 main = do
   --unitTests
@@ -50,11 +50,11 @@ main = do
         else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
     unitTest2 s r = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
+      Right g -> fmap (show . PrettyIExpr) (simpleEval g) >>= \r2 -> if r2 == r
         then pure ()
         else putStrLn $ concat [s, " result ", r2]
     testMethod n s = case resolveBinding n <$> parseWithPrelude prelude s of
-      Right (Just iexpr) -> simpleEval iexpr >>= \r -> print (PrettyResult r)
+      Right (Just iexpr) -> simpleEval iexpr >>= \r -> print (PrettyIExpr r)
       x -> print x
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
