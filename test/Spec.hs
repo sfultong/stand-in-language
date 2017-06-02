@@ -12,6 +12,14 @@ three_succ = App (App (Anno (toChurch 3) (Pair (Pair Zero Zero) (Pair Zero Zero)
                   (Lam (Pair (Var Zero) Zero)))
              Zero
 
+one_succ = App (App (Anno (toChurch 1) (Pair (Pair Zero Zero) (Pair Zero Zero)))
+                  (Lam (Pair (Var Zero) Zero)))
+             Zero
+
+two_succ = App (App (Anno (toChurch 2) (Pair (Pair Zero Zero) (Pair Zero Zero)))
+                  (Lam (Pair (Var Zero) Zero)))
+             Zero
+
 church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
 
 c2d = Anno (Lam (App (App (Var Zero) (Lam (Pair (Var Zero) Zero))) Zero))
@@ -169,6 +177,14 @@ test_plus256 = App c2d (plus_
                          (toChurch 3)
                          (App (d2c Zero) (i2g 256)))
 
+one_plus_one =
+  let succ = Lam (Pair (Var Zero) Zero)
+      plus_app = App (App (Var $ i2g 3) (Var $ i2g 1)) (App (App (Var $ i2g 2) (Var $ i2g 1)) (Var $ Zero))
+      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
+      plus_type = Pair church_type (Pair church_type church_type)
+      plus = Lam (Lam (Lam (Lam plus_app)))
+  in App c2d (App (App (Anno plus plus_type) (toChurch 1)) (toChurch 1))
+
 -- m f (n f x)
 -- App (App m f) (App (App n f) x)
 -- App (App (Var $ i2g 3) (Var $ i2g 1)) (App (App (Var $ i2g 2) (Var $ i2g 1)) (Var Zero))
@@ -201,25 +217,38 @@ three_pow_two =
   in App (App (App (App (Anno pow pow_type) (toChurch 2)) (toChurch 3)) succ) Zero
 
 unitTest :: String -> String -> IExpr -> IO Bool
-unitTest name expected iexpr = case inferType [] iexpr of
-  Nothing -> (putStrLn $ name ++ " failed typecheck") >> pure False
-  Just _ -> do
+unitTest name expected iexpr = if fullCheck iexpr ZeroType
+  then do
     result <- (show . PrettyIExpr) <$> simpleEval iexpr
     if result == expected
       then pure True
       else (putStrLn $ concat [name, ": expected ", expected, " result ", result]) >>
            pure False
+  else putStrLn ( concat [name, " failed typecheck"]) >> pure False
+
+churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
+
+unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
+  [ unitTestType "main = $1"
+    (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType)) True
+  --, unitTestType "main : {0,0} = \\x -> {x,0}" ZeroType False
+  , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) True
+  --, unitTest "church 1+1" "2" one_plus_one
+  ]
 
 unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
-  [ unitTestType "main : {0,0} = \\x -> {x,0}" (Just (Pair Zero Zero))
-  , unitTestType "main = succ 0" (Just Zero)
-  , unitTestType "main = or 0" (Just (Pair Zero Zero))
-  , unitTestType "main = or succ" Nothing
-  , unitTestType "main = 0 succ" Nothing
-  , unitTestType "main = 0 0" Nothing
-  , unitTestType "main : {{0,0},0} = \\f -> (\\x -> f (x x)) (\\x -> f (x x))" Nothing
-  -- someday, we'll make this work
-  -- , unitTestType "main : 0 = (\\f -> f 0) (\\g -> {g,0})" (Just Zero)
+  [ unitTestType "main : {0,0} = \\x -> {x,0}" (ArrType ZeroType ZeroType) True
+  , unitTestType "main : {0,0} = \\x -> {x,0}" ZeroType False
+  , unitTestType "main = succ 0" ZeroType True
+  , unitTestType "main = succ 0" (ArrType ZeroType ZeroType) False
+  , unitTestType "main = or 0" (ArrType ZeroType ZeroType) True
+  , unitTestType "main = or 0" ZeroType False
+  , unitTestType "main = or succ" (ArrType ZeroType ZeroType) False
+  , unitTestType "main = 0 succ" ZeroType False
+  , unitTestType "main = 0 0" ZeroType False
+  , unitTestType "main : {{0,0},0} = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
+    (ArrType (ArrType ZeroType ZeroType) ZeroType) False
+  , unitTestType "main : 0 = (\\f -> f 0) (\\g -> {g,0})" ZeroType True
   , unitTest "three" "3" three_succ
   , unitTest "church 3+2" "5" three_plus_two
   , unitTest "3*2" "6" three_times_two
@@ -304,11 +333,11 @@ main = do
       Right g -> fmap (show . PrettyIExpr) (simpleEval g) >>= \r2 -> if r2 == r
         then pure True
         else (putStrLn $ concat [s, " result ", r2]) >> pure False
-    unitTestType s t = case parseMain prelude s of
+    unitTestType s t b = case parseMain prelude s of
       Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
-      Right g -> if inferType [] g == t
+      Right g -> if fullCheck g t == b
         then pure True
-        else (putStrLn $ concat [s, " type resolved to ", show (inferType [] g)])
+        else (putStrLn $ concat [s, " failed typecheck"])
              >> pure False
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]

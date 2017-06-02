@@ -62,6 +62,7 @@ main = do
     runMain s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> evalLoop g
+  {-
     displayType s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> printType g
@@ -71,6 +72,7 @@ main = do
       Nothing -> putStrLn $ concat [s, " has bad type signature"]
       _ -> pure ()
     showTypeError _ = pure ()
+  -}
 
   printTypeErrors prelude
   Strict.readFile "tictactoe.sil" >>= runMain

@@ -244,9 +244,10 @@ resolveBinding name bindings = Map.lookup name bindings >>=
 
 printTypeErrors :: Bindings -> IO ()
 printTypeErrors bindings =
-  let showTypeError (s, g) = case inferType [] g of
-        Nothing -> putStrLn $ concat [s, " has bad type signature"]
-        _ -> pure ()
+  let showTypeError (s, (Anno g t)) = if evalTypeCheck g t
+        then pure ()
+        else putStrLn $ concat [s, " has bad type signature"]
+      showTypeError _ = pure ()
       resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showTypeError
