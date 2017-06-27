@@ -56,7 +56,7 @@ foldr_h =
 map_ =
   -- layer recurf f l = Pair (f (PLeft l)) (recurf f (PRight l))
   let layer = lam (lam (lam
-                            (ITE (Var Zero)
+                            (ite (Var Zero)
                             (Pair
                              (App (Var $ i2g 1) (PLeft $ Var Zero))
                              (App (App (Var $ i2g 2) (Var $ i2g 1))
@@ -70,7 +70,7 @@ map_ =
 
 foldr_ =
   let layer = lam (lam (lam (lam
-                                 (ITE (Var $ i2g 0)
+                                 (ite (Var $ i2g 0)
                                  (App (App (App (Var $ i2g 3) (Var $ i2g 2))
 
                                        (App (App (Var $ i2g 2) (PLeft . Var $ i2g 0))
@@ -86,8 +86,8 @@ foldr_ =
 
 zipWith_ =
   let layer = lam (lam (lam (lam
-                                  (ITE (Var $ i2g 1)
-                                   (ITE (Var $ i2g 0)
+                                  (ite (Var $ i2g 1)
+                                   (ite (Var $ i2g 0)
                                     (Pair
                                      (App (App (Var $ i2g 2) (PLeft . Var $ i2g 1))
                                       (PLeft . Var $ i2g 0))
@@ -108,7 +108,7 @@ zipWith_ =
 --           -> baseType
 -- converts plain data type number (0-255) to church numeral
 d2c baseType =
-  let layer = lam (lam (lam (lam (ITE
+  let layer = lam (lam (lam (lam (ite
                              (Var $ i2g 2)
                              (App (Var $ i2g 1)
                               (App (App (App (Var $ i2g 3)
@@ -129,18 +129,18 @@ d2c baseType =
 --                         )
 --
 
-d_equals_one = Anno (lam (ITE (Var Zero) (ITE (PLeft (Var Zero)) Zero (i2g 1)) Zero)) (Pair Zero Zero)
+d_equals_one = Anno (lam (ite (Var Zero) (ite (PLeft (Var Zero)) Zero (i2g 1)) Zero)) (Pair Zero Zero)
 
-d_to_equality = Anno (lam (lam (ITE (Var $ i2g 1)
+d_to_equality = Anno (lam (lam (ite (Var $ i2g 1)
                                           (App d_equals_one (App (App (App (d2c Zero) (PLeft . Var $ i2g 1)) (lam . PLeft $ Var Zero)) (Var Zero)))
-                                          (ITE (Var Zero) Zero (i2g 1))
+                                          (ite (Var Zero) Zero (i2g 1))
                                          ))) (Pair Zero (Pair Zero Zero))
 
 list_equality =
   let pairs_equal = App (App (App zipWith_ d_to_equality) (Var Zero)) (Var $ i2g 1)
       length_equal = App (App d_to_equality (App list_length (Var $ i2g 1)))
                      (App list_length (Var Zero))
-      and_ = lam (lam (ITE (Var $ i2g 1) (Var Zero) Zero))
+      and_ = lam (lam (ite (Var $ i2g 1) (Var Zero) Zero))
       folded = App (App (App foldr_ and_) (i2g 1)) (Pair length_equal pairs_equal)
   in Anno (lam (lam folded)) (Pair Zero (Pair Zero Zero))
 

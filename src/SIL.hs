@@ -17,7 +17,7 @@ data IExpr
   | Var !IExpr               -- identifier
   | App !IExpr !IExpr        --
   | Anno !IExpr !IExpr       -- :
-  | ITE !IExpr !IExpr !IExpr -- if a then b else c
+  | Gate !IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace !IExpr             -- trace
@@ -30,7 +30,7 @@ data IExprA a
   | VarA (IExprA a) a
   | AppA (IExprA a) (IExprA a) a
   | AnnoA (IExprA a) IExpr
-  | ITEA (IExprA a) (IExprA a) (IExprA a)
+  | GateA (IExprA a)
   | PLeftA (IExprA a)
   | PRightA (IExprA a)
   | TraceA (IExprA a)
@@ -41,6 +41,9 @@ data IExprA a
 lam :: IExpr -> IExpr
 lam x = Closure x Zero
 
+ite :: IExpr -> IExpr -> IExpr -> IExpr
+ite i t e = App (Gate i) (Pair e t)
+
 getPartialAnnotation :: IExprA PartialType -> PartialType
 getPartialAnnotation (VarA _ a) = a
 getPartialAnnotation (AppA _ _ a) = a
@@ -49,7 +52,7 @@ getPartialAnnotation (ClosureA _ _ a) = a
 getPartialAnnotation ZeroA = ZeroTypeP
 getPartialAnnotation (PairA _ _) = ZeroTypeP
 getPartialAnnotation (AnnoA x _) = getPartialAnnotation x
-getPartialAnnotation (ITEA _ t _) = getPartialAnnotation t
+getPartialAnnotation (GateA _) = ArrTypeP ZeroTypeP ZeroTypeP
 getPartialAnnotation (PLeftA _) = ZeroTypeP
 getPartialAnnotation (PRightA _) = ZeroTypeP
 getPartialAnnotation (TraceA x) = getPartialAnnotation x
@@ -219,7 +222,8 @@ annotate (Anno g t) = if fullCheck t ZeroType -- (\x -> AnnoA x t) <$> annotate 
       associateVar (getPartialAnnotation ga) evt
       pure $ AnnoA ga et
   else (`AnnoA` t) <$> annotate g
-annotate (ITE i t e) = ITEA <$> annotate i <*> annotate t <*> annotate e
+--annotate (ITE i t e) = ITEA <$> annotate i <*> annotate t <*> annotate e
+annotate (Gate x) = GateA <$> annotate x
 annotate (PLeft x) = PLeftA <$> annotate x
 annotate (PRight x) = PRightA <$> annotate x
 annotate (Trace x) = TraceA <$> annotate x
@@ -245,14 +249,12 @@ checkType_ typeMap (AppA g i a) t = fullyResolve typeMap a == Just t &&
     Nothing -> False
     Just it -> checkType_ typeMap i it && checkType_ typeMap g (ArrType it t)
 checkType_ typeMap (AnnoA g tg) t = packType t == tg && checkType_ typeMap g t
-checkType_ typeMap (ITEA i t e) ty = checkType_ typeMap i ZeroType
-  && checkType_ typeMap t ty
-  && checkType_ typeMap e ty
+checkType_ typeMap (GateA x) (ArrType ZeroType ZeroType) = checkType_ typeMap x ZeroType
 checkType_ typeMap (PLeftA g) ZeroType = checkType_ typeMap g ZeroType
 checkType_ typeMap (PRightA g) ZeroType = checkType_ typeMap g ZeroType
 checkType_ typeMap (TraceA g) t = checkType_ typeMap g t
-checkType_ typeMap (ClosureA g c a) t = error "TODO - checkType_"
-checkType_ _ _ _ = error "unmatched rule"
+checkType_ _ (ClosureA _ _ _) _ = error "TODO - checkType_"
+checkType_ _ _ _ = False -- error "unmatched rule"
 
 fullCheck :: IExpr -> DataType -> Bool
 fullCheck iexpr t =
@@ -283,18 +285,16 @@ iEval f env g = let f' = f env in case g of
     ng <- f' g
     i <- f' cexp
     apply f ng i
-  ITE c t e -> f' c >>= \g -> case g of
-    Zero -> f' e
-    _ -> f' t
+  Gate x -> f' x >>= \g -> case g of
+    Zero -> pure $ Closure (PLeft (Var Zero)) Zero
+    _ -> pure $ Closure (PRight (Var Zero)) Zero
   PLeft g -> f' g >>= \g -> case g of
     (Pair a _) -> pure a
-    --x -> error $ "left on " ++ show x
     _ -> pure Zero
   PRight g -> f' g >>= \g -> case g of
     (Pair _ x) -> pure x
     _ -> pure Zero
   Trace g -> f' g >>= \g -> pure $ trace (show g) g
---  Lam c -> pure $ Closure c env
   Closure c Zero -> pure $ Closure c env
   Closure _ e -> fail $ concat ["unexpected closure with environment ", show e]
 

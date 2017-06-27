@@ -8,7 +8,7 @@ import qualified System.IO.Strict as Strict
 
 just_abort = Anno (lam Zero) (Pair Zero Zero)
 
-message_then_abort = Anno (lam (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
+message_then_abort = Anno (lam (ite (Var Zero) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
 
 {- TODO implement listEquality in Prelude
 quit_to_exit =
