@@ -168,17 +168,6 @@ associateVar a b = state $ \(env, typeMap, v)
   -> case checkOrAssociate a b Set.empty typeMap of
        Just tm -> ((), (env, tm, v))
        Nothing -> ((), (env, typeMap, v))
-{-
-associateVar a b =
-  let modMap :: (Map Int PartialType -> Map Int PartialType) -> AnnotateState ()
-      modMap f = state $ \(env, typeMap, v) -> ((), (env, f typeMap, v))
-  in case (a, b) of
-    (TypeVariable _, TypeVariable _) -> modMap id -- do nothing
-    (TypeVariable t, x) | t /= (-1) -> modMap $ Map.insert t x
-    (x, TypeVariable t) | t /= (-1) -> modMap $ Map.insert t x
-    (ArrTypeP a b, ArrTypeP c d) -> associateVar a c >> associateVar b d
-    _ -> modMap id -- do nothing
-  -}
 
 -- convert a PartialType to a full type, aborting on circular references
 fullyResolve_ :: Set Int -> Map Int PartialType -> PartialType -> Maybe DataType
@@ -220,12 +209,6 @@ annotate (App g i) = do
     (ArrTypeP a b, c) -> do
       associateVar a c
       pure $ AppA ga ia b
-{-
-annotate (Anno g Zero) = do
-  ga <- annotate g
-  associateVar (getPartialAnnotation ga) ZeroTypeP
-  pure $ AnnoA ga Zero
--}
 annotate (Anno g t) = if fullCheck t ZeroType -- (\x -> AnnoA x t) <$> annotate g
   then do
   ga <- annotate g
@@ -240,7 +223,6 @@ annotate (ITE i t e) = ITEA <$> annotate i <*> annotate t <*> annotate e
 annotate (PLeft x) = PLeftA <$> annotate x
 annotate (PRight x) = PRightA <$> annotate x
 annotate (Trace x) = TraceA <$> annotate x
-annotate (Closure g c) = error "TODO - annotate"
 
 evalTypeCheck :: IExpr -> IExpr -> Bool
 evalTypeCheck g t = fullCheck t ZeroType && case unpackType (pureEval t) of
@@ -262,12 +244,6 @@ checkType_ typeMap (AppA g i a) t = fullyResolve typeMap a == Just t &&
   case fullyResolve typeMap (getPartialAnnotation i) of
     Nothing -> False
     Just it -> checkType_ typeMap i it && checkType_ typeMap g (ArrType it t)
-{-
-checkType_ typeMap (AnnoA g Zero) ZeroType = checkType_ typeMap g ZeroType
-checkType_ typeMap (AnnoA g tg) t = fullCheck tg ZeroType
-  && packType t == pureEval tg
-  && checkType_ typeMap g t
--}
 checkType_ typeMap (AnnoA g tg) t = packType t == tg && checkType_ typeMap g t
 checkType_ typeMap (ITEA i t e) ty = checkType_ typeMap i ZeroType
   && checkType_ typeMap t ty
@@ -283,39 +259,6 @@ fullCheck iexpr t =
   let (iexpra, (_, typeMap, _)) = runState (annotate iexpr) ([], Map.empty, 0)
       debugT = trace (concat ["iexpra:\n", show iexpra, "\ntypemap:\n", show typeMap])
   in checkType_ typeMap iexpra t
-
-{-
--- types are give by IExpr. Zero represents Data and Pair represents Arrow
-inferType :: [IExpr] -> IExpr -> Maybe IExpr
-inferType _ Zero = Just Zero
-inferType env (Pair a b) = do
-  ta <- inferType env a
-  tb <- inferType env b
-  if ta == Zero && tb == Zero
-    then pure Zero
-    else Nothing -- can't have functions in pairs
-inferType env (Var v) = lookupTypeEnv env $ g2i v
-inferType env (App g i) = case inferType env g of
-  Just (Pair l r) -> if checkType env i l then Just r else Nothing
-  _ -> Nothing
-inferType env (Anno g Zero) = if checkType env g Zero then Just Zero else Nothing
-inferType env (Anno c t) = case pureEval (Anno t Zero) of -- Anno never checked, pointless?
-  (Closure _ _) -> Nothing
-  g -> if checkType env c g then Just g else Nothing
-inferType env (ITE i t e) =
-  let tt = inferType env t in if tt == inferType env e then tt else Nothing
-inferType env (PLeft p) = inferType env p
-inferType env (PRight p) = inferType env p
-inferType env (Trace p) = inferType env p
-inferType _ _ = Nothing
-
-checkType :: [IExpr] -> IExpr -> IExpr -> Bool
-checkType env (Lam c) (Pair l r) = checkType (l : env) c r
-checkType env (App g i) t = case inferType env i of
-  Just x -> checkType env g (Pair x t)
-  Nothing -> inferType env (App g i) == Just t
-checkType env x t = inferType env x == Just t
--}
 
 lookupEnv :: IExpr -> Int -> Maybe IExpr
 lookupEnv (Closure i _) 0 = Just i
@@ -335,7 +278,7 @@ iEval f env g = let f' = f env in case g of
   Var v -> case lookupEnv env $ g2i v of
     Nothing -> error $ "variable not found " ++ show v
     Just var -> pure var
-  Anno c t -> f' c -- TODO typecheck
+  Anno c t -> f' c
   App g cexp -> do --- given t, type {{a,t},{a,t}}
     ng <- f' g
     i <- f' cexp
@@ -381,14 +324,12 @@ tEval = fix (\f e g -> showPass $ iEval f e g) Zero
 
 typedEval :: IExpr -> (IExpr -> IO ()) -> IO ()
 typedEval iexpr prettyPrint = if fullCheck iexpr ZeroType
-  then do
-    simpleEval iexpr >>= prettyPrint
+  then simpleEval iexpr >>= prettyPrint
   else putStrLn "failed typecheck"
 
 debugEval :: IExpr -> IO ()
 debugEval iexpr = if fullCheck iexpr ZeroType
-  then do
-    tEval iexpr >>= (print . PrettyIExpr)
+  then tEval iexpr >>= (print . PrettyIExpr)
   else putStrLn "failed typecheck"
 
 fullEval i = typedEval i print
