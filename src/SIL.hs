@@ -21,7 +21,6 @@ data IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace !IExpr             -- trace
-  | Lam !IExpr
   | Closure !IExpr !IExpr
   deriving (Eq, Show, Ord)
 
@@ -38,6 +37,9 @@ data IExprA a
   | LamA (IExprA a) a
   | ClosureA (IExprA a) (IExprA a) a
   deriving (Eq, Show, Ord, Functor)
+
+lam :: IExpr -> IExpr
+lam x = Closure x Zero
 
 getPartialAnnotation :: IExprA PartialType -> PartialType
 getPartialAnnotation (VarA _ a) = a
@@ -199,11 +201,12 @@ annotate (Var v) = do
   case lookupTypeEnv env $ g2i v of
     Nothing -> pure $ VarA va badType
     Just pt -> pure $ VarA va pt
-annotate (Lam l) = do
+annotate (Closure l Zero) = do
   v <- freshVar
   la <- annotate l
   popEnvironment
   pure $ LamA la (ArrTypeP v (getPartialAnnotation la))
+annotate (Closure l x) = fail $ concat ["unexpected closure environment ", show x]
 annotate (App g i) = do
   ga <- annotate g
   ia <- annotate i
@@ -348,7 +351,9 @@ iEval f env g = let f' = f env in case g of
     (Pair _ x) -> pure x
     _ -> pure Zero
   Trace g -> f' g >>= \g -> pure $ trace (show g) g
-  Lam c -> pure $ Closure c env
+--  Lam c -> pure $ Closure c env
+  Closure c Zero -> pure $ Closure c env
+  Closure _ e -> fail $ concat ["unexpected closure with environment ", show e]
 
 {-
 apply :: Monad m => ([Result] -> IExpr -> m Result) -> Result -> Result -> m Result
@@ -360,7 +365,7 @@ toChurch :: Int -> IExpr
 toChurch x =
   let inner 0 = Var Zero
       inner x = App (Var $ i2g 1) (inner (x - 1))
-  in Lam (Lam (inner x))
+  in lam (lam (inner x))
 
 simpleEval :: IExpr -> IO IExpr
 simpleEval = fix iEval Zero

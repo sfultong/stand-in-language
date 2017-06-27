@@ -6,9 +6,9 @@ import SIL
 import SIL.Parser
 import qualified System.IO.Strict as Strict
 
-just_abort = Anno (Lam Zero) (Pair Zero Zero)
+just_abort = Anno (lam Zero) (Pair Zero Zero)
 
-message_then_abort = Anno (Lam (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
+message_then_abort = Anno (lam (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
 
 {- TODO implement listEquality in Prelude
 quit_to_exit =
@@ -28,12 +28,12 @@ displayBoard =
       row3 = Pair (Var $ i2g 5) (ch (Pair (Var $ i2g 4) (ch (Pair (Var $ i2g 3) row4))))
       row2 = ch . ch . ch . ch . ch $ cn row3
       row1 = Pair (Var $ i2g 8) (ch (Pair (Var $ i2g 7) (ch (Pair (Var $ i2g 6) row2))))
-      rows = Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam row1))))))))
+      rows = lam (lam (lam (lam (lam (lam (lam (lam (lam row1))))))))
       rowsType = Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero Zero))))))))
       repRight x = foldr (.) id $ replicate x PRight
       appl 0 = App (Anno rows rowsType) (PLeft $ Var Zero)
       appl x = App (appl (x - 1)) (PLeft . repRight x $ Var Zero)
-  in Anno (Lam $ appl 8) (Pair Zero Zero)
+  in Anno (lam $ appl 8) (Pair Zero Zero)
 
 main = do
   --unitTests

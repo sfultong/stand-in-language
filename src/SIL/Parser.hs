@@ -82,8 +82,8 @@ convertPT (TITE i t e) = ITE (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = PLeft (convertPT i)
 convertPT (TRight i) = PRight (convertPT i)
 convertPT (TTrace i) = Trace (convertPT i)
-convertPT (TLam c) = Lam (convertPT c)
-convertPT (TNamedLam n l) = error $ "should be no named lambdas at this stage, name " ++ n
+convertPT (TLam c) = lam (convertPT c)
+convertPT (TNamedLam n _) = error $ "should be no named lambdas at this stage, name " ++ n
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
