@@ -34,7 +34,6 @@ data IExprA a
   | PLeftA (IExprA a)
   | PRightA (IExprA a)
   | TraceA (IExprA a)
-  | LamA (IExprA a) a
   | ClosureA (IExprA a) (IExprA a) a
   deriving (Eq, Show, Ord, Functor)
 
@@ -47,7 +46,6 @@ ite i t e = App (Gate i) (Pair e t)
 getPartialAnnotation :: IExprA PartialType -> PartialType
 getPartialAnnotation (VarA _ a) = a
 getPartialAnnotation (AppA _ _ a) = a
-getPartialAnnotation (LamA _ a) = a
 getPartialAnnotation (ClosureA _ _ a) = a
 getPartialAnnotation ZeroA = ZeroTypeP
 getPartialAnnotation (PairA _ _) = ZeroTypeP
@@ -60,6 +58,7 @@ getPartialAnnotation (TraceA x) = getPartialAnnotation x
 data DataType
   = ZeroType
   | ArrType DataType DataType
+  | PairType DataType DataType -- only used when at least one side of a pair is not ZeroType
   deriving (Eq, Show, Ord)
 
 packType :: DataType -> IExpr
@@ -80,6 +79,7 @@ data PartialType
   = ZeroTypeP
   | TypeVariable Int
   | ArrTypeP PartialType PartialType
+  | PairTypeP PartialType PartialType
   deriving (Eq, Show, Ord)
 
 toPartial :: DataType -> PartialType
@@ -197,7 +197,7 @@ annotate (Closure l Zero) = do
   v <- freshVar
   la <- annotate l
   popEnvironment
-  pure $ LamA la (ArrTypeP v (getPartialAnnotation la))
+  pure $ ClosureA la ZeroA (ArrTypeP v (getPartialAnnotation la))
 annotate (Closure l x) = fail $ concat ["unexpected closure environment ", show x]
 annotate (App g i) = do
   ga <- annotate g
@@ -212,7 +212,7 @@ annotate (App g i) = do
     (ArrTypeP a b, c) -> do
       associateVar a c
       pure $ AppA ga ia b
-annotate (Anno g t) = if fullCheck t ZeroType -- (\x -> AnnoA x t) <$> annotate g
+annotate (Anno g t) = if fullCheck t ZeroType
   then do
   ga <- annotate g
   let et = pureEval t
@@ -222,7 +222,6 @@ annotate (Anno g t) = if fullCheck t ZeroType -- (\x -> AnnoA x t) <$> annotate 
       associateVar (getPartialAnnotation ga) evt
       pure $ AnnoA ga et
   else (`AnnoA` t) <$> annotate g
---annotate (ITE i t e) = ITEA <$> annotate i <*> annotate t <*> annotate e
 annotate (Gate x) = GateA <$> annotate x
 annotate (PLeft x) = PLeftA <$> annotate x
 annotate (PRight x) = PRightA <$> annotate x
@@ -240,10 +239,6 @@ checkType_ typeMap (PairA a b) ZeroType =
 checkType_ typeMap (VarA v a) t = case fullyResolve typeMap a of
   Nothing -> False
   Just t2 -> t == t2 && checkType_ typeMap v ZeroType
-checkType_ typeMap (LamA l a) ct@(ArrType _ ot) =
-  case checkOrAssociate a (toPartial ct) Set.empty typeMap of
-    Nothing -> False
-    Just t -> checkType_ t l ot
 checkType_ typeMap (AppA g i a) t = fullyResolve typeMap a == Just t &&
   case fullyResolve typeMap (getPartialAnnotation i) of
     Nothing -> False
@@ -253,7 +248,11 @@ checkType_ typeMap (GateA x) (ArrType ZeroType ZeroType) = checkType_ typeMap x 
 checkType_ typeMap (PLeftA g) ZeroType = checkType_ typeMap g ZeroType
 checkType_ typeMap (PRightA g) ZeroType = checkType_ typeMap g ZeroType
 checkType_ typeMap (TraceA g) t = checkType_ typeMap g t
-checkType_ _ (ClosureA _ _ _) _ = error "TODO - checkType_"
+checkType_ typeMap (ClosureA l ZeroA a) ct@(ArrType _ ot) =
+  case checkOrAssociate a (toPartial ct) Set.empty typeMap of
+    Nothing -> False
+    Just t -> checkType_ t l ot
+checkType_ _ (ClosureA _ _ _) _ = error "TODO - checkType_ filled closure or non arrow type"
 checkType_ _ _ _ = False -- error "unmatched rule"
 
 fullCheck :: IExpr -> DataType -> Bool
