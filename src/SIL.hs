@@ -263,8 +263,8 @@ fullCheck iexpr t =
   in checkType_ typeMap iexpra t
 
 lookupEnv :: IExpr -> Int -> Maybe IExpr
-lookupEnv (Closure i _) 0 = Just i
-lookupEnv (Closure _ c) n = lookupEnv c (n - 1)
+lookupEnv (Pair i _) 0 = Just i
+lookupEnv (Pair _ c) n = lookupEnv c (n - 1)
 lookupEnv _ _ = Nothing
 
 {-
@@ -301,7 +301,7 @@ iEval f env g = let f' = f env in case g of
 {-
 apply :: Monad m => ([Result] -> IExpr -> m Result) -> Result -> Result -> m Result
 -}
-apply f (Closure g env) v = f (Closure v env) g
+apply f (Closure g env) v = f (Pair v env) g
 apply _ g _ = error $ "not a closure " ++ show g
 
 toChurch :: Int -> IExpr
