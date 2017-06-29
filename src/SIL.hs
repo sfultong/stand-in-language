@@ -26,13 +26,13 @@ data IExpr
 
 data IExprA a
   = ZeroA
-  | PairA (IExprA a) (IExprA a)
+  | PairA (IExprA a) (IExprA a) a
   | VarA (IExprA a) a
   | AppA (IExprA a) (IExprA a) a
   | AnnoA (IExprA a) IExpr
   | GateA (IExprA a)
-  | PLeftA (IExprA a)
-  | PRightA (IExprA a)
+  | PLeftA (IExprA a) a
+  | PRightA (IExprA a) a
   | TraceA (IExprA a)
   | ClosureA (IExprA a) (IExprA a) a
   deriving (Eq, Show, Ord, Functor)
@@ -48,11 +48,11 @@ getPartialAnnotation (VarA _ a) = a
 getPartialAnnotation (AppA _ _ a) = a
 getPartialAnnotation (ClosureA _ _ a) = a
 getPartialAnnotation ZeroA = ZeroTypeP
-getPartialAnnotation (PairA _ _) = ZeroTypeP
+getPartialAnnotation (PairA a b t) = t
 getPartialAnnotation (AnnoA x _) = getPartialAnnotation x
 getPartialAnnotation (GateA _) = ArrTypeP ZeroTypeP ZeroTypeP
-getPartialAnnotation (PLeftA _) = ZeroTypeP
-getPartialAnnotation (PRightA _) = ZeroTypeP
+getPartialAnnotation (PLeftA _ a) = a
+getPartialAnnotation (PRightA _ a) = a
 getPartialAnnotation (TraceA x) = getPartialAnnotation x
 
 data DataType
@@ -159,11 +159,17 @@ checkOrAssociate (TypeVariable ta) (TypeVariable tb) resolvedSet typeMap =
 checkOrAssociate (TypeVariable t) x resolvedSet typeMap = case Map.lookup t typeMap of
   Nothing -> pure $ Map.insert t x typeMap
   Just rt -> checkOrAssociate x rt (Set.insert t resolvedSet) typeMap
-checkOrAssociate x (TypeVariable t) resolvedSet typeMap = case Map.lookup t typeMap of
-  Nothing -> pure $ Map.insert t x typeMap
-  Just rt -> checkOrAssociate x rt (Set.insert t resolvedSet) typeMap
+checkOrAssociate x (TypeVariable t) resolvedSet typeMap =
+  checkOrAssociate (TypeVariable t) x resolvedSet typeMap
 checkOrAssociate (ArrTypeP a b) (ArrTypeP c d) resolvedSet typeMap =
   checkOrAssociate a c resolvedSet typeMap >>= checkOrAssociate b d resolvedSet
+checkOrAssociate (PairTypeP a b) (PairTypeP c d) resolvedSet typeMap =
+  checkOrAssociate a c resolvedSet typeMap >>= checkOrAssociate b d resolvedSet
+checkOrAssociate (PairTypeP a b) ZeroTypeP resolvedSet typeMap =
+  checkOrAssociate a ZeroTypeP resolvedSet typeMap >>=
+  checkOrAssociate b ZeroTypeP resolvedSet
+checkOrAssociate ZeroTypeP p@(PairTypeP _ _) resolvedSet typeMap =
+  checkOrAssociate p ZeroTypeP resolvedSet typeMap
 checkOrAssociate a b _ typeMap = if a == b then pure typeMap else Nothing
 
 associateVar :: PartialType -> PartialType -> AnnotateState ()
@@ -175,18 +181,29 @@ associateVar a b = state $ \(env, typeMap, v)
 -- convert a PartialType to a full type, aborting on circular references
 fullyResolve_ :: Set Int -> Map Int PartialType -> PartialType -> Maybe DataType
 fullyResolve_ _ _ ZeroTypeP = pure ZeroType
-fullyResolve_ resolved typeMap (TypeVariable i) = if Set.member i resolved
+fullyResolve_ resolved typeMap (TypeVariable i) = if Set.member i resolved || i == -1
   then Nothing
   else Map.lookup i typeMap >>= fullyResolve_ (Set.insert i resolved) typeMap
 fullyResolve_ resolved typeMap (ArrTypeP a b) =
   ArrType <$> fullyResolve_ resolved typeMap a <*> fullyResolve_ resolved typeMap b
+fullyResolve_ resolved typeMap (PairTypeP a b) =
+  case (fullyResolve_ resolved typeMap a, fullyResolve_ resolved typeMap b) of
+    (Just ZeroType, Just ZeroType) -> pure ZeroType
+    (Just na, Just nb) -> pure $ PairType na nb
+    _ -> Nothing
 
 fullyResolve :: Map Int PartialType -> PartialType -> Maybe DataType
 fullyResolve = fullyResolve_ Set.empty
 
 annotate :: IExpr -> AnnotateState (IExprA PartialType)
 annotate Zero = pure ZeroA
-annotate (Pair a b) = PairA <$> annotate a <*> annotate b
+annotate (Pair a b) = do
+  v <- freshVar
+  popEnvironment
+  na <- annotate a
+  nb <- annotate b
+  associateVar v (PairTypeP (getPartialAnnotation na) (getPartialAnnotation nb))
+  pure $ PairA na nb v
 annotate (Var v) = do
   (env, _, _) <- get
   va <- annotate v
@@ -212,6 +229,7 @@ annotate (App g i) = do
     (ArrTypeP a b, c) -> do
       associateVar a c
       pure $ AppA ga ia b
+    (PairTypeP _ _, _) -> pure $ AppA ga ia badType
 annotate (Anno g t) = if fullCheck t ZeroType
   then do
   ga <- annotate g
@@ -223,8 +241,34 @@ annotate (Anno g t) = if fullCheck t ZeroType
       pure $ AnnoA ga et
   else (`AnnoA` t) <$> annotate g
 annotate (Gate x) = GateA <$> annotate x
-annotate (PLeft x) = PLeftA <$> annotate x
-annotate (PRight x) = PRightA <$> annotate x
+annotate (PLeft x) = do
+  nx <- annotate x
+  anno <- case getPartialAnnotation nx of
+    ZeroTypeP -> pure ZeroTypeP
+    PairTypeP l _ -> pure l
+    TypeVariable v -> do
+      nl <- freshVar
+      nr <- freshVar
+      popEnvironment
+      popEnvironment
+      associateVar (TypeVariable v) (PairTypeP nl nr)
+      pure nl
+    ArrTypeP _ _ -> pure badType
+  pure $ PLeftA nx anno
+annotate (PRight x) = do
+  nx <- annotate x
+  anno <- case getPartialAnnotation nx of
+    ZeroTypeP -> pure ZeroTypeP
+    PairTypeP _ r -> pure r
+    TypeVariable v -> do
+      nl <- freshVar
+      nr <- freshVar
+      popEnvironment
+      popEnvironment
+      associateVar (TypeVariable v) (PairTypeP nl nr)
+      pure nr
+    ArrTypeP _ _ -> pure badType
+  pure $ PLeftA nx anno
 annotate (Trace x) = TraceA <$> annotate x
 
 evalTypeCheck :: IExpr -> IExpr -> Bool
@@ -234,8 +278,11 @@ evalTypeCheck g t = fullCheck t ZeroType && case unpackType (pureEval t) of
 
 checkType_ :: Map Int PartialType -> IExprA PartialType -> DataType -> Bool
 checkType_ _ ZeroA ZeroType = True
-checkType_ typeMap (PairA a b) ZeroType =
-  checkType_ typeMap a ZeroType && checkType_ typeMap b ZeroType
+checkType_ typeMap (PairA l r a) t = case fullyResolve typeMap a of
+  Just t2@(PairType lt rt) -> t == t2 && checkType_ typeMap l lt && checkType_ typeMap r rt
+  Just ZeroType -> t ==
+    ZeroType && checkType_ typeMap l ZeroType && checkType_ typeMap r ZeroType
+  _ -> False
 checkType_ typeMap (VarA v a) t = case fullyResolve typeMap a of
   Nothing -> False
   Just t2 -> t == t2 && checkType_ typeMap v ZeroType
@@ -245,8 +292,14 @@ checkType_ typeMap (AppA g i a) t = fullyResolve typeMap a == Just t &&
     Just it -> checkType_ typeMap i it && checkType_ typeMap g (ArrType it t)
 checkType_ typeMap (AnnoA g tg) t = packType t == tg && checkType_ typeMap g t
 checkType_ typeMap (GateA x) (ArrType ZeroType ZeroType) = checkType_ typeMap x ZeroType
-checkType_ typeMap (PLeftA g) ZeroType = checkType_ typeMap g ZeroType
-checkType_ typeMap (PRightA g) ZeroType = checkType_ typeMap g ZeroType
+checkType_ typeMap (PLeftA g a) t =
+  case (fullyResolve typeMap a, fullyResolve typeMap $ getPartialAnnotation g) of
+  (Just t2, Just t3) -> t == t2 && checkType_ typeMap g t3
+  _ -> False
+checkType_ typeMap (PRightA g a) t =
+  case (fullyResolve typeMap a, fullyResolve typeMap $ getPartialAnnotation g) of
+  (Just t2, Just t3) -> t == t2 && checkType_ typeMap g t3
+  _ -> False
 checkType_ typeMap (TraceA g) t = checkType_ typeMap g t
 checkType_ typeMap (ClosureA l ZeroA a) ct@(ArrType _ ot) =
   case checkOrAssociate a (toPartial ct) Set.empty typeMap of

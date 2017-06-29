@@ -231,8 +231,8 @@ churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main = $1"
     (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType)) True
+  , unitTestType "main : {0,0} = \\x -> {x,0}" (ArrType ZeroType ZeroType) True
   --, unitTestType "main : {0,0} = \\x -> {x,0}" ZeroType False
-  , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) True
   --, unitTest "church 1+1" "2" one_plus_one
   ]
 
@@ -249,6 +249,7 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTestType "main : {{0,0},0} = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
     (ArrType (ArrType ZeroType ZeroType) ZeroType) False
   , unitTestType "main : 0 = (\\f -> f 0) (\\g -> {g,0})" ZeroType True
+  , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) True
   , unitTest "three" "3" three_succ
   , unitTest "church 3+2" "5" three_plus_two
   , unitTest "3*2" "6" three_times_two
