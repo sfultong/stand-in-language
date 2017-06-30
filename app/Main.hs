@@ -1,9 +1,10 @@
 module Main where
 
 import Data.Char
-import qualified Data.Map as Map
 import SIL
 import SIL.Parser
+import SIL.RunTime
+import SIL.TypeChecker (fullCheck)
 import qualified System.IO.Strict as Strict
 
 just_abort = Anno (lam Zero) (Pair Zero Zero)
@@ -61,7 +62,7 @@ main = do
       Right g -> show g
     runMain s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right g -> evalLoop g
+      Right g -> evalLoop fullCheck g
   {-
     displayType s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]

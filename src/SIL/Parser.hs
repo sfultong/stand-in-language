@@ -7,6 +7,7 @@ import Data.List (elemIndex)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import SIL
+import SIL.TypeChecker
 import Text.Parsec
 import Text.Parsec.Indent
 import Text.Parsec.Pos

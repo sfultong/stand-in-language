@@ -5,6 +5,8 @@ import Debug.Trace
 import Data.Char
 import SIL
 import SIL.Parser
+import SIL.RunTime
+import SIL.TypeChecker
 import System.Exit
 import qualified System.IO.Strict as Strict
 
