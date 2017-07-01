@@ -2,6 +2,10 @@ module SIL where
 
 import Data.Char
 
+-- if classes were categories, this would be an EndoFunctor?
+class EndoMapper a where
+  endoMap :: (a -> a) -> a -> a
+
 data IExpr
   = Zero                     -- no special syntax necessary
   | Pair !IExpr !IExpr       -- {,}
@@ -14,6 +18,18 @@ data IExpr
   | Trace !IExpr             -- trace
   | Closure !IExpr !IExpr
   deriving (Eq, Show, Ord)
+
+instance EndoMapper IExpr where
+  endoMap f Zero = f Zero
+  endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
+  endoMap f (Var v) = f $ Var (endoMap f v)
+  endoMap f (App c i) = f $ App (endoMap f c) (endoMap f i)
+  endoMap f (Anno c t) = f $ Anno (endoMap f c) (endoMap f t)
+  endoMap f (Gate g) = f $ Gate (endoMap f g)
+  endoMap f (PLeft x) = f $ PLeft (endoMap f x)
+  endoMap f (PRight x) = f $ PRight (endoMap f x)
+  endoMap f (Trace x) = f $ Trace (endoMap f x)
+  endoMap f (Closure c i) = f $ Closure (endoMap f c) (endoMap f i)
 
 lam :: IExpr -> IExpr
 lam x = Closure x Zero

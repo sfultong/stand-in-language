@@ -7,6 +7,7 @@ import SIL
 import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
+import SIL.Optimizer
 import System.Exit
 import qualified System.IO.Strict as Strict
 
@@ -221,12 +222,21 @@ three_pow_two =
 unitTest :: String -> String -> IExpr -> IO Bool
 unitTest name expected iexpr = if fullCheck iexpr ZeroType
   then do
-    result <- (show . PrettyIExpr) <$> simpleEval iexpr
+    result <- (show . PrettyIExpr) <$> optimizedEval iexpr
     if result == expected
       then pure True
       else (putStrLn $ concat [name, ": expected ", expected, " result ", result]) >>
            pure False
   else putStrLn ( concat [name, " failed typecheck"]) >> pure False
+
+{-
+unitTestOptimization :: String -> IExpr -> IO Bool
+unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
+  then pure True
+  else (putStrLn $ concat [name, ": optimized1 ", show $ optimize iexpr, " optimized2 "
+                          , show $ optimize2 iexpr])
+  >> pure False
+-}
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
@@ -299,6 +309,10 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = c2d (minus $4 $4)" "0"
   , unitTest2 "main = dMinus 4 3" "1"
   , unitTest2 "main = dMinus 4 4" "0"
+  {-
+  , unitTestOptimization "listequal0" $ App (App list_equality (s2g "hey")) (s2g "he")
+  , unitTestOptimization "map" $ App (App map_ (lam (Pair (Var Zero) Zero))) (ints2g [1,2,3])
+  -}
   ]
 
 testExpr = concat
@@ -333,7 +347,7 @@ main = do
         else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
     unitTest2 s r = case parseMain prelude s of
       Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
-      Right g -> fmap (show . PrettyIExpr) (simpleEval g) >>= \r2 -> if r2 == r
+      Right g -> fmap (show . PrettyIExpr) (optimizedEval g) >>= \r2 -> if r2 == r
         then pure True
         else (putStrLn $ concat [s, " result ", r2]) >> pure False
     unitTestType s t b = case parseMain prelude s of
