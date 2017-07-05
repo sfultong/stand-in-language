@@ -32,6 +32,7 @@ partiallyApply = endoMap f where
   f (App (Closure (Closure ic Zero) env) i) = Closure ic (Pair i env)
   f x = x
 
+{-
 applyOuterVarsSingle :: Int -> (IExpr -> IExpr) -> IExpr -> (IExpr, Set Int)
 applyOuterVarsSingle applied wrapper x =
   let (nx, vx) = applyOuterVars applied x in (wrapper nx, vx)
@@ -70,3 +71,7 @@ applyOuterVars applied c@(Closure _ _) = (applyToInnerClosure applied c, Set.emp
 
 optimize :: IExpr -> IExpr
 optimize = partiallyApply . fst . applyOuterVars 0
+-}
+
+optimize :: IExpr -> IExpr
+optimize = id

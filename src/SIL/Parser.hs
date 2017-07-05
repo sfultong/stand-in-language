@@ -76,7 +76,7 @@ debruijinize vl (TNamedLam n l) = TLam <$> debruijinize (n : vl) l
 convertPT :: ParserTerm Int -> IExpr
 convertPT TZero = Zero
 convertPT (TPair a b) = Pair (convertPT a) (convertPT b)
-convertPT (TVar n) = Var $ i2g n
+convertPT (TVar n) = varN n
 convertPT (TApp i c) = App (convertPT i) (convertPT c)
 convertPT (TAnno c i) = Anno (convertPT c) (convertPT i)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)

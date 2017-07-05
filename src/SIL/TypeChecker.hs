@@ -15,7 +15,7 @@ import SIL.RunTime
 data IExprA a
   = ZeroA
   | PairA (IExprA a) (IExprA a) a
-  | VarA (IExprA a) a
+  | VarA a
   | AppA (IExprA a) (IExprA a) a
   | AnnoA (IExprA a) IExpr
   | GateA (IExprA a)
@@ -26,7 +26,7 @@ data IExprA a
   deriving (Eq, Show, Ord, Functor)
 
 getPartialAnnotation :: IExprA PartialType -> PartialType
-getPartialAnnotation (VarA _ a) = a
+getPartialAnnotation (VarA a) = a
 getPartialAnnotation (AppA _ _ a) = a
 getPartialAnnotation (ClosureA _ _ a) = a
 getPartialAnnotation ZeroA = ZeroTypeP
@@ -59,14 +59,18 @@ lookupTypeEnv :: [a] -> Int -> Maybe a
 lookupTypeEnv env ind = if ind < length env then Just (env !! ind) else Nothing
 
 -- State is closure environment, map of unresolved types, unresolved type id supply
-type AnnotateState a = State ([PartialType], Map Int PartialType, Int) a
+type AnnotateState a = State (PartialType, Map Int PartialType, Int) a
+
+rightPartialType :: PartialType -> PartialType
+rightPartialType (PairTypeP _ r) = r
+rightPartialType x = error $ concat ["rightPartialType :", show x]
 
 freshVar :: AnnotateState PartialType
 freshVar = state $ \(env, typeMap, v) ->
-  (TypeVariable v, (TypeVariable v : env, typeMap, v + 1))
+  (TypeVariable v, (PairTypeP (TypeVariable v) env, typeMap, v + 1))
 
 popEnvironment :: AnnotateState ()
-popEnvironment = state $ \(env, typeMap, v) -> ((), (tail env, typeMap, v))
+popEnvironment = state $ \(env, typeMap, v) -> ((), (rightPartialType env, typeMap, v))
 
 checkOrAssociate :: PartialType -> PartialType -> Set Int -> Map Int PartialType
   -> Maybe (Map Int PartialType)
@@ -132,12 +136,7 @@ annotate (Pair a b) = do
   nb <- annotate b
   associateVar v (PairTypeP (getPartialAnnotation na) (getPartialAnnotation nb))
   pure $ PairA na nb v
-annotate (Var v) = do
-  (env, _, _) <- get
-  va <- annotate v
-  case lookupTypeEnv env $ g2i v of
-    Nothing -> pure $ VarA va badType
-    Just pt -> pure $ VarA va pt
+annotate Var = get >>= \(e, _, _) -> pure $ VarA e
 annotate (Closure l Zero) = do
   v <- freshVar
   la <- annotate l
@@ -211,9 +210,9 @@ checkType_ typeMap (PairA l r a) t = case fullyResolve typeMap a of
   Just ZeroType -> t ==
     ZeroType && checkType_ typeMap l ZeroType && checkType_ typeMap r ZeroType
   _ -> False
-checkType_ typeMap (VarA v a) t = case fullyResolve typeMap a of
+checkType_ typeMap (VarA a) t = case fullyResolve typeMap a of
   Nothing -> False
-  Just t2 -> t == t2 && checkType_ typeMap v ZeroType
+  Just t2 -> t == t2
 checkType_ typeMap (AppA g i a) t = fullyResolve typeMap a == Just t &&
   case fullyResolve typeMap (getPartialAnnotation i) of
     Nothing -> False
@@ -238,11 +237,11 @@ checkType_ _ _ _ = False -- error "unmatched rule"
 
 fullCheck :: IExpr -> DataType -> Bool
 fullCheck iexpr t =
-  let (iexpra, (_, typeMap, _)) = runState (annotate iexpr) ([], Map.empty, 0)
+  let (iexpra, (_, typeMap, _)) = runState (annotate iexpr) (ZeroTypeP, Map.empty, 0)
       debugT = trace (concat ["iexpra:\n", show iexpra, "\ntypemap:\n", show typeMap])
   in checkType_ typeMap iexpra t
 
 inferType :: IExpr -> Maybe DataType
 inferType iexpr =
-  let (iexpra, (_, typeMap, _)) = runState (annotate iexpr) ([], Map.empty, 0)
+  let (iexpra, (_, typeMap, _)) = runState (annotate iexpr) (ZeroTypeP, Map.empty, 0)
   in fullyResolve typeMap $ getPartialAnnotation iexpra

@@ -22,17 +22,15 @@ iEval f env g = let f' = f env in case g of
     na <- f' a
     nb <- f' b
     pure $ Pair na nb
-  Var v -> case lookupEnv env $ g2i v of
-    Nothing -> error $ "variable not found " ++ show v
-    Just var -> pure var
+  Var -> pure env
   Anno c t -> f' c
   App g cexp -> do --- given t, type {{a,t},{a,t}}
     ng <- f' g
     i <- f' cexp
     apply f ng i
   Gate x -> f' x >>= \g -> case g of
-    Zero -> pure $ Closure (PLeft (Var Zero)) Zero
-    _ -> pure $ Closure (PRight (Var Zero)) Zero
+    Zero -> pure $ Closure (PLeft (PLeft Var)) Zero
+    _ -> pure $ Closure (PRight (PLeft Var)) Zero
   PLeft g -> f' g >>= \g -> case g of
     (Pair a _) -> pure a
     _ -> pure Zero
@@ -51,8 +49,8 @@ apply _ g _ = error $ "not a closure " ++ show g
 
 toChurch :: Int -> IExpr
 toChurch x =
-  let inner 0 = Var Zero
-      inner x = App (Var $ i2g 1) (inner (x - 1))
+  let inner 0 = PLeft Var
+      inner x = App (PLeft $ PRight Var) (inner (x - 1))
   in lam (lam (inner x))
 
 simpleEval :: IExpr -> IO IExpr

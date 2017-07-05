@@ -9,7 +9,7 @@ class EndoMapper a where
 data IExpr
   = Zero                     -- no special syntax necessary
   | Pair !IExpr !IExpr       -- {,}
-  | Var !IExpr               -- identifier
+  | Var                      -- identifier
   | App !IExpr !IExpr        --
   | Anno !IExpr !IExpr       -- :
   | Gate !IExpr
@@ -22,7 +22,7 @@ data IExpr
 instance EndoMapper IExpr where
   endoMap f Zero = f Zero
   endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
-  endoMap f (Var v) = f $ Var (endoMap f v)
+  endoMap f Var = f Var
   endoMap f (App c i) = f $ App (endoMap f c) (endoMap f i)
   endoMap f (Anno c t) = f $ Anno (endoMap f c) (endoMap f t)
   endoMap f (Gate g) = f $ Gate (endoMap f g)
@@ -36,6 +36,9 @@ lam x = Closure x Zero
 
 ite :: IExpr -> IExpr -> IExpr -> IExpr
 ite i t e = App (Gate i) (Pair e t)
+
+varN :: Int -> IExpr
+varN n = PLeft (iterate PRight Var !! n)
 
 data DataType
   = ZeroType

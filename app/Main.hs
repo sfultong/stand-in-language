@@ -9,7 +9,7 @@ import qualified System.IO.Strict as Strict
 
 just_abort = Anno (lam Zero) (Pair Zero Zero)
 
-message_then_abort = Anno (lam (ite (Var Zero) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
+message_then_abort = Anno (lam (ite (varN 0) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
 
 {- TODO implement listEquality in Prelude
 quit_to_exit =
@@ -24,16 +24,16 @@ displayBoard =
   let cc c l = Pair (i2g $ ord c) l
       ch = cc '#'
       cn = cc '\n'
-      row5 = Pair (Var $ i2g 2) (ch (Pair (Var $ i2g 1) (ch (Pair (Var Zero) Zero))))
+      row5 = Pair (varN 2) (ch (Pair (varN 1) (ch (Pair (varN 0) Zero))))
       row4 = ch . ch . ch . ch . ch $ cn row5
-      row3 = Pair (Var $ i2g 5) (ch (Pair (Var $ i2g 4) (ch (Pair (Var $ i2g 3) row4))))
+      row3 = Pair (varN 5) (ch (Pair (varN 4) (ch (Pair (varN 3) row4))))
       row2 = ch . ch . ch . ch . ch $ cn row3
-      row1 = Pair (Var $ i2g 8) (ch (Pair (Var $ i2g 7) (ch (Pair (Var $ i2g 6) row2))))
+      row1 = Pair (varN 8) (ch (Pair (varN 7) (ch (Pair (varN 6) row2))))
       rows = lam (lam (lam (lam (lam (lam (lam (lam (lam row1))))))))
       rowsType = Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero Zero))))))))
       repRight x = foldr (.) id $ replicate x PRight
-      appl 0 = App (Anno rows rowsType) (PLeft $ Var Zero)
-      appl x = App (appl (x - 1)) (PLeft . repRight x $ Var Zero)
+      appl 0 = App (Anno rows rowsType) (PLeft $ varN 0)
+      appl x = App (appl (x - 1)) (PLeft . repRight x $ varN 0)
   in Anno (lam $ appl 8) (Pair Zero Zero)
 
 main = do
@@ -69,7 +69,7 @@ main = do
   printTypeErrors prelude
   printBindingTypes prelude
   print $ (\g -> (fullCheck g (ArrType ZeroType (ArrType ZeroType ZeroType)), g))
-    <$> (parseMain prelude "main = listPlus2")
+    <$> (parseMain prelude "main = listPlus")
   {-
   Strict.readFile "tictactoe.sil" >>= runMain
   -}
