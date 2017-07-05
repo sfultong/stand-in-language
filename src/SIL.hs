@@ -43,6 +43,18 @@ data DataType
   | PairType DataType DataType -- only used when at least one side of a pair is not ZeroType
   deriving (Eq, Show, Ord)
 
+newtype PrettyDataType = PrettyDataType DataType
+
+showInternal at@(ArrType _ _) = concat ["(", show $ PrettyDataType at, ")"]
+showInternal t = show . PrettyDataType $ t
+
+instance Show PrettyDataType where
+  show (PrettyDataType dt) = case dt of
+    ZeroType -> "D"
+    (ArrType a b) -> concat [showInternal a, " -> ", showInternal b]
+    (PairType a b) ->
+      concat ["{", show $ PrettyDataType a, ",", show $ PrettyDataType b, "}"]
+
 packType :: DataType -> IExpr
 packType ZeroType = Zero
 packType (ArrType a b) = Pair (packType a) (packType b)

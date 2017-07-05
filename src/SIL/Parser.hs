@@ -253,6 +253,15 @@ printTypeErrors bindings =
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showTypeError
 
+printBindingTypes :: Bindings -> IO ()
+printBindingTypes bindings =
+  let showType (s, iexpr) = case inferType iexpr of
+        Nothing -> putStrLn $ concat [s, ": cannot resolve type"]
+        Just t -> putStrLn $ concat [s, ": ", show $ PrettyDataType t]
+      resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
+                                (\b -> pure (s, convertPT b))) $ Map.toList bindings
+  in resolvedBindings >>= mapM_ showType
+
 parseMain :: Bindings -> String -> Either ParseError IExpr
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of

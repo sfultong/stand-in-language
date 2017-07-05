@@ -167,7 +167,7 @@ annotate (Anno g t) = if fullCheck t ZeroType
     Just evt -> do
       associateVar (getPartialAnnotation ga) evt
       pure $ AnnoA ga et
-  else (`AnnoA` t) <$> annotate g
+  else error "annotation problems" -- (`AnnoA` t) <$> annotate g
 annotate (Gate x) = GateA <$> annotate x
 annotate (PLeft x) = do
   nx <- annotate x
@@ -241,3 +241,8 @@ fullCheck iexpr t =
   let (iexpra, (_, typeMap, _)) = runState (annotate iexpr) ([], Map.empty, 0)
       debugT = trace (concat ["iexpra:\n", show iexpra, "\ntypemap:\n", show typeMap])
   in checkType_ typeMap iexpra t
+
+inferType :: IExpr -> Maybe DataType
+inferType iexpr =
+  let (iexpra, (_, typeMap, _)) = runState (annotate iexpr) ([], Map.empty, 0)
+  in fullyResolve typeMap $ getPartialAnnotation iexpra

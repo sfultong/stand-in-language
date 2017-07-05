@@ -44,16 +44,6 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
-    unitTestP s g = case parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right pg -> if pg == g
-        then pure ()
-        else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
-    unitTest2 s r = case parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right g -> fmap (show . PrettyIExpr) (simpleEval g) >>= \r2 -> if r2 == r
-        then pure ()
-        else putStrLn $ concat [s, " result ", r2]
     testMethod n s = case resolveBinding n <$> parseWithPrelude prelude s of
       Right (Just iexpr) -> simpleEval iexpr >>= \r -> print (PrettyIExpr r)
       x -> print x
@@ -75,8 +65,14 @@ main = do
     showTypeError _ = pure ()
   -}
 
+  --print $ parseSIL "main = listPlus2"
   printTypeErrors prelude
+  printBindingTypes prelude
+  print $ (\g -> (fullCheck g (ArrType ZeroType (ArrType ZeroType ZeroType)), g))
+    <$> (parseMain prelude "main = listPlus2")
+  {-
   Strict.readFile "tictactoe.sil" >>= runMain
+  -}
   --Strict.readFile "tictactoe.sil" >>= testMethod "test"
   --Strict.readFile "tictactoe.sil" >>= testMethod "test2"
   --Strict.readFile "tictactoe.sil" >>= testMethod "test3"
