@@ -69,9 +69,7 @@ applyOuterVars applied (PRight x) = applyOuterVarsSingle applied PRight x
 applyOuterVars applied (Trace x) = applyOuterVarsSingle applied Trace x
 applyOuterVars applied c@(Closure _ _) = (applyToInnerClosure applied c, Set.empty)
 
-optimize :: IExpr -> IExpr
-optimize = partiallyApply . fst . applyOuterVars 0
 -}
 
 optimize :: IExpr -> IExpr
-optimize = id
+optimize = partiallyApply

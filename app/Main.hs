@@ -4,7 +4,8 @@ import Data.Char
 import SIL
 import SIL.Parser
 import SIL.RunTime
-import SIL.TypeChecker (fullCheck)
+import SIL.TypeChecker (inferType)
+import SIL.Optimizer
 import qualified System.IO.Strict as Strict
 
 just_abort = Anno (lam Zero) (Pair Zero Zero)
@@ -52,7 +53,14 @@ main = do
       Right g -> show g
     runMain s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right g -> evalLoop fullCheck g
+      Right g -> evalLoop inferType g
+    showParsed s = case parseMain prelude s of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+      Right g -> print . PrettyIExpr $ g
+    showOptimized s = case optimize <$> parseMain prelude s of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+      Right g -> print . PrettyIExpr $ g
+
   {-
     displayType s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
@@ -66,13 +74,13 @@ main = do
   -}
 
   --print $ parseSIL "main = listPlus2"
+  -- TODO figure out why typechecking certain functions fail
   printTypeErrors prelude
   printBindingTypes prelude
-  print $ (\g -> (fullCheck g (ArrType ZeroType (ArrType ZeroType ZeroType)), g))
-    <$> (parseMain prelude "main = listPlus")
-  {-
-  Strict.readFile "tictactoe.sil" >>= runMain
-  -}
+  --showParsed "main = \\f x -> f x"
+  showParsed "main = listLength [1,2]"
+  showOptimized "main = listLength [1,2]"
+  --Strict.readFile "tictactoe.sil" >>= runMain
   --Strict.readFile "tictactoe.sil" >>= testMethod "test"
   --Strict.readFile "tictactoe.sil" >>= testMethod "test2"
   --Strict.readFile "tictactoe.sil" >>= testMethod "test3"

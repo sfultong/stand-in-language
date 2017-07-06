@@ -7,11 +7,6 @@ import Control.Monad.Fix
 import SIL
 import SIL.Optimizer
 
-lookupEnv :: IExpr -> Int -> Maybe IExpr
-lookupEnv (Pair i _) 0 = Just i
-lookupEnv (Pair _ c) n = lookupEnv c (n - 1)
-lookupEnv _ _ = Nothing
-
 {-
 iEval :: Monad m => ([Result] -> IExpr -> m Result)
   -> [Result] -> IExpr -> m Result
@@ -82,8 +77,8 @@ fullEval typeCheck i = typedEval typeCheck i print
 
 prettyEval typeCheck i = typedEval typeCheck i (print . PrettyIExpr)
 
-evalLoop :: (IExpr -> DataType -> Bool) -> IExpr -> IO ()
-evalLoop typeCheck iexpr = if typeCheck iexpr (ArrType ZeroType ZeroType)
+evalLoop :: (IExpr -> Maybe DataType) -> IExpr -> IO ()
+evalLoop inferType iexpr = if inferType iexpr == Just (ArrType ZeroType ZeroType)
   then let mainLoop s = do
              result <- simpleEval $ App optIExpr s
              case result of
@@ -98,4 +93,5 @@ evalLoop typeCheck iexpr = if typeCheck iexpr (ArrType ZeroType ZeroType)
                r -> putStrLn $ concat ["runtime error, dumped ", show r]
            optIExpr = optimize iexpr
        in mainLoop Zero
-  else putStrLn "failed typecheck"
+  else putStrLn $ concat ["main's inferred type: "
+                         , show $ PrettyDataType <$> inferType iexpr]
