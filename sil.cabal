@@ -15,13 +15,21 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     SIL, SIL.Parser, SIL.Optimizer, SIL.TypeChecker, SIL.RunTime
+  exposed-modules:     SIL
+                     , SIL.Parser
+                     , SIL.Optimizer
+                     , SIL.TypeChecker
+                     , SIL.RunTime
+                     , SIL.Llvm
   build-depends:       base >= 4.7 && < 5
                      , recursion-schemes
                      , parsec
                      , indents
                      , containers
                      , mtl
+                     , llvm-hs         >= 4.0
+                     , llvm-hs-pure    >= 4.0
+
   default-language:    Haskell2010
 
 executable sil-exe

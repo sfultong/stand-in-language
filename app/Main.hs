@@ -2,6 +2,7 @@ module Main where
 
 import Data.Char
 import SIL
+import SIL.Llvm
 import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker (inferType)
@@ -75,11 +76,13 @@ main = do
 
   --print $ parseSIL "main = listPlus2"
   -- TODO figure out why typechecking certain functions fail
-  printTypeErrors prelude
-  printBindingTypes prelude
+  runJIT testModule >>= \result -> case result of
+    Left err -> putStrLn $ concat ["JIT error: ", err]
+    Right mod -> putStrLn "JIT seemed to finish ok"
+  --printTypeErrors prelude
+  --printBindingTypes prelude
   --showParsed "main = \\f x -> f x"
-  showParsed "main = listLength [1,2]"
-  showOptimized "main = listLength [1,2]"
+  -- showOptimized "main = listLength [1,2]"
   --Strict.readFile "tictactoe.sil" >>= runMain
   --Strict.readFile "tictactoe.sil" >>= testMethod "test"
   --Strict.readFile "tictactoe.sil" >>= testMethod "test2"
