@@ -42,13 +42,6 @@ unpackPartialType Zero = pure ZeroTypeP
 unpackPartialType (Pair a b) = ArrTypeP <$> unpackPartialType a <*> unpackPartialType b
 unpackPartialType _ = Nothing
 
-data PartialType
-  = ZeroTypeP
-  | TypeVariable Int
-  | ArrTypeP PartialType PartialType
-  | PairTypeP PartialType PartialType
-  deriving (Eq, Show, Ord)
-
 toPartial :: DataType -> PartialType
 toPartial ZeroType = ZeroTypeP
 toPartial (ArrType a b) = ArrTypeP (toPartial a) (toPartial b)
@@ -126,6 +119,21 @@ fullyResolve_ resolved typeMap (PairTypeP a b) =
 
 fullyResolve :: Map Int PartialType -> PartialType -> Maybe DataType
 fullyResolve = fullyResolve_ Set.empty
+
+mostlyResolve_ :: Map Int PartialType -> PartialType -> PartialType
+mostlyResolve_ _ ZeroTypeP = ZeroTypeP
+mostlyResolve_ typeMap (TypeVariable i) = case Map.lookup i typeMap of
+  Just x -> mostlyResolve_ typeMap x
+  Nothing -> TypeVariable i
+mostlyResolve_ typeMap (ArrTypeP a b) =
+  ArrTypeP (mostlyResolve_ typeMap a) (mostlyResolve_ typeMap b)
+mostlyResolve_ typeMap (PairTypeP a b) =
+  PairTypeP (mostlyResolve_ typeMap a) (mostlyResolve_ typeMap b)
+
+mostlyResolve :: Map Int PartialType -> PartialType -> PartialType
+mostlyResolve typeMap x = case fullyResolve typeMap x of
+  Just _ -> mostlyResolve_ typeMap x
+  _ -> badType
 
 annotate :: IExpr -> AnnotateState (IExprA PartialType)
 annotate Zero = pure ZeroA
@@ -241,7 +249,7 @@ fullCheck iexpr t =
       debugT = trace (concat ["iexpra:\n", show iexpra, "\ntypemap:\n", show typeMap])
   in checkType_ typeMap iexpra t
 
-inferType :: IExpr -> Maybe DataType
+inferType :: IExpr -> PartialType
 inferType iexpr =
   let (iexpra, (_, typeMap, _)) = runState (annotate iexpr) (ZeroTypeP, Map.empty, 0)
-  in fullyResolve typeMap $ getPartialAnnotation iexpra
+  in mostlyResolve typeMap $ getPartialAnnotation iexpra

@@ -58,6 +58,26 @@ instance Show PrettyDataType where
     (PairType a b) ->
       concat ["{", show $ PrettyDataType a, ",", show $ PrettyDataType b, "}"]
 
+data PartialType
+  = ZeroTypeP
+  | TypeVariable Int
+  | ArrTypeP PartialType PartialType
+  | PairTypeP PartialType PartialType
+  deriving (Eq, Show, Ord)
+
+newtype PrettyPartialType = PrettyPartialType PartialType
+
+showInternalP at@(ArrTypeP _ _) = concat ["(", show $ PrettyPartialType at, ")"]
+showInternalP t = show . PrettyPartialType $ t
+
+instance Show PrettyPartialType where
+  show (PrettyPartialType dt) = case dt of
+    ZeroTypeP -> "Z"
+    (ArrTypeP a b) -> concat [showInternalP a, " -> ", showInternalP b]
+    (PairTypeP a b) ->
+      concat ["{", show $ PrettyPartialType a, ",", show $ PrettyPartialType b, "}"]
+    (TypeVariable x) -> 'v' : show x
+
 packType :: DataType -> IExpr
 packType ZeroType = Zero
 packType (ArrType a b) = Pair (packType a) (packType b)

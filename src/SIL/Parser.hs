@@ -243,21 +243,10 @@ resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
   \b -> convertPT <$> debruijinize [] b
 
-printTypeErrors :: Bindings -> IO ()
-printTypeErrors bindings =
-  let showTypeError (s, (Anno g t)) = if evalTypeCheck g t
-        then pure ()
-        else putStrLn $ concat [s, " has bad type signature"]
-      showTypeError _ = pure ()
-      resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
-                                (\b -> pure (s, convertPT b))) $ Map.toList bindings
-  in resolvedBindings >>= mapM_ showTypeError
-
 printBindingTypes :: Bindings -> IO ()
 printBindingTypes bindings =
-  let showType (s, iexpr) = case inferType iexpr of
-        Nothing -> putStrLn $ concat [s, ": cannot resolve type"]
-        Just t -> putStrLn $ concat [s, ": ", show $ PrettyDataType t]
+  let showType (s, iexpr) = putStrLn $
+        concat [s, ": ", show . PrettyPartialType . inferType $ iexpr]
       resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showType

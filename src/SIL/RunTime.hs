@@ -188,8 +188,8 @@ fullEval typeCheck i = typedEval typeCheck i print
 
 prettyEval typeCheck i = typedEval typeCheck i (print . PrettyIExpr)
 
-evalLoop :: (IExpr -> Maybe DataType) -> IExpr -> IO ()
-evalLoop inferType iexpr = if inferType iexpr == Just (ArrType ZeroType ZeroType)
+evalLoop :: (IExpr -> PartialType) -> IExpr -> IO ()
+evalLoop inferType iexpr = if inferType iexpr == ArrTypeP ZeroTypeP ZeroTypeP
   then let mainLoop s = do
              result <- simpleEval $ App optIExpr s
              case result of
@@ -205,4 +205,4 @@ evalLoop inferType iexpr = if inferType iexpr == Just (ArrType ZeroType ZeroType
            optIExpr = optimize iexpr
        in mainLoop Zero
   else putStrLn $ concat ["main's inferred type: "
-                         , show $ PrettyDataType <$> inferType iexpr]
+                         , show $ PrettyPartialType $ inferType iexpr]
