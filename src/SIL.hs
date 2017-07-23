@@ -11,7 +11,7 @@ data IExpr
   | Pair !IExpr !IExpr       -- {,}
   | Var                      -- identifier
   | App !IExpr !IExpr        --
-  | Anno !IExpr !IExpr       -- :
+  | Check !IExpr !IExpr      -- :
   | Gate !IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
@@ -24,7 +24,7 @@ instance EndoMapper IExpr where
   endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
   endoMap f Var = f Var
   endoMap f (App c i) = f $ App (endoMap f c) (endoMap f i)
-  endoMap f (Anno c t) = f $ Anno (endoMap f c) (endoMap f t)
+  endoMap f (Check c t) = f $ Check (endoMap f c) (endoMap f t)
   endoMap f (Gate g) = f $ Gate (endoMap f g)
   endoMap f (PLeft x) = f $ PLeft (endoMap f x)
   endoMap f (PRight x) = f $ PRight (endoMap f x)
@@ -39,6 +39,23 @@ ite i t e = App (Gate i) (Pair e t)
 
 varN :: Int -> IExpr
 varN n = PLeft (iterate PRight Var !! n)
+
+-- hack to support old style type annotations
+makeTypeCheckTest_ :: IExpr -> IExpr
+makeTypeCheckTest_ Zero = Var
+makeTypeCheckTest_ (Pair a b) = Closure (App (makeTypeCheckTest_ b) iapp) Zero where
+  iapp = case a of
+    Zero -> Zero
+    x -> makeTypeCheckTest_ x
+makeTypeCheckTest_ x = error $ concat ["maketct: ", show x]
+
+makeTypeCheckTest :: IExpr -> IExpr
+makeTypeCheckTest Zero = Closure (PLeft (Pair (Pair Zero Zero) (App (Gate Var) Zero))) Zero
+makeTypeCheckTest x =
+  Closure (PLeft (Pair (Pair Zero Zero) (App (makeTypeCheckTest_ x) Var))) Zero
+
+anno :: IExpr -> IExpr -> IExpr
+anno g tc = Check g $ makeTypeCheckTest tc
 
 data DataType
   = ZeroType

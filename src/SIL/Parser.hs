@@ -78,7 +78,9 @@ convertPT TZero = Zero
 convertPT (TPair a b) = Pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
 convertPT (TApp i c) = App (convertPT i) (convertPT c)
-convertPT (TAnno c i) = Anno (convertPT c) (convertPT i)
+--convertPT (TAnno c i) = Anno (convertPT c) (convertPT i)
+convertPT (TAnno c i) = Check (convertPT c) (makeTypeCheckTest $ convertPT i)
+--convertPT (TAnno c i) = Check (convertPT c) (Closure (Pair Var Zero) Zero)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = PLeft (convertPT i)
 convertPT (TRight i) = PRight (convertPT i)
@@ -245,9 +247,12 @@ resolveBinding name bindings = Map.lookup name bindings >>=
 
 printTypeErrors :: Bindings -> IO ()
 printTypeErrors bindings =
-  let showTypeError (s, (Anno g t)) = if evalTypeCheck g t
+  let whatever = 1
+  {-
+      showTypeError (s, (Anno g t)) = if evalTypeCheck g t
         then pure ()
         else putStrLn $ concat [s, " has bad type signature"]
+-}
       showTypeError _ = pure ()
       resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings

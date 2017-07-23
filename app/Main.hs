@@ -8,16 +8,16 @@ import SIL.TypeChecker (inferType)
 import SIL.Optimizer
 import qualified System.IO.Strict as Strict
 
-just_abort = Anno (lam Zero) (Pair Zero Zero)
+just_abort = anno (lam Zero) (Pair Zero Zero)
 
-message_then_abort = Anno (lam (ite (varN 0) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
+message_then_abort = anno (lam (ite (varN 0) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
 
 {- TODO implement listEquality in Prelude
 quit_to_exit =
   let check_input = ITE (App (App list_equality (CI . PLeft $ Var Zero)) (CI $ s2g "quit"))
                     Zero
                     (Pair (s2g "type quit to exit") (i2g 1))
-  in Anno (Lam (CI check_input)) (Pair Zero Zero)
+  in anno (Lam (CI check_input)) (Pair Zero Zero)
 -}
 
 -- game section
@@ -33,9 +33,9 @@ displayBoard =
       rows = lam (lam (lam (lam (lam (lam (lam (lam (lam row1))))))))
       rowsType = Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero Zero))))))))
       repRight x = foldr (.) id $ replicate x PRight
-      appl 0 = App (Anno rows rowsType) (PLeft $ varN 0)
+      appl 0 = App (anno rows rowsType) (PLeft $ varN 0)
       appl x = App (appl (x - 1)) (PLeft . repRight x $ varN 0)
-  in Anno (lam $ appl 8) (Pair Zero Zero)
+  in anno (lam $ appl 8) (Pair Zero Zero)
 
 main = do
   --unitTests
@@ -73,14 +73,11 @@ main = do
     showTypeError _ = pure ()
   -}
 
-  --print $ parseSIL "main = listPlus2"
   -- TODO figure out why typechecking certain functions fail
-  printTypeErrors prelude
-  printBindingTypes prelude
-  --showParsed "main = \\f x -> f x"
-  showParsed "main = listLength [1,2]"
-  showOptimized "main = listLength [1,2]"
+  --printTypeErrors prelude
+  --printBindingTypes prelude
   --Strict.readFile "tictactoe.sil" >>= runMain
+  print $ makeTypeCheckTest (Pair Zero Zero)
   --Strict.readFile "tictactoe.sil" >>= testMethod "test"
   --Strict.readFile "tictactoe.sil" >>= testMethod "test2"
   --Strict.readFile "tictactoe.sil" >>= testMethod "test3"

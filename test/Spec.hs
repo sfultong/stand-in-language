@@ -11,21 +11,21 @@ import SIL.Optimizer
 import System.Exit
 import qualified System.IO.Strict as Strict
 
-three_succ = App (App (Anno (toChurch 3) (Pair (Pair Zero Zero) (Pair Zero Zero)))
+three_succ = App (App (anno (toChurch 3) (Pair (Pair Zero Zero) (Pair Zero Zero)))
                   (lam (Pair (varN 0) Zero)))
              Zero
 
-one_succ = App (App (Anno (toChurch 1) (Pair (Pair Zero Zero) (Pair Zero Zero)))
+one_succ = App (App (anno (toChurch 1) (Pair (Pair Zero Zero) (Pair Zero Zero)))
                   (lam (Pair (varN 0) Zero)))
              Zero
 
-two_succ = App (App (Anno (toChurch 2) (Pair (Pair Zero Zero) (Pair Zero Zero)))
+two_succ = App (App (anno (toChurch 2) (Pair (Pair Zero Zero) (Pair Zero Zero)))
                   (lam (Pair (varN 0) Zero)))
              Zero
 
 church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
 
-c2d = Anno (lam (App (App (varN 0) (lam (Pair (varN 0) Zero))) Zero))
+c2d = anno (lam (App (App (varN 0) (lam (Pair (varN 0) Zero))) Zero))
   (Pair church_type Zero)
 
 h2c i =
@@ -69,7 +69,7 @@ map_ =
       layerType = Pair (Pair Zero Zero) (Pair Zero Zero)
       fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
       base = lam (lam Zero)
-  in App (App (Anno (toChurch 255) fixType) layer) base
+  in App (App (anno (toChurch 255) fixType) layer) base
 
 foldr_ =
   let layer = lam (lam (lam (lam
@@ -85,7 +85,7 @@ foldr_ =
       layerType = Pair (Pair Zero (Pair Zero Zero)) (Pair Zero (Pair Zero Zero))
       fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
       base = lam (lam (lam Zero)) -- var 0?
-  in App (App (Anno (toChurch 255) fixType) layer) base
+  in App (App (anno (toChurch 255) fixType) layer) base
 
 zipWith_ =
   let layer = lam (lam (lam (lam
@@ -104,7 +104,7 @@ zipWith_ =
       base = lam (lam (lam Zero))
       layerType = Pair (Pair Zero (Pair Zero Zero)) (Pair Zero (Pair Zero Zero))
       fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
-  in App (App (Anno (toChurch 255) fixType) layer) base
+  in App (App (anno (toChurch 255) fixType) layer) base
 
 -- layer recurf i churchf churchbase
 -- layer :: (Zero -> baseType) -> Zero -> (baseType -> baseType) -> baseType
@@ -124,7 +124,7 @@ d2c baseType =
       base = lam (lam (lam (varN 0)))
       layerType = Pair Zero (Pair (Pair baseType baseType) (Pair baseType baseType))
       fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
-  in App (App (Anno (toChurch 255) fixType) layer) base
+  in App (App (anno (toChurch 255) fixType) layer) base
 
 -- d_equality_h iexpr = (\d -> if d > 0
 --                                then \x -> d_equals_one ((d2c (pleft d) pleft) x)
@@ -132,9 +132,9 @@ d2c baseType =
 --                         )
 --
 
-d_equals_one = Anno (lam (ite (varN 0) (ite (PLeft (varN 0)) Zero (i2g 1)) Zero)) (Pair Zero Zero)
+d_equals_one = anno (lam (ite (varN 0) (ite (PLeft (varN 0)) Zero (i2g 1)) Zero)) (Pair Zero Zero)
 
-d_to_equality = Anno (lam (lam (ite (varN 1)
+d_to_equality = anno (lam (lam (ite (varN 1)
                                           (App d_equals_one (App (App (App (d2c Zero) (PLeft $ varN 1)) (lam . PLeft $ varN 0)) (varN 0)))
                                           (ite (varN 0) Zero (i2g 1))
                                          ))) (Pair Zero (Pair Zero Zero))
@@ -145,9 +145,9 @@ list_equality =
                      (App list_length (varN 0))
       and_ = lam (lam (ite (varN 1) (varN 0) Zero))
       folded = App (App (App foldr_ and_) (i2g 1)) (Pair length_equal pairs_equal)
-  in Anno (lam (lam folded)) (Pair Zero (Pair Zero Zero))
+  in anno (lam (lam folded)) (Pair Zero (Pair Zero Zero))
 
-list_length = Anno (lam (App (App (App foldr_ (lam (lam (Pair (varN 0) Zero))))
+list_length = anno (lam (App (App (App foldr_ (lam (lam (Pair (varN 0) Zero))))
                                   Zero)
   (varN 0))) (Pair Zero Zero)
 
@@ -157,9 +157,9 @@ plus_ x y =
       church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
       plus_type = Pair church_type (Pair church_type church_type)
       plus = lam (lam (lam (lam plus_app)))
-  in App (App (Anno plus plus_type) x) y
+  in App (App (anno plus plus_type) x) y
 
-d_plus = Anno (lam (lam (App c2d (plus_
+d_plus = anno (lam (lam (App c2d (plus_
                                    (App (d2c Zero) (varN 1))
                                    (App (d2c Zero) (varN 0))
                                    )))) (Pair Zero (Pair Zero Zero))
@@ -186,7 +186,7 @@ one_plus_one =
       church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
       plus_type = Pair church_type (Pair church_type church_type)
       plus = lam (lam (lam (lam plus_app)))
-  in App c2d (App (App (Anno plus plus_type) (toChurch 1)) (toChurch 1))
+  in App c2d (App (App (anno plus plus_type) (toChurch 1)) (toChurch 1))
 
 -- m f (n f x)
 -- App (App m f) (App (App n f) x)
@@ -197,7 +197,7 @@ three_plus_two =
       church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
       plus_type = Pair church_type (Pair church_type church_type)
       plus = lam (lam (lam (lam plus_app)))
-  in App c2d (App (App (Anno plus plus_type) (toChurch 3)) (toChurch 2))
+  in App c2d (App (App (anno plus plus_type) (toChurch 3)) (toChurch 2))
 
 -- (m (n f)) x
 -- App (App m (App n f)) x
@@ -207,7 +207,7 @@ three_times_two =
       church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
       times_type = Pair church_type (Pair church_type church_type)
       times = lam (lam (lam (lam times_app)))
-  in App (App (App (App (Anno times times_type) (toChurch 3)) (toChurch 2)) succ) Zero
+  in App (App (App (App (anno times times_type) (toChurch 3)) (toChurch 2)) succ) Zero
 
 -- m n
 -- App (App (App (m n)) f) x
@@ -217,7 +217,7 @@ three_pow_two =
       church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
       pow_type = Pair (Pair church_type church_type) (Pair church_type church_type)
       pow = lam (lam (lam (lam pow_app)))
-  in App (App (App (App (Anno pow pow_type) (toChurch 2)) (toChurch 3)) succ) Zero
+  in App (App (App (App (anno pow pow_type) (toChurch 2)) (toChurch 3)) succ) Zero
 
 unitTest :: String -> String -> IExpr -> IO Bool
 unitTest name expected iexpr = if fullCheck iexpr ZeroType
@@ -241,8 +241,8 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
-  [ unitTestType "main = $1"
-    (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType)) True
+  [ unitTestType "main : 0 = 0"
+    ZeroType True
   , unitTestType "main : {0,0} = \\x -> {x,0}" (ArrType ZeroType ZeroType) True
   --, unitTestType "main : {0,0} = \\x -> {x,0}" ZeroType False
   --, unitTest "church 1+1" "2" one_plus_one
