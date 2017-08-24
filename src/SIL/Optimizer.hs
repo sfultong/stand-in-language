@@ -32,42 +32,51 @@ partiallyApply = endoMap f where
   f (App (Closure (Closure ic Zero) env) i) = Closure ic (Pair i env)
   f x = x
 
-{-
-applyOuterVarsSingle :: Int -> (IExpr -> IExpr) -> IExpr -> (IExpr, Set Int)
-applyOuterVarsSingle applied wrapper x =
-  let (nx, vx) = applyOuterVars applied x in (wrapper nx, vx)
+-- merge and push checks up to top level of expression
+promoteChecks :: IExpr -> IExpr
+promoteChecks = endoMap f where
+  f (Check (Check x tci) tco) =
+    Check x
+    (Closure
+     (App
+      (Closure
+       (App
+        (Gate (PLeft Var))
+        (Pair
+         (App tci (PLeft (PRight Var)))
+         (PLeft Var)
+        )
+       )
+       Zero
+      )
+      (App tco (PLeft Var))
+     )
+     Zero
+    )
+  f (Pair (Check a tca) (Check b tcb)) =
+    Check (Pair a b)
+    (Closure
+     (App
+      (Closure
+       (App
+        (Gate (PLeft Var))
+        (Pair
+         (App tca (PRight (PLeft (PRight Var))))
+         (PLeft Var)
+        )
+       )
+       Zero
+      )
+      (App tcb (PLeft (PLeft Var)))
+     )
+     Zero
+    )
 
-applyToInnerClosure :: Int -> IExpr -> IExpr
-applyToInnerClosure applied (Closure c@(Closure _ _) Zero) =
-  Closure (applyToInnerClosure applied c) Zero
-applyToInnerClosure applied (Closure c Zero) =
-  let (nc, vc) = applyOuterVars 0 c
-      outerVars = filter (>= applied) $ Set.toAscList vc
-      wrappedC = foldr (\i c -> App c . Var $ i2g i) nc outerVars
-  in wrappedC
-applyToInnerClosure _ x = error $ concat ["applytoIC, how did we get ", show x]
+{- TODO something to convert all closures that don't return zerotype to ones that do
 
--- apply outer vars to inner closures
-applyOuterVars :: Int -> IExpr -> (IExpr, Set Int)
-applyOuterVars _ Zero = (Zero, Set.empty)
-applyOuterVars applied (Pair a b) =
-  let (na, nav) = applyOuterVars applied a
-      (nb, nbv) = applyOuterVars applied b
-  in (Pair na nb, Set.union nav nbv)
-applyOuterVars _ (Var v) = (Var v, Set.singleton $ g2i v)
-applyOuterVars applied (App c i) =
-  let (ni, vi) = applyOuterVars applied i
-      (nc, vc) = applyOuterVars (applied + 1) c
-  in (App nc ni, Set.union vi vc)
-applyOuterVars applied (Anno c t) =
-  let (nc, vc) = applyOuterVars applied c
-      (nt, vt) = applyOuterVars applied t
-  in (Anno nc nt, Set.union vc vt)
-applyOuterVars applied (Gate g) = applyOuterVarsSingle applied Gate g
-applyOuterVars applied (PLeft x) = applyOuterVarsSingle applied PLeft x
-applyOuterVars applied (PRight x) = applyOuterVarsSingle applied PRight x
-applyOuterVars applied (Trace x) = applyOuterVarsSingle applied Trace x
-applyOuterVars applied c@(Closure _ _) = (applyToInnerClosure applied c, Set.empty)
+  \a b -> {a,b} : D -> (D -> D)
+
+  (\f x -> f x) ((\a b -> {a,b}) 0) 1
 
 -}
 

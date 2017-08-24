@@ -11,7 +11,7 @@ data IExpr
   | Pair !IExpr !IExpr       -- {,}
   | Var                      -- identifier
   | App !IExpr !IExpr        --
-  | Anno !IExpr !IExpr       -- :
+  | Check !IExpr !IExpr      -- :
   | Gate !IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
@@ -24,7 +24,7 @@ instance EndoMapper IExpr where
   endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
   endoMap f Var = f Var
   endoMap f (App c i) = f $ App (endoMap f c) (endoMap f i)
-  endoMap f (Anno c t) = f $ Anno (endoMap f c) (endoMap f t)
+  endoMap f (Check c t) = f $ Check (endoMap f c) (endoMap f t)
   endoMap f (Gate g) = f $ Gate (endoMap f g)
   endoMap f (PLeft x) = f $ PLeft (endoMap f x)
   endoMap f (PRight x) = f $ PRight (endoMap f x)
@@ -39,6 +39,25 @@ ite i t e = App (Gate i) (Pair e t)
 
 varN :: Int -> IExpr
 varN n = PLeft (iterate PRight Var !! n)
+
+-- hack to support old style type annotations
+makeTypeCheckTest_ :: IExpr -> IExpr -> IExpr
+makeTypeCheckTest_ Zero v = App (Gate v) Zero -- v
+--makeTypeCheckTest_ (Pair a Zero) v = Gate (App v (makeTypeCheckTestA a))
+makeTypeCheckTest_ (Pair a b) v = makeTypeCheckTest_ b $ App v (makeTypeCheckTestA a)
+
+makeTypeCheckTestA :: IExpr -> IExpr
+makeTypeCheckTestA Zero = Zero
+--makeTypeCheckTestA (Pair Zero Zero) = Gate Zero
+makeTypeCheckTestA x = Closure (makeTypeCheckTest_ x (PLeft Var)) Zero
+
+makeTypeCheckTest :: IExpr -> IExpr
+--TODO fix
+--makeTypeCheckTest x = Closure (makeTypeCheckTest_ x (PLeft Var)) Zero
+makeTypeCheckTest x = Closure Zero Zero
+
+anno :: IExpr -> IExpr -> IExpr
+anno g tc = Check g $ makeTypeCheckTest tc
 
 data DataType
   = ZeroType
@@ -76,7 +95,29 @@ instance Show PrettyPartialType where
     (ArrTypeP a b) -> concat [showInternalP a, " -> ", showInternalP b]
     (PairTypeP a b) ->
       concat ["{", show $ PrettyPartialType a, ",", show $ PrettyPartialType b, "}"]
+    (TypeVariable (-1)) -> "badType"
     (TypeVariable x) -> 'v' : show x
+
+instance EndoMapper DataType where
+  endoMap f ZeroType = f ZeroType
+  endoMap f (ArrType a b) = f $ ArrType (endoMap f a) (endoMap f b)
+  endoMap f (PairType a b) = f $ PairType (endoMap f a) (endoMap f b)
+
+instance EndoMapper PartialType where
+  endoMap f ZeroTypeP = f ZeroTypeP
+  endoMap f (TypeVariable i) = f $ TypeVariable i
+  endoMap f (ArrTypeP a b) = f $ ArrTypeP (endoMap f a) (endoMap f b)
+  endoMap f (PairTypeP a b) = f $ PairTypeP (endoMap f a) (endoMap f b)
+
+mergePairType :: DataType -> DataType
+mergePairType = endoMap f where
+  f (PairType ZeroType ZeroType) = ZeroType
+  f x = x
+
+mergePairTypeP :: PartialType -> PartialType
+mergePairTypeP = endoMap f where
+  f (PairTypeP ZeroTypeP ZeroTypeP) = ZeroTypeP
+  f x = x
 
 packType :: DataType -> IExpr
 packType ZeroType = Zero

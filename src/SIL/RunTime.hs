@@ -12,7 +12,7 @@ data RExpr
   = RZero
   | RPair !RExpr !RExpr
   | RVar
-  | RAnno !RExpr !RExpr
+  | RCheck !RExpr !RExpr
   | RApp !RExpr !RExpr
   | RGate !RExpr
   | RLeft !RExpr
@@ -29,7 +29,7 @@ instance EndoMapper RExpr where
   endoMap f (RPair a b) = f $ RPair (endoMap f a) (endoMap f b)
   endoMap f RVar = f RVar
   endoMap f (RApp c i) = f $ RApp (endoMap f c) (endoMap f i)
-  endoMap f (RAnno c t) = f $ RAnno (endoMap f c) (endoMap f t)
+  endoMap f (RCheck c t) = f $ RCheck (endoMap f c) (endoMap f t)
   endoMap f (RGate x) = f . RGate $ endoMap f x
   endoMap f (RLeft x) = f . RLeft $ endoMap f x
   endoMap f (RRight x) = f . RRight $ endoMap f x
@@ -42,7 +42,7 @@ toRExpr :: IExpr -> RExpr
 toRExpr Zero = RZero
 toRExpr (Pair a b) = RPair (toRExpr a) (toRExpr b)
 toRExpr Var = RVar
-toRExpr (Anno c t) = RAnno (toRExpr c) (toRExpr t)
+toRExpr (Check c t) = RCheck (toRExpr c) (toRExpr t)
 toRExpr (App c i) = RApp (toRExpr c) (toRExpr i)
 toRExpr (Gate x) = RGate $ toRExpr x
 toRExpr (PLeft x) = RLeft $ toRExpr x
@@ -54,7 +54,7 @@ fromRExpr :: RExpr -> IExpr
 fromRExpr RZero = Zero
 fromRExpr (RPair a b) = Pair (fromRExpr a) (fromRExpr b)
 fromRExpr RVar = Var
-fromRExpr (RAnno c t) = Anno (fromRExpr c) (fromRExpr t)
+fromRExpr (RCheck c t) = Check (fromRExpr c) (fromRExpr t)
 fromRExpr (RApp c i) = App (fromRExpr c) (fromRExpr i)
 fromRExpr (RGate x) = Gate $ fromRExpr x
 fromRExpr (RLeft x) = PLeft $ fromRExpr x
@@ -68,7 +68,11 @@ rEval f env g = let f' = f env in case g of
   RZero -> pure RZero
   (RPair a b) -> RPair <$> f' a <*> f' b
   RVar -> pure env
-  RAnno c t -> f' c
+  RCheck c t -> do
+    tcResult <- f' (RApp t c)
+    case tcResult of
+      RZero -> f' c
+      err -> fail $ concat ["failed rrefinement check for ", show c, " -- ",  show err]
   RApp g i -> let rApply (RClosure ng eenv) v = f (RPair v eenv) ng
                   rApply (RChurch ci Nothing) v = pure $ RChurch ci (Just v)
                   rApply (RChurch ci (Just cf)) v =
@@ -80,12 +84,9 @@ rEval f env g = let f' = f env in case g of
     ng <- f' g
     ni <- f' i
     rApply ng ni
-  {-
   RGate x -> f' x >>= \g -> case g of
     RZero -> pure $ RClosure (RLeft (RLeft RVar)) RZero
     _ -> pure $ RClosure (RRight (RLeft RVar)) RZero
--}
-  RGate x -> fail "gates should be optimized away"
   RLeft g -> f' g >>= \g -> case g of
     (RPair a _) -> pure a
     _ -> pure RZero
@@ -111,7 +112,11 @@ iEval f env g = let f' = f env in case g of
     nb <- f' b
     pure $ Pair na nb
   Var -> pure env
-  Anno c t -> f' c
+  Check c t -> do
+    tc <- f' (App t c)
+    case tc of
+      Zero -> f' c
+      x -> fail $ concat ["failed refinement check for ", show c, " -- ", show x]
   App g cexp -> do --- given t, type {{a,t},{a,t}}
     ng <- f' g
     i <- f' cexp
@@ -168,6 +173,9 @@ optimizedEval = fasterEval --simpleEval . optimize
 pureEval :: IExpr -> IExpr
 pureEval g = runIdentity $ fix iEval Zero g
 
+pureREval :: IExpr -> IExpr
+pureREval = fromRExpr . runIdentity . fix rEval RZero . rOptimize . toRExpr
+
 showPass :: Show a => IO a -> IO a
 showPass a = a >>= print >> a
 
@@ -188,10 +196,10 @@ fullEval typeCheck i = typedEval typeCheck i print
 
 prettyEval typeCheck i = typedEval typeCheck i (print . PrettyIExpr)
 
-evalLoop :: (IExpr -> PartialType) -> IExpr -> IO ()
-evalLoop inferType iexpr = if inferType iexpr == ArrTypeP ZeroTypeP ZeroTypeP
+evalLoop :: (Show a, Eq a) => (DataType -> IExpr -> Maybe a) -> IExpr -> IO ()
+evalLoop typeCheck iexpr = if typeCheck (ArrType ZeroType ZeroType) iexpr == Nothing
   then let mainLoop s = do
-             result <- simpleEval $ App optIExpr s
+             result <- fmap fromRExpr . fix rEval RZero $ RApp optIExpr (toRExpr s)
              case result of
                Zero -> putStrLn "aborted"
                (Pair disp newState) -> do
@@ -202,7 +210,7 @@ evalLoop inferType iexpr = if inferType iexpr == ArrTypeP ZeroTypeP ZeroTypeP
                      inp <- s2g <$> getLine
                      mainLoop $ Pair inp newState
                r -> putStrLn $ concat ["runtime error, dumped ", show r]
-           optIExpr = optimize iexpr
+           optIExpr = rOptimize $ toRExpr iexpr
        in mainLoop Zero
   else putStrLn $ concat ["main's inferred type: "
-                         , show $ PrettyPartialType $ inferType iexpr]
+                         , show $ typeCheck (ArrType ZeroType ZeroType) iexpr]

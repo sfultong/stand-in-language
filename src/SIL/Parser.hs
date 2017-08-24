@@ -78,7 +78,7 @@ convertPT TZero = Zero
 convertPT (TPair a b) = Pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
 convertPT (TApp i c) = App (convertPT i) (convertPT c)
-convertPT (TAnno c i) = Anno (convertPT c) (convertPT i)
+convertPT (TAnno c i) = Check (convertPT c) (makeCheck $ convertPT i)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = PLeft (convertPT i)
 convertPT (TRight i) = PRight (convertPT i)
@@ -245,8 +245,9 @@ resolveBinding name bindings = Map.lookup name bindings >>=
 
 printBindingTypes :: Bindings -> IO ()
 printBindingTypes bindings =
-  let showType (s, iexpr) = putStrLn $
-        concat [s, ": ", show . PrettyPartialType . inferType $ iexpr]
+  let showType (s, iexpr) = putStrLn $ case inferType iexpr of
+        Left pa -> concat [s, ": bad type -- ", show pa]
+        Right ft ->concat [s, ": ", show . PrettyPartialType $ ft]
       resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showType
