@@ -249,11 +249,6 @@ churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main : 0 = 0" ZeroType True
-  , unitTest2 "main = map c2d (range $2 $4)" "{2,4}"
-  --, unitTest2 "main = map c2d (range $6 $6)" "0"
-  --, unitTest2 "main = map c2d (range $2 $4)" "{2,4}"
-  --, unitTest2 "main = map c2d (range $2 $5)" "{2,{3,5}}"
-  --, unitTest2 "main = map c2d (range $6 $6)" "0"
   ]
 
 unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
@@ -316,6 +311,8 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = listEqual \"hey\" \"he\"" "0"
   , unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
   , unitTest2 "main = listPlus [1,2] [3,4]" "{1,{2,{3,5}}}"
+  , unitTest2 "main = listPlus 0 [1]" "2"
+  , unitTest2 "main = listPlus [1] 0" "2"
   , unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "{97,{98,100}}"
   , unitTest2 nestedNamedFunctionsIssue "2"
   , unitTest2 "main = take $0 [1,2,3]" "0"
@@ -327,6 +324,12 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = dMinus 4 4" "0"
   , unitTest2 "main = map c2d (range $2 $5)" "{2,{3,5}}"
   , unitTest2 "main = map c2d (range $6 $6)" "0"
+  , unitTest2 "main = c2d (factorial $4)" "24"
+  , unitTest2 "main = c2d (factorial $0)" "1"
+  , unitTest2 "main = map c2d (filter (\\x -> c2d (minus x $3)) (range $1 $8))"
+    "{4,{5,{6,8}}}"
+  , unitTest2 "main = map c2d (quicksort [$4,$3,$7,$1,$2,$4,$6,$9,$8,$5,$7])"
+    "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
   {-
   , unitTestOptimization "listequal0" $ App (App list_equality (s2g "hey")) (s2g "he")
   , unitTestOptimization "map" $ App (App map_ (lam (Pair (varN 0) Zero))) (ints2g [1,2,3])

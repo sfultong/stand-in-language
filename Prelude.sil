@@ -64,6 +64,8 @@ zipWithG : zipWithT = \r f -> let layer = \recur a b -> if (and a b)
                               in r layer base 
 zipWith = zipWithG $255
 
+filter = \f -> foldr (\a b -> if f a then {a, b} else b) 0 
+
 dEqual : {0,{0,0}} = \a b -> let equalsOne : {0,0} = \x -> if x then (not (left x)) else 0
                              in if a then equalsOne (d2c (left a) (\x -> left x) b)
                                      else not b
@@ -84,3 +86,14 @@ drop : {CT,{0,0}}
 take : {CT,{0,0}}
  = \n l -> let lengthed = n (\x -> {0,x}) 0
            in zipWith (\a b -> a) l lengthed
+
+factorial = \n -> foldr times $1 (range $1 (plus n $1))
+
+quicksort = let layer = \recur l -> if right l
+                                       then let t = left l
+                                                test = \x -> c2d (minus x t)
+                                                p1 = filter test (right l)
+                                                p2 = filter (\x -> not (test x)) (right l)
+                                            in listPlus (recur p2) {t,(recur p1)}
+                                       else l
+            in $255 layer (\l -> 0)
