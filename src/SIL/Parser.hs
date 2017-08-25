@@ -179,9 +179,7 @@ parseSingleExpr = choice [ parseString
 parseApplied :: SILParser Term1
 parseApplied = withPos $ do
   (f:args) <- many1 (sameOrIndented *> parseSingleExpr)
-  case (f,args) of
-    (TLam g, (x:xs)) -> fail $ "(applied) expecting typed expression " ++ show g
-    _ -> pure $ foldl TApp f args
+  pure $ foldl TApp f args
 
 parseLongExpr :: SILParser Term1
 parseLongExpr = choice [ parseLet

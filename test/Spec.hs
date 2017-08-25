@@ -249,37 +249,11 @@ churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main : 0 = 0" ZeroType True
-  , putStrLn "1" >> pure True
-  , unitTestType "main = \\x -> {x,0}" (ArrType ZeroType ZeroType) True
-  , putStrLn "2" >> pure True
-  , unitTestType "main = \\x -> {x,0}" ZeroType False
-  , putStrLn "3" >> pure True
-  , unitTestType "main = succ 0" ZeroType True
-  , putStrLn "4" >> pure True
-  , unitTestType "main = succ 0" (ArrType ZeroType ZeroType) False
-  , putStrLn "5" >> pure True
-  , unitTestType "main = or 0" (ArrType ZeroType ZeroType) True
-  , putStrLn "6" >> pure True
-  , unitTestType "main = or 0" ZeroType False
-  , putStrLn "7" >> pure True
-  , unitTestType "main = or succ" (ArrType ZeroType ZeroType) False
-  , putStrLn "8" >> pure True
-  , unitTestType "main = 0 succ" ZeroType False
-  , putStrLn "9" >> pure True
-  , unitTestType "main = 0 0" ZeroType False
-  , putStrLn "a" >> pure True
-  , unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-    (ArrType (ArrType ZeroType ZeroType) ZeroType) False
-  , putStrLn "b" >> pure True
-  , unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType True
-  , putStrLn "c" >> pure True
-  , unitTestType "main = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) True
-  , putStrLn "d" >> pure True
-  , unitTestType "main = \\m n -> m n"
-    (ArrType (ArrType churchType churchType) (ArrType churchType churchType)) True
-  , putStrLn "e" >> pure True
-  , unitTestType "main = \\m n -> m n"
-    (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType)) True
+  , unitTest2 "main = map c2d (range $2 $4)" "{2,4}"
+  --, unitTest2 "main = map c2d (range $6 $6)" "0"
+  --, unitTest2 "main = map c2d (range $2 $4)" "{2,4}"
+  --, unitTest2 "main = map c2d (range $2 $5)" "{2,{3,5}}"
+  --, unitTest2 "main = map c2d (range $6 $6)" "0"
   ]
 
 unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
@@ -351,6 +325,8 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = c2d (minus $4 $4)" "0"
   , unitTest2 "main = dMinus 4 3" "1"
   , unitTest2 "main = dMinus 4 4" "0"
+  , unitTest2 "main = map c2d (range $2 $5)" "{2,{3,5}}"
+  , unitTest2 "main = map c2d (range $6 $6)" "0"
   {-
   , unitTestOptimization "listequal0" $ App (App list_equality (s2g "hey")) (s2g "he")
   , unitTestOptimization "map" $ App (App map_ (lam (Pair (varN 0) Zero))) (ints2g [1,2,3])
