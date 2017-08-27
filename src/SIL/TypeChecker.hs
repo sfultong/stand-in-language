@@ -98,10 +98,11 @@ lookupTypeEnv :: [a] -> Int -> Maybe a
 lookupTypeEnv env ind = if ind < length env then Just (env !! ind) else Nothing
 
 data TypeCheckError
-  = RecursiveType Int
+  = UnboundType Int
+  | RefinementFailure String
   | InconsistentTypes PartialType PartialType
   | WrongInferredType DataType DataType -- expected, inferred
-  | UnboundType Int
+  | RecursiveType Int
   deriving (Eq, Ord, Show)
 
 -- State is closure environment, map of unresolved types, unresolved type id supply
@@ -157,32 +158,39 @@ associateVar :: PartialType -> PartialType -> AnnotateState Bool
 associateVar a b = state $ \(env, typeMap, v, err)
   -> case (checkOrAssociate a b Set.empty typeMap, err) of
        (Right tm, _) -> (True, (env, tm, v, err))
-       (Left _, Just _) -> (False, (env, typeMap, v, err))
-       (Left te, Nothing) -> (False, (env, typeMap, v, Just te))
+       (Left err1, Just err2) | err1 < err2 -> (False, (env, typeMap, v, err))
+       (Left te, _) -> (False, (env, typeMap, v, Just te))
 
 -- convert a PartialType to a full type, aborting on circular references
 fullyResolve :: Map Int PartialType -> PartialType -> Maybe DataType
-fullyResolve typeMap x = filterTypeVars $ mostlyResolve typeMap x where
-  filterTypeVars ZeroTypeP = pure ZeroType
-  filterTypeVars (TypeVariable _) = Nothing
-  filterTypeVars (ArrTypeP a b) = ArrType <$> filterTypeVars a <*> filterTypeVars b
-  filterTypeVars (PairTypeP a b) = PairType <$> filterTypeVars a <*> filterTypeVars b
+fullyResolve typeMap x = case mostlyResolved of
+  Left _ -> Nothing
+  Right mr -> filterTypeVars mr
+  where
+    filterTypeVars ZeroTypeP = pure ZeroType
+    filterTypeVars (TypeVariable _) = Nothing
+    filterTypeVars (ArrTypeP a b) = ArrType <$> filterTypeVars a <*> filterTypeVars b
+    filterTypeVars (PairTypeP a b) = PairType <$> filterTypeVars a <*> filterTypeVars b
+    mostlyResolved = mostlyResolve typeMap x
 
 -- resolve as much of a partial type as possible, aborting on circular references
-mostlyResolve_ :: Set Int -> Map Int PartialType -> PartialType -> PartialType
-mostlyResolve_ _ _ ZeroTypeP = ZeroTypeP
+mostlyResolve_ :: Set Int -> Map Int PartialType -> PartialType
+  -> Either TypeCheckError PartialType
+mostlyResolve_ _ _ ZeroTypeP = pure ZeroTypeP
 mostlyResolve_ resolved typeMap (TypeVariable i) =
   case (Set.member i resolved, Map.lookup i typeMap) of
-    (True, _) -> badType
+    (True, _) -> if isRecursivePair Set.empty typeMap (TypeVariable i)
+      then pure ZeroTypeP
+      else Left $ RecursiveType i
     (_, Just x) -> mostlyResolve_ (Set.insert i resolved) typeMap x
-    (_, Nothing) -> TypeVariable i
+    (_, Nothing) -> pure $ TypeVariable i
 mostlyResolve_ resolved typeMap (ArrTypeP a b) =
-  ArrTypeP (mostlyResolve_ resolved typeMap a) (mostlyResolve_ resolved typeMap b)
+  ArrTypeP <$> mostlyResolve_ resolved typeMap a <*> mostlyResolve_ resolved typeMap b
 mostlyResolve_ resolved typeMap (PairTypeP a b) =
-  PairTypeP (mostlyResolve_ resolved typeMap a) (mostlyResolve_ resolved typeMap b)
+  PairTypeP <$> mostlyResolve_ resolved typeMap a <*> mostlyResolve_ resolved typeMap b
 
-mostlyResolve :: Map Int PartialType -> PartialType -> PartialType
-mostlyResolve typeMap x = mergePairTypeP $ mostlyResolve_ Set.empty typeMap x
+mostlyResolve :: Map Int PartialType -> PartialType -> Either TypeCheckError PartialType
+mostlyResolve typeMap x = mergePairTypeP <$> mostlyResolve_ Set.empty typeMap x
 
 annotate :: IExpr -> AnnotateState ExprPA
 annotate Zero = pure ZeroA
@@ -296,6 +304,25 @@ fullyAnnotate typeMap (TraceA x) = TraceA <$> fullyAnnotate typeMap x
 fullyAnnotate typeMap l@(ClosureA c i t) = ClosureA
   <$> fullyAnnotate typeMap c <*> fullyAnnotate typeMap i <*> resolveOrAlt typeMap t
 
+-- apply mostlyAnnotate recursively to exprPA
+fullyMostlyAnnotate :: Map Int PartialType -> ExprPA -> Either TypeCheckError ExprPA
+fullyMostlyAnnotate _ ZeroA = Right ZeroA
+fullyMostlyAnnotate tm (PairA a b) =
+  PairA <$> fullyMostlyAnnotate tm a <*> fullyMostlyAnnotate tm b
+fullyMostlyAnnotate tm (VarA a) = VarA <$> mostlyResolve tm a
+fullyMostlyAnnotate tm (AppA c i a) =
+  AppA <$> fullyMostlyAnnotate tm c <*> fullyMostlyAnnotate tm i <*> mostlyResolve tm a
+fullyMostlyAnnotate tm (CheckA c t) =
+  CheckA <$> fullyMostlyAnnotate tm c <*> fullyMostlyAnnotate tm t
+fullyMostlyAnnotate tm (GateA x) = GateA <$> fullyMostlyAnnotate tm x
+fullyMostlyAnnotate tm (PLeftA x a) =
+  PLeftA <$> fullyMostlyAnnotate tm x <*> mostlyResolve tm a
+fullyMostlyAnnotate tm (PRightA x a) =
+  PRightA <$> fullyMostlyAnnotate tm x <*> mostlyResolve tm a
+fullyMostlyAnnotate tm (TraceA x) = TraceA <$> fullyMostlyAnnotate tm x
+fullyMostlyAnnotate tm (ClosureA c i a) =
+  ClosureA <$> fullyMostlyAnnotate tm c <*> fullyMostlyAnnotate tm i <*> mostlyResolve tm a
+
 tcStart :: (PartialType, Map Int PartialType, Int, Maybe TypeCheckError)
 tcStart = (ZeroTypeP, Map.empty, 0, Nothing)
 
@@ -303,13 +330,15 @@ partiallyAnnotate :: IExpr -> Either TypeCheckError (Map Int PartialType, ExprPA
 partiallyAnnotate iexpr =
   let (iexpra, (_, typeMap, _, err)) = runState (annotate iexpr) tcStart
       debugT = trace (concat ["iexpra:\n", show iexpra, "\ntypemap:\n", show typeMap])
+      debug2 x = trace (concat ["iexpra:\n", show iexpra, "\niexpra2:\n", show x, "\ntypemap:\n", show typeMap]) x
+      fullResolution = fullyMostlyAnnotate typeMap iexpra
+  -- TODO add in step to run all check functions and mconcat their results
   in case err of
-    Nothing -> pure (typeMap, iexpra)
+    Nothing -> fullResolution >>= \x -> pure (typeMap, x)
     Just et -> Left et
 
 inferType :: IExpr -> Either TypeCheckError PartialType
-inferType iexpr = (\(tm, exp) -> mostlyResolve tm $ getPartialAnnotation exp)
-  <$> partiallyAnnotate iexpr
+inferType iexpr = partiallyAnnotate iexpr >>= (\(tm, exp) -> mostlyResolve tm $ getPartialAnnotation exp)
 
 typeCheck :: DataType -> IExpr -> Maybe TypeCheckError
 typeCheck t iexpr =
