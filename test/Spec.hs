@@ -249,15 +249,23 @@ churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main : 0 = 0" ZeroType True
+  , unitTest "two" "2" two_succ
+  --, unitTest "three" "3" three_succ
   ]
 
+isInconsistentType (Just (InconsistentTypes _ _)) = True
+isInconsistentType _ = False
+
+isRecursiveType (Just (RecursiveType _)) = True
+isRecursiveType _ = False
+
 unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
-  [ unitTestType "main : {0,0} = \\x -> {x,0}" (ArrType ZeroType ZeroType) True
-  , unitTestType "main : {0,0} = \\x -> {x,0}" ZeroType False
-  , unitTestType "main = succ 0" ZeroType True
-  , unitTestType "main = succ 0" (ArrType ZeroType ZeroType) False
-  , unitTestType "main = or 0" (ArrType ZeroType ZeroType) True
-  , unitTestType "main = or 0" ZeroType False
+  [ unitTestType "main : {0,0} = \\x -> {x,0}" (ArrType ZeroType ZeroType) (== Nothing)
+  , unitTestType "main : {0,0} = \\x -> {x,0}" ZeroType isInconsistentType
+  , unitTestType "main = succ 0" ZeroType (== Nothing)
+  , unitTestType "main = succ 0" (ArrType ZeroType ZeroType) isInconsistentType
+  , unitTestType "main = or 0" (ArrType ZeroType ZeroType) (== Nothing)
+  , unitTestType "main = or 0" ZeroType isInconsistentType
   {- broken tests... need to fix type checking
   , unitTestType "main : {0,0} = 0" ZeroType False
   , unitTestType "main : {0,{0,0}} = \\x -> {x,0}" (ArrType ZeroType ZeroType) False
@@ -265,14 +273,14 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
     False
   , unitTestType "main : 0 = \\x -> {x,0}" (ArrType ZeroType ZeroType) False
 -}
-  , unitTestType "main = or succ" (ArrType ZeroType ZeroType) False
-  , unitTestType "main = 0 succ" ZeroType False
-  , unitTestType "main = 0 0" ZeroType False
+  , unitTestType "main = or succ" (ArrType ZeroType ZeroType) isInconsistentType
+  , unitTestType "main = 0 succ" ZeroType isInconsistentType
+  , unitTestType "main = 0 0" ZeroType isInconsistentType
   , unitTestType "main : {{0,0},0} = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-    (ArrType (ArrType ZeroType ZeroType) ZeroType) False
-  , unitTestType "main : 0 = (\\f -> f 0) (\\g -> {g,0})" ZeroType True
-  , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) True
-  , unitTestType "main = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) True
+    (ArrType (ArrType ZeroType ZeroType) ZeroType) isRecursiveType
+  , unitTestType "main : 0 = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
+  , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
+  , unitTestType "main = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
   , unitTest "three" "3" three_succ
   , unitTest "church 3+2" "5" three_plus_two
   , unitTest "3*2" "6" three_times_two
@@ -371,13 +379,10 @@ main = do
       Right g -> fmap (show . PrettyIExpr) (optimizedEval g) >>= \r2 -> if r2 == r
         then pure True
         else (putStrLn $ concat [s, " result ", r2]) >> pure False
-    unitTestType s t b = case parseMain prelude s of
+    unitTestType s t tef = case parseMain prelude s of
       Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
       Right g -> let apt = typeCheck t g
-                     typeSuccess = case apt of
-                       Nothing -> True
-                       Just _ -> False
-                 in if typeSuccess == b
+                 in if tef apt
                     then pure True
                     else (putStrLn $
                           concat [s, " failed typecheck, result ", show apt])

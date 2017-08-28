@@ -332,9 +332,16 @@ partiallyAnnotate iexpr =
       debugT = trace (concat ["iexpra:\n", show iexpra, "\ntypemap:\n", show typeMap])
       debug2 x = trace (concat ["iexpra:\n", show iexpra, "\niexpra2:\n", show x, "\ntypemap:\n", show typeMap]) x
       fullResolution = fullyMostlyAnnotate typeMap iexpra
-  -- TODO add in step to run all check functions and mconcat their results
+      evalCheck (Check c tc) = case pureREval (App tc c) of
+        Zero -> Right c
+        x -> Left . RefinementFailure $ g2s x
+      evalCheck x = pure x
+      unifiedAndRefined = case (fullResolution, eitherEndoMap evalCheck iexpr) of
+        (Right x, Right _) -> pure (typeMap, x)
+        (Left x, _) -> Left x
+        (_, Left x) -> Left x
   in case err of
-    Nothing -> fullResolution >>= \x -> pure (typeMap, x)
+    Nothing -> unifiedAndRefined
     Just et -> Left et
 
 inferType :: IExpr -> Either TypeCheckError PartialType

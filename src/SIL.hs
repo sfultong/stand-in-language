@@ -6,6 +6,9 @@ import Data.Char
 class EndoMapper a where
   endoMap :: (a -> a) -> a -> a
 
+class EitherEndoMapper a where
+  eitherEndoMap :: (a -> Either e a) -> a -> Either e a
+
 data IExpr
   = Zero                     -- no special syntax necessary
   | Pair !IExpr !IExpr       -- {,}
@@ -30,6 +33,19 @@ instance EndoMapper IExpr where
   endoMap f (PRight x) = f $ PRight (endoMap f x)
   endoMap f (Trace x) = f $ Trace (endoMap f x)
   endoMap f (Closure c i) = f $ Closure (endoMap f c) (endoMap f i)
+
+instance EitherEndoMapper IExpr where
+  eitherEndoMap f Zero = f Zero
+  eitherEndoMap f (Pair a b) = (Pair <$> eitherEndoMap f a <*> eitherEndoMap f b) >>= f
+  eitherEndoMap f Var = f Var
+  eitherEndoMap f (App c i) = (App <$> eitherEndoMap f c <*> eitherEndoMap f i) >>= f
+  eitherEndoMap f (Check c tc) = (Check <$> eitherEndoMap f c <*> eitherEndoMap f tc) >>= f
+  eitherEndoMap f (Gate x) = (Gate <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Trace x) = (Trace <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Closure c e) =
+    (Closure <$> eitherEndoMap f c <*> eitherEndoMap f e) >>= f
 
 lam :: IExpr -> IExpr
 lam x = Closure x Zero
