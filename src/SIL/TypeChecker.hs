@@ -179,9 +179,7 @@ mostlyResolve_ :: Set Int -> Map Int PartialType -> PartialType
 mostlyResolve_ _ _ ZeroTypeP = pure ZeroTypeP
 mostlyResolve_ resolved typeMap (TypeVariable i) =
   case (Set.member i resolved, Map.lookup i typeMap) of
-    (True, _) -> if isRecursivePair Set.empty typeMap (TypeVariable i)
-      then pure ZeroTypeP
-      else Left $ RecursiveType i
+    (True, _) -> Left $ RecursiveType i
     (_, Just x) -> mostlyResolve_ (Set.insert i resolved) typeMap x
     (_, Nothing) -> pure $ TypeVariable i
 mostlyResolve_ resolved typeMap (ArrTypeP a b) =
@@ -191,6 +189,21 @@ mostlyResolve_ resolved typeMap (PairTypeP a b) =
 
 mostlyResolve :: Map Int PartialType -> PartialType -> Either TypeCheckError PartialType
 mostlyResolve typeMap x = mergePairTypeP <$> mostlyResolve_ Set.empty typeMap x
+
+-- resolve as much as possible of recursive references, without returning error
+mostlyResolveRecursive_ :: Set Int -> Map Int PartialType -> PartialType -> PartialType
+mostlyResolveRecursive_ _ _ ZeroTypeP = ZeroTypeP
+mostlyResolveRecursive_ resolved typeMap (TypeVariable i) =
+  case (Set.member i resolved, Map.lookup i typeMap) of
+    (False, Just x) -> mostlyResolveRecursive_ (Set.insert i resolved) typeMap x
+    _ -> TypeVariable i
+mostlyResolveRecursive_ resolved typeMap (ArrTypeP a b) = ArrTypeP
+  (mostlyResolveRecursive_ resolved typeMap a) (mostlyResolveRecursive_ resolved typeMap b)
+mostlyResolveRecursive_ resolved typeMap (PairTypeP a b) = PairTypeP
+  (mostlyResolveRecursive_ resolved typeMap a) (mostlyResolveRecursive_ resolved typeMap b)
+
+mostlyResolveRecursive :: Map Int PartialType -> PartialType -> PartialType
+mostlyResolveRecursive = mostlyResolveRecursive_ Set.empty
 
 annotate :: IExpr -> AnnotateState ExprPA
 annotate Zero = pure ZeroA
@@ -257,16 +270,27 @@ annotate (PRight x) = do
   pure $ PLeftA nx anno
 annotate (Trace x) = TraceA <$> annotate x
 
--- a pair of ZeroType and itself is really just ZeroType
-isRecursivePair :: Set Int -> Map Int PartialType -> PartialType -> Bool
-isRecursivePair _ _ ZeroTypeP = True
-isRecursivePair resolved typeMap (PairTypeP a b) = isRecursivePair resolved typeMap a &&
-                                                   isRecursivePair resolved typeMap b
-isRecursivePair resolved _ (TypeVariable i) | Set.member i resolved = True
-isRecursivePair resolved typeMap (TypeVariable i) = case Map.lookup i typeMap of
-  Nothing -> False
-  Just x -> isRecursivePair (Set.insert i resolved) typeMap x
-isRecursivePair _ _ _ = False
+-- a fixable recursive type is one where there are no arrows.
+-- any undefined typevariables can be filled with ZeroType, and an infinite tree of
+-- ZeroTypes is equivalent to ZeroType
+isFixableRecursiveType :: Set Int -> Map Int PartialType -> PartialType -> Bool
+isFixableRecursiveType _ _ ZeroTypeP = True
+isFixableRecursiveType resolved typeMap (PairTypeP a b) =
+  isFixableRecursiveType resolved typeMap a && isFixableRecursiveType resolved typeMap b
+isFixableRecursiveType resolved _ (TypeVariable i) | Set.member i resolved = True
+isFixableRecursiveType resolved typeMap (TypeVariable i) = case Map.lookup i typeMap of
+  Nothing -> True
+  Just x -> isFixableRecursiveType (Set.insert i resolved) typeMap x
+isFixableRecursiveType _ _ _ = False
+
+refsInRecursiveType :: Set Int -> Map Int PartialType -> PartialType -> Set Int
+refsInRecursiveType resolved typeMap (PairTypeP a b) = Set.union
+  (refsInRecursiveType resolved typeMap a) (refsInRecursiveType resolved typeMap b)
+refsInRecursiveType resolved _ (TypeVariable i) | Set.member i resolved = Set.singleton i
+refsInRecursiveType resolved typeMap (TypeVariable i) = case Map.lookup i typeMap of
+  Nothing -> Set.singleton i
+  Just x -> refsInRecursiveType (Set.insert i resolved) typeMap x
+refsInRecursiveType _ _ _ = Set.empty
 
 resolveOrAlt_ :: Set Int -> Map Int PartialType -> PartialType
   -> Either TypeCheckError DataType
@@ -278,9 +302,7 @@ resolveOrAlt_ resolved typeMap (ArrTypeP a b) = ArrType
 resolveOrAlt_ resolved typeMap (TypeVariable i) =
   case (Set.member i resolved, Map.lookup i typeMap) of
     (False, Just nt) -> resolveOrAlt_ (Set.insert i resolved) typeMap nt
-    (True, _) -> if isRecursivePair Set.empty typeMap (TypeVariable i)
-      then Right ZeroType
-      else Left $ RecursiveType i
+    (True, _) -> Left $ RecursiveType i
     _ -> Left $ UnboundType i
 
 resolveOrAlt :: Map Int PartialType -> PartialType -> Either TypeCheckError DataType
@@ -304,24 +326,51 @@ fullyAnnotate typeMap (TraceA x) = TraceA <$> fullyAnnotate typeMap x
 fullyAnnotate typeMap l@(ClosureA c i t) = ClosureA
   <$> fullyAnnotate typeMap c <*> fullyAnnotate typeMap i <*> resolveOrAlt typeMap t
 
+{-
+findBadTypeRecursion :: Show s => s
+  -> Either TypeCheckError ExprPA -> Either TypeCheckError ExprPA
+findBadTypeRecursion s e@(Left (RecursiveType _)) = trace (concat ["\nfound:\n", show s, "\n"]) e
+findBadTypeRecursion _ x = x
+-}
+
 -- apply mostlyAnnotate recursively to exprPA
-fullyMostlyAnnotate :: Map Int PartialType -> ExprPA -> Either TypeCheckError ExprPA
-fullyMostlyAnnotate _ ZeroA = Right ZeroA
+fullyMostlyAnnotate :: Map Int PartialType -> ExprPA -> (Set Int, ExprPA)
+fullyMostlyAnnotate _ ZeroA = (Set.empty, ZeroA)
 fullyMostlyAnnotate tm (PairA a b) =
-  PairA <$> fullyMostlyAnnotate tm a <*> fullyMostlyAnnotate tm b
-fullyMostlyAnnotate tm (VarA a) = VarA <$> mostlyResolve tm a
+  let (sa, na) = fullyMostlyAnnotate tm a
+      (sb, nb) = fullyMostlyAnnotate tm b
+  in (Set.union sa sb, PairA na nb)
+--fullyMostlyAnnotate tm (VarA a) = VarA <$> mostlyResolve tm a
+fullyMostlyAnnotate tm (VarA a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, VarA a)
+  (Right mra) -> (Set.empty, VarA mra)
+  x -> error $ concat ["fma: ", show x]
 fullyMostlyAnnotate tm (AppA c i a) =
-  AppA <$> fullyMostlyAnnotate tm c <*> fullyMostlyAnnotate tm i <*> mostlyResolve tm a
+  let (sc, nc) = fullyMostlyAnnotate tm c
+      (si, ni) = fullyMostlyAnnotate tm c
+      ns = Set.union sc si
+  in case mostlyResolve tm a of
+    (Left (RecursiveType i)) -> (Set.insert i ns, AppA nc ni a)
+    (Right mra) -> (ns, AppA nc ni mra)
 fullyMostlyAnnotate tm (CheckA c t) =
-  CheckA <$> fullyMostlyAnnotate tm c <*> fullyMostlyAnnotate tm t
+  let (sc, nc) = fullyMostlyAnnotate tm c
+      (st, nt) = fullyMostlyAnnotate tm t
+  in (Set.union sc st, CheckA nc nt)
 fullyMostlyAnnotate tm (GateA x) = GateA <$> fullyMostlyAnnotate tm x
-fullyMostlyAnnotate tm (PLeftA x a) =
-  PLeftA <$> fullyMostlyAnnotate tm x <*> mostlyResolve tm a
-fullyMostlyAnnotate tm (PRightA x a) =
-  PRightA <$> fullyMostlyAnnotate tm x <*> mostlyResolve tm a
+fullyMostlyAnnotate tm (PLeftA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, PLeftA x a)
+  (Right mra) -> PLeftA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (PRightA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, PRightA x a)
+  (Right mra) -> PRightA <$> fullyMostlyAnnotate tm x <*> pure mra
 fullyMostlyAnnotate tm (TraceA x) = TraceA <$> fullyMostlyAnnotate tm x
 fullyMostlyAnnotate tm (ClosureA c i a) =
-  ClosureA <$> fullyMostlyAnnotate tm c <*> fullyMostlyAnnotate tm i <*> mostlyResolve tm a
+  let (sc, nc) = fullyMostlyAnnotate tm c
+      (si, ni) = fullyMostlyAnnotate tm i
+      ns = Set.union sc si
+  in case mostlyResolve tm a of
+    (Left (RecursiveType i)) -> (Set.insert i ns, ClosureA nc ni a)
+    (Right mra) -> (ns, ClosureA nc ni mra)
 
 tcStart :: (PartialType, Map Int PartialType, Int, Maybe TypeCheckError)
 tcStart = (ZeroTypeP, Map.empty, 0, Nothing)
@@ -331,15 +380,24 @@ partiallyAnnotate iexpr =
   let (iexpra, (_, typeMap, _, err)) = runState (annotate iexpr) tcStart
       debugT = trace (concat ["iexpra:\n", show iexpra, "\ntypemap:\n", show typeMap])
       debug2 x = trace (concat ["iexpra:\n", show iexpra, "\niexpra2:\n", show x, "\ntypemap:\n", show typeMap]) x
-      fullResolution = fullyMostlyAnnotate typeMap iexpra
+      (recursiveTypes, fullResolution) = fullyMostlyAnnotate typeMap iexpra
+      (fixableTypes, unfixableTypes) = Set.partition
+        (isFixableRecursiveType Set.empty typeMap . TypeVariable) recursiveTypes
+      fixedTypeMap = foldr
+        (\i tm -> foldr
+                  (\k ntm -> Map.insert k ZeroTypeP ntm)
+                  tm
+                  $ refsInRecursiveType Set.empty tm (TypeVariable i))
+        typeMap fixableTypes
       evalCheck (Check c tc) = case pureREval (App tc c) of
         Zero -> Right c
         x -> Left . RefinementFailure $ g2s x
       evalCheck x = pure x
-      unifiedAndRefined = case (fullResolution, eitherEndoMap evalCheck iexpr) of
-        (Right x, Right _) -> pure (typeMap, x)
-        (Left x, _) -> Left x
-        (_, Left x) -> Left x
+      unifiedAndRefined =
+        case (null unfixableTypes, eitherEndoMap evalCheck iexpr) of
+          (False, _) -> Left . RecursiveType $ minimum unfixableTypes
+          (_, Right _) -> pure (fixedTypeMap, fullResolution)
+          (_, Left x) -> Left x
   in case err of
     Nothing -> unifiedAndRefined
     Just et -> Left et
