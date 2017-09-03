@@ -32,6 +32,7 @@ data ParserTerm v
   | TVar v
   | TApp (ParserTerm v) (ParserTerm v)
   | TAnno (ParserTerm v) (ParserTerm v)
+  | TCheck (ParserTerm v) (ParserTerm v)
   | TITE (ParserTerm v) (ParserTerm v) (ParserTerm v)
   | TLeft (ParserTerm v)
   | TRight (ParserTerm v)
@@ -65,6 +66,7 @@ debruijinize vl (TVar (Right n)) = case elemIndex n vl of
   Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (TAnno c i) = TAnno <$> debruijinize vl c <*> debruijinize vl i
+debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
 debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i <*> debruijinize vl t
   <*> debruijinize vl e
 debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
@@ -79,6 +81,7 @@ convertPT (TPair a b) = Pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
 convertPT (TApp i c) = App (convertPT i) (convertPT c)
 convertPT (TAnno c i) = Check (convertPT c) (makeCheck $ convertPT i)
+convertPT (TCheck c tc) = Check (convertPT c) (convertPT tc)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = PLeft (convertPT i)
 convertPT (TRight i) = PRight (convertPT i)
@@ -101,7 +104,7 @@ languageDef = Token.LanguageDef
   , Token.identLetter    = alphaNum <|> oneOf "_'"
   , Token.opStart        = Token.opLetter languageDef
   , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
-  , Token.reservedOpNames = ["\\","->", ":", "=", "$"]
+  , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]
   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
   , Token.caseSensitive  = True
   }
@@ -200,14 +203,20 @@ parseLambda = do
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (reservedOp "$" *> integer)
 
+parseLegacyType :: SILParser (Term1 -> Term1)
+parseLegacyType = flip TAnno <$> (reservedOp ":" *> parseLongExpr)
+
+parseRefinementCheck :: SILParser (Term1 -> Term1)
+parseRefinementCheck = flip TCheck <$> (reservedOp "#" *> parseLongExpr)
+
 parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
-  annotation <- optionMaybe (reservedOp ":" *> parseLongExpr)
+  annotation <- optionMaybe (parseLegacyType <|> parseRefinementCheck)
   reservedOp "=" <?> "assignment ="
   expr <- parseLongExpr
   let annoExp = case annotation of
-        Just a -> TAnno expr a
+        Just f -> f expr
         _ -> expr
       assign ps = case addBound var annoExp ps of
         Just nps -> nps

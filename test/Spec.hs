@@ -259,6 +259,9 @@ isInconsistentType _ = False
 isRecursiveType (Just (RecursiveType _)) = True
 isRecursiveType _ = False
 
+isRefinementFailure (Just (RefinementFailure _)) = True
+isRefinementFailure _ = False
+
 unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main : {0,0} = \\x -> {x,0}" (ArrType ZeroType ZeroType) (== Nothing)
   , unitTestType "main : {0,0} = \\x -> {x,0}" ZeroType isInconsistentType
@@ -281,6 +284,8 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTestType "main : 0 = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
   , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
   , unitTestType "main = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
+  , unitTestType "main # (\\x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
+  , unitTestType "main # (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
   , unitTest "three" "3" three_succ
   , unitTest "church 3+2" "5" three_plus_two
   , unitTest "3*2" "6" three_times_two
