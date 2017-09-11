@@ -9,7 +9,53 @@ import SIL.RunTime
 import SIL.TypeChecker
 import SIL.Optimizer
 import System.Exit
+import Test.QuickCheck
 import qualified System.IO.Strict as Strict
+
+data TestIExpr = TestIExpr IExpr
+
+instance Show TestIExpr where
+  show (TestIExpr t) = show t
+
+lift1Texpr :: (IExpr -> IExpr) -> TestIExpr -> TestIExpr
+lift1Texpr f (TestIExpr x) = TestIExpr $ f x
+
+lift2Texpr :: (IExpr -> IExpr -> IExpr) -> TestIExpr -> TestIExpr -> TestIExpr
+lift2Texpr f (TestIExpr a) (TestIExpr b) = TestIExpr $ f a b
+
+instance Arbitrary TestIExpr where
+  arbitrary = sized tree where
+    tree i = let half = div i 2
+                 pure2 = pure . TestIExpr
+             in case i of
+                  0 -> oneof $ map pure2 [Zero, Var]
+                  x -> oneof
+                    [ pure2 Zero
+                    , pure2 Var
+                    , lift2Texpr Pair <$> tree half <*> tree half
+                    , lift2Texpr App <$> tree half <*> tree half
+                    , lift2Texpr Check <$> tree half <*> tree half
+                    , lift1Texpr Gate <$> tree (i - 1)
+                    , lift1Texpr PLeft <$> tree (i - 1)
+                    , lift1Texpr PRight <$> tree (i - 1)
+                    , lift1Texpr Trace <$> tree (i - 1)
+                    , lift1Texpr (flip Closure Zero) <$> tree (i - 1)
+                    ]
+  shrink (TestIExpr x) = case x of
+    Zero -> []
+    Var -> []
+    (Gate x) -> TestIExpr x : (map (lift1Texpr Gate) . shrink $ TestIExpr x)
+    (PLeft x) -> TestIExpr x : (map (lift1Texpr PLeft) . shrink $ TestIExpr x)
+    (PRight x) -> TestIExpr x : (map (lift1Texpr PRight) . shrink $ TestIExpr x)
+    (Trace x) -> TestIExpr x : (map (lift1Texpr Trace) . shrink $ TestIExpr x)
+    (Closure c z) ->
+      TestIExpr c : (map (lift1Texpr (flip Closure z)) . shrink $ TestIExpr c)
+    (Pair a b) -> TestIExpr a : TestIExpr  b :
+      [lift2Texpr Pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
+    (App c i) -> TestIExpr c : TestIExpr i :
+      [lift2Texpr App c' i' | (c', i') <- shrink (TestIExpr c, TestIExpr i)]
+    (Check c tc) -> TestIExpr c : TestIExpr tc :
+      [lift2Texpr Check c' tc' | (c', tc') <- shrink (TestIExpr c, TestIExpr tc)]
 
 three_succ = App (App (anno (toChurch 3) (Pair (Pair Zero Zero) (Pair Zero Zero)))
                   (lam (Pair (varN 0) Zero)))
@@ -247,6 +293,18 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
+-- check that refinements are correct after optimization
+promotingChecksPreservesType_prop :: TestIExpr -> Bool
+promotingChecksPreservesType_prop (TestIExpr iexpr) =
+  inferType iexpr == inferType (promoteChecks iexpr)
+
+debugPCPT :: IExpr -> IO Bool
+debugPCPT iexpr = if inferType iexpr == inferType (promoteChecks iexpr)
+  then pure True
+  else (putStrLn $ concat ["failed ", show iexpr, " / ", show (promoteChecks iexpr)
+                          , " -- ", show (inferType iexpr), " / "
+                          , show (inferType (promoteChecks iexpr))]) >> pure False
+
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main : 0 = 0" ZeroType True
   , unitTest "two" "2" two_succ
@@ -261,6 +319,11 @@ isRecursiveType _ = False
 
 isRefinementFailure (Just (RefinementFailure _)) = True
 isRefinementFailure _ = False
+
+unitTestQC :: Testable p => String -> p -> IO Bool
+unitTestQC name p = quickCheckResult p >>= \result -> case result of
+  (Success _ _ _) -> pure True
+  x -> (putStrLn $ concat [name, " failed: ", show x]) >> pure False
 
 unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main : {0,0} = \\x -> {x,0}" (ArrType ZeroType ZeroType) (== Nothing)
@@ -344,6 +407,9 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = map c2d (quicksort [$4,$3,$7,$1,$2,$4,$6,$9,$8,$5,$7])"
     "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
   {-
+  , debugPCPT $ Gate (Check Zero Var)
+  , debugPCPT $ App Var (Check Zero Var)
+  , unitTestQC "promotingChecksPreservesType" promotingChecksPreservesType_prop
   , unitTestOptimization "listequal0" $ App (App list_equality (s2g "hey")) (s2g "he")
   , unitTestOptimization "map" $ App (App map_ (lam (Pair (varN 0) Zero))) (ints2g [1,2,3])
   -}
