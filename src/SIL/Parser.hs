@@ -6,7 +6,7 @@ import Data.Char
 import Data.List (elemIndex)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import SIL
+import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, IExpr(Trace), PrettyPartialType(..))
 import SIL.TypeChecker
 import Text.Parsec
 import Text.Parsec.Indent
@@ -76,15 +76,15 @@ debruijinize vl (TLam x) = TLam <$> debruijinize ("-- dummy" : vl) x
 debruijinize vl (TNamedLam n l) = TLam <$> debruijinize (n : vl) l
 
 convertPT :: ParserTerm Int -> IExpr
-convertPT TZero = Zero
-convertPT (TPair a b) = Pair (convertPT a) (convertPT b)
+convertPT TZero = zero
+convertPT (TPair a b) = pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
-convertPT (TApp i c) = App (convertPT i) (convertPT c)
-convertPT (TAnno c i) = Check (convertPT c) (makeCheck $ convertPT i)
-convertPT (TCheck c tc) = Check (convertPT c) (convertPT tc)
+convertPT (TApp i c) = app (convertPT i) (convertPT c)
+convertPT (TAnno c i) = check (convertPT c) (makeCheck $ convertPT i)
+convertPT (TCheck c tc) = check (convertPT c) (convertPT tc)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
-convertPT (TLeft i) = PLeft (convertPT i)
-convertPT (TRight i) = PRight (convertPT i)
+convertPT (TLeft i) = pleft (convertPT i)
+convertPT (TRight i) = pright (convertPT i)
 convertPT (TTrace i) = Trace (convertPT i)
 convertPT (TLam c) = lam (convertPT c)
 convertPT (TNamedLam n _) = error $ "should be no named lambdas at this stage, name " ++ n

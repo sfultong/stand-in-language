@@ -47,12 +47,28 @@ instance EitherEndoMapper IExpr where
   eitherEndoMap f (Closure c e) =
     (Closure <$> eitherEndoMap f c <*> eitherEndoMap f e) >>= f
 
+zero :: IExpr
+zero = Zero
+pair :: IExpr -> IExpr -> IExpr
+pair = Pair
+var :: IExpr
+var = Var
+app :: IExpr -> IExpr -> IExpr
+app = App
+check :: IExpr -> IExpr -> IExpr
+check = Check
+gate :: IExpr -> IExpr
+gate = Gate
+pleft :: IExpr -> IExpr
+pleft = PLeft
+pright :: IExpr -> IExpr
+pright = PRight
+closure :: IExpr -> IExpr -> IExpr
+closure = Closure
 lam :: IExpr -> IExpr
 lam x = Closure x Zero
-
 ite :: IExpr -> IExpr -> IExpr -> IExpr
 ite i t e = App (Gate i) (Pair e t)
-
 varN :: Int -> IExpr
 varN n = PLeft (iterate PRight Var !! n)
 
