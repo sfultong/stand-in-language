@@ -27,14 +27,17 @@ data IExprV
   | VClosure IExprV IExprV
   deriving (Eq, Show, Ord)
 
+{-
 partiallyApply :: IExpr -> IExpr
 partiallyApply = endoMap f where
   f (App (Closure (Closure ic Zero) env) i) = Closure ic (Pair i env)
   f x = x
+-}
 
 -- merge and push checks up to top level of expression
 promoteChecks :: IExpr -> IExpr
 promoteChecks = endoMap f where
+  {-
   f (Check (Check x tci) (Check tc tctc)) =
     Check x
     (Closure
@@ -195,6 +198,7 @@ promoteChecks = endoMap f where
      (App tc c)
      Zero
     )
+-}
   f x = x
 
 {- TODO something to convert all closures that don't return zerotype to ones that do
@@ -206,4 +210,4 @@ promoteChecks = endoMap f where
 -}
 
 optimize :: IExpr -> IExpr
-optimize = partiallyApply
+optimize = id -- partiallyApply

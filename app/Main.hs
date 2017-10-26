@@ -14,7 +14,7 @@ message_then_abort = anno (lam (ite (varN 0) Zero (Pair (s2g "Test message") Zer
 
 {- TODO implement listEquality in Prelude
 quit_to_exit =
-  let check_input = ITE (App (App list_equality (CI . PLeft $ Var Zero)) (CI $ s2g "quit"))
+  let check_input = ITE (app (app list_equality (CI . PLeft $ Var Zero)) (CI $ s2g "quit"))
                     Zero
                     (Pair (s2g "type quit to exit") (i2g 1))
   in anno (Lam (CI check_input)) (Pair Zero Zero)
@@ -33,8 +33,8 @@ displayBoard =
       rows = lam (lam (lam (lam (lam (lam (lam (lam (lam row1))))))))
       rowsType = Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero Zero))))))))
       repRight x = foldr (.) id $ replicate x PRight
-      appl 0 = App (anno rows rowsType) (PLeft $ varN 0)
-      appl x = App (appl (x - 1)) (PLeft . repRight x $ varN 0)
+      appl 0 = app (anno rows rowsType) (PLeft $ varN 0)
+      appl x = app (appl (x - 1)) (PLeft . repRight x $ varN 0)
   in anno (lam $ appl 8) (Pair Zero Zero)
 
 main = do
@@ -61,7 +61,7 @@ main = do
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> print . PrettyIExpr $ g
     testTCT = print . inferType . makeTypeCheckTest
-    testTCT2 t e = print . inferType $ App (makeTypeCheckTest t) e
+    testTCT2 t e = print . inferType $ app (makeTypeCheckTest t) e
 
   printBindingTypes prelude
   Strict.readFile "tictactoe.sil" >>= runMain

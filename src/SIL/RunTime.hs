@@ -43,26 +43,25 @@ toRExpr Zero = RZero
 toRExpr (Pair a b) = RPair (toRExpr a) (toRExpr b)
 toRExpr Var = RVar
 toRExpr (Check c t) = RCheck (toRExpr c) (toRExpr t)
-toRExpr (App c i) = RApp (toRExpr c) (toRExpr i)
 toRExpr (Gate x) = RGate $ toRExpr x
 toRExpr (PLeft x) = RLeft $ toRExpr x
 toRExpr (PRight x) = RRight $ toRExpr x
 toRExpr (Trace x) = RTrace $ toRExpr x
-toRExpr (Closure c e) = RClosure (toRExpr c) (toRExpr e)
+toRExpr _ = error "TODO toRexpr"
 
 fromRExpr :: RExpr -> IExpr
 fromRExpr RZero = Zero
 fromRExpr (RPair a b) = Pair (fromRExpr a) (fromRExpr b)
 fromRExpr RVar = Var
 fromRExpr (RCheck c t) = Check (fromRExpr c) (fromRExpr t)
-fromRExpr (RApp c i) = App (fromRExpr c) (fromRExpr i)
+fromRExpr (RApp c i) = app (fromRExpr c) (fromRExpr i)
 fromRExpr (RGate x) = Gate $ fromRExpr x
 fromRExpr (RLeft x) = PLeft $ fromRExpr x
 fromRExpr (RRight x) = PRight $ fromRExpr x
 fromRExpr (RTrace x) = Trace $ fromRExpr x
-fromRExpr (RClosure c e) = Closure (fromRExpr c) (fromRExpr e)
-fromRExpr (RITE i t e) = App (Gate $ fromRExpr i) (Pair (fromRExpr e) (fromRExpr t))
+fromRExpr (RITE i t e) = app (Gate $ fromRExpr i) (Pair (fromRExpr e) (fromRExpr t))
 fromRExpr (RChurch i Nothing) = toChurch i
+fromRExpr _ = error "TODO fromRExpr"
 
 rEval f env g = let f' = f env in case g of
   RZero -> pure RZero
@@ -112,18 +111,22 @@ iEval f env g = let f' = f env in case g of
     nb <- f' b
     pure $ Pair na nb
   Var -> pure env
+  --Check c _ -> f' c
   Check c t -> do
-    tc <- f' (App t c)
+    tc <- f' (app t c)
     case tc of
       Zero -> f' c
       x -> fail $ concat ["failed refinement check for ", show c, " -- ", show x]
-  App g cexp -> do --- given t, type {{a,t},{a,t}}
-    ng <- f' g
-    i <- f' cexp
-    apply f ng i
+  SetEnv x -> (f' x >>=) $ \nx -> case nx of
+    Pair c nenv -> f nenv c
+    bx -> fail $ concat ["setenv: expecting pair, got ", show bx]
+  Defer x -> pure x
+  Twiddle x -> (f' x >>=) $ \nx -> case nx of
+    Pair i (Pair c cenv) -> pure $ Pair c (Pair i cenv)
+    bx -> fail $ concat ["twiddle: expecting pair pair, got ", show bx]
   Gate x -> f' x >>= \g -> case g of
-    Zero -> pure $ Closure (PLeft (PLeft Var)) Zero
-    _ -> pure $ Closure (PRight (PLeft Var)) Zero
+    Zero -> pure $ PLeft Var
+    _ -> pure $ PRight Var
   PLeft g -> f' g >>= \g -> case g of
     (Pair a _) -> pure a
     _ -> pure Zero
@@ -131,19 +134,11 @@ iEval f env g = let f' = f env in case g of
     (Pair _ x) -> pure x
     _ -> pure Zero
   Trace g -> f' g >>= \g -> pure $ trace (show g) g
-  Closure c Zero -> pure $ Closure c env
-  Closure _ e -> fail $ concat ["unexpected closure with environment ", show e]
-
-{-
-apply :: Monad m => ([Result] -> IExpr -> m Result) -> Result -> Result -> m Result
--}
-apply f (Closure g env) v = f (Pair v env) g
-apply _ g _ = error $ "not a closure " ++ show g
 
 toChurch :: Int -> IExpr
 toChurch x =
   let inner 0 = PLeft Var
-      inner x = App (PLeft $ PRight Var) (inner (x - 1))
+      inner x = app (PLeft $ PRight Var) (inner (x - 1))
   in lam (lam (inner x))
 
 rOptimize :: RExpr -> RExpr
@@ -168,7 +163,7 @@ fasterEval =
   in fmap fromRExpr . frEval . rOptimize . toRExpr
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = fasterEval --simpleEval . optimize
+optimizedEval = simpleEval -- fasterEval --simpleEval . optimize
 
 pureEval :: IExpr -> IExpr
 pureEval g = runIdentity $ fix iEval Zero g

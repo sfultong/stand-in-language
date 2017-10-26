@@ -9,43 +9,63 @@ class EndoMapper a where
 class EitherEndoMapper a where
   eitherEndoMap :: (a -> Either e a) -> a -> Either e a
 
+class MonoidEndoFolder a where
+  monoidFold :: Monoid m => (a -> m) -> a -> m
+
 data IExpr
   = Zero                     -- no special syntax necessary
   | Pair !IExpr !IExpr       -- {,}
   | Var                      -- identifier
-  | App !IExpr !IExpr        --
+  -- | App !IExpr !IExpr        --
+  | SetEnv !IExpr
+  | Defer !IExpr
+  | Twiddle !IExpr
   | Check !IExpr !IExpr      -- :
   | Gate !IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace !IExpr             -- trace
-  | Closure !IExpr !IExpr
+  -- | Closure !IExpr !IExpr
   deriving (Eq, Show, Ord)
 
 instance EndoMapper IExpr where
   endoMap f Zero = f Zero
   endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
   endoMap f Var = f Var
-  endoMap f (App c i) = f $ App (endoMap f c) (endoMap f i)
+  endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
+  endoMap f (Defer x) = f $ Defer (endoMap f x)
+  endoMap f (Twiddle x) = f $ Twiddle (endoMap f x)
   endoMap f (Check c t) = f $ Check (endoMap f c) (endoMap f t)
   endoMap f (Gate g) = f $ Gate (endoMap f g)
   endoMap f (PLeft x) = f $ PLeft (endoMap f x)
   endoMap f (PRight x) = f $ PRight (endoMap f x)
   endoMap f (Trace x) = f $ Trace (endoMap f x)
-  endoMap f (Closure c i) = f $ Closure (endoMap f c) (endoMap f i)
 
 instance EitherEndoMapper IExpr where
   eitherEndoMap f Zero = f Zero
   eitherEndoMap f (Pair a b) = (Pair <$> eitherEndoMap f a <*> eitherEndoMap f b) >>= f
   eitherEndoMap f Var = f Var
-  eitherEndoMap f (App c i) = (App <$> eitherEndoMap f c <*> eitherEndoMap f i) >>= f
+  eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Twiddle x) = (Twiddle <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Check c tc) = (Check <$> eitherEndoMap f c <*> eitherEndoMap f tc) >>= f
   eitherEndoMap f (Gate x) = (Gate <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Trace x) = (Trace <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (Closure c e) =
-    (Closure <$> eitherEndoMap f c <*> eitherEndoMap f e) >>= f
+
+instance MonoidEndoFolder IExpr where
+  monoidFold f Zero = f Zero
+  monoidFold f (Pair a b) = mconcat [f (Pair a b), monoidFold f a, monoidFold f b]
+  monoidFold f Var = f Var
+  monoidFold f (SetEnv x) = mconcat [f (SetEnv x), monoidFold f x]
+  monoidFold f (Defer x) = mconcat [f (Defer x), monoidFold f x]
+  monoidFold f (Twiddle x) = mconcat [f (Twiddle x), monoidFold f x]
+  monoidFold f (Check c tc) = mconcat [f (Check c tc), monoidFold f c, monoidFold f tc]
+  monoidFold f (Gate x) = mconcat [f (Gate x), monoidFold f x]
+  monoidFold f (PLeft x) = mconcat [f (PLeft x), monoidFold f x]
+  monoidFold f (PRight x) = mconcat [f (PRight x), monoidFold f x]
+  monoidFold f (Trace x) = mconcat [f (Trace x), monoidFold f x]
 
 zero :: IExpr
 zero = Zero
@@ -54,7 +74,7 @@ pair = Pair
 var :: IExpr
 var = Var
 app :: IExpr -> IExpr -> IExpr
-app = App
+app c i = SetEnv (Twiddle (Pair i c))
 check :: IExpr -> IExpr -> IExpr
 check = Check
 gate :: IExpr -> IExpr
@@ -63,30 +83,29 @@ pleft :: IExpr -> IExpr
 pleft = PLeft
 pright :: IExpr -> IExpr
 pright = PRight
-closure :: IExpr -> IExpr -> IExpr
-closure = Closure
 lam :: IExpr -> IExpr
-lam x = Closure x Zero
+lam x = Pair (Defer x) Var
 ite :: IExpr -> IExpr -> IExpr -> IExpr
-ite i t e = App (Gate i) (Pair e t)
+ite i t e = SetEnv (Pair (Gate i) (Pair e t))
 varN :: Int -> IExpr
 varN n = PLeft (iterate PRight Var !! n)
 
 -- hack to support old style type annotations
 makeTypeCheckTest_ :: IExpr -> IExpr -> IExpr
-makeTypeCheckTest_ Zero v = App (Gate v) Zero -- v
+makeTypeCheckTest_ Zero v = app (Gate v) Zero -- v
 --makeTypeCheckTest_ (Pair a Zero) v = Gate (App v (makeTypeCheckTestA a))
-makeTypeCheckTest_ (Pair a b) v = makeTypeCheckTest_ b $ App v (makeTypeCheckTestA a)
+makeTypeCheckTest_ (Pair a b) v = makeTypeCheckTest_ b $ app v (makeTypeCheckTestA a)
 
 makeTypeCheckTestA :: IExpr -> IExpr
 makeTypeCheckTestA Zero = Zero
 --makeTypeCheckTestA (Pair Zero Zero) = Gate Zero
-makeTypeCheckTestA x = Closure (makeTypeCheckTest_ x (PLeft Var)) Zero
+makeTypeCheckTestA x = lam (makeTypeCheckTest_ x (PLeft Var))
 
 makeTypeCheckTest :: IExpr -> IExpr
 --TODO fix
 --makeTypeCheckTest x = Closure (makeTypeCheckTest_ x (PLeft Var)) Zero
-makeTypeCheckTest x = Closure Zero Zero
+--makeTypeCheckTest x = lam $ PLeft (Pair Zero Var)
+makeTypeCheckTest x = Pair (Defer $ PLeft (Pair Zero Var)) Zero
 
 anno :: IExpr -> IExpr -> IExpr
 anno g tc = Check g $ makeTypeCheckTest tc
