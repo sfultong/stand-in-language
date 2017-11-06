@@ -484,6 +484,7 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = c2d (minus $4 $4)" "0"
   , unitTest2 "main = dMinus 4 3" "1"
   , unitTest2 "main = dMinus 4 4" "0"
+  , unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
   {- TODO fix range
   , unitTest2 "main = map c2d (range $2 $5)" "{2,{3,5}}"
   , unitTest2 "main = map c2d (range $6 $6)" "0"

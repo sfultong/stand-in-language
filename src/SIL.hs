@@ -83,6 +83,10 @@ pleft :: IExpr -> IExpr
 pleft = PLeft
 pright :: IExpr -> IExpr
 pright = PRight
+setenv :: IExpr -> IExpr
+setenv = SetEnv
+defer :: IExpr -> IExpr
+defer = Defer
 lam :: IExpr -> IExpr
 lam x = Pair (Defer x) Var
 ite :: IExpr -> IExpr -> IExpr -> IExpr

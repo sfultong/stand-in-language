@@ -18,7 +18,7 @@ data IExprA a
   | PairA (IExprA a) (IExprA a)
   | VarA a
   | CheckA (IExprA a) (IExprA a)
-  | GateA (IExprA a)
+  | GateA (IExprA a) a
   | PLeftA (IExprA a) a
   | PRightA (IExprA a) a
   | TraceA (IExprA a)
@@ -36,7 +36,7 @@ instance EndoMapper (IExprA a) where
   endoMap f (PairA a b) = f $ PairA (endoMap f a) (endoMap f b)
   endoMap f (VarA t) = f $ VarA t
   endoMap f (CheckA x tc) = f $ CheckA (endoMap f x) (endoMap f tc)
-  endoMap f (GateA x) = f $ GateA (endoMap f x)
+  endoMap f (GateA x t) = f $ GateA (endoMap f x) t
   endoMap f (PLeftA x t) = f $ PLeftA (endoMap f x) t
   endoMap f (PRightA x t) = f $ PRightA (endoMap f x) t
   endoMap f (TraceA x) = f $ TraceA (endoMap f x)
@@ -57,7 +57,11 @@ showExpra l i p@(PairA a b) = if length (show p) > l
 showExpra l i k@(CheckA c ct) = if length (show k) > l
   then concat ["CheckA\n", indent i, showExpra l (i + 1) c, "\n", indent i, showExpra l (i + 1) ct]
   else show k
-showExpra l i (GateA x) = concat ["GateA ", showExpra l i x]
+showExpra l i (GateA x a) =
+  let lineShow = concat ["GateA ", show x, "  ", show (PrettyPartialType a)]
+  in if length (lineShow) > l
+  then concat ["GateA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
+  else lineShow
 showExpra l i (TraceA x) = concat ["TraceA ", showExpra l i x]
 showExpra l i (DeferA x) = concat ["DeferA ", showExpra l i x]
 showExpra l i (PLeftA x a) =
@@ -103,7 +107,7 @@ fromExprPA (PairA a b) = Pair (fromExprPA a) (fromExprPA b)
 fromExprPA (VarA _) = Var
 -- we can ignore check because it should run separately elsewhere
 fromExprPA (CheckA c _) = fromExprPA c
-fromExprPA (GateA x) = Gate $ fromExprPA x
+fromExprPA (GateA x _) = Gate $ fromExprPA x
 fromExprPA (PLeftA x _) = PLeft $ fromExprPA x
 fromExprPA (PRightA x _) = PRight $ fromExprPA x
 fromExprPA (TraceA x) = Trace $ fromExprPA x
@@ -118,7 +122,7 @@ getPartialAnnotation (TwiddleA _ a) = a
 getPartialAnnotation ZeroA = ZeroTypeP
 getPartialAnnotation (PairA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
 getPartialAnnotation (CheckA x _) = getPartialAnnotation x
-getPartialAnnotation (GateA _) = ArrTypeP ZeroTypeP ZeroTypeP
+getPartialAnnotation (GateA _ a) = a
 getPartialAnnotation (PLeftA _ a) = a
 getPartialAnnotation (PRightA _ a) = a
 getPartialAnnotation (TraceA x) = getPartialAnnotation x
@@ -304,7 +308,7 @@ getUnboundType (SetEnvA x _) = getUnboundType x
 getUnboundType (DeferA _) = Nothing
 getUnboundType (TwiddleA x _) = getUnboundType x
 getUnboundType (CheckA x _) = getUnboundType x
-getUnboundType (GateA x) = getUnboundType x
+getUnboundType (GateA x _) = getUnboundType x
 getUnboundType (PLeftA x _) = getUnboundType x
 getUnboundType (PRightA x _) = getUnboundType x
 getUnboundType (TraceA x) = getUnboundType x
@@ -384,9 +388,10 @@ annotate (Check g t) = do
   pure $ CheckA ga ta
 annotate (Gate x) = do
   debugAnnotate (Gate x)
-  xa <- annotate x
-  associateVar ZeroTypeP $ getPartialAnnotation xa
-  pure $ GateA xa
+  nx <- annotate x
+  associateVar ZeroTypeP $ getPartialAnnotation nx
+  (ra, _) <- withNewEnv $ pure ()
+  pure $ GateA nx (ArrTypeP (PairTypeP ra ra) ra)
 annotate (PLeft x) = do
   debugAnnotate (PLeft x)
   nx <- annotate x
@@ -449,7 +454,7 @@ fullyAnnotate typeMap (DeferA x) = DeferA <$> fullyAnnotate typeMap x
 fullyAnnotate typeMap (TwiddleA x a) = TwiddleA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
 fullyAnnotate typeMap (CheckA c ct) =
   CheckA <$> fullyAnnotate typeMap c <*> fullyAnnotate typeMap ct
-fullyAnnotate typeMap (GateA x) = GateA <$> fullyAnnotate typeMap x
+fullyAnnotate typeMap (GateA x a) = GateA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
 fullyAnnotate typeMap pl@(PLeftA x t) =
   PLeftA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap t
 fullyAnnotate typeMap pr@(PRightA x t) =
@@ -478,7 +483,9 @@ fullyMostlyAnnotate tm (CheckA c t) =
   let (sc, nc) = fullyMostlyAnnotate tm c
       (st, nt) = fullyMostlyAnnotate tm t
   in (Set.union sc st, CheckA nc nt)
-fullyMostlyAnnotate tm (GateA x) = GateA <$> fullyMostlyAnnotate tm x
+fullyMostlyAnnotate tm (GateA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, GateA x a)
+  (Right mra) -> GateA <$> fullyMostlyAnnotate tm x <*> pure mra
 fullyMostlyAnnotate tm (PLeftA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, PLeftA x a)
   (Right mra) -> PLeftA <$> fullyMostlyAnnotate tm x <*> pure mra
