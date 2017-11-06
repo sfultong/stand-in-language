@@ -97,22 +97,6 @@ instance Show DebugTypeCheck where
     , show (DebugTypeMap typeMap)
     ]
 
-getFullType_ :: ExprFA -> DataType
-getFullType_ ZeroA = ZeroType
-getFullType_ (PairA a b) = PairType (getFullType_ a) (getFullType_ b)
-getFullType_ (VarA t) = t
-getFullType_ (CheckA x _) = getFullType_ x
--- TODO make gate polymorphic?
-getFullType_ (GateA x) = ArrType ZeroType ZeroType
-getFullType_ (PLeftA _ t) = t
-getFullType_ (PRightA _ t) = t
-getFullType_ (TraceA x) = getFullType_ x
-getFullType_ (SetEnvA _ t) = t
-getFullType_ (DeferA x) = error "TODO getFullType defer"
-
-getFullType :: ExprFA -> DataType
-getFullType = mergePairType . getFullType_
-
 fromExprPA :: ExprPA -> IExpr
 fromExprPA ZeroA = Zero
 fromExprPA (PairA a b) = Pair (fromExprPA a) (fromExprPA b)
@@ -150,9 +134,6 @@ toPartial (ArrType a b) = ArrTypeP (toPartial a) (toPartial b)
 toPartial (PairType a b) = PairTypeP (toPartial a) (toPartial b)
 
 badType = TypeVariable (-1)
-
-lookupTypeEnv :: [a] -> Int -> Maybe a
-lookupTypeEnv env ind = if ind < length env then Just (env !! ind) else Nothing
 
 data TypeCheckError
   = UnboundType Int
@@ -359,7 +340,7 @@ annotate (SetEnv x) = do
   -- for type unification, we want to treat input as a subtype
   -- but to give this expression the proper type annotation, we need to use the exact input type
   -- to derive the output type
-  ot <- case mostlyResolveRecursive tm (getPartialAnnotation nx) of -- getPartialAnnotation nx of
+  ot <- case mostlyResolveRecursive tm (getPartialAnnotation nx) of
     (PairTypeP (ArrTypeP it ot) sit) -> do
       associateSubtypeVar it sit
       case checkOrAssociate it sit Set.empty tm of

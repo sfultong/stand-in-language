@@ -206,7 +206,7 @@ prettyEval typeCheck i = typedEval typeCheck i (print . PrettyIExpr)
 
 -- TODO fix tictactoe type checking
 evalLoop :: (Show a, Eq a) => (DataType -> IExpr -> Maybe a) -> IExpr -> IO ()
-evalLoop typeCheck iexpr = if typeCheck (PairType (ArrType ZeroType ZeroType) ZeroType) iexpr == Nothing
+evalLoop typeCheck iexpr = if typeCheck ZeroType (app iexpr Zero) == Nothing
   then let mainLoop s = do
              result <- fmap fromRExpr . fix rEval RZero $ RSetEnv (RTwiddle (RPair (toRExpr s) optIExpr))
              case result of
@@ -221,5 +221,6 @@ evalLoop typeCheck iexpr = if typeCheck (PairType (ArrType ZeroType ZeroType) Ze
                r -> putStrLn $ concat ["runtime error, dumped ", show r]
            optIExpr = rOptimize $ toRExpr iexpr
        in mainLoop Zero
-  else putStrLn $ concat ["main's inferred type: "
-                         , show $ typeCheck  (PairType (ArrType ZeroType ZeroType) ZeroType) iexpr]
+  else putStrLn $ concat ["main's checked type: "
+                         , show $ typeCheck ZeroType (app iexpr Zero)
+                         ]
