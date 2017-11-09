@@ -16,16 +16,15 @@ data IExpr
   = Zero                     -- no special syntax necessary
   | Pair !IExpr !IExpr       -- {,}
   | Var                      -- identifier
-  -- | App !IExpr !IExpr        --
   | SetEnv !IExpr
   | Defer !IExpr
   | Twiddle !IExpr
-  | Check !IExpr !IExpr      -- :
+  -- | Check !IExpr !IExpr      -- :
+  | Check !IExpr
   | Gate !IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace !IExpr             -- trace
-  -- | Closure !IExpr !IExpr
   deriving (Eq, Show, Ord)
 
 instance EndoMapper IExpr where
@@ -35,7 +34,7 @@ instance EndoMapper IExpr where
   endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
   endoMap f (Defer x) = f $ Defer (endoMap f x)
   endoMap f (Twiddle x) = f $ Twiddle (endoMap f x)
-  endoMap f (Check c t) = f $ Check (endoMap f c) (endoMap f t)
+  endoMap f (Check x) = f $ Check (endoMap f x)
   endoMap f (Gate g) = f $ Gate (endoMap f g)
   endoMap f (PLeft x) = f $ PLeft (endoMap f x)
   endoMap f (PRight x) = f $ PRight (endoMap f x)
@@ -48,7 +47,7 @@ instance EitherEndoMapper IExpr where
   eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Twiddle x) = (Twiddle <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (Check c tc) = (Check <$> eitherEndoMap f c <*> eitherEndoMap f tc) >>= f
+  eitherEndoMap f (Check x) = (Check <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Gate x) = (Gate <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
@@ -61,7 +60,7 @@ instance MonoidEndoFolder IExpr where
   monoidFold f (SetEnv x) = mconcat [f (SetEnv x), monoidFold f x]
   monoidFold f (Defer x) = mconcat [f (Defer x), monoidFold f x]
   monoidFold f (Twiddle x) = mconcat [f (Twiddle x), monoidFold f x]
-  monoidFold f (Check c tc) = mconcat [f (Check c tc), monoidFold f c, monoidFold f tc]
+  monoidFold f (Check x) = mconcat [f (Check x), monoidFold f x]
   monoidFold f (Gate x) = mconcat [f (Gate x), monoidFold f x]
   monoidFold f (PLeft x) = mconcat [f (PLeft x), monoidFold f x]
   monoidFold f (PRight x) = mconcat [f (PRight x), monoidFold f x]
@@ -76,7 +75,7 @@ var = Var
 app :: IExpr -> IExpr -> IExpr
 app c i = SetEnv (Twiddle (Pair i c))
 check :: IExpr -> IExpr -> IExpr
-check = Check
+check c tc = Check (Pair c tc)
 gate :: IExpr -> IExpr
 gate = Gate
 pleft :: IExpr -> IExpr
@@ -112,7 +111,7 @@ makeTypeCheckTest :: IExpr -> IExpr
 makeTypeCheckTest x = Pair (Defer $ PLeft (Pair Zero Var)) Zero
 
 anno :: IExpr -> IExpr -> IExpr
-anno g tc = Check g $ makeTypeCheckTest tc
+anno g tc = check g $ makeTypeCheckTest tc
 
 data DataType
   = ZeroType

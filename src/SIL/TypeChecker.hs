@@ -17,7 +17,7 @@ data IExprA a
   = ZeroA
   | PairA (IExprA a) (IExprA a)
   | VarA a
-  | CheckA (IExprA a) (IExprA a)
+  | CheckA (IExprA a) a
   | GateA (IExprA a) a
   | PLeftA (IExprA a) a
   | PRightA (IExprA a) a
@@ -35,7 +35,7 @@ instance EndoMapper (IExprA a) where
   endoMap f ZeroA = f ZeroA
   endoMap f (PairA a b) = f $ PairA (endoMap f a) (endoMap f b)
   endoMap f (VarA t) = f $ VarA t
-  endoMap f (CheckA x tc) = f $ CheckA (endoMap f x) (endoMap f tc)
+  endoMap f (CheckA x t) = f $ CheckA (endoMap f x) t
   endoMap f (GateA x t) = f $ GateA (endoMap f x) t
   endoMap f (PLeftA x t) = f $ PLeftA (endoMap f x) t
   endoMap f (PRightA x t) = f $ PRightA (endoMap f x) t
@@ -54,9 +54,11 @@ showExpra _ i (VarA a) = "VarA " ++ show (PrettyPartialType a)
 showExpra l i p@(PairA a b) = if length (show p) > l
   then concat ["PairA\n", indent i, showExpra l (i + 1) a, "\n", indent i, showExpra l (i + 1) b]
   else show p
-showExpra l i k@(CheckA c ct) = if length (show k) > l
-  then concat ["CheckA\n", indent i, showExpra l (i + 1) c, "\n", indent i, showExpra l (i + 1) ct]
-  else show k
+showExpra l i (CheckA x a) =
+  let lineShow = concat ["CheckA ", show x, "  ", show (PrettyPartialType a)]
+  in if length lineShow > l
+  then concat ["CheckA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
+  else lineShow
 showExpra l i (GateA x a) =
   let lineShow = concat ["GateA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
@@ -121,7 +123,7 @@ getPartialAnnotation (DeferA x) = case getUnboundType x of
 getPartialAnnotation (TwiddleA _ a) = a
 getPartialAnnotation ZeroA = ZeroTypeP
 getPartialAnnotation (PairA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
-getPartialAnnotation (CheckA x _) = getPartialAnnotation x
+getPartialAnnotation (CheckA _ a) = a
 getPartialAnnotation (GateA _ a) = a
 getPartialAnnotation (PLeftA _ a) = a
 getPartialAnnotation (PRightA _ a) = a
@@ -307,6 +309,7 @@ getUnboundType (VarA a) = pure a
 getUnboundType (SetEnvA x _) = getUnboundType x
 getUnboundType (DeferA _) = Nothing
 getUnboundType (TwiddleA x _) = getUnboundType x
+-- do we want this? a check lambda's environment will count as an unbound variable
 getUnboundType (CheckA x _) = getUnboundType x
 getUnboundType (GateA x _) = getUnboundType x
 getUnboundType (PLeftA x _) = getUnboundType x
@@ -375,17 +378,20 @@ annotate (Twiddle x) = do
     else trace ("twiddle associate " ++ show nx) $ pure ()
   debugAnnotate (Twiddle x)
   pure $ TwiddleA nx (PairTypeP ab (PairTypeP aa ac))
-annotate (Check g t) = do
-  debugAnnotate (Check g t)
-  ga <- annotate g
-  ta <- annotate t
+annotate (Check x) = do
+  debugAnnotate (Check x)
+  nx <- annotate x
+  (it, _) <- withNewEnv $ pure ()
   associateVar
     (PairTypeP
-     (ArrTypeP (getPartialAnnotation ga) ZeroTypeP)
-     ZeroTypeP
+     it
+     (PairTypeP
+      (ArrTypeP it ZeroTypeP)
+      ZeroTypeP
+     )
     )
-    (getPartialAnnotation ta)
-  pure $ CheckA ga ta
+    (getPartialAnnotation nx)
+  pure $ CheckA nx it
 annotate (Gate x) = do
   debugAnnotate (Gate x)
   nx <- annotate x
@@ -452,8 +458,7 @@ fullyAnnotate typeMap (VarA t) = VarA <$> resolveOrAlt typeMap t
 fullyAnnotate typeMap (SetEnvA x a) = SetEnvA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
 fullyAnnotate typeMap (DeferA x) = DeferA <$> fullyAnnotate typeMap x
 fullyAnnotate typeMap (TwiddleA x a) = TwiddleA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
-fullyAnnotate typeMap (CheckA c ct) =
-  CheckA <$> fullyAnnotate typeMap c <*> fullyAnnotate typeMap ct
+fullyAnnotate typeMap (CheckA x a) = CheckA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
 fullyAnnotate typeMap (GateA x a) = GateA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
 fullyAnnotate typeMap pl@(PLeftA x t) =
   PLeftA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap t
@@ -479,10 +484,9 @@ fullyMostlyAnnotate tm (DeferA x) = DeferA <$> fullyMostlyAnnotate tm x
 fullyMostlyAnnotate tm (TwiddleA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, TwiddleA x a)
   (Right mra) -> TwiddleA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (CheckA c t) =
-  let (sc, nc) = fullyMostlyAnnotate tm c
-      (st, nt) = fullyMostlyAnnotate tm t
-  in (Set.union sc st, CheckA nc nt)
+fullyMostlyAnnotate tm (CheckA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, CheckA x a)
+  (Right mra) -> CheckA <$> fullyMostlyAnnotate tm x <*> pure mra
 fullyMostlyAnnotate tm (GateA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, GateA x a)
   (Right mra) -> GateA <$> fullyMostlyAnnotate tm x <*> pure mra
@@ -550,8 +554,9 @@ weakCheck t iexpr = typeCheck t iexpr >>= \x -> case x of
   (UnboundType _) -> Nothing
   y -> pure y
 
--- for legacy type annotations
+-- for legacy type annotations TODO broken, probably should remove
 makeCheck :: IExpr -> IExpr
 makeCheck x = if typeCheck ZeroType x == Nothing
-              then makeTypeCheckTest . pureEval $ x
+              --then makeTypeCheckTest . pureEval $ x
+              then makeTypeCheckTest Zero
               else trace "makeCheck issue" Zero -- guaranteed to fail

@@ -1,7 +1,10 @@
+--{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 module SIL.RunTime where
 
 import Data.Functor.Identity
 import Debug.Trace
+import Control.Monad.Except
 import Control.Monad.Fix
 
 import SIL
@@ -12,7 +15,7 @@ data RExpr
   = RZero
   | RPair !RExpr !RExpr
   | RVar
-  | RCheck !RExpr !RExpr
+  | RCheck !RExpr
   | RGate !RExpr
   | RLeft !RExpr
   | RRight !RExpr
@@ -29,7 +32,7 @@ instance EndoMapper RExpr where
   endoMap f RZero = f RZero
   endoMap f (RPair a b) = f $ RPair (endoMap f a) (endoMap f b)
   endoMap f RVar = f RVar
-  endoMap f (RCheck c t) = f $ RCheck (endoMap f c) (endoMap f t)
+  endoMap f (RCheck x) = f . RCheck $ endoMap f x
   endoMap f (RGate x) = f . RGate $ endoMap f x
   endoMap f (RLeft x) = f . RLeft $ endoMap f x
   endoMap f (RRight x) = f . RRight $ endoMap f x
@@ -44,7 +47,7 @@ toRExpr :: IExpr -> RExpr
 toRExpr Zero = RZero
 toRExpr (Pair a b) = RPair (toRExpr a) (toRExpr b)
 toRExpr Var = RVar
-toRExpr (Check c t) = RCheck (toRExpr c) (toRExpr t)
+toRExpr (Check x) = RCheck $ toRExpr x
 toRExpr (Gate x) = RGate $ toRExpr x
 toRExpr (PLeft x) = RLeft $ toRExpr x
 toRExpr (PRight x) = RRight $ toRExpr x
@@ -57,7 +60,7 @@ fromRExpr :: RExpr -> IExpr
 fromRExpr RZero = Zero
 fromRExpr (RPair a b) = Pair (fromRExpr a) (fromRExpr b)
 fromRExpr RVar = Var
-fromRExpr (RCheck c t) = Check (fromRExpr c) (fromRExpr t)
+fromRExpr (RCheck x) = Check $ fromRExpr x
 fromRExpr (RGate x) = Gate $ fromRExpr x
 fromRExpr (RLeft x) = PLeft $ fromRExpr x
 fromRExpr (RRight x) = PRight $ fromRExpr x
@@ -68,6 +71,9 @@ fromRExpr (RTwiddle x) = Twiddle $ fromRExpr x
 fromRExpr (RITE i t e) = app (Gate $ fromRExpr i) (Pair (fromRExpr e) (fromRExpr t))
 fromRExpr (RChurch i Nothing) = toChurch i
 
+type RunTimeError = String
+
+rEval :: MonadError RunTimeError m => (RExpr -> RExpr -> m RExpr) -> RExpr -> RExpr -> m RExpr
 rEval f env g = let f' = f env
                     rApply (RPair ng eenv) v = f (RPair v eenv) ng
                     rApply (RChurch ci Nothing) v = pure $ RChurch ci (Just v)
@@ -75,21 +81,24 @@ rEval f env g = let f' = f env
                       let step 0 cv = pure cv
                           step x cv = rApply cf cv >>= step (x - 1)
                       in step ci v
-                    rApply ng _ = fail $ "not a closure " ++ show ng
+                    rApply ng _ = throwError $ "not a closure " ++ show ng
                 in case g of
   RZero -> pure RZero
   (RPair a b) -> RPair <$> f' a <*> f' b
   RVar -> pure env
-  RCheck c t -> do
-    -- tcResult <- f' (RApp t c)
-    tcResult <- f' (RSetEnv (RTwiddle (RPair c t)))
-    case tcResult of
-      RZero -> f' c
-      err -> fail $ concat ["failed rrefinement check for ", show c, " -- ",  show err]
+  RCheck x -> do
+    nx <- f' x
+    case nx of
+      (RPair c t) -> do
+        tcResult <- f (RPair c RZero) (RLeft t)
+        case tcResult of
+          RZero -> pure c
+          err -> throwError $ concat ["failed refinement check for ", show c, " -- ", show err]
+      x -> throwError $ concat ["bad argument to refinement check: ", show x]
   RDefer x -> pure x
   RTwiddle x -> f' x >>= \nx -> case nx of
     RPair i (RPair c cenv) -> pure $ RPair c (RPair i cenv)
-    bx -> fail $ concat ["rtwiddle: expecting pair pair, got ", show nx]
+    bx -> throwError $ concat ["rtwiddle: expecting pair pair, got ", show nx]
   -- this seems a bit hacky
   RSetEnv (RTwiddle (RPair i g)) -> do
     ng <- f' g
@@ -97,7 +106,7 @@ rEval f env g = let f' = f env
     rApply ng ni
   RSetEnv x -> f' x >>= \g -> case g of
     RPair c i -> rApply c i
-    bx -> fail $ concat ["rsetenv basic - not a closure: ", show bx]
+    bx -> throwError $ concat ["rsetenv basic - not a closure: ", show bx]
   RGate x -> f' x >>= \g -> case g of
     RZero -> pure $ RLeft RVar
     _ -> pure $ RRight RVar
@@ -113,10 +122,7 @@ rEval f env g = let f' = f env
     _ -> f' t
   r@(RChurch _ _) -> pure r
 
-{-
-iEval :: Monad m => ([Result] -> IExpr -> m Result)
-  -> [Result] -> IExpr -> m Result
--}
+iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
 iEval f env g = let f' = f env in case g of
   Zero -> pure Zero
   Pair a b -> do
@@ -124,19 +130,22 @@ iEval f env g = let f' = f env in case g of
     nb <- f' b
     pure $ Pair na nb
   Var -> pure env
-  --Check c _ -> f' c
-  Check c t -> do
-    tc <- f' (app t c)
-    case tc of
-      Zero -> f' c
-      x -> fail $ concat ["failed refinement check for ", show c, " -- ", show x]
+  Check x -> do
+    nx <- f' x
+    case nx of
+      (Pair c tc) -> do
+        tcResult <- f (Pair c Zero) (PLeft tc)
+        case tcResult of
+          Zero -> pure c
+          x -> throwError $ concat ["failed refinement check for ", show c, " -- ", show x]
+      x -> throwError $ concat ["bad argument to refinement check: ", show x]
   SetEnv x -> (f' x >>=) $ \nx -> case nx of
     Pair c nenv -> f nenv c
-    bx -> fail $ concat ["setenv: expecting pair, got ", show bx]
+    bx -> throwError $ concat ["setenv: expecting pair, got ", show bx]
   Defer x -> pure x
   Twiddle x -> (f' x >>=) $ \nx -> case nx of
     Pair i (Pair c cenv) -> pure $ Pair c (Pair i cenv)
-    bx -> fail $ concat ["twiddle: expecting pair pair, got ", show bx]
+    bx -> throwError $ concat ["twiddle: expecting pair pair, got ", show bx]
   Gate x -> f' x >>= \g -> case g of
     Zero -> pure $ PLeft Var
     _ -> pure $ PRight Var
@@ -168,27 +177,36 @@ rOptimize =
   in endoMap modR
 
 simpleEval :: IExpr -> IO IExpr
-simpleEval = fix iEval Zero
+simpleEval x = runExceptT (fix iEval Zero x) >>= \r -> case r of
+  Left e -> fail e
+  Right i -> pure i
 
 fasterEval :: IExpr -> IO IExpr
 fasterEval =
-  let frEval = fix rEval RZero
+  let frEval x = runExceptT (fix rEval RZero x) >>= \r -> case r of
+        Left e -> fail e
+        Right i -> pure i
   in fmap fromRExpr . frEval . rOptimize . toRExpr
 
 optimizedEval :: IExpr -> IO IExpr
 optimizedEval = fasterEval --simpleEval . optimize
 
-pureEval :: IExpr -> IExpr
-pureEval g = runIdentity $ fix iEval Zero g
+pureEval :: IExpr -> Either RunTimeError IExpr
+pureEval g = runIdentity . runExceptT $ fix iEval Zero g
 
-pureREval :: IExpr -> IExpr
-pureREval = fromRExpr . runIdentity . fix rEval RZero . rOptimize . toRExpr
+pureREval :: IExpr -> Either RunTimeError IExpr
+pureREval = fmap fromRExpr . runIdentity . runExceptT . fix rEval RZero . rOptimize . toRExpr
 
-showPass :: Show a => IO a -> IO a
-showPass a = a >>= print >> a
+pureEvalWithError :: IExpr -> Either String IExpr
+pureEvalWithError = fix iEval Zero
+
+showPass :: (Show a, MonadIO m) => m a -> m a
+showPass a = a >>= (liftIO . print) >> a
 
 tEval :: IExpr -> IO IExpr
-tEval = fix (\f e g -> showPass $ iEval f e g) Zero
+tEval x = runExceptT (fix (\f e g -> showPass $ iEval f e g) Zero x) >>= \r -> case r of
+  Left e -> fail e
+  Right i -> pure i
 
 typedEval :: (IExpr -> DataType -> Bool) -> IExpr -> (IExpr -> IO ()) -> IO ()
 typedEval typeCheck iexpr prettyPrint = if typeCheck iexpr ZeroType
@@ -204,23 +222,22 @@ fullEval typeCheck i = typedEval typeCheck i print
 
 prettyEval typeCheck i = typedEval typeCheck i (print . PrettyIExpr)
 
--- TODO fix tictactoe type checking
 evalLoop :: (Show a, Eq a) => (DataType -> IExpr -> Maybe a) -> IExpr -> IO ()
 evalLoop typeCheck iexpr = if typeCheck ZeroType (app iexpr Zero) == Nothing
   then let mainLoop s = do
-             result <- fmap fromRExpr . fix rEval RZero $ RSetEnv (RTwiddle (RPair (toRExpr s) optIExpr))
+             result <- runExceptT . fix rEval RZero $ RSetEnv (RTwiddle (RPair s optIExpr))
              case result of
-               Zero -> putStrLn "aborted"
-               (Pair disp newState) -> do
-                 putStrLn . g2s $ disp
+               Right RZero -> putStrLn "aborted"
+               Right (RPair disp newState) -> do
+                 putStrLn . g2s . fromRExpr $ disp
                  case newState of
-                   Zero -> putStrLn "done"
+                   RZero -> putStrLn "done"
                    _ -> do
-                     inp <- s2g <$> getLine
-                     mainLoop $ Pair inp newState
+                     inp <- (toRExpr . s2g) <$> getLine
+                     mainLoop $ RPair inp newState
                r -> putStrLn $ concat ["runtime error, dumped ", show r]
            optIExpr = rOptimize $ toRExpr iexpr
-       in mainLoop Zero
+       in mainLoop RZero
   else putStrLn $ concat ["main's checked type: "
                          , show $ typeCheck ZeroType (app iexpr Zero)
                          ]

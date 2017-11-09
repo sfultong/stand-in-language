@@ -75,10 +75,9 @@ instance Arbitrary TestIExpr where
     (SetEnv x) -> TestIExpr x : (map (lift1Texpr SetEnv) . shrink $ TestIExpr x)
     (Defer x) -> TestIExpr x : (map (lift1Texpr Defer) . shrink $ TestIExpr x)
     (Twiddle x) -> TestIExpr x : (map (lift1Texpr Twiddle) . shrink $ TestIExpr x)
+    (Check x) -> TestIExpr x : (map (lift1Texpr Check) . shrink $ TestIExpr x)
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
-    (Check c tc) -> TestIExpr c : TestIExpr tc :
-      [lift2Texpr check c' tc' | (c', tc') <- shrink (TestIExpr c, TestIExpr tc)]
 
 typeable x = case inferType (getIExpr x) of
   Left _ -> False
@@ -88,7 +87,7 @@ instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
   shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
 
-isCheck (Check _ _) = True
+isCheck (Check _) = True
 isCheck _ = False
 
 instance Arbitrary TestCheckIExpr where
@@ -332,6 +331,20 @@ unitTest name expected iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)
   else putStrLn ( concat [name, " failed typecheck: ", show (typeCheck ZeroType iexpr)])
        >> pure False
 
+unitTestRefinement :: String -> Bool -> IExpr -> IO Bool
+unitTestRefinement name shouldSucceed iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)
+  then do
+  case (pureEvalWithError iexpr, shouldSucceed) of
+    (Left err, True) -> do
+      putStrLn $ concat [name, ": failed refinement type -- ", show err]
+      pure False
+    (Right _, False) -> do
+      putStrLn $ concat [name, ": expected refinement failure, but passed"]
+      pure False
+    _ -> pure True
+  else do
+  putStrLn $ concat ["refinement test failed typecheck: ", name]
+  pure False
 {-
 unitTestOptimization :: String -> IExpr -> IO Bool
 unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
@@ -356,7 +369,9 @@ debugPCPT iexpr = if inferType iexpr == inferType (promoteChecks iexpr)
                           , show (inferType (promoteChecks iexpr))]) >> pure False
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
-  [ unitTestType "main : 0 = 0" ZeroType (== Nothing)
+  [ unitTestType "main = 0" ZeroType (== Nothing)
+  , unitTestRefinement "minimal refinement success" True (check zero (lam (varN 0)))
+  , unitTestRefinement "minimal refinement failure" False (check (i2g 1) (lam (ite (varN 0) (s2g "whoops") zero)))
   , unitTest "three" "3" three_succ
   , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
   , unitTest "c2d" "2" c2d_test
@@ -453,6 +468,8 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   -- because of the way lists are represented, the last number will be prettyPrinted + 1
   , unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
     (ints2g [1,2,3])
+  , unitTestRefinement "minimal refinement success" True (check zero (lam (varN 0)))
+  , unitTestRefinement "minimal refinement failure" False (check (i2g 1) (lam (ite (varN 0) (s2g "whoops") zero)))
   , unitTest2 "main = 0" "0"
   , unitTest2 fiveApp "5"
   , unitTest2 "main = plus $3 $2 succ 0" "5"
