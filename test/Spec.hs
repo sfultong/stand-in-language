@@ -370,25 +370,14 @@ debugPCPT iexpr = if inferType iexpr == inferType (promoteChecks iexpr)
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main = 0" ZeroType (== Nothing)
-  , unitTestRefinement "minimal refinement success" True (check zero (lam (varN 0)))
-  , unitTestRefinement "minimal refinement failure" False (check (i2g 1) (lam (ite (varN 0) (s2g "whoops") zero)))
-  , unitTest "three" "3" three_succ
-  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-  , unitTest "c2d" "2" c2d_test
-  , unitTest "c2d2" "2" c2d_test2
-  , unitTest "c2d3" "1" c2d_test3
-  , unitTest "oneplusone" "2" one_plus_one
-  , unitTest "church 3+2" "5" three_plus_two
-  , unitTest "3*2" "6" three_times_two
-  , unitTest "3^2" "9" three_pow_two
-  , unitTest "test_tochurch" "2" test_toChurch
-  , unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
-  , unitTest "d2c test" "2" d2c_test
-  , unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
-  , unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
-  , unitTest "listlength0" "0" $ app list_length zero
-  , unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
-  , unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
+  , unitTest2 "main = range 2 5" "{2,{3,5}}"
+  , unitTest2 "main = range 6 6" "0"
+  , unitTest2 "main = c2d (factorial 4)" "24"
+  , unitTest2 "main = c2d (factorial 0)" "1"
+  , unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
+    "{4,{5,{6,8}}}"
+  , unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
+    "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
   ]
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
@@ -502,17 +491,14 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = dMinus 4 3" "1"
   , unitTest2 "main = dMinus 4 4" "0"
   , unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
-  {- TODO fix range
-  , unitTest2 "main = map c2d (range $2 $5)" "{2,{3,5}}"
-  , unitTest2 "main = map c2d (range $6 $6)" "0"
-  , unitTest2 "main = c2d (factorial $4)" "24"
-  , unitTest2 "main = c2d (factorial $0)" "1"
-  , debugMark "9"
-  , unitTest2 "main = map c2d (filter (\\x -> c2d (minus x $3)) (range $1 $8))"
+  , unitTest2 "main = range 2 5" "{2,{3,5}}"
+  , unitTest2 "main = range 6 6" "0"
+  , unitTest2 "main = c2d (factorial 4)" "24"
+  , unitTest2 "main = c2d (factorial 0)" "1"
+  , unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
     "{4,{5,{6,8}}}"
-  , unitTest2 "main = map c2d (quicksort [$4,$3,$7,$1,$2,$4,$6,$9,$8,$5,$7])"
+  , unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
--}
   {-
   , debugPCPT $ gate (check zero var)
   , debugPCPT $ app var (check zero var)
@@ -557,6 +543,11 @@ main = do
       Right g -> fmap (show . PrettyIExpr) (optimizedEval g) >>= \r2 -> if r2 == r
         then pure True
         else (putStrLn $ concat [s, " result ", r2]) >> pure False
+    unitTest3 s r = let parsed = parseMain prelude s in case (inferType <$> parsed, parsed) of
+      (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (optimizedEval g) >>= \r2 -> if r2 == r
+        then pure True
+        else (putStrLn $ concat [s, " result ", r2]) >> pure False
+      e -> (putStrLn $ concat ["failed unittest3: ", s, " ", show e ]) >> pure False
     unitTestType s t tef = case parseMain prelude s of
       Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
       Right g -> let apt = typeCheck t g

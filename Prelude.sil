@@ -26,8 +26,8 @@ dMinus : {0,{0,0}} = \a b -> d2c b (\x -> left x) a
 
 minus : {CT,{CT,CT}} = \a b -> d2c (b (\x -> left x) (c2d a))
 
-range = \a b -> let layer = \recur i -> if c2d (minus b i)
-                                           then {i, recur (plus i $1)}
+range = \a b -> let layer = \recur i -> if dMinus b i
+                                           then {i, recur {i,0}}
                                            else 0
                 in $1024 layer (\i -> 0) a
 
@@ -87,11 +87,11 @@ take : {CT,{0,0}}
  = \n l -> let lengthed = n (\x -> {0,x}) 0
            in zipWith (\a b -> a) l lengthed
 
-factorial = \n -> foldr times $1 (range $1 (plus n $1))
+factorial = \n -> foldr (\a b -> times (d2c a) b) $1 (range 1 {n,0})
 
 quicksort = let layer = \recur l -> if right l
                                        then let t = left l
-                                                test = \x -> c2d (minus x t)
+                                                test = \x -> dMinus x t
                                                 p1 = filter test (right l)
                                                 p2 = filter (\x -> not (test x)) (right l)
                                             in listPlus (recur p2) {t,(recur p1)}

@@ -309,7 +309,8 @@ getUnboundType (VarA a) = pure a
 getUnboundType (SetEnvA x _) = getUnboundType x
 getUnboundType (DeferA _) = Nothing
 getUnboundType (TwiddleA x _) = getUnboundType x
--- do we want this? a check lambda's environment will count as an unbound variable
+-- hack. Ignore closure environment from type check closure
+getUnboundType (CheckA (PairA c (PairA tc _)) _) = getUnboundType c <|> getUnboundType tc
 getUnboundType (CheckA x _) = getUnboundType x
 getUnboundType (GateA x _) = getUnboundType x
 getUnboundType (PLeftA x _) = getUnboundType x
