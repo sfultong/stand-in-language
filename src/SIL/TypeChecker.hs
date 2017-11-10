@@ -451,22 +451,6 @@ resolveOrAlt_ resolved typeMap (TypeVariable i) =
 resolveOrAlt :: Map Int PartialType -> PartialType -> Either TypeCheckError DataType
 resolveOrAlt = resolveOrAlt_ Set.empty
 
-fullyAnnotate :: Map Int PartialType -> ExprPA -> Either TypeCheckError ExprFA
-fullyAnnotate _ ZeroA = pure ZeroA
-fullyAnnotate typeMap (PairA a b) =
-  PairA <$> fullyAnnotate typeMap a <*> fullyAnnotate typeMap b
-fullyAnnotate typeMap (VarA t) = VarA <$> resolveOrAlt typeMap t
-fullyAnnotate typeMap (SetEnvA x a) = SetEnvA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
-fullyAnnotate typeMap (DeferA x) = DeferA <$> fullyAnnotate typeMap x
-fullyAnnotate typeMap (TwiddleA x a) = TwiddleA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
-fullyAnnotate typeMap (CheckA x a) = CheckA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
-fullyAnnotate typeMap (GateA x a) = GateA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap a
-fullyAnnotate typeMap pl@(PLeftA x t) =
-  PLeftA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap t
-fullyAnnotate typeMap pr@(PRightA x t) =
-  PRightA <$> fullyAnnotate typeMap x <*> resolveOrAlt typeMap t
-fullyAnnotate typeMap (TraceA x) = TraceA <$> fullyAnnotate typeMap x
-
 -- apply mostlyAnnotate recursively to exprPA
 fullyMostlyAnnotate :: Map Int PartialType -> ExprPA -> (Set Int, ExprPA)
 fullyMostlyAnnotate _ ZeroA = (Set.empty, ZeroA)
@@ -500,7 +484,7 @@ fullyMostlyAnnotate tm (PRightA x a) = case mostlyResolve tm a of
 fullyMostlyAnnotate tm (TraceA x) = TraceA <$> fullyMostlyAnnotate tm x
 
 tcStart :: (PartialType, Map Int PartialType, Int, Maybe TypeCheckError)
-tcStart = (ZeroTypeP, Map.empty, 0, Nothing)
+tcStart = (TypeVariable 0, Map.empty, 1, Nothing)
 
 partiallyAnnotate :: IExpr -> Either TypeCheckError (Map Int PartialType, ExprPA)
 partiallyAnnotate iexpr =
@@ -548,12 +532,6 @@ typeCheck t iexpr =
   in case partiallyAnnotate iexpr >>= assocAndAnno of
     Left x -> Just x
     _ -> Nothing
-
--- TODO get rid of this hack
-weakCheck :: DataType -> IExpr -> Maybe TypeCheckError
-weakCheck t iexpr = typeCheck t iexpr >>= \x -> case x of
-  (UnboundType _) -> Nothing
-  y -> pure y
 
 -- for legacy type annotations TODO broken, probably should remove
 makeCheck :: IExpr -> IExpr

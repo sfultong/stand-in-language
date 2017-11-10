@@ -4,7 +4,7 @@ import Data.Char
 import SIL
 import SIL.Parser
 import SIL.RunTime
-import SIL.TypeChecker (weakCheck, inferType)
+import SIL.TypeChecker (typeCheck, inferType)
 import SIL.Optimizer
 import qualified System.IO.Strict as Strict
 
@@ -51,9 +51,10 @@ main = do
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
+    notRealCheck _ expr = inferType expr
     runMain s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right g -> evalLoop weakCheck g
+      Right g -> evalLoop typeCheck g
     showParsed s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> print . PrettyIExpr $ g
