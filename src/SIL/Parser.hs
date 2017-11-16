@@ -5,6 +5,7 @@ import Control.Monad.State
 import Data.Char
 import Data.List (elemIndex)
 import Data.Map (Map)
+import Debug.Trace
 import qualified Data.Map as Map
 import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, IExpr(Trace), PrettyPartialType(..))
 import SIL.TypeChecker
@@ -31,7 +32,6 @@ data ParserTerm v
   | TPair (ParserTerm v) (ParserTerm v)
   | TVar v
   | TApp (ParserTerm v) (ParserTerm v)
-  | TAnno (ParserTerm v) (ParserTerm v)
   | TCheck (ParserTerm v) (ParserTerm v)
   | TITE (ParserTerm v) (ParserTerm v) (ParserTerm v)
   | TLeft (ParserTerm v)
@@ -65,7 +65,6 @@ debruijinize vl (TVar (Right n)) = case elemIndex n vl of
   Just i -> pure $ TVar i
   Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
-debruijinize vl (TAnno c i) = TAnno <$> debruijinize vl c <*> debruijinize vl i
 debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
 debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i <*> debruijinize vl t
   <*> debruijinize vl e
@@ -80,8 +79,8 @@ convertPT TZero = zero
 convertPT (TPair a b) = pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
 convertPT (TApp i c) = app (convertPT i) (convertPT c)
-convertPT (TAnno c i) = check (convertPT c) (makeCheck $ convertPT i)
-convertPT (TCheck c tc) = check (convertPT c) (convertPT tc)
+-- note preft hack to discard environment from normal lambda format
+convertPT (TCheck c tc) = check (convertPT c) (pleft (convertPT tc))
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = pleft (convertPT i)
 convertPT (TRight i) = pright (convertPT i)
@@ -104,7 +103,7 @@ languageDef = Token.LanguageDef
   , Token.identLetter    = alphaNum <|> oneOf "_'"
   , Token.opStart        = Token.opLetter languageDef
   , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
-  , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]
+  , Token.reservedOpNames = ["\\","->", ":", "=", "$"]
   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
   , Token.caseSensitive  = True
   }
@@ -203,16 +202,13 @@ parseLambda = do
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (reservedOp "$" *> integer)
 
-parseLegacyType :: SILParser (Term1 -> Term1)
-parseLegacyType = flip TAnno <$> (reservedOp ":" *> parseLongExpr)
-
 parseRefinementCheck :: SILParser (Term1 -> Term1)
-parseRefinementCheck = flip TCheck <$> (reservedOp "#" *> parseLongExpr)
+parseRefinementCheck = flip TCheck <$> (reservedOp ":" *> parseLongExpr)
 
 parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
-  annotation <- optionMaybe (parseLegacyType <|> parseRefinementCheck)
+  annotation <- optionMaybe parseRefinementCheck
   reservedOp "=" <?> "assignment ="
   expr <- parseLongExpr
   let annoExp = case annotation of

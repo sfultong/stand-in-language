@@ -386,10 +386,7 @@ annotate (Check x) = do
   associateVar
     (PairTypeP
      it
-     (PairTypeP
-      (ArrTypeP it ZeroTypeP)
-      ZeroTypeP
-     )
+     (ArrTypeP it ZeroTypeP)
     )
     (getPartialAnnotation nx)
   pure $ CheckA nx it
@@ -523,6 +520,9 @@ partiallyAnnotate iexpr =
 inferType :: IExpr -> Either TypeCheckError PartialType
 inferType iexpr = partiallyAnnotate iexpr >>= (\(tm, exp) -> mostlyResolve tm $ getPartialAnnotation exp)
 
+debugInferType :: IExpr -> Either TypeCheckError PartialType
+debugInferType iexpr = partiallyAnnotate iexpr >>= (\(tm, exp) -> trace (show $ DebugTypeCheck exp tm 80) . mostlyResolve tm $ getPartialAnnotation exp)
+
 typeCheck :: DataType -> IExpr -> Maybe TypeCheckError
 typeCheck t iexpr =
   let assocAndAnno (tm, exp) =
@@ -532,10 +532,3 @@ typeCheck t iexpr =
   in case partiallyAnnotate iexpr >>= assocAndAnno of
     Left x -> Just x
     _ -> Nothing
-
--- for legacy type annotations TODO broken, probably should remove
-makeCheck :: IExpr -> IExpr
-makeCheck x = if typeCheck ZeroType x == Nothing
-              --then makeTypeCheckTest . pureEval $ x
-              then makeTypeCheckTest Zero
-              else trace "makeCheck issue" Zero -- guaranteed to fail

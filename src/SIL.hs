@@ -19,7 +19,6 @@ data IExpr
   | SetEnv !IExpr
   | Defer !IExpr
   | Twiddle !IExpr
-  -- | Check !IExpr !IExpr      -- :
   | Check !IExpr
   | Gate !IExpr
   | PLeft !IExpr             -- left
@@ -92,26 +91,6 @@ ite :: IExpr -> IExpr -> IExpr -> IExpr
 ite i t e = SetEnv (Pair (Gate i) (Pair e t))
 varN :: Int -> IExpr
 varN n = PLeft (iterate PRight Var !! n)
-
--- hack to support old style type annotations
-makeTypeCheckTest_ :: IExpr -> IExpr -> IExpr
-makeTypeCheckTest_ Zero v = app (Gate v) Zero -- v
---makeTypeCheckTest_ (Pair a Zero) v = Gate (App v (makeTypeCheckTestA a))
-makeTypeCheckTest_ (Pair a b) v = makeTypeCheckTest_ b $ app v (makeTypeCheckTestA a)
-
-makeTypeCheckTestA :: IExpr -> IExpr
-makeTypeCheckTestA Zero = Zero
---makeTypeCheckTestA (Pair Zero Zero) = Gate Zero
-makeTypeCheckTestA x = lam (makeTypeCheckTest_ x (PLeft Var))
-
-makeTypeCheckTest :: IExpr -> IExpr
---TODO fix
---makeTypeCheckTest x = Closure (makeTypeCheckTest_ x (PLeft Var)) Zero
---makeTypeCheckTest x = lam $ PLeft (Pair Zero Var)
-makeTypeCheckTest x = Pair (Defer $ PLeft (Pair Zero Var)) Zero
-
-anno :: IExpr -> IExpr -> IExpr
-anno g tc = check g $ makeTypeCheckTest tc
 
 data DataType
   = ZeroType

@@ -8,9 +8,9 @@ import SIL.TypeChecker (typeCheck, inferType)
 import SIL.Optimizer
 import qualified System.IO.Strict as Strict
 
-just_abort = anno (lam Zero) (Pair Zero Zero)
+just_abort = lam Zero
 
-message_then_abort = anno (lam (ite (varN 0) Zero (Pair (s2g "Test message") Zero))) (Pair Zero Zero)
+message_then_abort = lam (ite (varN 0) Zero (Pair (s2g "Test message") Zero))
 
 {- TODO implement listEquality in Prelude
 quit_to_exit =
@@ -31,11 +31,10 @@ displayBoard =
       row2 = ch . ch . ch . ch . ch $ cn row3
       row1 = Pair (varN 8) (ch (Pair (varN 7) (ch (Pair (varN 6) row2))))
       rows = lam (lam (lam (lam (lam (lam (lam (lam (lam row1))))))))
-      rowsType = Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero Zero))))))))
       repRight x = foldr (.) id $ replicate x PRight
-      appl 0 = app (anno rows rowsType) (PLeft $ varN 0)
+      appl 0 = app rows (PLeft $ varN 0)
       appl x = app (appl (x - 1)) (PLeft . repRight x $ varN 0)
-  in anno (lam $ appl 8) (Pair Zero Zero)
+  in lam $ appl 8
 
 main = do
   --unitTests
@@ -61,8 +60,6 @@ main = do
     showOptimized s = case optimize <$> parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> print . PrettyIExpr $ g
-    testTCT = print . inferType . makeTypeCheckTest
-    testTCT2 t e = print . inferType $ app (makeTypeCheckTest t) e
 
   printBindingTypes prelude
   Strict.readFile "tictactoe.sil" >>= runMain
