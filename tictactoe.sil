@@ -1,14 +1,14 @@
-drawPiece : {0,{0,0}}
+drawPiece
  = \piece alt -> if piece
                     then if left piece
                              then "O"
                              else "X"
                     else alt
 
-drawBoard : {0,0}
- = \pieces -> let getPiece : {CT,0} = \n -> left (n (\x -> right x) pieces)
+drawBoard
+ = \pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
                   alt = {n succ (left "1"), 0}
-                  dp : {CT,0} = \n -> drawPiece (getPiece n) alt
+                  dp = \n -> drawPiece (getPiece n) alt
                   blankRow = "-+-+-\n"
                   row5 = concat [dp $6, "|", dp $7, "|", dp $8, "\n"]
                   row4 = concat [blankRow, row5]
@@ -17,21 +17,21 @@ drawBoard : {0,0}
                   row1 = concat [dp $0, "|", dp $1, "|", dp $2, "\n", row2]
               in row1                                  
 
-setPiece : {0,{CT,{0,0}}}
+setPiece
  = \player pos board -> let before = take pos board
                             after = right (drop pos board)
                         in concat [before, {player,0}, after]
 
-getSquare : {CT,{0,0}}
+getSquare
  = \pos board -> left (drop pos board)
 
-fullBoard : {0,0}
+fullBoard
  = \board -> let squares = map (\x -> getSquare (d2c x) board) [0,1,2,3,4,5,6,7,8]
              in foldr and 1 squares
 
 emptyBoard = [0,0,0,0,0,0,0,0,0]
 
-processInput : {0,0}
+processInput
  = \string -> if dEqual (listLength string) 1
                  then let num = dMinus (left string) (left "0")
                       in if and num (dMinus 10 num)
@@ -39,7 +39,7 @@ processInput : {0,0}
                             else 0
                  else 0
 
-whoWon : {0,0}
+whoWon
  = \board -> let rows = [[0,1,2]
                         ,[3,4,5]
                         ,[6,7,8]
@@ -49,16 +49,16 @@ whoWon : {0,0}
                         ,[0,4,8]
                         ,[2,4,6]
                         ]
-                 doRow : {0,0}
+                 doRow
                    = \row -> let pieces = map (\x -> getSquare (d2c x) board) row
                                  oneWins = foldr and 1 (map (dEqual 1) pieces)
                                  twoWins = foldr and 1 (map (dEqual 2) pieces)
                              in if oneWins then 1 else if twoWins then 2 else 0
-                 combineRow : {0,{0,0}}
+                 combineRow
                    = \row winAcc -> if winAcc then winAcc else doRow row
              in foldr combineRow 0 rows
 
-main : {0,0}
+main
  = \input -> let placeString = left input
                  boardIn = right (right input)
                  playerIn = left (right input)

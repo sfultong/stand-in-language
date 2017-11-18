@@ -7,7 +7,7 @@ import Data.List (elemIndex)
 import Data.Map (Map)
 import Debug.Trace
 import qualified Data.Map as Map
-import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, IExpr(Trace), PrettyPartialType(..))
+import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, IExpr(Trace), PrettyPartialType(..))
 import SIL.TypeChecker
 import Text.Parsec
 import Text.Parsec.Indent
@@ -38,7 +38,9 @@ data ParserTerm v
   | TRight (ParserTerm v)
   | TTrace (ParserTerm v)
   | TLam (ParserTerm v)
+  | TCompleteLam (ParserTerm v)
   | TNamedLam String (ParserTerm v)
+  | TNamedCompleteLam String (ParserTerm v)
   deriving (Eq, Show, Ord, Functor)
 
 i2t :: Int -> ParserTerm v
@@ -72,7 +74,9 @@ debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
 debruijinize vl (TRight x) = TRight <$> debruijinize vl x
 debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
 debruijinize vl (TLam x) = TLam <$> debruijinize ("-- dummy" : vl) x
+debruijinize vl (TCompleteLam x) = TCompleteLam <$> debruijinize ("-- dummyC" : vl) x
 debruijinize vl (TNamedLam n l) = TLam <$> debruijinize (n : vl) l
+debruijinize vl (TNamedCompleteLam n l) = TCompleteLam <$> debruijinize (n : vl) l
 
 convertPT :: ParserTerm Int -> IExpr
 convertPT TZero = zero
@@ -86,7 +90,9 @@ convertPT (TLeft i) = pleft (convertPT i)
 convertPT (TRight i) = pright (convertPT i)
 convertPT (TTrace i) = Trace (convertPT i)
 convertPT (TLam c) = lam (convertPT c)
+convertPT (TCompleteLam x) = completeLam (convertPT x)
 convertPT (TNamedLam n _) = error $ "should be no named lambdas at this stage, name " ++ n
+convertPT (TNamedCompleteLam n _) = error $ "should be no named complete lambdas in convertPT, name " ++ n
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
@@ -103,7 +109,7 @@ languageDef = Token.LanguageDef
   , Token.identLetter    = alphaNum <|> oneOf "_'"
   , Token.opStart        = Token.opLetter languageDef
   , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
-  , Token.reservedOpNames = ["\\","->", ":", "=", "$"]
+  , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]
   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
   , Token.caseSensitive  = True
   }
@@ -187,6 +193,7 @@ parseLongExpr :: SILParser Term1
 parseLongExpr = choice [ parseLet
                        , parseITE
                        , parseLambda
+                       , parseCompleteLambda
                        , parseApplied
                        ]
 
@@ -198,6 +205,14 @@ parseLambda = do
   -- TODO make sure lambda names don't collide with bound names
   iexpr <- parseLongExpr
   return $ foldr TNamedLam iexpr variables
+
+parseCompleteLambda :: SILParser Term1
+parseCompleteLambda = do
+  reservedOp "#"
+  variables <- many1 identifier
+  sameOrIndented <* reservedOp "->" <?> "lambda ->"
+  iexpr <- parseLongExpr
+  return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
 
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (reservedOp "$" *> integer)

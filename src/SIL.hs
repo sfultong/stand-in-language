@@ -87,6 +87,9 @@ defer :: IExpr -> IExpr
 defer = Defer
 lam :: IExpr -> IExpr
 lam x = Pair (Defer x) Var
+-- a form of lambda that does not pull in a surrounding environment
+completeLam :: IExpr -> IExpr
+completeLam x = Pair (Defer x) Zero
 ite :: IExpr -> IExpr -> IExpr -> IExpr
 ite i t e = SetEnv (Pair (Gate i) (Pair e t))
 varN :: Int -> IExpr

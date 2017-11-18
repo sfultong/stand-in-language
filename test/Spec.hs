@@ -399,7 +399,7 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
   , unitTestType "main = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
 -}
-  , unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
+  , unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
   -- TODO fix
   --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
   , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
@@ -426,8 +426,9 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   -- because of the way lists are represented, the last number will be prettyPrinted + 1
   , unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
     (ints2g [1,2,3])
-  , unitTestRefinement "minimal refinement success" True (check zero (pleft (lam (varN 0))))
-  , unitTestRefinement "minimal refinement failure" False (check (i2g 1) (pleft (lam (ite (varN 0) (s2g "whoops") zero))))
+  , unitTestRefinement "minimal refinement success" True (check zero (pleft (completeLam (varN 0))))
+  , unitTestRefinement "minimal refinement failure" False
+    (check (i2g 1) (pleft (completeLam (ite (varN 0) (s2g "whoops") zero))))
   , unitTest2 "main = 0" "0"
   , unitTest2 fiveApp "5"
   , unitTest2 "main = plus $3 $2 succ 0" "5"
