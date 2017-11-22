@@ -89,8 +89,8 @@ rEval f env g = let f' = f env
   RCheck x -> do
     nx <- f' x
     case nx of
-      (RPair c t) -> do
-        tcResult <- f (RPair c RZero) t
+      (RPair c (RPair tcc nenv)) -> do
+        tcResult <- f (RPair c nenv) tcc
         case tcResult of
           RZero -> pure c
           err -> throwError $ concat ["failed refinement check for ", show c, " -- ", show err]
@@ -133,8 +133,8 @@ iEval f env g = let f' = f env in case g of
   Check x -> do
     nx <- f' x
     case nx of
-      (Pair c tc) -> do
-        tcResult <- f (Pair c Zero) tc
+      (Pair c (Pair tcc nenv)) -> do
+        tcResult <- f (Pair c nenv) tcc
         case tcResult of
           Zero -> pure c
           x -> throwError $ concat ["failed refinement check for ", show c, " -- ", show x]

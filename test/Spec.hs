@@ -307,9 +307,8 @@ unitTest name expected iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)
        >> pure False
 
 unitTestRefinement :: String -> Bool -> IExpr -> IO Bool
-unitTestRefinement name shouldSucceed iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)
-  then do
-  case (pureEvalWithError iexpr, shouldSucceed) of
+unitTestRefinement name shouldSucceed iexpr = case inferType iexpr of
+  Right t -> case (pureEvalWithError iexpr, shouldSucceed) of
     (Left err, True) -> do
       putStrLn $ concat [name, ": failed refinement type -- ", show err]
       pure False
@@ -317,9 +316,9 @@ unitTestRefinement name shouldSucceed iexpr = if allowedTypeCheck (typeCheck Zer
       putStrLn $ concat [name, ": expected refinement failure, but passed"]
       pure False
     _ -> pure True
-  else do
-  putStrLn $ concat ["refinement test failed typecheck: ", name]
-  pure False
+  Left err -> do
+    putStrLn $ concat ["refinement test failed typecheck: ", name, " ", show err]
+    pure False
 {-
 unitTestOptimization :: String -> IExpr -> IO Bool
 unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
@@ -345,8 +344,8 @@ debugPCPT iexpr = if inferType iexpr == inferType (promoteChecks iexpr)
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main = 0" ZeroType (== Nothing)
-  , unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
-  --, unitTestType "main : (\\x -> if x then 1 else 0) = 0" ZeroType (== Nothing)
+  , unitTestRefinement "refinement: test of function success" True
+    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 1))))
   ]
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
@@ -426,9 +425,13 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   -- because of the way lists are represented, the last number will be prettyPrinted + 1
   , unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
     (ints2g [1,2,3])
-  , unitTestRefinement "minimal refinement success" True (check zero (pleft (completeLam (varN 0))))
+  , unitTestRefinement "minimal refinement success" True (check zero (completeLam (varN 0)))
   , unitTestRefinement "minimal refinement failure" False
-    (check (i2g 1) (pleft (completeLam (ite (varN 0) (s2g "whoops") zero))))
+    (check (i2g 1) (completeLam (ite (varN 0) (s2g "whoops") zero)))
+  , unitTestRefinement "refinement: test of function success" True
+    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 1))))
+  , unitTestRefinement "refinement: test of function failure" False
+    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 2))))
   , unitTest2 "main = 0" "0"
   , unitTest2 fiveApp "5"
   , unitTest2 "main = plus $3 $2 succ 0" "5"

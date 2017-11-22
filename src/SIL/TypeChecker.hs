@@ -103,17 +103,6 @@ instance Show DebugTypeCheck where
     , show (DebugTypeMap typeMap)
     ]
 
-fromExprPA :: ExprPA -> IExpr
-fromExprPA ZeroA = Zero
-fromExprPA (PairA a b) = Pair (fromExprPA a) (fromExprPA b)
-fromExprPA (VarA _) = Var
--- we can ignore check because it should run separately elsewhere
-fromExprPA (CheckA c _) = fromExprPA c
-fromExprPA (GateA x _) = Gate $ fromExprPA x
-fromExprPA (PLeftA x _) = PLeft $ fromExprPA x
-fromExprPA (PRightA x _) = PRight $ fromExprPA x
-fromExprPA (TraceA x) = Trace $ fromExprPA x
-
 getPartialAnnotation :: ExprPA -> PartialType
 getPartialAnnotation (VarA a) = a
 getPartialAnnotation (SetEnvA _ a) = a
@@ -249,7 +238,7 @@ associateVar a b = state $ \(env, typeMap, v, err)
   -> case (checkOrAssociate a b Set.empty typeMap, err) of
        (Right tm, _) -> traceAssociate a b $ (True, (env, tm, v, err))
        (Left err1, Just err2) | err1 < err2 -> (False, (env, typeMap, v, err))
-       (Left te, _) -> (False, (env, typeMap, v, Just te))
+       (Left te, _) -> traceAssociate a b $ (False, (env, typeMap, v, Just te))
 
 associateSubtypeVar :: PartialType -> PartialType -> AnnotateState ()
 associateSubtypeVar a b = do
@@ -309,8 +298,6 @@ getUnboundType (VarA a) = pure a
 getUnboundType (SetEnvA x _) = getUnboundType x
 getUnboundType (DeferA _) = Nothing
 getUnboundType (TwiddleA x _) = getUnboundType x
--- hack. Ignore closure environment from type check closure
-getUnboundType (CheckA (PairA c (PairA tc _)) _) = getUnboundType c <|> getUnboundType tc
 getUnboundType (CheckA x _) = getUnboundType x
 getUnboundType (GateA x _) = getUnboundType x
 getUnboundType (PLeftA x _) = getUnboundType x
@@ -382,14 +369,18 @@ annotate (Twiddle x) = do
 annotate (Check x) = do
   debugAnnotate (Check x)
   nx <- annotate x
-  (it, _) <- withNewEnv $ pure ()
+  (it, (sit, (envT, _))) <- withNewEnv . withNewEnv . withNewEnv $ pure ()
   associateVar
     (PairTypeP
-     it
-     (ArrTypeP it ZeroTypeP)
+     sit
+     (PairTypeP
+      (ArrTypeP it ZeroTypeP)
+      envT
+     )
     )
     (getPartialAnnotation nx)
-  pure $ CheckA nx it
+  associateSubtypeVar it sit
+  pure $ CheckA nx sit
 annotate (Gate x) = do
   debugAnnotate (Gate x)
   nx <- annotate x

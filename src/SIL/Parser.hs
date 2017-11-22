@@ -84,7 +84,7 @@ convertPT (TPair a b) = pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
 convertPT (TApp i c) = app (convertPT i) (convertPT c)
 -- note preft hack to discard environment from normal lambda format
-convertPT (TCheck c tc) = check (convertPT c) (pleft (convertPT tc))
+convertPT (TCheck c tc) = check (convertPT c) (convertPT tc)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = pleft (convertPT i)
 convertPT (TRight i) = pright (convertPT i)
