@@ -5,8 +5,10 @@ import Control.Monad.State
 import Data.Char
 import Data.List (elemIndex)
 import Data.Map (Map)
+import Debug.Trace
 import qualified Data.Map as Map
-import SIL
+import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, IExpr(Trace), PrettyPartialType(..))
+import SIL.TypeChecker
 import Text.Parsec
 import Text.Parsec.Indent
 import Text.Parsec.Pos
@@ -30,13 +32,15 @@ data ParserTerm v
   | TPair (ParserTerm v) (ParserTerm v)
   | TVar v
   | TApp (ParserTerm v) (ParserTerm v)
-  | TAnno (ParserTerm v) (ParserTerm v)
+  | TCheck (ParserTerm v) (ParserTerm v)
   | TITE (ParserTerm v) (ParserTerm v) (ParserTerm v)
   | TLeft (ParserTerm v)
   | TRight (ParserTerm v)
   | TTrace (ParserTerm v)
   | TLam (ParserTerm v)
+  | TCompleteLam (ParserTerm v)
   | TNamedLam String (ParserTerm v)
+  | TNamedCompleteLam String (ParserTerm v)
   deriving (Eq, Show, Ord, Functor)
 
 i2t :: Int -> ParserTerm v
@@ -55,10 +59,6 @@ i2c x =
       inner x = TApp (TVar $ Left 1) (inner $ x - 1)
   in TLam (TLam (inner x))
 
-unCI :: CExpr -> IExpr
-unCI (CI x) = x
-unCI _ = error "unexpected lambda"
-
 debruijinize :: Monad m => VarList -> Term1 -> m (ParserTerm Int)
 debruijinize _ TZero = pure TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
@@ -67,27 +67,32 @@ debruijinize vl (TVar (Right n)) = case elemIndex n vl of
   Just i -> pure $ TVar i
   Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
-debruijinize vl (TAnno c i) = TAnno <$> debruijinize vl c <*> debruijinize vl i
+debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
 debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i <*> debruijinize vl t
   <*> debruijinize vl e
 debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
 debruijinize vl (TRight x) = TRight <$> debruijinize vl x
 debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
 debruijinize vl (TLam x) = TLam <$> debruijinize ("-- dummy" : vl) x
+debruijinize vl (TCompleteLam x) = TCompleteLam <$> debruijinize ("-- dummyC" : vl) x
 debruijinize vl (TNamedLam n l) = TLam <$> debruijinize (n : vl) l
+debruijinize vl (TNamedCompleteLam n l) = TCompleteLam <$> debruijinize (n : vl) l
 
-convertPT :: ParserTerm Int -> CExpr
-convertPT TZero = CI Zero
-convertPT (TPair a b) = CI $ Pair (unCI $ convertPT a) (unCI $ convertPT b)
-convertPT (TVar n) = CI . Var $ i2g n
-convertPT (TApp i c) = CI $ App (unCI $ convertPT i) (convertPT c)
-convertPT (TAnno c i) = CI $ Anno (convertPT c) (unCI $ convertPT i)
-convertPT (TITE i t e) = CI $ ITE (unCI $ convertPT i) (unCI $ convertPT t) (unCI $ convertPT e)
-convertPT (TLeft i) = CI $ PLeft (unCI $ convertPT i)
-convertPT (TRight i) = CI $ PRight (unCI $ convertPT i)
-convertPT (TTrace i) = CI $ Trace (unCI $ convertPT i)
-convertPT (TLam c) = Lam (convertPT c)
-convertPT (TNamedLam n l) = error $ "should be no named lambdas at this stage, name " ++ n
+convertPT :: ParserTerm Int -> IExpr
+convertPT TZero = zero
+convertPT (TPair a b) = pair (convertPT a) (convertPT b)
+convertPT (TVar n) = varN n
+convertPT (TApp i c) = app (convertPT i) (convertPT c)
+-- note preft hack to discard environment from normal lambda format
+convertPT (TCheck c tc) = check (convertPT c) (convertPT tc)
+convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
+convertPT (TLeft i) = pleft (convertPT i)
+convertPT (TRight i) = pright (convertPT i)
+convertPT (TTrace i) = Trace (convertPT i)
+convertPT (TLam c) = lam (convertPT c)
+convertPT (TCompleteLam x) = completeLam (convertPT x)
+convertPT (TNamedLam n _) = error $ "should be no named lambdas at this stage, name " ++ n
+convertPT (TNamedCompleteLam n _) = error $ "should be no named complete lambdas in convertPT, name " ++ n
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
@@ -104,7 +109,7 @@ languageDef = Token.LanguageDef
   , Token.identLetter    = alphaNum <|> oneOf "_'"
   , Token.opStart        = Token.opLetter languageDef
   , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
-  , Token.reservedOpNames = ["\\","->", ":", "=", "$"]
+  , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]
   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
   , Token.caseSensitive  = True
   }
@@ -182,14 +187,13 @@ parseSingleExpr = choice [ parseString
 parseApplied :: SILParser Term1
 parseApplied = withPos $ do
   (f:args) <- many1 (sameOrIndented *> parseSingleExpr)
-  case (f,args) of
-    (TLam g, (x:xs)) -> fail $ "(applied) expecting typed expression " ++ show g
-    _ -> pure $ foldl TApp f args
+  pure $ foldl TApp f args
 
 parseLongExpr :: SILParser Term1
 parseLongExpr = choice [ parseLet
                        , parseITE
                        , parseLambda
+                       , parseCompleteLambda
                        , parseApplied
                        ]
 
@@ -202,17 +206,28 @@ parseLambda = do
   iexpr <- parseLongExpr
   return $ foldr TNamedLam iexpr variables
 
+parseCompleteLambda :: SILParser Term1
+parseCompleteLambda = do
+  reservedOp "#"
+  variables <- many1 identifier
+  sameOrIndented <* reservedOp "->" <?> "lambda ->"
+  iexpr <- parseLongExpr
+  return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
+
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (reservedOp "$" *> integer)
+
+parseRefinementCheck :: SILParser (Term1 -> Term1)
+parseRefinementCheck = flip TCheck <$> (reservedOp ":" *> parseLongExpr)
 
 parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
-  annotation <- optionMaybe (reservedOp ":" *> parseLongExpr)
+  annotation <- optionMaybe parseRefinementCheck
   reservedOp "=" <?> "assignment ="
   expr <- parseLongExpr
   let annoExp = case annotation of
-        Just a -> TAnno expr a
+        Just f -> f expr
         _ -> expr
       assign ps = case addBound var annoExp ps of
         Just nps -> nps
@@ -244,19 +259,19 @@ parseWithPrelude prelude = let startState = ParserState prelude
 
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
-  \b -> (unCI . convertPT) <$> debruijinize [] b
+  \b -> convertPT <$> debruijinize [] b
 
-printTypeErrors :: Bindings -> IO ()
-printTypeErrors bindings =
-  let showTypeError (s, CI g) = case inferType [] g of
-        Nothing -> putStrLn $ concat [s, " has bad type signature"]
-        _ -> pure ()
+printBindingTypes :: Bindings -> IO ()
+printBindingTypes bindings =
+  let showType (s, iexpr) = putStrLn $ case inferType iexpr of
+        Left pa -> concat [s, ": bad type -- ", show pa]
+        Right ft ->concat [s, ": ", show . PrettyPartialType $ ft]
       resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
-  in resolvedBindings >>= mapM_ showTypeError
+  in resolvedBindings >>= mapM_ showType
 
 parseMain :: Bindings -> String -> Either ParseError IExpr
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"
-    Just main -> (unCI . convertPT) <$> debruijinize [] main
+    Just main -> convertPT <$> debruijinize [] main

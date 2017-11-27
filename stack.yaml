@@ -4,5 +4,6 @@ packages:
 
 nix:
   enable: true
+  packages: [binutils]
 
 extra-deps:

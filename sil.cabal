@@ -15,7 +15,7 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     SIL, SIL.Parser
+  exposed-modules:     SIL, SIL.Parser, SIL.Optimizer, SIL.TypeChecker, SIL.RunTime
   build-depends:       base >= 4.7 && < 5
                      , recursion-schemes
                      , parsec
@@ -41,6 +41,7 @@ test-suite sil-test
   build-depends:       base
                      , sil
                      , strict
+                     , QuickCheck
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 

@@ -3,25 +3,105 @@ module Main where
 import Control.Applicative (liftA2)
 import Debug.Trace
 import Data.Char
+import Data.Monoid
 import SIL
 import SIL.Parser
+import SIL.RunTime
+import SIL.TypeChecker
+import SIL.Optimizer
 import System.Exit
+import Test.QuickCheck
 import qualified System.IO.Strict as Strict
 
-three_succ = App (App (Anno (toChurch 3) (Pair (Pair Zero Zero) (Pair Zero Zero)))
-                  (Lam (CI (Pair (Var Zero) Zero))))
-             (CI Zero)
+class TestableIExpr a where
+  getIExpr :: a -> IExpr
 
-church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
+data TestIExpr = TestIExpr IExpr
 
-c2d = Anno (Lam (CI (App (App (Var Zero) (Lam (CI (Pair (Var Zero) Zero)))) (CI Zero))))
-  (Pair church_type Zero)
+data ValidTestIExpr = ValidTestIExpr TestIExpr
+
+data TestCheckIExpr = TestCheckIExpr ValidTestIExpr
+
+instance TestableIExpr TestIExpr where
+  getIExpr (TestIExpr x) = x
+
+instance Show TestIExpr where
+  show (TestIExpr t) = show t
+
+instance TestableIExpr ValidTestIExpr where
+  getIExpr (ValidTestIExpr x) = getIExpr x
+
+instance Show ValidTestIExpr where
+  show (ValidTestIExpr v) = show v
+
+instance TestableIExpr TestCheckIExpr where
+  getIExpr (TestCheckIExpr x) = getIExpr x
+
+instance Show TestCheckIExpr where
+  show (TestCheckIExpr x) = show x
+
+lift1Texpr :: (IExpr -> IExpr) -> TestIExpr -> TestIExpr
+lift1Texpr f (TestIExpr x) = TestIExpr $ f x
+
+lift2Texpr :: (IExpr -> IExpr -> IExpr) -> TestIExpr -> TestIExpr -> TestIExpr
+lift2Texpr f (TestIExpr a) (TestIExpr b) = TestIExpr $ f a b
+
+instance Arbitrary TestIExpr where
+  arbitrary = sized tree where
+    tree i = let half = div i 2
+                 pure2 = pure . TestIExpr
+             in case i of
+                  0 -> oneof $ map pure2 [zero, var]
+                  x -> oneof
+                    [ pure2 zero
+                    , pure2 var
+                    , lift2Texpr pair <$> tree half <*> tree half
+                    , lift1Texpr SetEnv <$> tree (i - 1)
+                    , lift1Texpr Defer <$> tree (i - 1)
+                    , lift1Texpr Twiddle <$> tree (i - 1)
+                    , lift2Texpr check <$> tree half <*> tree half
+                    , lift1Texpr gate <$> tree (i - 1)
+                    , lift1Texpr pleft <$> tree (i - 1)
+                    , lift1Texpr pright <$> tree (i - 1)
+                    , lift1Texpr Trace <$> tree (i - 1)
+                    ]
+  shrink (TestIExpr x) = case x of
+    Zero -> []
+    Var -> []
+    (Gate x) -> TestIExpr x : (map (lift1Texpr gate) . shrink $ TestIExpr x)
+    (PLeft x) -> TestIExpr x : (map (lift1Texpr pleft) . shrink $ TestIExpr x)
+    (PRight x) -> TestIExpr x : (map (lift1Texpr pright) . shrink $ TestIExpr x)
+    (Trace x) -> TestIExpr x : (map (lift1Texpr Trace) . shrink $ TestIExpr x)
+    (SetEnv x) -> TestIExpr x : (map (lift1Texpr SetEnv) . shrink $ TestIExpr x)
+    (Defer x) -> TestIExpr x : (map (lift1Texpr Defer) . shrink $ TestIExpr x)
+    (Twiddle x) -> TestIExpr x : (map (lift1Texpr Twiddle) . shrink $ TestIExpr x)
+    (Abort x) -> TestIExpr x : (map (lift1Texpr Abort) . shrink $ TestIExpr x)
+    (Pair a b) -> TestIExpr a : TestIExpr  b :
+      [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
+
+typeable x = case inferType (getIExpr x) of
+  Left _ -> False
+  _ -> True
+
+instance Arbitrary ValidTestIExpr where
+  arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
+  shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
+
+three_succ = app (app (toChurch 3) (lam (pair (varN 0) zero))) zero
+
+one_succ = app (app (toChurch 1) (lam (pair (varN 0) zero))) zero
+
+two_succ = app (app (toChurch 2) (lam (pair (varN 0) zero))) zero
+
+church_type = pair (pair zero zero) (pair zero zero)
+
+c2d = lam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)
 
 h2c i =
   let layer recurf i churchf churchbase =
         if i > 0
         then churchf $ recurf (i - 1) churchf churchbase
-        -- App v1 (App (App (App v3 (PLeft v2)) v1) v0)
+        -- app v1 (app (app (app v3 (pleft v2)) v1) v0)
         else churchbase
       stopf i churchf churchbase = churchbase
   in \cf cb -> layer (layer (layer (layer stopf))) i cf cb
@@ -32,88 +112,82 @@ h_zipWith a b f =
   let layer recurf zipf a b =
         if a > 0
         then if b > 0
-             then Pair (zipf (PLeft a) (PLeft b)) (recurf zipf (PRight a) (PRight b))
-             else Zero
-        else Zero
-      stopf _ _ _ = Zero
+             then pair (zipf (pleft a) (pleft b)) (recurf zipf (pright a) (pright b))
+             else zero
+        else zero
+      stopf _ _ _ = zero
   in layer (layer (layer (layer stopf))) a b f
 
 foldr_h =
   let layer recurf f accum l =
         if not $ nil l
-        then recurf f (f (PLeft l) accum) (PRight l)
+        then recurf f (f (pleft l) accum) (pright l)
         else accum
 -}
 
+test_toChurch = app (app (toChurch 2) (lam (pair (varN 0) zero))) zero
+
 map_ =
-  -- layer recurf f l = Pair (f (PLeft l)) (recurf f (PRight l))
-  let layer = Lam (Lam (Lam (CI
-                            (ITE (Var Zero)
-                            (Pair
-                             (App (Var $ i2g 1) (CI . PLeft $ Var Zero))
-                             (App (App (Var $ i2g 2) (CI . Var $ i2g 1))
-                              (CI . PRight $ Var Zero)))
-                            Zero
-                            ))))
-      layerType = Pair (Pair Zero Zero) (Pair Zero Zero)
-      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
-      base = Lam (Lam (CI Zero))
-  in App (App (Anno (toChurch 255) fixType) layer) base
+  -- layer recurf f l = pair (f (pleft l)) (recurf f (pright l))
+  let layer = lam (lam (lam
+                            (ite (varN 0)
+                            (pair
+                             (app (varN 1) (pleft $ varN 0))
+                             (app (app (varN 2) (varN 1))
+                              (pright $ varN 0)))
+                            zero
+                            )))
+      base = lam (lam (pleft (pair zero var)))
+  in app (app (toChurch 255) layer) base
 
 foldr_ =
-  let layer = Lam (Lam (Lam (Lam (CI
-                                 (ITE (Var $ i2g 0)
-                                 (App (App (App (Var $ i2g 3) (CI . Var $ i2g 2))
+  let layer = lam (lam (lam (lam
+                                 (ite (varN 0)
+                                 (app (app (app (varN 3) (varN 2))
 
-                                       (CI (App (App (Var $ i2g 2) (CI . PLeft . Var $ i2g 0))
-                                            (CI . Var $ i2g 1))))
-                                  (CI . PRight . Var $ i2g 0))
-                                 (Var $ i2g 1)
+                                       (app (app (varN 2) (pleft $ varN 0))
+                                            (varN 1)))
+                                  (pright $ varN 0))
+                                 (varN 1)
                                  )
-                                 ))))
-      layerType = Pair (Pair Zero (Pair Zero Zero)) (Pair Zero (Pair Zero Zero))
-      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
-      base = Lam (Lam (Lam (CI Zero))) -- var 0?
-  in App (App (Anno (toChurch 255) fixType) layer) base
+                                 )))
+      base = lam (lam (lam zero)) -- var 0?
+  in app (app (toChurch 255) layer) base
 
 zipWith_ =
-  let layer = Lam (Lam (Lam (Lam (CI
-                                  (ITE (Var $ i2g 1)
-                                   (ITE (Var $ i2g 0)
-                                    (Pair
-                                     (App (App (Var $ i2g 2) (CI . PLeft . Var $ i2g 1))
-                                      (CI . PLeft . Var $ i2g 0))
-                                     (App (App (App (Var $ i2g 3) (CI . Var $ i2g 2))
-                                           (CI . PRight . Var $ i2g 1))
-                                      (CI . PRight . Var $ i2g 0))
+  let layer = lam (lam (lam (lam
+                                  (ite (varN 1)
+                                   (ite (varN 0)
+                                    (pair
+                                     (app (app (varN 2) (pleft $ varN 1))
+                                      (pleft $ varN 0))
+                                     (app (app (app (varN 3) (varN 2))
+                                           (pright $ varN 1))
+                                      (pright $ varN 0))
                                     )
-                                    Zero)
-                                   Zero)
-                                 ))))
-      base = Lam (Lam (Lam (CI Zero)))
-      layerType = Pair (Pair Zero (Pair Zero Zero)) (Pair Zero (Pair Zero Zero))
-      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
-  in App (App (Anno (toChurch 255) fixType) layer) base
+                                    zero)
+                                   zero)
+                                 )))
+      base = lam (lam (lam zero))
+  in app (app (toChurch 255) layer) base
 
 -- layer recurf i churchf churchbase
--- layer :: (Zero -> baseType) -> Zero -> (baseType -> baseType) -> baseType
+-- layer :: (zero -> baseType) -> zero -> (baseType -> baseType) -> baseType
 --           -> baseType
 -- converts plain data type number (0-255) to church numeral
 d2c baseType =
-  let layer = Lam (Lam (Lam (Lam (CI (ITE
-                             (Var $ i2g 2)
-                             (App (Var $ i2g 1)
-                              (CI (App (App (App (Var $ i2g 3)
-                                   (CI . PLeft . Var $ i2g 2))
-                                   (CI . Var $ i2g 1))
-                                   (CI . Var $ Zero)
-                                  )))
-                             (Var Zero)
-                            )))))
-      base = Lam (Lam (Lam (CI (Var Zero))))
-      layerType = Pair Zero (Pair (Pair baseType baseType) (Pair baseType baseType))
-      fixType = Pair (Pair layerType layerType) (Pair layerType layerType)
-  in App (App (Anno (toChurch 255) fixType) layer) base
+  let layer = lam (lam (lam (lam (ite
+                             (varN 2)
+                             (app (varN 1)
+                              (app (app (app (varN 3)
+                                   (pleft $ varN 2))
+                                   (varN 1))
+                                   (varN 0)
+                                  ))
+                             (varN 0)
+                            ))))
+      base = lam (lam (lam (varN 0)))
+  in app (app (toChurch 255) layer) base
 
 -- d_equality_h iexpr = (\d -> if d > 0
 --                                then \x -> d_equals_one ((d2c (pleft d) pleft) x)
@@ -121,114 +195,234 @@ d2c baseType =
 --                         )
 --
 
-d_equals_one = Anno (Lam (CI (ITE (Var Zero) (ITE (PLeft (Var Zero)) Zero (i2g 1)) Zero))) (Pair Zero Zero)
+d_equals_one = lam (ite (varN 0) (ite (pleft (varN 0)) zero (i2g 1)) zero)
 
-d_to_equality = Anno (Lam (Lam (CI (ITE (Var $ i2g 1)
-                                          (App d_equals_one (CI (App (App (App (d2c Zero) (CI . PLeft . Var $ i2g 1)) (Lam . CI . PLeft $ Var Zero)) (CI $ Var Zero))))
-                                          (ITE (Var Zero) Zero (i2g 1))
-                                         )))) (Pair Zero (Pair Zero Zero))
+d_to_equality = lam (lam (ite (varN 1)
+                                          (app d_equals_one (app (app (app (d2c zero) (pleft $ varN 1)) (lam . pleft $ varN 0)) (varN 0)))
+                                          (ite (varN 0) zero (i2g 1))
+                                         ))
 
 list_equality =
-  let pairs_equal = App (App (App zipWith_ (CI d_to_equality)) (CI $ Var Zero)) (CI . Var $ i2g 1)
-      length_equal = App (App d_to_equality (CI (App list_length (CI . Var $ i2g 1))))
-                     (CI (App list_length (CI $ Var Zero)))
-      and_ = Lam (Lam (CI (ITE (Var $ i2g 1) (Var Zero) Zero)))
-      folded = App (App (App foldr_ and_) (CI $ i2g 1)) (CI $ Pair length_equal pairs_equal)
-  in Anno (Lam (Lam (CI folded))) (Pair Zero (Pair Zero Zero))
+  let pairs_equal = app (app (app zipWith_ d_to_equality) (varN 0)) (varN 1)
+      length_equal = app (app d_to_equality (app list_length (varN 1)))
+                     (app list_length (varN 0))
+      and_ = lam (lam (ite (varN 1) (varN 0) zero))
+      folded = app (app (app foldr_ and_) (i2g 1)) (pair length_equal pairs_equal)
+  in lam (lam folded)
 
-list_length = Anno (Lam (CI (App (App (App foldr_ (Lam (Lam (CI $ Pair (Var Zero) Zero))))
-                                  (CI Zero))
-  (CI . Var $ Zero)))) (Pair Zero Zero)
+list_length = lam (app (app (app foldr_ (lam (lam (pair (varN 0) zero))))
+                                  zero)
+  (varN 0))
 
 plus_ x y =
-  let succ = Lam (CI (Pair (Var Zero) Zero))
-      plus_app = App (App (Var $ i2g 3) (CI . Var $ i2g 1)) (CI $ App (App (Var $ i2g 2) (CI . Var $ i2g 1)) (CI . Var $ Zero))
-      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
-      plus_type = Pair church_type (Pair church_type church_type)
-      plus = Lam (Lam (Lam (Lam $ CI plus_app)))
-  in App (App (Anno plus plus_type) x) y
+  let succ = lam (pair (varN 0) zero)
+      plus_app = app (app (varN 3) (varN 1)) (app (app (varN 2) (varN 1)) (varN 0))
+      plus = lam (lam (lam (lam plus_app)))
+  in app (app plus x) y
 
-d_plus = Anno (Lam (Lam (CI (App c2d (CI (plus_
-                                   (CI (App (d2c Zero) (CI . Var $ i2g 1)))
-                                   (CI (App (d2c Zero) (CI $ Var Zero)))
-                                   )))))) (Pair Zero (Pair Zero Zero))
+d_plus = lam (lam (app c2d (plus_
+                                   (app (d2c zero) (varN 1))
+                                   (app (d2c zero) (varN 0))
+                                   )))
 
-test_plus0 = App c2d (CI (plus_
+d2c_test = app (app (app (d2c zero) (i2g 2)) (lam (pair (varN 0) zero))) zero
+
+c2d_test = app c2d (toChurch 2)
+c2d_test2 = app (lam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)) (toChurch 2)
+c2d_test3 = app (lam (app (varN 0) zero)) (lam (pair (varN 0) zero))
+
+double_app = app (app (lam (lam (pair (varN 0) (varN 1)))) zero) zero
+
+test_plus0 = app c2d (plus_
                          (toChurch 3)
-                         (CI (App (d2c Zero) (CI Zero)))))
-test_plus1 = App c2d (CI (plus_
+                         (app (d2c zero) zero))
+test_plus1 = app c2d (plus_
                          (toChurch 3)
-                         (CI (App (d2c Zero) (CI $ i2g 1)))))
-test_plus254 = App c2d (CI (plus_
+                         (app (d2c zero) (i2g 1)))
+test_plus254 = app c2d (plus_
                          (toChurch 3)
-                         (CI (App (d2c Zero) (CI $ i2g 254)))))
-test_plus255 = App c2d (CI (plus_
+                         (app (d2c zero) (i2g 254)))
+test_plus255 = app c2d (plus_
                          (toChurch 3)
-                         (CI (App (d2c Zero) (CI $ i2g 255)))))
-test_plus256 = App c2d (CI (plus_
+                         (app (d2c zero) (i2g 255)))
+test_plus256 = app c2d (plus_
                          (toChurch 3)
-                         (CI (App (d2c Zero) (CI $ i2g 256)))))
+                         (app (d2c zero) (i2g 256)))
+
+one_plus_one =
+  let succ = lam (pair (varN 0) zero)
+      plus_app = app (app (varN 3) (varN 1)) (app (app (varN 2) (varN 1)) (varN 0))
+      plus = lam (lam (lam (lam plus_app)))
+  in app c2d (app (app plus (toChurch 1)) (toChurch 1))
 
 -- m f (n f x)
--- App (App m f) (App (App n f) x)
--- App (App (Var $ i2g 3) (Var $ i2g 1)) (App (App (Var $ i2g 2) (Var $ i2g 1)) (Var Zero))
+-- app (app m f) (app (app n f) x)
+-- app (app (varN 3) (varN 1)) (app (app (varN 2) (varN 1)) (varN 0))
 three_plus_two =
-  let succ = Lam (CI (Pair (Var Zero) Zero))
-      plus_app = App (App (Var $ i2g 3) (CI . Var $ i2g 1)) (CI $ App (App (Var $ i2g 2) (CI . Var $ i2g 1)) (CI . Var $ Zero))
-      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
-      plus_type = Pair church_type (Pair church_type church_type)
-      plus = Lam (Lam (Lam (Lam $ CI plus_app)))
-  in App c2d (CI (App (App (Anno plus plus_type) (toChurch 3)) (toChurch 2)))
+  let succ = lam (pair (varN 0) zero)
+      plus_app = app (app (varN 3) (varN 1)) (app (app (varN 2) (varN 1)) (varN 0))
+      plus = lam (lam (lam (lam plus_app)))
+  in app c2d (app (app plus (toChurch 3)) (toChurch 2))
 
 -- (m (n f)) x
--- App (App m (App n f)) x
+-- app (app m (app n f)) x
 three_times_two =
-  let succ = Lam (CI (Pair (Var Zero) Zero))
-      times_app = App (App (Var $ i2g 3) (CI $ App (Var $ i2g 2) (CI . Var $ i2g 1))) (CI . Var $ i2g 0)
-      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
-      times_type = Pair church_type (Pair church_type church_type)
-      times = Lam (Lam (Lam (Lam $ CI times_app)))
-  in App (App (App (App (Anno times times_type) (toChurch 3)) (toChurch 2)) succ) (CI Zero)
+  let succ = lam (pair (varN 0) zero)
+      times_app = app (app (varN 3) (app (varN 2) (varN 1))) (varN 0)
+      times = lam (lam (lam (lam times_app)))
+  in app (app (app (app times (toChurch 3)) (toChurch 2)) succ) zero
 
 -- m n
--- App (App (App (m n)) f) x
+-- app (app (app (m n)) f) x
 three_pow_two =
-  let succ = Lam (CI (Pair (Var Zero) Zero))
-      pow_app = App (App (App (Var $ i2g 3) (CI . Var $ i2g 2)) (CI . Var $ i2g 1)) (CI . Var $ i2g 0)
-      church_type = Pair (Pair Zero Zero) (Pair Zero Zero)
-      pow_type = Pair (Pair church_type church_type) (Pair church_type church_type)
-      pow = Lam (Lam (Lam (Lam $ CI pow_app)))
-  in App (App (App (App (Anno pow pow_type) (toChurch 2)) (toChurch 3)) succ) (CI Zero)
+  let succ = lam (pair (varN 0) zero)
+      pow_app = app (app (app (varN 3) (varN 2)) (varN 1)) (varN 0)
+      pow = lam (lam (lam (lam pow_app)))
+  in app (app (app (app pow (toChurch 2)) (toChurch 3)) succ) zero
+
+-- unbound type errors should be allowed for purposes of testing runtime
+allowedTypeCheck :: Maybe TypeCheckError -> Bool
+allowedTypeCheck Nothing = True
+allowedTypeCheck (Just (UnboundType _)) = True
+allowedTypeCheck _ = False
 
 unitTest :: String -> String -> IExpr -> IO Bool
-unitTest name expected iexpr = case inferType [] iexpr of
-  Nothing -> (putStrLn $ name ++ " failed typecheck") >> pure False
-  Just _ -> do
-    result <- (show . PrettyResult) <$> simpleEval iexpr
+unitTest name expected iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)
+  then do
+    result <- (show . PrettyIExpr) <$> optimizedEval iexpr
     if result == expected
       then pure True
       else (putStrLn $ concat [name, ": expected ", expected, " result ", result]) >>
            pure False
+  else putStrLn ( concat [name, " failed typecheck: ", show (typeCheck ZeroType iexpr)])
+       >> pure False
 
-unitTests unitTest2 = foldl (liftA2 (&&)) (pure True)
-  [ unitTest "three" "3" three_succ
+unitTestRefinement :: String -> Bool -> IExpr -> IO Bool
+unitTestRefinement name shouldSucceed iexpr = case inferType iexpr of
+  Right t -> case (pureEvalWithError iexpr, shouldSucceed) of
+    (Left err, True) -> do
+      putStrLn $ concat [name, ": failed refinement type -- ", show err]
+      pure False
+    (Right _, False) -> do
+      putStrLn $ concat [name, ": expected refinement failure, but passed"]
+      pure False
+    _ -> pure True
+  Left err -> do
+    putStrLn $ concat ["refinement test failed typecheck: ", name, " ", show err]
+    pure False
+{-
+unitTestOptimization :: String -> IExpr -> IO Bool
+unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
+  then pure True
+  else (putStrLn $ concat [name, ": optimized1 ", show $ optimize iexpr, " optimized2 "
+                          , show $ optimize2 iexpr])
+  >> pure False
+-}
+
+churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
+
+-- check that refinements are correct after optimization
+promotingChecksPreservesType_prop :: TestIExpr -> Bool
+promotingChecksPreservesType_prop (TestIExpr iexpr) =
+  inferType iexpr == inferType (promoteChecks iexpr)
+
+debugPCPT :: IExpr -> IO Bool
+debugPCPT iexpr = if inferType iexpr == inferType (promoteChecks iexpr)
+  then pure True
+  else (putStrLn $ concat ["failed ", show iexpr, " / ", show (promoteChecks iexpr)
+                          , " -- ", show (inferType iexpr), " / "
+                          , show (inferType (promoteChecks iexpr))]) >> pure False
+
+unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
+  [ unitTestType "main = 0" ZeroType (== Nothing)
+  , unitTestRefinement "refinement: test of function success" True
+    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 1))))
+  ]
+
+isInconsistentType (Just (InconsistentTypes _ _)) = True
+isInconsistentType _ = False
+
+isRecursiveType (Just (RecursiveType _)) = True
+isRecursiveType _ = False
+
+isRefinementFailure (Just (RefinementFailure _)) = True
+isRefinementFailure _ = False
+
+unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
+unitTestTypeP iexpr expected = if inferType iexpr == expected
+  then pure True
+  else do
+  putStrLn $ concat ["type inference error ", show iexpr, " expected ", show expected
+                    , " result ", show (inferType iexpr)
+                    ]
+  pure False
+
+unitTestQC :: Testable p => String -> p -> IO Bool
+unitTestQC name p = quickCheckResult p >>= \result -> case result of
+  (Success _ _ _) -> pure True
+  x -> (putStrLn $ concat [name, " failed: ", show x]) >> pure False
+
+debugMark s = putStrLn s >> pure True
+
+unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
+  [ unitTestType "main = \\x -> {x,0}" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
+  , unitTestType "main = \\x -> {x,0}" ZeroType isInconsistentType
+  , unitTestType "main = succ 0" ZeroType (== Nothing)
+  , unitTestType "main = succ 0" (ArrType ZeroType ZeroType) isInconsistentType
+  , unitTestType "main = or 0" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
+  , unitTestType "main = or 0" ZeroType isInconsistentType
+  {- broken tests... need to fix type checking for old style annotations or remove
+  , unitTestType "main : {0,0} = 0" ZeroType False
+  , unitTestType "main : {0,{0,0}} = \\x -> {x,0}" (ArrType ZeroType ZeroType) False
+  , unitTestType "main : {0,0} = \\f -> f 0 0" (ArrType ZeroType (ArrType ZeroType ZeroType))
+    False
+  , unitTestType "main : 0 = \\x -> {x,0}" (ArrType ZeroType ZeroType) False
+-}
+  , unitTestType "main = or succ" (ArrType ZeroType ZeroType) isInconsistentType
+  , unitTestType "main = 0 succ" ZeroType isInconsistentType
+  , unitTestType "main = 0 0" ZeroType isInconsistentType
+  -- I guess this is inconsistently typed now?
+  , unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
+    (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+  , unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
+  {- broken because lambdas now are represented by a pair of function and environment ... probably should remove
+  , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
+  , unitTestType "main = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
+-}
+  , unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
+  -- TODO fix
+  --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
+  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  , unitTest "c2d" "2" c2d_test
+  , unitTest "c2d2" "2" c2d_test2
+  , unitTest "c2d3" "1" c2d_test3
+  , unitTest "oneplusone" "2" one_plus_one
   , unitTest "church 3+2" "5" three_plus_two
   , unitTest "3*2" "6" three_times_two
   , unitTest "3^2" "9" three_pow_two
-  , unitTest "data 3+5" "8" $ App (App d_plus (CI $ i2g 3)) (CI $ i2g 5)
-  , unitTest "foldr" "13" $ App (App (App foldr_ (CI d_plus)) (CI $ i2g 1)) (CI $ ints2g [2,4,6])
-  , unitTest "listlength0" "0" $ App list_length (CI $ Zero)
-  , unitTest "listlength3" "3" $ App list_length (CI $ ints2g [1,2,3])
+  , unitTest "test_tochurch" "2" test_toChurch
+  , unitTest "three" "3" three_succ
+  , unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
+  , unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+  , unitTest "listlength0" "0" $ app list_length zero
+  , unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
   , unitTest "zipwith" "{{4,1},{{5,1},{{6,2},0}}}"
-    $ App (App (App zipWith_ (Lam (Lam (CI (Pair (Var $ i2g 1) (Var $ i2g 0))))))
-           (CI $ ints2g [4,5,6]))
-    (CI $ ints2g [1,1,2,3])
-  , unitTest "listequal1" "1" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hey")
-  , unitTest "listequal0" "0" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "he")
-  , unitTest "listequal00" "0" $ App (App list_equality (CI $ s2g "hey")) (CI $ s2g "hel")
+    $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
+           (ints2g [4,5,6]))
+    (ints2g [1,1,2,3])
+  , unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
+  , unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
+  , unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
   -- because of the way lists are represented, the last number will be prettyPrinted + 1
-  , unitTest "map" "{2,{3,5}}" $ App (App map_ (Lam (CI (Pair (Var Zero) Zero))))
-    (CI $ ints2g [1,2,3])
+  , unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
+    (ints2g [1,2,3])
+  , unitTestRefinement "minimal refinement success" True (check zero (completeLam (varN 0)))
+  , unitTestRefinement "minimal refinement failure" False
+    (check (i2g 1) (completeLam (ite (varN 0) (s2g "whoops") zero)))
+  , unitTestRefinement "refinement: test of function success" True
+    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 1))))
+  , unitTestRefinement "refinement: test of function failure" False
+    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 2))))
   , unitTest2 "main = 0" "0"
   , unitTest2 fiveApp "5"
   , unitTest2 "main = plus $3 $2 succ 0" "5"
@@ -249,6 +443,8 @@ unitTests unitTest2 = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = listEqual \"hey\" \"he\"" "0"
   , unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
   , unitTest2 "main = listPlus [1,2] [3,4]" "{1,{2,{3,5}}}"
+  , unitTest2 "main = listPlus 0 [1]" "2"
+  , unitTest2 "main = listPlus [1] 0" "2"
   , unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "{97,{98,100}}"
   , unitTest2 nestedNamedFunctionsIssue "2"
   , unitTest2 "main = take $0 [1,2,3]" "0"
@@ -258,6 +454,22 @@ unitTests unitTest2 = foldl (liftA2 (&&)) (pure True)
   , unitTest2 "main = c2d (minus $4 $4)" "0"
   , unitTest2 "main = dMinus 4 3" "1"
   , unitTest2 "main = dMinus 4 4" "0"
+  , unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
+  , unitTest2 "main = range 2 5" "{2,{3,5}}"
+  , unitTest2 "main = range 6 6" "0"
+  , unitTest2 "main = c2d (factorial 4)" "24"
+  , unitTest2 "main = c2d (factorial 0)" "1"
+  , unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
+    "{4,{5,{6,8}}}"
+  , unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
+    "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
+  {-
+  , debugPCPT $ gate (check zero var)
+  , debugPCPT $ app var (check zero var)
+  , unitTestQC "promotingChecksPreservesType" promotingChecksPreservesType_prop
+  , unitTestOptimization "listequal0" $ app (app list_equality (s2g "hey")) (s2g "he")
+  , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
+  -}
   ]
 
 testExpr = concat
@@ -267,14 +479,14 @@ testExpr = concat
   ]
 
 fiveApp = concat
-  [ "main = let fiveApp : {{0,0},{0,0}} = $5\n"
+  [ "main = let fiveApp = $5\n"
   , "       in fiveApp (\\x -> {x,0}) 0"
   ]
 
 nestedNamedFunctionsIssue = concat
-  [ "main = let bindTest : {0,0} = \\tlb -> let f1 : {{0,0},0} = \\f -> f tlb\n"
-  , "                                           f2 : {{0,0},0} = \\f -> succ (f1 f)\n"
-  , "                                       in f2 succ\n"
+  [ "main = let bindTest = \\tlb -> let f1 = \\f -> f tlb\n"
+  , "                                   f2 = \\f -> succ (f1 f)\n"
+  , "                               in f2 succ\n"
   , "       in bindTest 0"
   ]
 
@@ -292,22 +504,38 @@ main = do
         else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
     unitTest2 s r = case parseMain prelude s of
       Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
-      Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
+      Right g -> fmap (show . PrettyIExpr) (optimizedEval g) >>= \r2 -> if r2 == r
         then pure True
         else (putStrLn $ concat [s, " result ", r2]) >> pure False
+    unitTest3 s r = let parsed = parseMain prelude s in case (inferType <$> parsed, parsed) of
+      (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (optimizedEval g) >>= \r2 -> if r2 == r
+        then pure True
+        else (putStrLn $ concat [s, " result ", r2]) >> pure False
+      e -> (putStrLn $ concat ["failed unittest3: ", s, " ", show e ]) >> pure False
+    unitTest4 s t = let parsed = parseMain prelude s in case debugInferType <$> parsed of
+      (Right (Right it)) -> if t == it
+        then pure True
+        else do
+        putStrLn $ concat ["expected type ", show t, " inferred type ", show it]
+        pure False
+      e -> do
+        putStrLn $ concat ["could not infer type ", show e]
+        pure False
+    unitTestType s t tef = case parseMain prelude s of
+      Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
+      Right g -> let apt = typeCheck t g
+                 in if tef apt
+                    then pure True
+                    else (putStrLn $
+                          concat [s, " failed typecheck, result ", show apt])
+             >> pure False
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
-  result <- unitTests unitTest2
-  exitWith $ if result then ExitSuccess else ExitFailure 1
-
   {-
-  print $ parseSIL "main = 0\n"
-  print $ parseSIL "main = 1\n"
-  print $ parseSIL "main = {0,0}\n"
-  print $ parseSIL "main = \"HI\"\n"
-  print $ parseSIL "main : {0,0} = \\x -> {0,x}\n"
-  print $ parseSIL "main : {0,0} = \\x y-> {x,y}\n"
-  print $ parseSIL "main : {{0,0},{{0,{0,0}}, 0}} = \\f g -> (g 0) (f 0)\n"
-  print $ parseSIL testExpr
-  -}
+  unitTest4 "main = (\\x -> {x,0}) 0" ZeroTypeP
+  unitTest4 "main = $3" ZeroTypeP
+  unitTest4 "main = $3 (\\x -> {x,0})" ZeroTypeP
+-}
+  result <- unitTests unitTest2 unitTestType
+  exitWith $ if result then ExitSuccess else ExitFailure 1

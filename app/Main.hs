@@ -1,21 +1,23 @@
 module Main where
 
 import Data.Char
-import qualified Data.Map as Map
 import SIL
 import SIL.Parser
+import SIL.RunTime
+import SIL.TypeChecker (typeCheck, inferType)
+import SIL.Optimizer
 import qualified System.IO.Strict as Strict
 
-just_abort = Anno (Lam (CI Zero)) (Pair Zero Zero)
+just_abort = lam Zero
 
-message_then_abort = Anno (Lam (CI (ITE (Var Zero) Zero (Pair (s2g "Test message") Zero)))) (Pair Zero Zero)
+message_then_abort = lam (ite (varN 0) Zero (Pair (s2g "Test message") Zero))
 
 {- TODO implement listEquality in Prelude
 quit_to_exit =
-  let check_input = ITE (App (App list_equality (CI . PLeft $ Var Zero)) (CI $ s2g "quit"))
+  let check_input = ITE (app (app list_equality (CI . PLeft $ Var Zero)) (CI $ s2g "quit"))
                     Zero
                     (Pair (s2g "type quit to exit") (i2g 1))
-  in Anno (Lam (CI check_input)) (Pair Zero Zero)
+  in anno (Lam (CI check_input)) (Pair Zero Zero)
 -}
 
 -- game section
@@ -23,17 +25,16 @@ displayBoard =
   let cc c l = Pair (i2g $ ord c) l
       ch = cc '#'
       cn = cc '\n'
-      row5 = Pair (Var $ i2g 2) (ch (Pair (Var $ i2g 1) (ch (Pair (Var Zero) Zero))))
+      row5 = Pair (varN 2) (ch (Pair (varN 1) (ch (Pair (varN 0) Zero))))
       row4 = ch . ch . ch . ch . ch $ cn row5
-      row3 = Pair (Var $ i2g 5) (ch (Pair (Var $ i2g 4) (ch (Pair (Var $ i2g 3) row4))))
+      row3 = Pair (varN 5) (ch (Pair (varN 4) (ch (Pair (varN 3) row4))))
       row2 = ch . ch . ch . ch . ch $ cn row3
-      row1 = Pair (Var $ i2g 8) (ch (Pair (Var $ i2g 7) (ch (Pair (Var $ i2g 6) row2))))
-      rows = Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (Lam (CI row1)))))))))
-      rowsType = Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero (Pair Zero Zero))))))))
+      row1 = Pair (varN 8) (ch (Pair (varN 7) (ch (Pair (varN 6) row2))))
+      rows = lam (lam (lam (lam (lam (lam (lam (lam (lam row1))))))))
       repRight x = foldr (.) id $ replicate x PRight
-      appl 0 = App (Anno rows rowsType) (CI . PLeft $ Var Zero)
-      appl x = App (appl (x - 1)) (CI . PLeft . repRight x $ Var Zero)
-  in Anno (Lam . CI $ appl 8) (Pair Zero Zero)
+      appl 0 = app rows (PLeft $ varN 0)
+      appl x = app (appl (x - 1)) (PLeft . repRight x $ varN 0)
+  in lam $ appl 8
 
 main = do
   --unitTests
@@ -43,39 +44,25 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
-    unitTestP s g = case parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right pg -> if pg == g
-        then pure ()
-        else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
-    unitTest2 s r = case parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right g -> fmap (show . PrettyResult) (simpleEval g) >>= \r2 -> if r2 == r
-        then pure ()
-        else putStrLn $ concat [s, " result ", r2]
     testMethod n s = case resolveBinding n <$> parseWithPrelude prelude s of
-      Right (Just iexpr) -> simpleEval iexpr >>= \r -> print (PrettyResult r)
+      Right (Just iexpr) -> simpleEval iexpr >>= \r -> print (PrettyIExpr r)
       x -> print x
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
+    notRealCheck _ expr = inferType expr
     runMain s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right g -> evalLoop g
-    displayType s = case parseMain prelude s of
+      Right g -> evalLoop typeCheck g
+    showParsed s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right g -> printType g
-    showHeader (s, Left x) = concat [s, " untyped"]
-    showHeader (s, Right x) = concat [s, ": ", show $ inferType [] x]
-    showTypeError (s, Right g) = case inferType [] g of
-      Nothing -> putStrLn $ concat [s, " has bad type signature"]
-      _ -> pure ()
-    showTypeError _ = pure ()
+      Right g -> print . PrettyIExpr $ g
+    showOptimized s = case optimize <$> parseMain prelude s of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+      Right g -> print . PrettyIExpr $ g
 
-  printTypeErrors prelude
+  printBindingTypes prelude
   Strict.readFile "tictactoe.sil" >>= runMain
-  --Strict.readFile "tictactoe.sil" >>= testMethod "test"
-  --Strict.readFile "tictactoe.sil" >>= testMethod "test2"
   --Strict.readFile "tictactoe.sil" >>= testMethod "test3"
   --evalLoop just_abort
   -- evalLoop message_then_abort

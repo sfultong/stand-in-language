@@ -1,81 +1,88 @@
-CT = {{0,0},{0,0}}
+and = #a b -> if a then b else 0
 
-and : {0,{0,0}} = \a b -> if a then b else 0
+or = #a b -> if a then 1 else b
 
-or : {0,{0,0}} = \a b -> if a then 1 else b
+not = #x -> if x then 0 else 1
 
-not : {0,0} = \x -> if x then 0 else 1
-
-succ : {0,0} = \x -> {x,0}
+succ = #x -> {x,0}
 
 d2c = let layer = \recur i f b -> if i
                                      then f (recur (left i) f b)
                                      else b
-          fixer : {{{0,CT},{0,CT}},{{0,CT},{0,CT}}} = $1024
+          fixer = $1024
       in fixer layer (\i f b -> 0)
 
-c2d : {CT,0} = \c -> c succ 0
+c2d = #c -> c succ 0
 
-plus : {CT,{CT,CT}} = \m n f x -> m f (n f x)
+plus = #m n f x -> m f (n f x)
 
-times : {CT,{CT,CT}} = \m n f -> m (n f)
+times = #m n f -> m (n f)
 
-pow : {{CT,CT},{CT,CT}} = \m n -> m n
+pow = #m n -> m n
 
-dMinus : {0,{0,0}} = \a b -> d2c b (\x -> left x) a
+dMinus = #a b -> d2c b (\x -> left x) a
 
-minus : {CT,{CT,CT}} = \a b -> d2c (b (\x -> left x) (c2d a))
+minus = #a b -> d2c (b (\x -> left x) (c2d a))
 
-makeGT : {0,0} = \FT -> {{FT,FT},FT}
+range = #a b -> let layer = \recur i -> if dMinus b i
+                                           then {i, recur {i,0}}
+                                           else 0
+                in $1024 layer (\i -> 0) a
 
-mapG : makeGT {{0,0},{0,0}}
-  = \r f -> let layer = \recur l -> if l then {f (left l), recur (right l)} else 0
-                base = \l -> 0
-            in r layer base
+mapG = #r f -> let layer = \recur l -> if l then {f (left l), recur (right l)} else 0
+                   base = \l -> 0
+               in r layer base
 map = mapG $255
 
-foldrT = makeGT {{0,{0,0}},{0,{0,0}}}
-foldrG : foldrT = \r f -> let layer = \recur accum l -> if l
-                                                          then f (left l) (recur accum (right l))
-                                                          else accum
-                              base = \accum l -> accum
-                          in r layer base 
+foldrG = #r f -> let layer = \recur accum l -> if l then f (left l) (recur accum (right l))
+                                                    else accum
+                     base = \accum l -> accum
+                 in r layer base 
 foldr = foldrG $255
 
-foldlT = makeGT {{0,{0,0}},{0,{0,0}}}
-foldlG : foldlT = \r f -> let layer = \recur accum l -> if l
-                                                          then recur (f accum (left l)) (right l)
-                                                          else accum
-                              base = \accum l -> accum
-                          in r layer base 
+foldlG = #r f -> let layer = \recur accum l -> if l then recur (f accum (left l)) (right l)
+                                                    else accum
+                     base = \accum l -> accum
+                 in r layer base 
 foldl = foldlG $255
 
-zipWithT = makeGT {{0,{0,0}},{0,{0,0}}}
-zipWithG : zipWithT = \r f -> let layer = \recur a b -> if (and a b)
-                                                          then {f (left a) (left b)
-                                                                , recur (right a) (right b)}
-                                                          else 0
-                                  base = \a b -> 0
-                              in r layer base 
+zipWithG = #r f -> let layer = \recur a b -> if (and a b)
+                                                then {f (left a) (left b)
+                                                      , recur (right a) (right b)
+                                                      }
+                                                else 0
+                       base = \a b -> 0
+                   in r layer base 
 zipWith = zipWithG $255
 
-dEqual : {0,{0,0}} = \a b -> let equalsOne : {0,0} = \x -> if x then (not (left x)) else 0
-                             in if a then equalsOne (d2c (left a) (\x -> left x) b)
-                                     else not b
+filter = #f -> foldr (\a b -> if f a then {a, b} else b) 0 
+
+dEqual = #a b -> let equalsOne = \x -> if x then (not (left x)) else 0
+                 in if a then equalsOne (d2c (left a) (\x -> left x) b)
+                         else not b
 
 listLength = foldr (\a b -> succ b) 0
 
-listEqual : {0,{0,0}} = \a b -> let pairsEqual = zipWith dEqual a b
-                                    lengthEqual = dEqual (listLength a) (listLength b)
-                                in foldr and 1 {lengthEqual,pairsEqual}
+listEqual = #a b -> let pairsEqual = zipWith dEqual a b
+                        lengthEqual = dEqual (listLength a) (listLength b)
+                    in foldr and 1 {lengthEqual,pairsEqual}
 
-listPlus : {0,{0,0}} = \a b -> foldr (\x l -> {x,l}) b a
+listPlus = #a b -> foldr (\x l -> {x,l}) b a
 
 concat = foldr listPlus 0
 
-drop : {CT,{0,0}}
- = \n l -> n (\x -> right x) l
+drop = #n l -> n (\x -> right x) l
 
-take : {CT,{0,0}}
- = \n l -> let lengthed = n (\x -> {0,x}) 0
-           in zipWith (\a b -> a) l lengthed
+take = #n l -> let lengthed = n (\x -> {0,x}) 0
+               in zipWith (\a b -> a) l lengthed
+
+factorial = #n -> foldr (\a b -> times (d2c a) b) $1 (range 1 {n,0})
+
+quicksort = let layer = \recur l -> if right l
+                                       then let t = left l
+                                                test = \x -> dMinus x t
+                                                p1 = filter test (right l)
+                                                p2 = filter (\x -> not (test x)) (right l)
+                                            in listPlus (recur p2) {t,(recur p1)}
+                                       else l
+            in $255 layer (\l -> 0)

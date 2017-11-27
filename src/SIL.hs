@@ -1,57 +1,174 @@
-{-# LANGUAGE DeriveFunctor #-}
 module SIL where
 
-import Control.Monad.Fix
 import Data.Char
-import Data.Functor.Identity
-import Debug.Trace
 
-data IExprF c i
-  = FZero
-  | FPair i i
-  | FVar i
-  | FApp i c
-  | FAnno c i
-  | FITE i i i
-  | FLeft i
-  | FRight i
-  | FTrace i
-  deriving (Eq, Show, Ord, Functor)
+-- if classes were categories, this would be an EndoFunctor?
+class EndoMapper a where
+  endoMap :: (a -> a) -> a -> a
 
-data CExprF i c
-  = FLam c
-  | FCI i
-  deriving (Eq, Show, Ord, Functor)
+class EitherEndoMapper a where
+  eitherEndoMap :: (a -> Either e a) -> a -> Either e a
 
-newtype IExpr' = IExpr' (IExprF CExpr' IExpr')
-newtype CExpr' = CExpr' (CExprF IExpr' CExpr')
-
-{-
-foldI :: (IExpr' -> a -> a) -> (CExpr' -> a -> a) -> a -> IExpr' -> a
-foldI 
--}
+class MonoidEndoFolder a where
+  monoidFold :: Monoid m => (a -> m) -> a -> m
 
 data IExpr
   = Zero                     -- no special syntax necessary
   | Pair !IExpr !IExpr       -- {,}
-  | Var !IExpr               -- identifier
-  | App !IExpr !CExpr        -- 
-  | Anno !CExpr !IExpr       -- :
-  | ITE !IExpr !IExpr !IExpr -- if a then b else c
+  | Var                      -- identifier
+  | SetEnv !IExpr
+  | Defer !IExpr
+  | Twiddle !IExpr
+  | Abort !IExpr
+  | Gate !IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace !IExpr             -- trace
   deriving (Eq, Show, Ord)
 
-data CExpr
-  = Lam !CExpr
-  | CI !IExpr
+instance EndoMapper IExpr where
+  endoMap f Zero = f Zero
+  endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
+  endoMap f Var = f Var
+  endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
+  endoMap f (Defer x) = f $ Defer (endoMap f x)
+  endoMap f (Twiddle x) = f $ Twiddle (endoMap f x)
+  endoMap f (Abort x) = f $ Abort (endoMap f x)
+  endoMap f (Gate g) = f $ Gate (endoMap f g)
+  endoMap f (PLeft x) = f $ PLeft (endoMap f x)
+  endoMap f (PRight x) = f $ PRight (endoMap f x)
+  endoMap f (Trace x) = f $ Trace (endoMap f x)
+
+instance EitherEndoMapper IExpr where
+  eitherEndoMap f Zero = f Zero
+  eitherEndoMap f (Pair a b) = (Pair <$> eitherEndoMap f a <*> eitherEndoMap f b) >>= f
+  eitherEndoMap f Var = f Var
+  eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Twiddle x) = (Twiddle <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Abort x) = (Abort <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Gate x) = (Gate <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f (Trace x) = (Trace <$> eitherEndoMap f x) >>= f
+
+instance MonoidEndoFolder IExpr where
+  monoidFold f Zero = f Zero
+  monoidFold f (Pair a b) = mconcat [f (Pair a b), monoidFold f a, monoidFold f b]
+  monoidFold f Var = f Var
+  monoidFold f (SetEnv x) = mconcat [f (SetEnv x), monoidFold f x]
+  monoidFold f (Defer x) = mconcat [f (Defer x), monoidFold f x]
+  monoidFold f (Twiddle x) = mconcat [f (Twiddle x), monoidFold f x]
+  monoidFold f (Abort x) = mconcat [f (Abort x), monoidFold f x]
+  monoidFold f (Gate x) = mconcat [f (Gate x), monoidFold f x]
+  monoidFold f (PLeft x) = mconcat [f (PLeft x), monoidFold f x]
+  monoidFold f (PRight x) = mconcat [f (PRight x), monoidFold f x]
+  monoidFold f (Trace x) = mconcat [f (Trace x), monoidFold f x]
+
+zero :: IExpr
+zero = Zero
+pair :: IExpr -> IExpr -> IExpr
+pair = Pair
+var :: IExpr
+var = Var
+app :: IExpr -> IExpr -> IExpr
+app c i = SetEnv (Twiddle (Pair i c))
+check :: IExpr -> IExpr -> IExpr
+check c tc = SetEnv (Pair (Defer (ite
+                                  (app (PLeft Var) (PRight Var))
+                                  (Abort $ app (PLeft Var) (PRight Var))
+                                  (PRight Var)
+                          ))
+                          (Pair tc c)
+                    )
+gate :: IExpr -> IExpr
+gate = Gate
+pleft :: IExpr -> IExpr
+pleft = PLeft
+pright :: IExpr -> IExpr
+pright = PRight
+setenv :: IExpr -> IExpr
+setenv = SetEnv
+defer :: IExpr -> IExpr
+defer = Defer
+lam :: IExpr -> IExpr
+lam x = Pair (Defer x) Var
+-- a form of lambda that does not pull in a surrounding environment
+completeLam :: IExpr -> IExpr
+completeLam x = Pair (Defer x) Zero
+ite :: IExpr -> IExpr -> IExpr -> IExpr
+ite i t e = SetEnv (Pair (Gate i) (Pair e t))
+varN :: Int -> IExpr
+varN n = PLeft (iterate PRight Var !! n)
+
+data DataType
+  = ZeroType
+  | ArrType DataType DataType
+  | PairType DataType DataType -- only used when at least one side of a pair is not ZeroType
   deriving (Eq, Show, Ord)
 
-data Result
-  = RData !IExpr
-  | Closure ![Result] !CExpr
+newtype PrettyDataType = PrettyDataType DataType
+
+showInternal at@(ArrType _ _) = concat ["(", show $ PrettyDataType at, ")"]
+showInternal t = show . PrettyDataType $ t
+
+instance Show PrettyDataType where
+  show (PrettyDataType dt) = case dt of
+    ZeroType -> "D"
+    (ArrType a b) -> concat [showInternal a, " -> ", showInternal b]
+    (PairType a b) ->
+      concat ["{", show $ PrettyDataType a, ",", show $ PrettyDataType b, "}"]
+
+data PartialType
+  = ZeroTypeP
+  | TypeVariable Int
+  | ArrTypeP PartialType PartialType
+  | PairTypeP PartialType PartialType
   deriving (Eq, Show, Ord)
+
+newtype PrettyPartialType = PrettyPartialType PartialType
+
+showInternalP at@(ArrTypeP _ _) = concat ["(", show $ PrettyPartialType at, ")"]
+showInternalP t = show . PrettyPartialType $ t
+
+instance Show PrettyPartialType where
+  show (PrettyPartialType dt) = case dt of
+    ZeroTypeP -> "Z"
+    (ArrTypeP a b) -> concat [showInternalP a, " -> ", showInternalP b]
+    (PairTypeP a b) ->
+      concat ["{", show $ PrettyPartialType a, ",", show $ PrettyPartialType b, "}"]
+    (TypeVariable (-1)) -> "badType"
+    (TypeVariable x) -> 'v' : show x
+
+instance EndoMapper DataType where
+  endoMap f ZeroType = f ZeroType
+  endoMap f (ArrType a b) = f $ ArrType (endoMap f a) (endoMap f b)
+  endoMap f (PairType a b) = f $ PairType (endoMap f a) (endoMap f b)
+
+instance EndoMapper PartialType where
+  endoMap f ZeroTypeP = f ZeroTypeP
+  endoMap f (TypeVariable i) = f $ TypeVariable i
+  endoMap f (ArrTypeP a b) = f $ ArrTypeP (endoMap f a) (endoMap f b)
+  endoMap f (PairTypeP a b) = f $ PairTypeP (endoMap f a) (endoMap f b)
+
+mergePairType :: DataType -> DataType
+mergePairType = endoMap f where
+  f (PairType ZeroType ZeroType) = ZeroType
+  f x = x
+
+mergePairTypeP :: PartialType -> PartialType
+mergePairTypeP = endoMap f where
+  f (PairTypeP ZeroTypeP ZeroTypeP) = ZeroTypeP
+  f x = x
+
+packType :: DataType -> IExpr
+packType ZeroType = Zero
+packType (ArrType a b) = Pair (packType a) (packType b)
+
+unpackType :: IExpr -> Maybe DataType
+unpackType Zero = pure ZeroType
+unpackType (Pair a b) = ArrType <$> unpackType a <*> unpackType b
+unpackType _ = Nothing
 
 newtype PrettyIExpr = PrettyIExpr IExpr
 
@@ -62,13 +179,6 @@ instance Show PrettyIExpr where
       else concat ["{", show (PrettyIExpr a), ",", show (PrettyIExpr b), "}"]
     Zero -> "0"
     x -> show x
-
-newtype PrettyResult = PrettyResult Result
-
-instance Show PrettyResult where
-  show (PrettyResult r) = case r of
-    RData iexpr -> show $ PrettyIExpr iexpr
-    (Closure env cexpr) -> concat [show (map PrettyResult env), " expression ", show cexpr]
 
 g2i :: IExpr -> Int
 g2i Zero = 0
@@ -98,137 +208,3 @@ isNum :: IExpr -> Bool
 isNum Zero = True
 isNum (Pair n Zero) = isNum n
 isNum _ = False
-
-lookupEnv :: [a] -> Int -> Maybe a
-lookupEnv env ind = if ind < length env then Just (env !! ind) else Nothing
-
--- types are give by IExpr. Zero represents Data and Pair represents Arrow
-inferType :: [IExpr] -> IExpr -> Maybe IExpr
-inferType _ Zero = Just Zero
-inferType env (Pair a b) = do
-  ta <- inferType env a
-  tb <- inferType env b
-  if ta == Zero && tb == Zero
-    then pure Zero
-    else Nothing -- can't have functions in pairs
-inferType env (Var v) = lookupEnv env $ g2i v
-inferType env (App g i) = case inferType env g of
-  Just (Pair l r) -> if checkType env i l then Just r else Nothing
-  _ -> Nothing
---inferType env (Anno c t) = if checkType env c t then Just t else Nothing
-inferType env (Anno c t) = case pureEval t of
-  (RData g) -> if checkType env c g then Just g else Nothing
-  _ -> Nothing
-inferType env (ITE i t e) =
-  let tt = inferType env t in if tt == inferType env e then tt else Nothing
-inferType env (PLeft p) = inferType env p
-inferType env (PRight p) = inferType env p
-inferType env (Trace p) = inferType env p
-
-checkType :: [IExpr] -> CExpr -> IExpr -> Bool
-checkType env (Lam c) (Pair l r) = checkType (l : env) c r
-checkType env (CI e) t =
-  -- trace (concat [show e, " env ", show env, " expected ", show t, " inferred ", show (inferType env e)])
-  Just t == inferType env e
-checkType _ _ _ = False
-
-{-
-iEval :: Monad m => ([Result] -> IExpr -> m Result)
-  -> [Result] -> IExpr -> m Result
--}
-iEval f env g = let f' = f env in case g of
-  Zero -> pure $ RData Zero
-  Pair a b -> do
-    (RData na) <- f' a
-    (RData nb) <- f' b
-    pure . RData $ Pair na nb
-  Var v -> case lookupEnv env $ g2i v of
-    Nothing -> error $ "variable not found " ++ show v
-    Just var -> pure var
-  Anno c t -> cEval f env c -- TODO typecheck
-  App g cexp -> do
-    ng <- f' g
-    i <- cEval f env cexp
-    apply f ng i
-  ITE c t e -> f' c >>= \g -> case g of
-    (RData Zero) -> f' e
-    _ -> f' t
-  PLeft g -> f' g >>= \g -> case g of
-    (RData (Pair a _)) -> pure $ RData a
-    --x -> error $ "left on " ++ show x
-    _ -> pure $ RData Zero
-  PRight g -> f' g >>= \g -> case g of
-    (RData (Pair _ x)) -> pure $ RData x
-    _ -> pure $ RData Zero
-  Trace g -> f' g >>= \g -> pure $ trace (show g) g
-
-{-
-apply :: Monad m => ([Result] -> IExpr -> m Result) -> Result -> Result -> m Result
--}
-apply f (Closure env (CI g)) v = f (v : env) g
-apply _ (Closure env (Lam c)) v = pure $ Closure (v:env) c
-apply _ g _ = error $ "not a closure " ++ show g
-
-{-
-cEval :: Monad m => ([Result] -> IExpr -> m Result) -> [Result] -> CExpr -> m Result
--}
-cEval f env (Lam c) = pure $ Closure env c
-cEval f env (CI g) = f env g
-
-toChurch :: Int -> CExpr
-toChurch x =
-  let inner 0 = Var Zero
-      inner x = App (Var $ i2g 1) (CI $ inner (x - 1))
-  in Lam (Lam (CI $ inner x))
-
-simpleEval :: IExpr -> IO Result
-simpleEval = fix iEval []
-
-pureEval :: IExpr -> Result
-pureEval g = runIdentity $ fix iEval [] g
-
-showPass :: Show a => IO a -> IO a
-showPass a = a >>= print >> a
-
-tEval :: IExpr -> IO Result
-tEval = fix (\f e g -> showPass $ iEval f e g) []
-
-typedEval :: IExpr -> (Result -> IO ()) -> IO ()
-typedEval iexpr prettyPrint = case inferType [] iexpr of
-  Nothing -> putStrLn "Failed typecheck"
-  Just t -> do
-    putStrLn $ "Type is: " ++ show t
-    simpleEval iexpr >>= prettyPrint
-
-debugEval :: IExpr -> IO ()
-debugEval iexpr = case inferType [] iexpr of
-  Nothing -> putStrLn "Failed typecheck"
-  Just t -> do
-    putStrLn $ "Type is: " ++ show t
-    tEval iexpr >>= (print . PrettyResult)
-
-printType :: IExpr -> IO ()
-printType iexpr = case inferType [] iexpr of
-  Nothing -> putStrLn "type failure"
-  Just t -> print t
-
-fullEval i = typedEval i print
-
-prettyEval i = typedEval i (print . PrettyResult)
-
-evalLoop :: IExpr -> IO ()
-evalLoop iexpr = case inferType [] iexpr of
-  Nothing -> putStrLn "Failed typecheck"
-  Just t ->
-    let mainLoop s = do
-          result <- simpleEval $ App iexpr s
-          case result of
-            RData Zero -> putStrLn "aborted"
-            RData (Pair disp newState) -> do
-              putStrLn . g2s $ disp
-              case newState of
-                Zero -> putStrLn "done"
-                _ -> do
-                  inp <- s2g <$> getLine
-                  mainLoop . CI $ Pair inp newState
-    in mainLoop (CI Zero)
