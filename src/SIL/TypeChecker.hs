@@ -17,7 +17,7 @@ data IExprA a
   = ZeroA
   | PairA (IExprA a) (IExprA a)
   | VarA a
-  | CheckA (IExprA a) a
+  | AbortA (IExprA a) a
   | GateA (IExprA a) a
   | PLeftA (IExprA a) a
   | PRightA (IExprA a) a
@@ -35,7 +35,7 @@ instance EndoMapper (IExprA a) where
   endoMap f ZeroA = f ZeroA
   endoMap f (PairA a b) = f $ PairA (endoMap f a) (endoMap f b)
   endoMap f (VarA t) = f $ VarA t
-  endoMap f (CheckA x t) = f $ CheckA (endoMap f x) t
+  endoMap f (AbortA x t) = f $ AbortA (endoMap f x) t
   endoMap f (GateA x t) = f $ GateA (endoMap f x) t
   endoMap f (PLeftA x t) = f $ PLeftA (endoMap f x) t
   endoMap f (PRightA x t) = f $ PRightA (endoMap f x) t
@@ -54,10 +54,10 @@ showExpra _ i (VarA a) = "VarA " ++ show (PrettyPartialType a)
 showExpra l i p@(PairA a b) = if length (show p) > l
   then concat ["PairA\n", indent i, showExpra l (i + 1) a, "\n", indent i, showExpra l (i + 1) b]
   else show p
-showExpra l i (CheckA x a) =
-  let lineShow = concat ["CheckA ", show x, "  ", show (PrettyPartialType a)]
+showExpra l i (AbortA x a) =
+  let lineShow = concat ["AbortA ", show x, "  ", show (PrettyPartialType a)]
   in if length lineShow > l
-  then concat ["CheckA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
+  then concat ["AbortA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
 showExpra l i (GateA x a) =
   let lineShow = concat ["GateA ", show x, "  ", show (PrettyPartialType a)]
@@ -112,7 +112,7 @@ getPartialAnnotation (DeferA x) = case getUnboundType x of
 getPartialAnnotation (TwiddleA _ a) = a
 getPartialAnnotation ZeroA = ZeroTypeP
 getPartialAnnotation (PairA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
-getPartialAnnotation (CheckA _ a) = a
+getPartialAnnotation (AbortA _ a) = a
 getPartialAnnotation (GateA _ a) = a
 getPartialAnnotation (PLeftA _ a) = a
 getPartialAnnotation (PRightA _ a) = a
@@ -200,7 +200,6 @@ checkOrAssociate a b _ typeMap = if a == b then pure typeMap else Left $ Inconsi
 -- if second argument is subtype of first, do nothing
 -- should probably rewrite to be more annotatestate-esque
 checkOrAssociateSubtype :: PartialType -> PartialType -> Set Int -> Map Int PartialType
---  -> Either TypeCheckError (Map Int PartialType)
   -> AnnotateState (Map Int PartialType)
 checkOrAssociateSubtype (TypeVariable _) _ _ tm = pure tm
 checkOrAssociateSubtype _ (TypeVariable t) resolvedSet tm | Set.member t resolvedSet = pure tm
@@ -298,7 +297,7 @@ getUnboundType (VarA a) = pure a
 getUnboundType (SetEnvA x _) = getUnboundType x
 getUnboundType (DeferA _) = Nothing
 getUnboundType (TwiddleA x _) = getUnboundType x
-getUnboundType (CheckA x _) = getUnboundType x
+getUnboundType (AbortA x _) = getUnboundType x
 getUnboundType (GateA x _) = getUnboundType x
 getUnboundType (PLeftA x _) = getUnboundType x
 getUnboundType (PRightA x _) = getUnboundType x
@@ -366,21 +365,12 @@ annotate (Twiddle x) = do
     else trace ("twiddle associate " ++ show nx) $ pure ()
   debugAnnotate (Twiddle x)
   pure $ TwiddleA nx (PairTypeP ab (PairTypeP aa ac))
-annotate (Check x) = do
-  debugAnnotate (Check x)
+-- abort is polymorphic so that it matches any expression
+annotate (Abort x) = do
   nx <- annotate x
-  (it, (sit, (envT, _))) <- withNewEnv . withNewEnv . withNewEnv $ pure ()
-  associateVar
-    (PairTypeP
-     sit
-     (PairTypeP
-      (ArrTypeP it ZeroTypeP)
-      envT
-     )
-    )
-    (getPartialAnnotation nx)
-  associateSubtypeVar it sit
-  pure $ CheckA nx sit
+  (it, _) <- withNewEnv $ pure ()
+  associateVar ZeroTypeP (getPartialAnnotation nx)
+  pure $ AbortA nx it
 annotate (Gate x) = do
   debugAnnotate (Gate x)
   nx <- annotate x
@@ -457,9 +447,9 @@ fullyMostlyAnnotate tm (DeferA x) = DeferA <$> fullyMostlyAnnotate tm x
 fullyMostlyAnnotate tm (TwiddleA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, TwiddleA x a)
   (Right mra) -> TwiddleA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (CheckA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, CheckA x a)
-  (Right mra) -> CheckA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (AbortA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, AbortA x a)
+  (Right mra) -> AbortA <$> fullyMostlyAnnotate tm x <*> pure mra
 fullyMostlyAnnotate tm (GateA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, GateA x a)
   (Right mra) -> GateA <$> fullyMostlyAnnotate tm x <*> pure mra

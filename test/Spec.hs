@@ -75,7 +75,7 @@ instance Arbitrary TestIExpr where
     (SetEnv x) -> TestIExpr x : (map (lift1Texpr SetEnv) . shrink $ TestIExpr x)
     (Defer x) -> TestIExpr x : (map (lift1Texpr Defer) . shrink $ TestIExpr x)
     (Twiddle x) -> TestIExpr x : (map (lift1Texpr Twiddle) . shrink $ TestIExpr x)
-    (Check x) -> TestIExpr x : (map (lift1Texpr Check) . shrink $ TestIExpr x)
+    (Abort x) -> TestIExpr x : (map (lift1Texpr Abort) . shrink $ TestIExpr x)
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 
@@ -86,15 +86,6 @@ typeable x = case inferType (getIExpr x) of
 instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
   shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
-
-isCheck (Check _) = True
-isCheck _ = False
-
-instance Arbitrary TestCheckIExpr where
-  arbitrary = TestCheckIExpr <$> arbitrary `suchThat`
-    (getAny . monoidFold (Any . isCheck) . getIExpr)
-  shrink (TestCheckIExpr te) =
-    map TestCheckIExpr . filter (getAny . monoidFold (Any . isCheck) . getIExpr) $ shrink te
 
 three_succ = app (app (toChurch 3) (lam (pair (varN 0) zero))) zero
 

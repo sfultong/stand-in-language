@@ -15,7 +15,7 @@ data RExpr
   = RZero
   | RPair !RExpr !RExpr
   | RVar
-  | RCheck !RExpr
+  | RAbort !RExpr
   | RGate !RExpr
   | RLeft !RExpr
   | RRight !RExpr
@@ -32,7 +32,7 @@ instance EndoMapper RExpr where
   endoMap f RZero = f RZero
   endoMap f (RPair a b) = f $ RPair (endoMap f a) (endoMap f b)
   endoMap f RVar = f RVar
-  endoMap f (RCheck x) = f . RCheck $ endoMap f x
+  endoMap f (RAbort x) = f . RAbort $ endoMap f x
   endoMap f (RGate x) = f . RGate $ endoMap f x
   endoMap f (RLeft x) = f . RLeft $ endoMap f x
   endoMap f (RRight x) = f . RRight $ endoMap f x
@@ -47,7 +47,7 @@ toRExpr :: IExpr -> RExpr
 toRExpr Zero = RZero
 toRExpr (Pair a b) = RPair (toRExpr a) (toRExpr b)
 toRExpr Var = RVar
-toRExpr (Check x) = RCheck $ toRExpr x
+toRExpr (Abort x) = RAbort $ toRExpr x
 toRExpr (Gate x) = RGate $ toRExpr x
 toRExpr (PLeft x) = RLeft $ toRExpr x
 toRExpr (PRight x) = RRight $ toRExpr x
@@ -60,7 +60,7 @@ fromRExpr :: RExpr -> IExpr
 fromRExpr RZero = Zero
 fromRExpr (RPair a b) = Pair (fromRExpr a) (fromRExpr b)
 fromRExpr RVar = Var
-fromRExpr (RCheck x) = Check $ fromRExpr x
+fromRExpr (RAbort x) = Abort $ fromRExpr x
 fromRExpr (RGate x) = Gate $ fromRExpr x
 fromRExpr (RLeft x) = PLeft $ fromRExpr x
 fromRExpr (RRight x) = PRight $ fromRExpr x
@@ -86,15 +86,8 @@ rEval f env g = let f' = f env
   RZero -> pure RZero
   (RPair a b) -> RPair <$> f' a <*> f' b
   RVar -> pure env
-  RCheck x -> do
-    nx <- f' x
-    case nx of
-      (RPair c (RPair tcc nenv)) -> do
-        tcResult <- f (RPair c nenv) tcc
-        case tcResult of
-          RZero -> pure c
-          err -> throwError $ concat ["failed refinement check for ", show c, " -- ", show err]
-      x -> throwError $ concat ["bad argument to refinement check: ", show x]
+  RAbort x -> f' x >>= \nx -> if nx == RZero then pure RZero
+                              else throwError $ concat ["rabort: ", g2s $ fromRExpr nx]
   RDefer x -> pure x
   RTwiddle x -> f' x >>= \nx -> case nx of
     RPair i (RPair c cenv) -> pure $ RPair c (RPair i cenv)
@@ -130,15 +123,7 @@ iEval f env g = let f' = f env in case g of
     nb <- f' b
     pure $ Pair na nb
   Var -> pure env
-  Check x -> do
-    nx <- f' x
-    case nx of
-      (Pair c (Pair tcc nenv)) -> do
-        tcResult <- f (Pair c nenv) tcc
-        case tcResult of
-          Zero -> pure c
-          x -> throwError $ concat ["failed refinement check for ", show c, " -- ", show x]
-      x -> throwError $ concat ["bad argument to refinement check: ", show x]
+  Abort x -> f' x >>= \nx -> if nx == Zero then pure Zero else throwError $ concat ["abort: ", g2s nx]
   SetEnv x -> (f' x >>=) $ \nx -> case nx of
     Pair c nenv -> f nenv c
     bx -> throwError $ concat ["setenv: expecting pair, got ", show bx]
