@@ -5,6 +5,7 @@ import Debug.Trace
 import Data.Char
 import Data.Monoid
 import SIL
+import SIL.Eval
 import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
@@ -326,12 +327,42 @@ promotingChecksPreservesType_prop :: TestIExpr -> Bool
 promotingChecksPreservesType_prop (TestIExpr iexpr) =
   inferType iexpr == inferType (promoteChecks iexpr)
 
+partiallyEvaluatedIsIsomorphicToOriginal:: ValidTestIExpr -> Bool
+--partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getIExpr vte) 0) == pureREval (app ())
+partiallyEvaluatedIsIsomorphicToOriginal vte =
+  let iexpr = getIExpr vte
+      sameError (GenericRunTimeError sa _) (GenericRunTimeError sb _) = sa == sb
+      -- sameError (SetEnvError _) (SetEnvError _) = True
+      sameError a b = a == b
+  in case (\x -> pureREval (app x Zero)) <$> eval iexpr of
+  Left (RTE e) -> Left e == pureREval (app iexpr Zero)
+  Right x -> case (x, pureREval (app iexpr Zero)) of
+    (Left a, Left b) -> sameError a b
+    (a, b) -> a == b
+
 debugPCPT :: IExpr -> IO Bool
 debugPCPT iexpr = if inferType iexpr == inferType (promoteChecks iexpr)
   then pure True
   else (putStrLn $ concat ["failed ", show iexpr, " / ", show (promoteChecks iexpr)
                           , " -- ", show (inferType iexpr), " / "
                           , show (inferType (promoteChecks iexpr))]) >> pure False
+
+debugPEIITO :: IExpr -> IO Bool
+debugPEIITO iexpr = do
+  putStrLn "regular app:"
+  putStrLn $ show (app iexpr Zero)
+  putStrLn "r-optimized:"
+  showROptimized $ app iexpr Zero
+  putStrLn "evaled:"
+  putStrLn $ show (eval iexpr)
+  case (\x -> pureREval (app x Zero)) <$> eval iexpr of
+    Left (RTE e) -> do
+      putStrLn . concat $ ["partially evaluated error: ", show e]
+      putStrLn . concat $ ["regular evaluation result: ", show (pureREval (app iexpr Zero))]
+    Right x -> do
+      putStrLn . concat $ ["partially evaluated result: ", show x]
+      putStrLn . concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]
+  pure False
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ unitTestType "main = 0" ZeroType (== Nothing)
@@ -357,27 +388,21 @@ unitTestTypeP iexpr expected = if inferType iexpr == expected
                     ]
   pure False
 
-unitTestQC :: Testable p => String -> p -> IO Bool
-unitTestQC name p = quickCheckResult p >>= \result -> case result of
+unitTestQC :: Testable p => String -> Int -> p -> IO Bool
+unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p >>= \result -> case result of
   (Success _ _ _) -> pure True
   x -> (putStrLn $ concat [name, " failed: ", show x]) >> pure False
 
 debugMark s = putStrLn s >> pure True
 
 unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
+  (
   [ unitTestType "main = \\x -> {x,0}" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
   , unitTestType "main = \\x -> {x,0}" ZeroType isInconsistentType
   , unitTestType "main = succ 0" ZeroType (== Nothing)
   , unitTestType "main = succ 0" (ArrType ZeroType ZeroType) isInconsistentType
   , unitTestType "main = or 0" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
   , unitTestType "main = or 0" ZeroType isInconsistentType
-  {- broken tests... need to fix type checking for old style annotations or remove
-  , unitTestType "main : {0,0} = 0" ZeroType False
-  , unitTestType "main : {0,{0,0}} = \\x -> {x,0}" (ArrType ZeroType ZeroType) False
-  , unitTestType "main : {0,0} = \\f -> f 0 0" (ArrType ZeroType (ArrType ZeroType ZeroType))
-    False
-  , unitTestType "main : 0 = \\x -> {x,0}" (ArrType ZeroType ZeroType) False
--}
   , unitTestType "main = or succ" (ArrType ZeroType ZeroType) isInconsistentType
   , unitTestType "main = 0 succ" ZeroType isInconsistentType
   , unitTestType "main = 0 0" ZeroType isInconsistentType
@@ -385,10 +410,6 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
     (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
   , unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
-  {- broken because lambdas now are represented by a pair of function and environment ... probably should remove
-  , unitTestType "main : {{{0,0},{0,0}},{{{0,0},{0,0}},{{0,0},{0,0}}}} = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
-  , unitTestType "main = \\m n f x -> m f (n f x)" (ArrType churchType (ArrType churchType churchType)) (== Nothing)
--}
   , unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
   -- TODO fix
   --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
@@ -463,13 +484,25 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
     "{4,{5,{6,8}}}"
   , unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
+  -- , debugPEIITO (SetEnv (Twiddle (Twiddle (Pair (Defer Var) Zero))))
+  -- , debugPEIITO (SetEnv (Pair (Defer Var) Zero))
+  -- , debugPEIITO (SetEnv (Pair (Defer (Pair Zero Var)) Zero))
+
   {-
-  , debugPCPT $ gate (check zero var)
+  , Debugpcpt $ gate (check zero var)
   , debugPCPT $ app var (check zero var)
   , unitTestQC "promotingChecksPreservesType" promotingChecksPreservesType_prop
   , unitTestOptimization "listequal0" $ app (app list_equality (s2g "hey")) (s2g "he")
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
+  ]
+  -- ++ quickCheckTests unitTest2 unitTestType
+  )
+
+-- slow, don't regularly run
+quickCheckTests unitTest2 unitTestType =
+  [ unitTestQC "partiallyEvaluatedIsIsomorphicToOriginal" 100000 partiallyEvaluatedIsIsomorphicToOriginal
+  -- , unitTestQC "promotingChecksPreservesType" promotingChecksPreservesType_prop
   ]
 
 testExpr = concat

@@ -1,12 +1,12 @@
 drawPiece
- = \piece alt -> if piece
+ = #piece alt -> if piece
                     then if left piece
                              then "O"
                              else "X"
                     else alt
 
 drawBoard
- = \pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
+ = #pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
                   alt = {n succ (left "1"), 0}
                   dp = \n -> drawPiece (getPiece n) alt
                   blankRow = "-+-+-\n"
@@ -18,21 +18,21 @@ drawBoard
               in row1                                  
 
 setPiece
- = \player pos board -> let before = take pos board
+ = #player pos board -> let before = take pos board
                             after = right (drop pos board)
                         in concat [before, {player,0}, after]
 
 getSquare
- = \pos board -> left (drop pos board)
+ = #pos board -> left (drop pos board)
 
 fullBoard
- = \board -> let squares = map (\x -> getSquare (d2c x) board) [0,1,2,3,4,5,6,7,8]
+ = #board -> let squares = map (\x -> getSquare (d2c x) board) [0,1,2,3,4,5,6,7,8]
              in foldr and 1 squares
 
 emptyBoard = [0,0,0,0,0,0,0,0,0]
 
 processInput
- = \string -> if dEqual (listLength string) 1
+ = #string -> if dEqual (listLength string) 1
                  then let num = dMinus (left string) (left "0")
                       in if and num (dMinus 10 num)
                             then num
@@ -40,7 +40,7 @@ processInput
                  else 0
 
 whoWon
- = \board -> let rows = [[0,1,2]
+ = #board -> let rows = [[0,1,2]
                         ,[3,4,5]
                         ,[6,7,8]
                         ,[0,3,6]
@@ -59,7 +59,7 @@ whoWon
              in foldr combineRow 0 rows
 
 main
- = \input -> let placeString = left input
+ = #input -> let placeString = left input
                  boardIn = right (right input)
                  playerIn = left (right input)
                  oldBoard = if boardIn then boardIn else emptyBoard

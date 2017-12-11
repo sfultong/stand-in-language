@@ -11,77 +11,75 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 import SIL
-import SIL.RunTime
 
-data IExprA a
-  = ZeroA
-  | PairA (IExprA a) (IExprA a)
-  | VarA a
-  | AbortA (IExprA a) a
-  | GateA (IExprA a) a
-  | PLeftA (IExprA a) a
-  | PRightA (IExprA a) a
-  | TraceA (IExprA a)
-  | SetEnvA (IExprA a) a
-  | DeferA (IExprA a)
-  | TwiddleA (IExprA a) a
+data ExprTA a
+  = ZeroTA
+  | PairTA (ExprTA a) (ExprTA a)
+  | VarTA a
+  | AbortTA (ExprTA a) a
+  | GateTA (ExprTA a) a
+  | PLeftTA (ExprTA a) a
+  | PRightTA (ExprTA a) a
+  | TraceTA (ExprTA a)
+  | SetEnvTA (ExprTA a) a
+  | DeferTA (ExprTA a)
+  | TwiddleTA (ExprTA a) a
   deriving (Eq, Show, Ord, Functor)
 
-type ExprPA = IExprA PartialType
-type ExprFA = IExprA DataType
+type ExprPA = ExprTA PartialType
 
 -- f must be type preserving, since type annotation is not changed
-instance EndoMapper (IExprA a) where
-  endoMap f ZeroA = f ZeroA
-  endoMap f (PairA a b) = f $ PairA (endoMap f a) (endoMap f b)
-  endoMap f (VarA t) = f $ VarA t
-  endoMap f (AbortA x t) = f $ AbortA (endoMap f x) t
-  endoMap f (GateA x t) = f $ GateA (endoMap f x) t
-  endoMap f (PLeftA x t) = f $ PLeftA (endoMap f x) t
-  endoMap f (PRightA x t) = f $ PRightA (endoMap f x) t
-  endoMap f (TraceA x) = f $ TraceA (endoMap f x)
-  endoMap f (SetEnvA x t) = f $ SetEnvA (endoMap f x) t
-  endoMap f (DeferA x) = f $ DeferA (endoMap f x)
-  endoMap f (TwiddleA x t) = f $ TwiddleA (endoMap f x) t
+instance EndoMapper (ExprTA a) where
+  endoMap f ZeroTA = f ZeroTA
+  endoMap f (PairTA a b) = f $ PairTA (endoMap f a) (endoMap f b)
+  endoMap f (VarTA t) = f $ VarTA t
+  endoMap f (AbortTA x t) = f $ AbortTA (endoMap f x) t
+  endoMap f (GateTA x t) = f $ GateTA (endoMap f x) t
+  endoMap f (PLeftTA x t) = f $ PLeftTA (endoMap f x) t
+  endoMap f (PRightTA x t) = f $ PRightTA (endoMap f x) t
+  endoMap f (TraceTA x) = f $ TraceTA (endoMap f x)
+  endoMap f (SetEnvTA x t) = f $ SetEnvTA (endoMap f x) t
+  endoMap f (DeferTA x) = f $ DeferTA (endoMap f x)
+  endoMap f (TwiddleTA x t) = f $ TwiddleTA (endoMap f x) t
 
 indent :: Int -> String
 indent 0 = []
 indent n = ' ' : ' ' : indent (n - 1)
 
 showExpra :: Int -> Int -> ExprPA -> String
-showExpra _ i ZeroA = "ZeroA"
-showExpra _ i (VarA a) = "VarA " ++ show (PrettyPartialType a)
-showExpra l i p@(PairA a b) = if length (show p) > l
+showExpra _ i ZeroTA = "ZeroA"
+showExpra _ i (VarTA a) = "VarA " ++ show (PrettyPartialType a)
+showExpra l i p@(PairTA a b) = if length (show p) > l
   then concat ["PairA\n", indent i, showExpra l (i + 1) a, "\n", indent i, showExpra l (i + 1) b]
   else show p
-showExpra l i (AbortA x a) =
+showExpra l i (AbortTA x a) =
   let lineShow = concat ["AbortA ", show x, "  ", show (PrettyPartialType a)]
   in if length lineShow > l
   then concat ["AbortA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (GateA x a) =
+showExpra l i (GateTA x a) =
   let lineShow = concat ["GateA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["GateA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (TraceA x) = concat ["TraceA ", showExpra l i x]
-showExpra l i (DeferA x) = concat ["DeferA ", showExpra l i x]
-showExpra l i (PLeftA x a) =
+showExpra l i (TraceTA x) = concat ["TraceA ", showExpra l i x]
+showExpra l i (DeferTA x) = concat ["DeferA ", showExpra l i x]
+showExpra l i (PLeftTA x a) =
   let lineShow = concat ["PLeftA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["PLeftA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (PRightA x a) =
+showExpra l i (PRightTA x a) =
   let lineShow = concat ["PRightA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["PRightA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (SetEnvA x a) =
+showExpra l i (SetEnvTA x a) =
   let lineShow = concat ["SetEnvA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["SetEnvA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (TwiddleA x a) =
+showExpra l i (TwiddleTA x a) =
   let lineShow = concat ["TwiddleA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["TwiddleA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
@@ -104,24 +102,26 @@ instance Show DebugTypeCheck where
     ]
 
 getPartialAnnotation :: ExprPA -> PartialType
-getPartialAnnotation (VarA a) = a
-getPartialAnnotation (SetEnvA _ a) = a
-getPartialAnnotation (DeferA x) = case getUnboundType x of
+getPartialAnnotation (VarTA a) = a
+getPartialAnnotation (SetEnvTA _ a) = a
+getPartialAnnotation (DeferTA x) = case getUnboundType x of
   Nothing -> getPartialAnnotation x
   Just t -> ArrTypeP t (getPartialAnnotation x)
-getPartialAnnotation (TwiddleA _ a) = a
-getPartialAnnotation ZeroA = ZeroTypeP
-getPartialAnnotation (PairA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
-getPartialAnnotation (AbortA _ a) = a
-getPartialAnnotation (GateA _ a) = a
-getPartialAnnotation (PLeftA _ a) = a
-getPartialAnnotation (PRightA _ a) = a
-getPartialAnnotation (TraceA x) = getPartialAnnotation x
+getPartialAnnotation (TwiddleTA _ a) = a
+getPartialAnnotation ZeroTA = ZeroTypeP
+getPartialAnnotation (PairTA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
+getPartialAnnotation (AbortTA _ a) = a
+getPartialAnnotation (GateTA _ a) = a
+getPartialAnnotation (PLeftTA _ a) = a
+getPartialAnnotation (PRightTA _ a) = a
+getPartialAnnotation (TraceTA x) = getPartialAnnotation x
 
+{-
 unpackPartialType :: IExpr -> Maybe PartialType
 unpackPartialType Zero = pure ZeroTypeP
 unpackPartialType (Pair a b) = ArrTypeP <$> unpackPartialType a <*> unpackPartialType b
 unpackPartialType _ = Nothing
+-}
 
 toPartial :: DataType -> PartialType
 toPartial ZeroType = ZeroTypeP
@@ -140,10 +140,6 @@ data TypeCheckError
 
 -- State is closure environment, map of unresolved types, unresolved type id supply
 type AnnotateState a = State (PartialType, Map Int PartialType, Int, Maybe TypeCheckError) a
-
-rightPartialType :: PartialType -> PartialType
-rightPartialType (PairTypeP _ r) = r
-rightPartialType x = error $ concat ["rightPartialType :", show x]
 
 withNewEnv :: AnnotateState a -> AnnotateState (PartialType, a)
 withNewEnv action = do
@@ -291,17 +287,17 @@ mostlyResolveRecursive = mostlyResolveRecursive_ Set.empty
 
 -- if there's an unbound environment, get its type
 getUnboundType :: ExprPA -> Maybe PartialType
-getUnboundType ZeroA = Nothing
-getUnboundType (PairA a b) = getUnboundType a <|> getUnboundType b
-getUnboundType (VarA a) = pure a
-getUnboundType (SetEnvA x _) = getUnboundType x
-getUnboundType (DeferA _) = Nothing
-getUnboundType (TwiddleA x _) = getUnboundType x
-getUnboundType (AbortA x _) = getUnboundType x
-getUnboundType (GateA x _) = getUnboundType x
-getUnboundType (PLeftA x _) = getUnboundType x
-getUnboundType (PRightA x _) = getUnboundType x
-getUnboundType (TraceA x) = getUnboundType x
+getUnboundType ZeroTA = Nothing
+getUnboundType (PairTA a b) = getUnboundType a <|> getUnboundType b
+getUnboundType (VarTA a) = pure a
+getUnboundType (SetEnvTA x _) = getUnboundType x
+getUnboundType (DeferTA _) = Nothing
+getUnboundType (TwiddleTA x _) = getUnboundType x
+getUnboundType (AbortTA x _) = getUnboundType x
+getUnboundType (GateTA x _) = getUnboundType x
+getUnboundType (PLeftTA x _) = getUnboundType x
+getUnboundType (PRightTA x _) = getUnboundType x
+getUnboundType (TraceTA x) = getUnboundType x
 
 traceFullAnnotation :: PartialType -> AnnotateState ()
 traceFullAnnotation _ = pure ()
@@ -324,9 +320,9 @@ debugAnnotate x = do
 -}
 
 annotate :: IExpr -> AnnotateState ExprPA
-annotate Zero = debugAnnotate Zero *> pure ZeroA
-annotate (Pair a b) = debugAnnotate (Pair a b) *> (PairA <$> annotate a <*> annotate b)
-annotate Var = (debugAnnotate Var *>) get >>= \(e, _, _, _) -> pure $ VarA e
+annotate Zero = debugAnnotate Zero *> pure ZeroTA
+annotate (Pair a b) = debugAnnotate (Pair a b) *> (PairTA <$> annotate a <*> annotate b)
+annotate Var = (debugAnnotate Var *>) get >>= \(e, _, _, _) -> pure $ VarTA e
 annotate (SetEnv x) = do
   debugAnnotate (SetEnv x)
   nx <- annotate x
@@ -351,11 +347,11 @@ annotate (SetEnv x) = do
       associateSubtypeVar it sit
       pure ot
   traceFullAnnotation (getPartialAnnotation nx)
-  pure $ SetEnvA nx ot
+  pure $ SetEnvTA nx ot
 annotate (Defer x) = do
   debugAnnotate (Defer x)
   (_, nx) <- withNewEnv $ annotate x
-  pure $ DeferA nx
+  pure $ DeferTA nx
 annotate (Twiddle x) = do
   debugAnnotate (Twiddle x)
   (aa, (ab, (ac, _))) <- withNewEnv . withNewEnv . withNewEnv $ pure ()
@@ -364,32 +360,32 @@ annotate (Twiddle x) = do
     then pure ()
     else trace ("twiddle associate " ++ show nx) $ pure ()
   debugAnnotate (Twiddle x)
-  pure $ TwiddleA nx (PairTypeP ab (PairTypeP aa ac))
+  pure $ TwiddleTA nx (PairTypeP ab (PairTypeP aa ac))
 -- abort is polymorphic so that it matches any expression
 annotate (Abort x) = do
   nx <- annotate x
   (it, _) <- withNewEnv $ pure ()
   associateVar ZeroTypeP (getPartialAnnotation nx)
-  pure $ AbortA nx it
+  pure $ AbortTA nx it
 annotate (Gate x) = do
   debugAnnotate (Gate x)
   nx <- annotate x
   associateVar ZeroTypeP $ getPartialAnnotation nx
   (ra, _) <- withNewEnv $ pure ()
-  pure $ GateA nx (ArrTypeP (PairTypeP ra ra) ra)
+  pure $ GateTA nx (ArrTypeP (PairTypeP ra ra) ra)
 annotate (PLeft x) = do
   debugAnnotate (PLeft x)
   nx <- annotate x
   (la, (ra, _)) <- withNewEnv . withNewEnv $ pure ()
   associateVar (PairTypeP la ra) (getPartialAnnotation nx)
-  pure $ PLeftA nx la
+  pure $ PLeftTA nx la
 annotate (PRight x) = do
   debugAnnotate (PRight x)
   nx <- annotate x
   (la, (ra, _)) <- withNewEnv . withNewEnv $ pure ()
   associateVar (PairTypeP la ra) (getPartialAnnotation nx)
-  pure $ PRightA nx ra
-annotate (Trace x) = debugAnnotate (Trace x) *> (TraceA <$> annotate x)
+  pure $ PRightTA nx ra
+annotate (Trace x) = debugAnnotate (Trace x) *> (TraceTA <$> annotate x)
 
 -- a fixable recursive type is one where there are no arrows.
 -- any undefined typevariables can be filled with ZeroType, and an infinite tree of
@@ -431,35 +427,35 @@ resolveOrAlt = resolveOrAlt_ Set.empty
 
 -- apply mostlyAnnotate recursively to exprPA
 fullyMostlyAnnotate :: Map Int PartialType -> ExprPA -> (Set Int, ExprPA)
-fullyMostlyAnnotate _ ZeroA = (Set.empty, ZeroA)
-fullyMostlyAnnotate tm (PairA a b) =
+fullyMostlyAnnotate _ ZeroTA = (Set.empty, ZeroTA)
+fullyMostlyAnnotate tm (PairTA a b) =
   let (sa, na) = fullyMostlyAnnotate tm a
       (sb, nb) = fullyMostlyAnnotate tm b
-  in (Set.union sa sb, PairA na nb)
-fullyMostlyAnnotate tm (VarA a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, VarA a)
-  (Right mra) -> (Set.empty, VarA mra)
+  in (Set.union sa sb, PairTA na nb)
+fullyMostlyAnnotate tm (VarTA a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, VarTA a)
+  (Right mra) -> (Set.empty, VarTA mra)
   x -> error $ concat ["fma: ", show x]
-fullyMostlyAnnotate tm (SetEnvA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, SetEnvA x a)
-  (Right mra) -> SetEnvA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (DeferA x) = DeferA <$> fullyMostlyAnnotate tm x
-fullyMostlyAnnotate tm (TwiddleA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, TwiddleA x a)
-  (Right mra) -> TwiddleA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (AbortA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, AbortA x a)
-  (Right mra) -> AbortA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (GateA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, GateA x a)
-  (Right mra) -> GateA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (PLeftA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, PLeftA x a)
-  (Right mra) -> PLeftA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (PRightA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, PRightA x a)
-  (Right mra) -> PRightA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (TraceA x) = TraceA <$> fullyMostlyAnnotate tm x
+fullyMostlyAnnotate tm (SetEnvTA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, SetEnvTA x a)
+  (Right mra) -> SetEnvTA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (DeferTA x) = DeferTA <$> fullyMostlyAnnotate tm x
+fullyMostlyAnnotate tm (TwiddleTA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, TwiddleTA x a)
+  (Right mra) -> TwiddleTA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (AbortTA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, AbortTA x a)
+  (Right mra) -> AbortTA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (GateTA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, GateTA x a)
+  (Right mra) -> GateTA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (PLeftTA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, PLeftTA x a)
+  (Right mra) -> PLeftTA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (PRightTA x a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, PRightTA x a)
+  (Right mra) -> PRightTA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (TraceTA x) = TraceTA <$> fullyMostlyAnnotate tm x
 
 tcStart :: (PartialType, Map Int PartialType, Int, Maybe TypeCheckError)
 tcStart = (TypeVariable 0, Map.empty, 1, Nothing)

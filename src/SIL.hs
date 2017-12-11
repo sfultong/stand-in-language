@@ -26,6 +26,20 @@ data IExpr
   | Trace !IExpr             -- trace
   deriving (Eq, Show, Ord)
 
+data ExprA a
+  = ZeroA a
+  | PairA !(ExprA a) !(ExprA a) a
+  | VarA a
+  | SetEnvA !(ExprA a) a
+  | DeferA !(ExprA a) a
+  | TwiddleA !(ExprA a) a
+  | AbortA !(ExprA a) a
+  | GateA !(ExprA a) a
+  | PLeftA !(ExprA a) a
+  | PRightA !(ExprA a) a
+  | TraceA !(ExprA a) a
+  deriving (Eq, Ord, Show)
+
 instance EndoMapper IExpr where
   endoMap f Zero = f Zero
   endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
