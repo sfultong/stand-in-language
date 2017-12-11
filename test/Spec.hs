@@ -68,7 +68,7 @@ instance Arbitrary TestIExpr where
                     ]
   shrink (TestIExpr x) = case x of
     Zero -> []
-    Var -> []
+    Env -> []
     (Gate x) -> TestIExpr x : (map (lift1Texpr gate) . shrink $ TestIExpr x)
     (PLeft x) -> TestIExpr x : (map (lift1Texpr pleft) . shrink $ TestIExpr x)
     (PRight x) -> TestIExpr x : (map (lift1Texpr pright) . shrink $ TestIExpr x)

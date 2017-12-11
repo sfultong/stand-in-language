@@ -13,7 +13,7 @@ import SIL.Optimizer
 data RExpr
   = RZero
   | RPair !RExpr !RExpr
-  | RVar
+  | REnv
   | RAbort !RExpr
   | RGate !RExpr
   | RLeft !RExpr
@@ -30,7 +30,7 @@ data RExpr
 instance EndoMapper RExpr where
   endoMap f RZero = f RZero
   endoMap f (RPair a b) = f $ RPair (endoMap f a) (endoMap f b)
-  endoMap f RVar = f RVar
+  endoMap f REnv = f REnv
   endoMap f (RAbort x) = f . RAbort $ endoMap f x
   endoMap f (RGate x) = f . RGate $ endoMap f x
   endoMap f (RLeft x) = f . RLeft $ endoMap f x
@@ -45,7 +45,7 @@ instance EndoMapper RExpr where
 toRExpr :: IExpr -> RExpr
 toRExpr Zero = RZero
 toRExpr (Pair a b) = RPair (toRExpr a) (toRExpr b)
-toRExpr Var = RVar
+toRExpr Env = REnv
 toRExpr (Abort x) = RAbort $ toRExpr x
 toRExpr (Gate x) = RGate $ toRExpr x
 toRExpr (PLeft x) = RLeft $ toRExpr x
@@ -58,7 +58,7 @@ toRExpr (Twiddle x) = RTwiddle $ toRExpr x
 fromRExpr :: RExpr -> IExpr
 fromRExpr RZero = Zero
 fromRExpr (RPair a b) = Pair (fromRExpr a) (fromRExpr b)
-fromRExpr RVar = Var
+fromRExpr REnv = Env
 fromRExpr (RAbort x) = Abort $ fromRExpr x
 fromRExpr (RGate x) = Gate $ fromRExpr x
 fromRExpr (RLeft x) = PLeft $ fromRExpr x
@@ -95,7 +95,7 @@ rEval f env g = let f' = f env
                 in case g of
   RZero -> pure RZero
   (RPair a b) -> RPair <$> f' a <*> f' b
-  RVar -> pure env
+  REnv -> pure env
   RAbort x -> f' x >>= \nx -> if nx == RZero then pure RZero
                               else throwError $ AbortRunTime (fromRExpr nx)
   RDefer x -> pure x
@@ -111,8 +111,8 @@ rEval f env g = let f' = f env
     RPair c i -> rApply c i
     bx -> throwError $ SetEnvError (fromRExpr bx)
   RGate x -> f' x >>= \g -> case g of
-    RZero -> pure $ RLeft RVar
-    _ -> pure $ RRight RVar
+    RZero -> pure $ RLeft REnv
+    _ -> pure $ RRight REnv
   RLeft g -> f' g >>= \g -> case g of
     (RPair a _) -> pure a
     _ -> pure RZero
@@ -132,7 +132,7 @@ iEval f env g = let f' = f env in case g of
     na <- f' a
     nb <- f' b
     pure $ Pair na nb
-  Var -> pure env
+  Env -> pure env
   Abort x -> f' x >>= \nx -> if nx == Zero then pure Zero else throwError $ AbortRunTime nx
   SetEnv x -> (f' x >>=) $ \nx -> case nx of
     Pair c nenv -> f nenv c
@@ -142,8 +142,8 @@ iEval f env g = let f' = f env in case g of
     Pair i (Pair c cenv) -> pure $ Pair c (Pair i cenv)
     bx -> throwError $ TwiddleError bx
   Gate x -> f' x >>= \g -> case g of
-    Zero -> pure $ PLeft Var
-    _ -> pure $ PRight Var
+    Zero -> pure $ PLeft Env
+    _ -> pure $ PRight Env
   PLeft g -> f' g >>= \g -> case g of
     (Pair a _) -> pure a
     _ -> pure Zero
@@ -154,20 +154,20 @@ iEval f env g = let f' = f env in case g of
 
 toChurch :: Int -> IExpr
 toChurch x =
-  let inner 0 = PLeft Var
-      inner x = app (PLeft $ PRight Var) (inner (x - 1))
+  let inner 0 = PLeft Env
+      inner x = app (PLeft $ PRight Env) (inner (x - 1))
   in lam (lam (inner x))
 
 rOptimize :: RExpr -> RExpr
 rOptimize =
   let modR (RSetEnv (RPair (RGate i) (RPair e t))) = RITE i t e
-      modR c@(RPair (RDefer (RPair (RDefer (apps)) RVar)) RVar) = let appCount = countApps 0 apps in
+      modR c@(RPair (RDefer (RPair (RDefer (apps)) REnv)) REnv) = let appCount = countApps 0 apps in
         if appCount > 0
         then RChurch appCount Nothing
         else c
       modR x = x
-      countApps x (RLeft RVar) = x
-      countApps x (RSetEnv (RTwiddle (RPair ia (RLeft (RRight RVar))))) = countApps (x + 1) ia
+      countApps x (RLeft REnv) = x
+      countApps x (RSetEnv (RTwiddle (RPair ia (RLeft (RRight REnv))))) = countApps (x + 1) ia
       countApps _ _ = 0
   in endoMap modR
 

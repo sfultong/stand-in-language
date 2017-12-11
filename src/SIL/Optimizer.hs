@@ -44,15 +44,15 @@ promoteChecks = endoMap f where
      (App
       (Closure
        (App
-        (Gate (PLeft Var))
+        (Gate (PLeft Env))
         (Pair
-         (PLeft Var)
+         (PLeft Env)
          (App
           (Closure
            (App
-            (Gate (PLeft Var))
+            (Gate (PLeft Env))
             (Pair
-             (PLeft Var)
+             (PLeft Env)
              (App tc x)
             )
            )
@@ -74,15 +74,15 @@ promoteChecks = endoMap f where
      (App
       (Closure
        (App
-        (Gate (PLeft Var))
+        (Gate (PLeft Env))
         (Pair
-         (PLeft Var)
-         (App tci (PLeft (PRight Var)))
+         (PLeft Env)
+         (App tci (PLeft (PRight Env)))
         )
        )
        Zero
       )
-      (App tco (PLeft Var))
+      (App tco (PLeft Env))
      )
      Zero
     )
@@ -92,9 +92,9 @@ promoteChecks = endoMap f where
      (App
       (Closure
        (App
-        (Gate (PLeft Var))
+        (Gate (PLeft Env))
         (Pair
-         (PLeft Var)
+         (PLeft Env)
          (App tc x)
         )
        )
@@ -110,15 +110,15 @@ promoteChecks = endoMap f where
      (App
       (Closure
        (App
-        (Gate (PLeft Var))
+        (Gate (PLeft Env))
         (Pair
-         (PLeft Var)
-         (App tca (PLeft (PLeft (PRight Var))))
+         (PLeft Env)
+         (App tca (PLeft (PLeft (PRight Env))))
         )
        )
        Zero
       )
-      (App tcb (PRight (PLeft Var)))
+      (App tcb (PRight (PLeft Env)))
      )
      Zero
     )
@@ -127,7 +127,7 @@ promoteChecks = endoMap f where
     (Closure
      (App
       tca
-      (PRight (PLeft Var))
+      (PRight (PLeft Env))
      )
      Zero
     )
@@ -136,7 +136,7 @@ promoteChecks = endoMap f where
     (Closure
      (App
       tcb
-      (PLeft (PLeft Var))
+      (PLeft (PLeft Env))
      )
      Zero
     )
@@ -168,9 +168,9 @@ promoteChecks = endoMap f where
      (App
       (Closure
        (App
-        (Gate (PLeft Var))
+        (Gate (PLeft Env))
         (Pair
-         (PLeft Var)
+         (PLeft Env)
          (App tci i)
         )
        )

@@ -15,7 +15,7 @@ import SIL
 data ExprTA a
   = ZeroTA
   | PairTA (ExprTA a) (ExprTA a)
-  | VarTA a
+  | EnvTA a
   | AbortTA (ExprTA a) a
   | GateTA (ExprTA a) a
   | PLeftTA (ExprTA a) a
@@ -32,7 +32,7 @@ type ExprPA = ExprTA PartialType
 instance EndoMapper (ExprTA a) where
   endoMap f ZeroTA = f ZeroTA
   endoMap f (PairTA a b) = f $ PairTA (endoMap f a) (endoMap f b)
-  endoMap f (VarTA t) = f $ VarTA t
+  endoMap f (EnvTA t) = f $ EnvTA t
   endoMap f (AbortTA x t) = f $ AbortTA (endoMap f x) t
   endoMap f (GateTA x t) = f $ GateTA (endoMap f x) t
   endoMap f (PLeftTA x t) = f $ PLeftTA (endoMap f x) t
@@ -48,7 +48,7 @@ indent n = ' ' : ' ' : indent (n - 1)
 
 showExpra :: Int -> Int -> ExprPA -> String
 showExpra _ i ZeroTA = "ZeroA"
-showExpra _ i (VarTA a) = "VarA " ++ show (PrettyPartialType a)
+showExpra _ i (EnvTA a) = "VarA " ++ show (PrettyPartialType a)
 showExpra l i p@(PairTA a b) = if length (show p) > l
   then concat ["PairA\n", indent i, showExpra l (i + 1) a, "\n", indent i, showExpra l (i + 1) b]
   else show p
@@ -102,7 +102,7 @@ instance Show DebugTypeCheck where
     ]
 
 getPartialAnnotation :: ExprPA -> PartialType
-getPartialAnnotation (VarTA a) = a
+getPartialAnnotation (EnvTA a) = a
 getPartialAnnotation (SetEnvTA _ a) = a
 getPartialAnnotation (DeferTA x) = case getUnboundType x of
   Nothing -> getPartialAnnotation x
@@ -289,7 +289,7 @@ mostlyResolveRecursive = mostlyResolveRecursive_ Set.empty
 getUnboundType :: ExprPA -> Maybe PartialType
 getUnboundType ZeroTA = Nothing
 getUnboundType (PairTA a b) = getUnboundType a <|> getUnboundType b
-getUnboundType (VarTA a) = pure a
+getUnboundType (EnvTA a) = pure a
 getUnboundType (SetEnvTA x _) = getUnboundType x
 getUnboundType (DeferTA _) = Nothing
 getUnboundType (TwiddleTA x _) = getUnboundType x
@@ -322,7 +322,7 @@ debugAnnotate x = do
 annotate :: IExpr -> AnnotateState ExprPA
 annotate Zero = debugAnnotate Zero *> pure ZeroTA
 annotate (Pair a b) = debugAnnotate (Pair a b) *> (PairTA <$> annotate a <*> annotate b)
-annotate Var = (debugAnnotate Var *>) get >>= \(e, _, _, _) -> pure $ VarTA e
+annotate Env = (debugAnnotate Env *>) get >>= \(e, _, _, _) -> pure $ EnvTA e
 annotate (SetEnv x) = do
   debugAnnotate (SetEnv x)
   nx <- annotate x
@@ -432,9 +432,9 @@ fullyMostlyAnnotate tm (PairTA a b) =
   let (sa, na) = fullyMostlyAnnotate tm a
       (sb, nb) = fullyMostlyAnnotate tm b
   in (Set.union sa sb, PairTA na nb)
-fullyMostlyAnnotate tm (VarTA a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, VarTA a)
-  (Right mra) -> (Set.empty, VarTA mra)
+fullyMostlyAnnotate tm (EnvTA a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, EnvTA a)
+  (Right mra) -> (Set.empty, EnvTA mra)
   x -> error $ concat ["fma: ", show x]
 fullyMostlyAnnotate tm (SetEnvTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, SetEnvTA x a)

@@ -15,7 +15,7 @@ class MonoidEndoFolder a where
 data IExpr
   = Zero                     -- no special syntax necessary
   | Pair !IExpr !IExpr       -- {,}
-  | Var                      -- identifier
+  | Env                      -- identifier
   | SetEnv !IExpr
   | Defer !IExpr
   | Twiddle !IExpr
@@ -43,7 +43,7 @@ data ExprA a
 instance EndoMapper IExpr where
   endoMap f Zero = f Zero
   endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
-  endoMap f Var = f Var
+  endoMap f Env = f Env
   endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
   endoMap f (Defer x) = f $ Defer (endoMap f x)
   endoMap f (Twiddle x) = f $ Twiddle (endoMap f x)
@@ -56,7 +56,7 @@ instance EndoMapper IExpr where
 instance EitherEndoMapper IExpr where
   eitherEndoMap f Zero = f Zero
   eitherEndoMap f (Pair a b) = (Pair <$> eitherEndoMap f a <*> eitherEndoMap f b) >>= f
-  eitherEndoMap f Var = f Var
+  eitherEndoMap f Env = f Env
   eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Twiddle x) = (Twiddle <$> eitherEndoMap f x) >>= f
@@ -69,7 +69,7 @@ instance EitherEndoMapper IExpr where
 instance MonoidEndoFolder IExpr where
   monoidFold f Zero = f Zero
   monoidFold f (Pair a b) = mconcat [f (Pair a b), monoidFold f a, monoidFold f b]
-  monoidFold f Var = f Var
+  monoidFold f Env = f Env
   monoidFold f (SetEnv x) = mconcat [f (SetEnv x), monoidFold f x]
   monoidFold f (Defer x) = mconcat [f (Defer x), monoidFold f x]
   monoidFold f (Twiddle x) = mconcat [f (Twiddle x), monoidFold f x]
@@ -84,14 +84,14 @@ zero = Zero
 pair :: IExpr -> IExpr -> IExpr
 pair = Pair
 var :: IExpr
-var = Var
+var = Env
 app :: IExpr -> IExpr -> IExpr
 app c i = SetEnv (Twiddle (Pair i c))
 check :: IExpr -> IExpr -> IExpr
 check c tc = SetEnv (Pair (Defer (ite
-                                  (app (PLeft Var) (PRight Var))
-                                  (Abort $ app (PLeft Var) (PRight Var))
-                                  (PRight Var)
+                                  (app (PLeft Env) (PRight Env))
+                                  (Abort $ app (PLeft Env) (PRight Env))
+                                  (PRight Env)
                           ))
                           (Pair tc c)
                     )
@@ -106,14 +106,14 @@ setenv = SetEnv
 defer :: IExpr -> IExpr
 defer = Defer
 lam :: IExpr -> IExpr
-lam x = Pair (Defer x) Var
+lam x = Pair (Defer x) Env
 -- a form of lambda that does not pull in a surrounding environment
 completeLam :: IExpr -> IExpr
 completeLam x = Pair (Defer x) Zero
 ite :: IExpr -> IExpr -> IExpr -> IExpr
 ite i t e = SetEnv (Pair (Gate i) (Pair e t))
 varN :: Int -> IExpr
-varN n = PLeft (iterate PRight Var !! n)
+varN n = PLeft (iterate PRight Env !! n)
 
 data DataType
   = ZeroType
