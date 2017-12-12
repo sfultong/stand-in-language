@@ -92,6 +92,10 @@ rEval f env g = let f' = f env
                           step x cv = rApply cf cv >>= step (x - 1)
                       in step ci v
                     rApply ng _ = throwError $ GenericRunTimeError "rApply: not a closure -- " (fromRExpr ng)
+                    rApply2 (RChurch ci Nothing) (RPair cf (RPair iv _)) = rApply (RChurch ci (Just cf)) iv
+                    rApply2 (RChurch ci Nothing) (RPair cf _) = pure $ RChurch ci (Just cf)
+                    rApply2 rc@(RChurch _ _) (RPair iv _) = rApply rc iv
+                    rApply2 g nenv = f nenv g
                 in case g of
   RZero -> pure RZero
   (RPair a b) -> RPair <$> f' a <*> f' b
@@ -108,7 +112,7 @@ rEval f env g = let f' = f env
     ni <- f' i
     rApply ng ni
   RSetEnv x -> f' x >>= \g -> case g of
-    RPair c i -> rApply c i
+    RPair c i -> rApply2 c i
     bx -> throwError $ SetEnvError (fromRExpr bx)
   RGate x -> f' x >>= \g -> case g of
     RZero -> pure $ RLeft REnv

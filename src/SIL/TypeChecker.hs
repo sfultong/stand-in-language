@@ -347,9 +347,7 @@ annotate (Twiddle x) = do
   debugAnnotate (Twiddle x)
   (aa, (ab, (ac, _))) <- withNewEnv . withNewEnv . withNewEnv $ pure ()
   nx <- annotate x
-  associateVar (PairTypeP aa (PairTypeP ab ac)) (getPartialAnnotation nx) >>= \r -> if r
-    then pure ()
-    else trace ("twiddle associate " ++ show nx) $ pure ()
+  associateVar (PairTypeP aa (PairTypeP ab ac)) (getPartialAnnotation nx)
   debugAnnotate (Twiddle x)
   pure $ TwiddleTA nx (PairTypeP ab (PairTypeP aa ac))
 -- abort is polymorphic so that it matches any expression
