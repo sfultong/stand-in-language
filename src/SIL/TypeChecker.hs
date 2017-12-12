@@ -116,13 +116,6 @@ getPartialAnnotation (PLeftTA _ a) = a
 getPartialAnnotation (PRightTA _ a) = a
 getPartialAnnotation (TraceTA x) = getPartialAnnotation x
 
-{-
-unpackPartialType :: IExpr -> Maybe PartialType
-unpackPartialType Zero = pure ZeroTypeP
-unpackPartialType (Pair a b) = ArrTypeP <$> unpackPartialType a <*> unpackPartialType b
-unpackPartialType _ = Nothing
--}
-
 toPartial :: DataType -> PartialType
 toPartial ZeroType = ZeroTypeP
 toPartial (ArrType a b) = ArrTypeP (toPartial a) (toPartial b)
@@ -132,9 +125,7 @@ badType = TypeVariable (-1)
 
 data TypeCheckError
   = UnboundType Int
-  | RefinementFailure String
   | InconsistentTypes PartialType PartialType
-  | WrongInferredType DataType DataType -- expected, inferred
   | RecursiveType Int
   deriving (Eq, Ord, Show)
 
@@ -387,28 +378,6 @@ annotate (PRight x) = do
   pure $ PRightTA nx ra
 annotate (Trace x) = debugAnnotate (Trace x) *> (TraceTA <$> annotate x)
 
--- a fixable recursive type is one where there are no arrows.
--- any undefined typevariables can be filled with ZeroType, and an infinite tree of
--- ZeroTypes is equivalent to ZeroType
-isFixableRecursiveType :: Set Int -> Map Int PartialType -> PartialType -> Bool
-isFixableRecursiveType _ _ ZeroTypeP = True
-isFixableRecursiveType resolved typeMap (PairTypeP a b) =
-  isFixableRecursiveType resolved typeMap a && isFixableRecursiveType resolved typeMap b
-isFixableRecursiveType resolved _ (TypeVariable i) | Set.member i resolved = True
-isFixableRecursiveType resolved typeMap (TypeVariable i) = case Map.lookup i typeMap of
-  Nothing -> True
-  Just x -> isFixableRecursiveType (Set.insert i resolved) typeMap x
-isFixableRecursiveType _ _ _ = False
-
-refsInRecursiveType :: Set Int -> Map Int PartialType -> PartialType -> Set Int
-refsInRecursiveType resolved typeMap (PairTypeP a b) = Set.union
-  (refsInRecursiveType resolved typeMap a) (refsInRecursiveType resolved typeMap b)
-refsInRecursiveType resolved _ (TypeVariable i) | Set.member i resolved = Set.singleton i
-refsInRecursiveType resolved typeMap (TypeVariable i) = case Map.lookup i typeMap of
-  Nothing -> Set.singleton i
-  Just x -> refsInRecursiveType (Set.insert i resolved) typeMap x
-refsInRecursiveType _ _ _ = Set.empty
-
 resolveOrAlt_ :: Set Int -> Map Int PartialType -> PartialType
   -> Either TypeCheckError DataType
 resolveOrAlt_ _ _ ZeroTypeP = pure ZeroType
@@ -465,33 +434,8 @@ partiallyAnnotate iexpr =
   let (iexpra, (_, typeMap, _, err)) = runState (annotate iexpr) tcStart
       debugT = trace (show $ DebugTypeCheck iexpra typeMap 80)
       debug2 x = trace (concat ["iexpra:\n", show iexpra, "\niexpra2:\n", show x, "\ntypemap:\n", show typeMap]) x
-      debugT3 pt = trace (show (DebugTypeCheck iexpra typeMap 80) ++ "\nrelevant debug type:\n"
-                         ++ show (PrettyPartialType $ mostlyResolveRecursive fixedTypeMap pt))
-      (recursiveTypes, fullResolution) = fullyMostlyAnnotate typeMap iexpra
-      -- The new type system appears not to generate fixable recursive types. This step might be removable.
-      (fixableTypes, unfixableTypes) = Set.partition
-        (isFixableRecursiveType Set.empty typeMap . TypeVariable) recursiveTypes
-      fixedTypeMap = foldr
-        (\i tm -> foldr
-                  (\k ntm -> Map.insert k ZeroTypeP ntm)
-                  tm
-                  $ refsInRecursiveType Set.empty tm (TypeVariable i))
-        typeMap fixableTypes
-      -- TODO wait, we should remove any checks we can run at compile time
-      -- another problem is c (nevermind tc) depending on unbound variables
-      {-
-      evalCheck (Check c tc) = case pureEval (SetEnv (Pair tc (Pair c Zero))) of
-      --evalCheck (Check c tc) = case pureEval (SetEnv (Twiddle (Pair ))) of
-        Zero -> Right c
-        x -> Left . RefinementFailure $ g2s x-}
-      evalCheck x = pure x
-      unifiedAndRefined =
-        case (null unfixableTypes, eitherEndoMap evalCheck iexpr) of
-          (False, _) -> debugT3 (TypeVariable (minimum unfixableTypes)) . Left . RecursiveType $ minimum unfixableTypes
-          (_, Right _) -> pure (fixedTypeMap, fullResolution)
-          (_, Left x) -> Left x
   in case err of
-    Nothing -> unifiedAndRefined
+    Nothing -> pure (typeMap, iexpra)
     Just et -> Left et
 
 inferType :: IExpr -> Either TypeCheckError PartialType
