@@ -7,7 +7,6 @@ import Control.Monad.Except
 import Control.Monad.Fix
 
 import SIL
-import SIL.Optimizer
 
 -- runtime expression
 data RExpr

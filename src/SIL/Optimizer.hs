@@ -27,180 +27,6 @@ data IExprV
   | VClosure IExprV IExprV
   deriving (Eq, Show, Ord)
 
-{-
-partiallyApply :: IExpr -> IExpr
-partiallyApply = endoMap f where
-  f (App (Closure (Closure ic Zero) env) i) = Closure ic (Pair i env)
-  f x = x
--}
-
--- merge and push checks up to top level of expression
-promoteChecks :: IExpr -> IExpr
-promoteChecks = endoMap f where
-  {-
-  f (Check (Check x tci) (Check tc tctc)) =
-    Check x
-    (Closure
-     (App
-      (Closure
-       (App
-        (Gate (PLeft Env))
-        (Pair
-         (PLeft Env)
-         (App
-          (Closure
-           (App
-            (Gate (PLeft Env))
-            (Pair
-             (PLeft Env)
-             (App tc x)
-            )
-           )
-           Zero
-          )
-          (App tctc tc)
-         )
-        )
-       )
-       Zero
-      )
-      (App tci x)
-     )
-     Zero
-    )
-  f (Check (Check x tci) tco) =
-    Check x
-    (Closure
-     (App
-      (Closure
-       (App
-        (Gate (PLeft Env))
-        (Pair
-         (PLeft Env)
-         (App tci (PLeft (PRight Env)))
-        )
-       )
-       Zero
-      )
-      (App tco (PLeft Env))
-     )
-     Zero
-    )
-  f (Check x (Check tc tctc)) =
-    Check x
-    (Closure
-     (App
-      (Closure
-       (App
-        (Gate (PLeft Env))
-        (Pair
-         (PLeft Env)
-         (App tc x)
-        )
-       )
-       Zero
-      )
-      (App tctc tc)
-     )
-     Zero
-    )
-  f (Pair (Check a tca) (Check b tcb)) =
-    Check (Pair a b)
-    (Closure
-     (App
-      (Closure
-       (App
-        (Gate (PLeft Env))
-        (Pair
-         (PLeft Env)
-         (App tca (PLeft (PLeft (PRight Env))))
-        )
-       )
-       Zero
-      )
-      (App tcb (PRight (PLeft Env)))
-     )
-     Zero
-    )
-  f (Pair (Check a tca) b) =
-    Check (Pair a b)
-    (Closure
-     (App
-      tca
-      (PRight (PLeft Env))
-     )
-     Zero
-    )
-  f (Pair a (Check b tcb)) =
-    Check (Pair a b)
-    (Closure
-     (App
-      tcb
-      (PLeft (PLeft Env))
-     )
-     Zero
-    )
-    -- should I use a closure that ignores its argument and just applies a to the check
-    -- or should I synthesize a from its components?
-  f (PLeft (Check a tca)) =
-    Check (PLeft a)
-    (Closure
-     (App tca a)
-     Zero
-    )
-  f (PRight (Check a tcb)) =
-    Check (PRight a)
-    (Closure
-     (App tcb a)
-     Zero
-    )
-  f (Trace (Check x tc)) =
-    Check (Trace x) tc
-  f (Gate (Check x tc)) =
-    Check (Gate x)
-    (Closure
-     (App tc x)
-     Zero
-    )
-  f (App (Check c tcc) (Check i tci)) =
-    Check (App c i)
-    (Closure
-     (App
-      (Closure
-       (App
-        (Gate (PLeft Env))
-        (Pair
-         (PLeft Env)
-         (App tci i)
-        )
-       )
-       Zero
-      )
-      (App tcc c)
-     )
-     Zero
-    )
-  f (App (Check x tc) i) =
-    Check (App x i)
-    (Closure
-     (App tc x)
-     Zero
-    )
-  f (App c (Check x tc)) =
-    Check (App c x)
-    (Closure
-     (App tc x)
-     Zero
-    )
-  f (Closure (Check c tc) Zero) =
-    Check (Closure c Zero)
-    (Closure
-     (App tc c)
-     Zero
-    )
--}
-  f x = x
-
 {- TODO something to convert all closures that don't return zerotype to ones that do
 
   \a b -> {a,b} : D -> (D -> D)
@@ -209,5 +35,14 @@ promoteChecks = endoMap f where
 
 -}
 
+
+-- converts nested grammar that can be computed locally
+precompute :: IExpr -> IExpr
+precompute = endoMap f where
+  f (PLeft (Pair x _)) = x
+  f (PRight (Pair _ x)) = x
+  f (Twiddle (Pair i (Pair c env))) = Pair c (Pair i env)
+  f x = x
+
 optimize :: IExpr -> IExpr
-optimize = id -- partiallyApply
+optimize = precompute
