@@ -21,7 +21,7 @@ data TestIExpr = TestIExpr IExpr
 
 data ValidTestIExpr = ValidTestIExpr TestIExpr
 
-data TestCheckIExpr = TestCheckIExpr ValidTestIExpr
+data ZeroTypedTestIExpr = ZeroTypedTestIExpr TestIExpr
 
 instance TestableIExpr TestIExpr where
   getIExpr (TestIExpr x) = x
@@ -35,11 +35,11 @@ instance TestableIExpr ValidTestIExpr where
 instance Show ValidTestIExpr where
   show (ValidTestIExpr v) = show v
 
-instance TestableIExpr TestCheckIExpr where
-  getIExpr (TestCheckIExpr x) = getIExpr x
+instance TestableIExpr ZeroTypedTestIExpr where
+  getIExpr (ZeroTypedTestIExpr x) = getIExpr x
 
-instance Show TestCheckIExpr where
-  show (TestCheckIExpr x) = show x
+instance Show ZeroTypedTestIExpr where
+  show (ZeroTypedTestIExpr v) = show v
 
 lift1Texpr :: (IExpr -> IExpr) -> TestIExpr -> TestIExpr
 lift1Texpr f (TestIExpr x) = TestIExpr $ f x
@@ -87,6 +87,12 @@ typeable x = case inferType (getIExpr x) of
 instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
   shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
+
+zeroTyped x = inferType (getIExpr x) == Right ZeroTypeP
+
+instance Arbitrary ZeroTypedTestIExpr where
+  arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
+  shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
 
 three_succ = app (app (toChurch 3) (lam (pair (varN 0) zero))) zero
 
@@ -322,17 +328,16 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
--- check that refinements are correct after optimization
-promotingChecksPreservesType_prop :: TestIExpr -> Bool
-promotingChecksPreservesType_prop (TestIExpr iexpr) =
-  inferType iexpr == inferType (promoteChecks iexpr)
-
-rEvaluationIsomorphicToIEvaluation :: ValidTestIExpr -> Bool
+rEvaluationIsomorphicToIEvaluation :: ZeroTypedTestIExpr -> Bool
 rEvaluationIsomorphicToIEvaluation vte = case (pureEval $ getIExpr vte, pureREval $ getIExpr vte) of
+  {-
   (Left _, Left _) -> True
   -- (Right a, Right b) -> a == b
   (Right _, Right _) -> True
   (Left _, Right _) -> True -- I guess failing to fail is fine for rEval
+-}
+  (Left _, Left _) -> True
+  (a, b) | a == b -> True
   _ -> False
 
 debugREITIE :: IExpr -> IO Bool
@@ -355,13 +360,6 @@ partiallyEvaluatedIsIsomorphicToOriginal vte =
   Right x -> case (x, pureREval (app iexpr Zero)) of
     (Left a, Left b) -> sameError a b
     (a, b) -> a == b
-
-debugPCPT :: IExpr -> IO Bool
-debugPCPT iexpr = if inferType iexpr == inferType (promoteChecks iexpr)
-  then pure True
-  else (putStrLn $ concat ["failed ", show iexpr, " / ", show (promoteChecks iexpr)
-                          , " -- ", show (inferType iexpr), " / "
-                          , show (inferType (promoteChecks iexpr))]) >> pure False
 
 debugPEIITO :: IExpr -> IO Bool
 debugPEIITO iexpr = do
@@ -513,7 +511,7 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
   ]
-  -- ++ quickCheckTests unitTest2 unitTestType
+  ++ quickCheckTests unitTest2 unitTestType
   )
 
 -- slow, don't regularly run

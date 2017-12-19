@@ -135,6 +135,7 @@ instance Show PrettyDataType where
 
 data PartialType
   = ZeroTypeP
+  | AnyType
   | TypeVariable Int
   | ArrTypeP PartialType PartialType
   | PairTypeP PartialType PartialType
@@ -148,6 +149,7 @@ showInternalP t = show . PrettyPartialType $ t
 instance Show PrettyPartialType where
   show (PrettyPartialType dt) = case dt of
     ZeroTypeP -> "Z"
+    AnyType -> "A"
     (ArrTypeP a b) -> concat [showInternalP a, " -> ", showInternalP b]
     (PairTypeP a b) ->
       concat ["{", show $ PrettyPartialType a, ",", show $ PrettyPartialType b, "}"]
@@ -161,6 +163,7 @@ instance EndoMapper DataType where
 
 instance EndoMapper PartialType where
   endoMap f ZeroTypeP = f ZeroTypeP
+  endoMap f AnyType = f AnyType
   endoMap f (TypeVariable i) = f $ TypeVariable i
   endoMap f (ArrTypeP a b) = f $ ArrTypeP (endoMap f a) (endoMap f b)
   endoMap f (PairTypeP a b) = f $ PairTypeP (endoMap f a) (endoMap f b)

@@ -47,8 +47,8 @@ indent 0 = []
 indent n = ' ' : ' ' : indent (n - 1)
 
 showExpra :: Int -> Int -> ExprPA -> String
-showExpra _ i ZeroTA = "ZeroA"
-showExpra _ i (EnvTA a) = "VarA " ++ show (PrettyPartialType a)
+showExpra _ _ ZeroTA = "ZeroA"
+showExpra _ _ (EnvTA a) = "VarA " ++ show (PrettyPartialType a)
 showExpra l i p@(PairTA a b) = if length (show p) > l
   then concat ["PairA\n", indent i, showExpra l (i + 1) a, "\n", indent i, showExpra l (i + 1) b]
   else show p
@@ -105,7 +105,7 @@ getPartialAnnotation :: ExprPA -> PartialType
 getPartialAnnotation (EnvTA a) = a
 getPartialAnnotation (SetEnvTA _ a) = a
 getPartialAnnotation (DeferTA x) = case getUnboundType x of
-  Nothing -> getPartialAnnotation x
+  Nothing -> ArrTypeP AnyType $ getPartialAnnotation x
   Just t -> ArrTypeP t (getPartialAnnotation x)
 getPartialAnnotation (TwiddleTA _ a) = a
 getPartialAnnotation ZeroTA = ZeroTypeP
@@ -120,8 +120,6 @@ toPartial :: DataType -> PartialType
 toPartial ZeroType = ZeroTypeP
 toPartial (ArrType a b) = ArrTypeP (toPartial a) (toPartial b)
 toPartial (PairType a b) = PairTypeP (toPartial a) (toPartial b)
-
-badType = TypeVariable (-1)
 
 data TypeCheckError
   = UnboundType Int
@@ -151,13 +149,13 @@ noteError err = state $ \s -> case s of
 
 checkOrAssociate :: PartialType -> PartialType -> Set Int -> Map Int PartialType
   -> Either TypeCheckError (Map Int PartialType)
-checkOrAssociate a b _ _ | a == badType = Left $ InconsistentTypes a b
-checkOrAssociate a b _ _ | b == badType = Left $ InconsistentTypes a b
 -- do nothing for circular (already resolved) references (not type error until later)
-checkOrAssociate (TypeVariable t) _ resolvedSet typeMap | Set.member t resolvedSet = pure
-                                                        typeMap
-checkOrAssociate _ (TypeVariable t) resolvedSet typeMap | Set.member t resolvedSet = pure
-                                                        typeMap
+checkOrAssociate (TypeVariable t) _ resolvedSet typeMap | Set.member t resolvedSet
+  = trace "recursiveType" $ pure typeMap
+checkOrAssociate _ (TypeVariable t) resolvedSet typeMap | Set.member t resolvedSet
+  = trace "recursiveType" $ pure typeMap
+checkOrAssociate AnyType _ _ tm = pure tm
+checkOrAssociate _ AnyType _ tm = pure tm
 checkOrAssociate (TypeVariable ta) (TypeVariable tb) resolvedSet typeMap =
   case (Map.lookup ta typeMap, Map.lookup tb typeMap) of
     (Just ra, Just rb) ->
@@ -189,6 +187,10 @@ checkOrAssociate a b _ typeMap = if a == b then pure typeMap else Left $ Inconsi
 checkOrAssociateSubtype :: PartialType -> PartialType -> Set Int -> Map Int PartialType
   -> AnnotateState (Map Int PartialType)
 checkOrAssociateSubtype (TypeVariable _) _ _ tm = pure tm
+checkOrAssociateSubtype AnyType _ _ tm = pure tm
+checkOrAssociateSubtype a AnyType _ tm = do
+  noteError $ InconsistentTypes a AnyType
+  pure tm
 checkOrAssociateSubtype _ (TypeVariable t) resolvedSet tm | Set.member t resolvedSet = pure tm
 checkOrAssociateSubtype x (TypeVariable t) resolvedSet tm = case Map.lookup t tm of
   Nothing -> case x of
@@ -219,12 +221,12 @@ checkOrAssociateSubtype a b _ typeMap = if a == b then pure typeMap else do
 traceAssociate :: PartialType -> PartialType -> a -> a
 traceAssociate a b = id --  trace (concat ["associateVar ", show a, " -- ", show b])
 
-associateVar :: PartialType -> PartialType -> AnnotateState Bool
+associateVar :: PartialType -> PartialType -> AnnotateState ()
 associateVar a b = state $ \(env, typeMap, v, err)
   -> case (checkOrAssociate a b Set.empty typeMap, err) of
-       (Right tm, _) -> traceAssociate a b $ (True, (env, tm, v, err))
-       (Left err1, Just err2) | err1 < err2 -> (False, (env, typeMap, v, err))
-       (Left te, _) -> traceAssociate a b $ (False, (env, typeMap, v, Just te))
+       (Right tm, _) -> traceAssociate a b $ ((), (env, tm, v, err))
+       (Left err1, Just err2) | err1 < err2 -> ((), (env, typeMap, v, err))
+       (Left te, _) -> traceAssociate a b $ ((), (env, typeMap, v, Just te))
 
 associateSubtypeVar :: PartialType -> PartialType -> AnnotateState ()
 associateSubtypeVar a b = do
@@ -232,6 +234,7 @@ associateSubtypeVar a b = do
   ntm <- checkOrAssociateSubtype a b Set.empty typeMap
   state $ \(env, _, v, err) -> ((), (env, ntm, v, err))
 
+{-
 -- convert a PartialType to a full type, aborting on circular references
 fullyResolve :: Map Int PartialType -> PartialType -> Maybe DataType
 fullyResolve typeMap x = case mostlyResolved of
@@ -243,11 +246,13 @@ fullyResolve typeMap x = case mostlyResolved of
     filterTypeVars (ArrTypeP a b) = ArrType <$> filterTypeVars a <*> filterTypeVars b
     filterTypeVars (PairTypeP a b) = PairType <$> filterTypeVars a <*> filterTypeVars b
     mostlyResolved = mostlyResolve typeMap x
+-}
 
 -- resolve as much of a partial type as possible, aborting on circular references
 mostlyResolve_ :: Set Int -> Map Int PartialType -> PartialType
   -> Either TypeCheckError PartialType
 mostlyResolve_ _ _ ZeroTypeP = pure ZeroTypeP
+mostlyResolve_ _ _ AnyType = pure AnyType
 mostlyResolve_ resolved typeMap (TypeVariable i) =
   case (Set.member i resolved, Map.lookup i typeMap) of
     (True, _) -> Left $ RecursiveType i
@@ -264,6 +269,7 @@ mostlyResolve typeMap x = mergePairTypeP <$> mostlyResolve_ Set.empty typeMap x
 -- resolve as much as possible of recursive references, without returning error
 mostlyResolveRecursive_ :: Set Int -> Map Int PartialType -> PartialType -> PartialType
 mostlyResolveRecursive_ _ _ ZeroTypeP = ZeroTypeP
+mostlyResolveRecursive_ _ _ AnyType = AnyType
 mostlyResolveRecursive_ resolved typeMap (TypeVariable i) =
   case (Set.member i resolved, Map.lookup i typeMap) of
     (False, Just x) -> mostlyResolveRecursive_ (Set.insert i resolved) typeMap x
@@ -325,7 +331,8 @@ annotate (SetEnv x) = do
     (PairTypeP (ArrTypeP it ot) sit) -> do
       associateSubtypeVar it sit
       case checkOrAssociate it sit Set.empty tm of
-        Left _ -> pure badType
+        -- Left _ -> pure badType
+        Left _ -> pure ot
         Right ntm -> pure $ mostlyResolveRecursive ntm ot
     (PairTypeP ft sit) -> do
       (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
