@@ -71,7 +71,7 @@ fromFullEnv f (RightP x) = PRight <$> f x
 fromFullEnv f (TraceP x) = Trace <$> f x
 
 partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
--- partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= pureREval)
+-- partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= pureREval . optimize)
 partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 

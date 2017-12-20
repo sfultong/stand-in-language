@@ -3,6 +3,7 @@ module Main where
 import Control.Applicative (liftA2)
 import Debug.Trace
 import Data.Char
+import Data.List (partition)
 import Data.Monoid
 import SIL
 import SIL.Eval
@@ -23,6 +24,8 @@ data ValidTestIExpr = ValidTestIExpr TestIExpr
 
 data ZeroTypedTestIExpr = ZeroTypedTestIExpr TestIExpr
 
+data ArrowTypedTestIExpr = ArrowTypedTestIExpr TestIExpr
+
 instance TestableIExpr TestIExpr where
   getIExpr (TestIExpr x) = x
 
@@ -40,6 +43,12 @@ instance TestableIExpr ZeroTypedTestIExpr where
 
 instance Show ZeroTypedTestIExpr where
   show (ZeroTypedTestIExpr v) = show v
+
+instance TestableIExpr ArrowTypedTestIExpr where
+  getIExpr (ArrowTypedTestIExpr x) = getIExpr x
+
+instance Show ArrowTypedTestIExpr where
+  show (ArrowTypedTestIExpr x) = show x
 
 lift1Texpr :: (IExpr -> IExpr) -> TestIExpr -> TestIExpr
 lift1Texpr f (TestIExpr x) = TestIExpr $ f x
@@ -93,6 +102,19 @@ zeroTyped x = inferType (getIExpr x) == Right ZeroTypeP
 instance Arbitrary ZeroTypedTestIExpr where
   arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
   shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
+
+simpleArrowTyped x = inferType (getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
+
+instance Arbitrary ArrowTypedTestIExpr where
+  arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped
+  shrink (ArrowTypedTestIExpr atte) = map ArrowTypedTestIExpr . filter simpleArrowTyped $ shrink atte
+
+-- recursively finds shrink matching invariant, ordered simplest to most complex
+shrinkComplexCase :: Arbitrary a => (a -> Bool) -> [a] -> [a]
+shrinkComplexCase test a =
+  let shrinksWithNextLevel = map (\x -> (x, filter test $ shrink x)) a
+      (recurseable, nonRecursable) = partition (not . null . snd) shrinksWithNextLevel
+  in shrinkComplexCase test (concat $ map snd recurseable) ++ map fst nonRecursable
 
 three_succ = app (app (toChurch 3) (lam (pair (varN 0) zero))) zero
 
@@ -348,7 +370,7 @@ debugREITIE iexpr = if pureEval iexpr == pureREval iexpr
   putStrLn . concat $ ["reval: ", show $ pureREval iexpr]
   pure False
 
-partiallyEvaluatedIsIsomorphicToOriginal:: ValidTestIExpr -> Bool
+partiallyEvaluatedIsIsomorphicToOriginal:: ArrowTypedTestIExpr -> Bool
 --partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getIExpr vte) 0) == pureREval (app ())
 partiallyEvaluatedIsIsomorphicToOriginal vte =
   let iexpr = getIExpr vte
@@ -511,14 +533,14 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
   ]
-  ++ quickCheckTests unitTest2 unitTestType
+  -- ++ quickCheckTests unitTest2 unitTestType
   )
 
 -- slow, don't regularly run
 quickCheckTests unitTest2 unitTestType =
   [ unitTestQC "rEvaluationIsIsomorphicToIEvaluation" 100 rEvaluationIsomorphicToIEvaluation
-  -- , unitTestQC "partiallyEvaluatedIsIsomorphicToOriginal" 100000 partiallyEvaluatedIsIsomorphicToOriginal
-  -- , unitTestQC "promotingChecksPreservesType" promotingChecksPreservesType_prop
+  -- too slow
+  -- , unitTestQC "partiallyEvaluatedIsIsomorphicToOriginal" 100 partiallyEvaluatedIsIsomorphicToOriginal
   ]
 
 testExpr = concat
@@ -581,10 +603,15 @@ main = do
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
+
+  -- TODO change eval to use rEval, then run this over a long non-work period
   {-
-  unitTest4 "main = (\\x -> {x,0}) 0" ZeroTypeP
-  unitTest4 "main = $3" ZeroTypeP
-  unitTest4 "main = $3 (\\x -> {x,0})" ZeroTypeP
+  let isProblem (TestIExpr iexpr) = typeable (TestIExpr iexpr) && case eval iexpr of
+        Left _ -> True
+        _ -> False
+  (Right mainAST) <- parseMain prelude <$> Strict.readFile "tictactoe.sil"
+  print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
+  result <- pure False
 -}
   result <- unitTests unitTest2 unitTestType
   exitWith $ if result then ExitSuccess else ExitFailure 1
