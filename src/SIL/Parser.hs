@@ -57,6 +57,7 @@ i2c :: Int -> Term1
 i2c x =
   let inner 0 = TVar $ Left 0
       inner x = TApp (TVar $ Left 1) (inner $ x - 1)
+  --TODO change to TCompleteLam and test
   in TLam (TLam (inner x))
 
 debruijinize :: Monad m => VarList -> Term1 -> m (ParserTerm Int)
