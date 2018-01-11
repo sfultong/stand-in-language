@@ -1,7 +1,8 @@
 module SIL.Llvm where
 
-import GHC.Word (Word64, Word8)
 import Control.Monad.Except
+import Control.Monad.State.Lazy
+import Data.Int (Int64)
 import Foreign.Ptr (FunPtr, castFunPtr, Ptr, plusPtr, castPtr)
 import Foreign.Storable (peek)
 import LLVM.AST
@@ -31,13 +32,13 @@ run :: FunPtr a -> IO Double
 run fn = haskFun (castFunPtr fn :: FunPtr (IO Double))
 -}
 
-foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Word64)) -> IO (Ptr Word64)
+foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
-run :: FunPtr a -> IO (Word64, [(Word64,Word64)])
+run :: FunPtr a -> IO (Int64, [(Int64,Int64)])
 run fn = do
-  result <- haskFun (castFunPtr fn :: FunPtr (IO (Ptr Word64)))
+  result <- haskFun (castFunPtr fn :: FunPtr (IO (Ptr Int64)))
   numPairs <- (min 10) <$> peek result
-  resultPair <- (min (10 :: Word64)) <$> peek (plusPtr result 8)
+  resultPair <- (min (10 :: Int64)) <$> peek (plusPtr result 8)
   startHeap <- peek (plusPtr result 16)
   {-
   print numPairs
@@ -51,7 +52,7 @@ run fn = do
   pairs <- (reverse . snd) <$> foldM readPair (startHeap, []) [1..numPairs]
   pure (resultPair, pairs)
 
-convertPairs :: (Word64, [(Word64,Word64)]) -> SIL.IExpr
+convertPairs :: (Int64, [(Int64,Int64)]) -> SIL.IExpr
 convertPairs (x, pairs)=
   let convertPair (-1) = SIL.Zero
       convertPair n = let (l,r) = pairs !! fromIntegral n
@@ -67,8 +68,15 @@ testModule = emptyModule
     [ mainDef
     , pairTypeDef
     , pairHeap, heapIndex, resultStructure
-    , makePair, testPairs, genPairs
+    -- , makePair, testPairs, genPairs
     ]
+  }
+
+makeModule :: SIL.IExpr -> AST.Module
+makeModule iexpr = defaultModule
+  { moduleDefinitions =
+    [ pairTypeDef, pairHeap, heapIndex, resultStructure ] ++ (toLLVM' iexpr)
+  , moduleName = "SILModule"
   }
 
 jit :: Context -> (EE.MCJIT -> IO a) -> IO a
@@ -96,8 +104,7 @@ runJIT mod = do
           putStrLn . unlines . drop heapInitializerIgnoreCount . lines $ s
 
           EE.withModuleInEngine executionEngine m $ \ee -> do
-            --mainfn <- EE.getFunction ee (AST.Name "main")
-            mainfn <- EE.getFunction ee (AST.Name "testPairs")
+            mainfn <- EE.getFunction ee (AST.Name "main")
             case mainfn of
               Just fn -> do
                 print fn
@@ -116,6 +123,11 @@ define retty label argtys body =
   , returnType  = retty
   , basicBlocks = body
 }
+-- block instruction list (reversed), instruction counter, definition list, definition counter
+type FunctionState a = State ([Named Instruction], Word, [Definition], Word) a
+
+startFunctionState :: ([Named Instruction], Word, [Definition], Word)
+startFunctionState = ([], 0, [], 0)
 
 double :: Type
 double = FloatingPointType 64 IEEE
@@ -123,13 +135,16 @@ double = FloatingPointType 64 IEEE
 intT :: Type
 intT = IntegerType 64
 
+intPtrT :: Type
+intPtrT = PointerType (IntegerType 64) $ AddrSpace.AddrSpace 0
+
 funT :: Type
 --funT = PointerType (FunctionType intT [intT] False) (AddrSpace.AddrSpace 0)
 funT = PointerType (FunctionType intT [] False) (AddrSpace.AddrSpace 0)
 
 blks = [testBlock]
 
-mainDef = define double "main" [] blks
+mainDef = define double "main2" [] blks
 
 testBlock :: BasicBlock
 testBlock = BasicBlock (UnName 0) []
@@ -146,6 +161,7 @@ heapType :: Type
 heapType = ArrayType heapSize pairT
 
 heapSize = 65536
+functionHeapSize = 1000
 
 emptyPair :: C.Constant
 emptyPair = C.Struct Nothing False [C.Int 64 (-1), C.Int 64 (-1)]
@@ -200,9 +216,63 @@ one :: Operand
 one = ConstantOperand (C.Int 64 1)
 one32 :: Operand
 one32 = ConstantOperand (C.Int 32 1)
+two32 :: Operand
+two32 = ConstantOperand (C.Int 32 2)
 negOne :: Operand
 negOne = ConstantOperand (C.Int 64 (-1))
 
+doInst :: Instruction -> FunctionState Operand
+doInst inst = state $ \(l, c, d, dc) ->
+  if c == maxBound
+  then error "BasicBlock instruction limit reached"
+  else (LocalReference intT $ UnName c, ((UnName c := inst) : l, c + 1, d, dc))
+
+toLLVM :: SIL.IExpr -> FunctionState Operand
+toLLVM SIL.Zero = pure negOne
+toLLVM (SIL.Pair a b) = do
+  oa <- toLLVM a
+  ob <- toLLVM b
+  heap <- doInst $ Load False (ConstantOperand (C.GlobalReference intPtrT heapIndexN)) Nothing 0 []
+  l <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference heapType heapN)) [zero, heap, zero32] []
+  r <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference heapType heapN)) [zero, heap, one32] []
+  _ <- doInst $ Store False l oa Nothing 0 []
+  _ <- doInst $ Store False r ob Nothing 0 []
+  nc <- doInst $ AST.Add False False heap one []
+  _ <- doInst $ Store False (ConstantOperand (C.GlobalReference intT heapIndexN)) nc Nothing 0 []
+  --TODO figure out why this dummy instruction is necessary
+  _ <- doInst $ AST.Add False False zero zero []
+  pure heap
+toLLVM _ = error "TODO toLLVM"
+
+finishMain :: Operand -> FunctionState Operand
+finishMain result = do
+  heapC <- doInst $ Load False (ConstantOperand (C.GlobalReference intT heapIndexN)) Nothing 0 []
+  numPairs <- doInst $ AST.GetElementPtr False
+        (ConstantOperand (C.GlobalReference resultStructureT resultStructureN)) [zero, zero32] []
+  resultPair <- doInst $ AST.GetElementPtr False
+        (ConstantOperand (C.GlobalReference resultStructureT resultStructureN)) [zero, one32] []
+  heapStart <- doInst $ AST.GetElementPtr False
+        (ConstantOperand (C.GlobalReference resultStructureT resultStructureN)) [zero, two32] []
+  _ <- doInst $ Store False numPairs heapC Nothing 0 []
+  _ <- doInst $ Store False resultPair result Nothing 0 []
+  _ <- doInst $ Store False heapStart (ConstantOperand (C.PtrToInt (C.GlobalReference heapType heapN) intT))
+       Nothing 0 []
+  pure $ ConstantOperand (C.GlobalReference resultStructureT resultStructureN)
+
+toLLVM' :: SIL.IExpr -> [Definition]
+toLLVM' iexpr =
+  let (returnOp, (instructions, _, definitions, _)) = runState (toLLVM iexpr >>= finishMain) startFunctionState
+  in (GlobalDefinition $ functionDefaults
+       { name = Name "main"
+       , parameters = ([], False)
+       , returnType = intT
+       , basicBlocks = [ BasicBlock (Name "mainBlock") (reverse instructions)
+                       (Do $ Ret (Just returnOp) [])
+                       ]
+       }
+     ) : definitions
+
+{-
 makePair :: Definition
 makePair = GlobalDefinition $ functionDefaults
   { name = Name "makePair"
@@ -300,3 +370,5 @@ testPairs = GlobalDefinition $ functionDefaults
        Ret (Just (ConstantOperand (C.GlobalReference resultStructureT resultStructureN))) [])
     ]
   }
+
+-}
