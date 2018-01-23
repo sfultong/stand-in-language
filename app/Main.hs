@@ -23,7 +23,9 @@ main = do
     runMain s = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> evalLoop g
-    testData = Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
+    --testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
+    --testData = PRight $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
+    testData = SetEnv $ Pair (Defer $ Pair Zero Env) Zero
   --print $ makeModule testData
   runJIT (makeModule testData) >>= \result -> case result of
     Left err -> putStrLn $ concat ["JIT error: ", err]
