@@ -315,10 +315,13 @@ allowedTypeCheck Nothing = True
 allowedTypeCheck (Just (UnboundType _)) = True
 allowedTypeCheck _ = False
 
+testEval :: IExpr -> IO IExpr
+testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
+
 unitTest :: String -> String -> IExpr -> IO Bool
 unitTest name expected iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)
   then do
-    result <- (show . PrettyIExpr) <$> optimizedEval iexpr
+    result <- (show . PrettyIExpr) <$> testEval iexpr
     if result == expected
       then pure True
       else (putStrLn $ concat [name, ": expected ", expected, " result ", result]) >>
@@ -401,9 +404,52 @@ debugPEIITO iexpr = do
   pure False
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
-  [ unitTestType "main = 0" ZeroType (== Nothing)
-  , unitTestRefinement "refinement: test of function success" True
-    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 1))))
+  [ debugMark "Starting testing tests for testing"
+  , unitTest "zed" "0" (i2g 0)
+  , debugMark "0"
+  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  , debugMark "1"
+  , unitTest "c2d3" "1" c2d_test3
+  , debugMark "2"
+  , unitTest "c2d2" "2" c2d_test2
+  , debugMark "3"
+  , unitTest "c2d" "2" c2d_test
+  , debugMark "4"
+  , unitTest "oneplusone" "2" one_plus_one
+  , debugMark "5"
+  , unitTest "church 3+2" "5" three_plus_two
+  , debugMark "6"
+  , unitTest "3*2" "6" three_times_two
+  , debugMark "7"
+  , unitTest "3^2" "9" three_pow_two
+  , debugMark "8"
+  , unitTest "test_tochurch" "2" test_toChurch
+  , debugMark "9"
+  , unitTest "three" "3" three_succ
+  , debugMark "1"
+  , unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
+  , unitTest "d2c" "2" $ d2c_test
+  , debugMark "1.2"
+  , unitTest "data 1+1" "2" $ app (app d_plus (i2g 1)) (i2g 1)
+  {-
+  , debugMark "2"
+  , unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+  , debugMark "4"
+  , unitTest "listlength0" "0" $ app list_length zero
+  , debugMark "6"
+  , unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
+  , debugMark "7"
+  , unitTest "zipwith" "{{4,1},{{5,1},{{6,2},0}}}"
+    $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
+           (ints2g [4,5,6]))
+    (ints2g [1,1,2,3])
+  , unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
+  , unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
+  , unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
+  -- because of the way lists are represented, the last number will be prettyPrinted + 1
+  , unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
+    (ints2g [1,2,3])
+-}
   ]
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
@@ -575,11 +621,11 @@ main = do
         else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
     unitTest2 s r = case parseMain prelude s of
       Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
-      Right g -> fmap (show . PrettyIExpr) (optimizedEval g) >>= \r2 -> if r2 == r
+      Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
         then pure True
         else (putStrLn $ concat [s, " result ", r2]) >> pure False
     unitTest3 s r = let parsed = parseMain prelude s in case (inferType <$> parsed, parsed) of
-      (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (optimizedEval g) >>= \r2 -> if r2 == r
+      (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
         then pure True
         else (putStrLn $ concat [s, " result ", r2]) >> pure False
       e -> (putStrLn $ concat ["failed unittest3: ", s, " ", show e ]) >> pure False
@@ -613,5 +659,5 @@ main = do
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}
-  result <- unitTests unitTest2 unitTestType
+  result <- unitTests_ unitTest2 unitTestType
   exitWith $ if result then ExitSuccess else ExitFailure 1

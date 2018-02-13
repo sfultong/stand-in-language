@@ -39,13 +39,13 @@ foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int
 run :: FunPtr a -> IO (Int64, [(Int64,Int64)])
 run fn = do
   result <- haskFun (castFunPtr fn :: FunPtr (IO (Ptr Int64)))
-  numPairs <- (min 10) <$> peek result
-  resultPair <- (min (10 :: Int64)) <$> peek (plusPtr result 8)
+  numPairs <- peek result
+  resultPair <- peek (plusPtr result 8)
   startHeap <- peek (plusPtr result 16)
   {-
   print numPairs
   print resultPair
-  print (startHeap :: Ptr Word64)
+  print (startHeap :: Ptr Int64)
 -}
   let readPair (addr,l) _ = do
         lp <- peek addr
@@ -105,6 +105,32 @@ runJIT mod = do
           -- Return the optimized module
           return optmod
 
+evalJIT :: AST.Module -> IO (Either String SIL.IExpr)
+evalJIT mod = do
+  withContext $ \context ->
+    jit context $ \executionEngine ->
+      runExceptT $ withModuleFromAST context mod $ \m ->
+        withPassManager passes $ \pm -> do
+          -- Optimization Pass
+          {-runPassManager pm m-}
+    {-
+          optmod <- moduleAST m
+          -- print optmod
+          s <- moduleLLVMAssembly m
+          let heapInitializerIgnoreCount = 6
+          putStrLn . unlines . drop heapInitializerIgnoreCount . lines $ s
+-}
+
+          EE.withModuleInEngine executionEngine m $ \ee -> do
+            mainfn <- EE.getFunction ee (AST.Name "main")
+            case mainfn of
+              Just fn -> do
+                res <- run fn
+                pure $ convertPairs res
+              Nothing -> do
+                putStrLn "Couldn't find entry point"
+                pure SIL.Zero
+
 define ::  Type -> String -> [(Type, Name)] -> [BasicBlock] -> Definition
 define retty label argtys body =
   GlobalDefinition $ functionDefaults {
@@ -156,7 +182,7 @@ functionHeapType :: Type
 functionHeapType = ArrayType functionHeapSize funT
 
 heapSize = 65536
-functionHeapSize = 1000
+functionHeapSize = 70000
 
 emptyPair :: C.Constant
 emptyPair = C.Struct Nothing False [C.Int 64 (-1), C.Int 64 (-1)]
@@ -240,6 +266,23 @@ doInst inst = state $ \(l, c, d, dc) ->
   then error "BasicBlock instruction limit reached"
   else (LocalReference intT $ UnName c, ((UnName c := inst) : l, c + 1, d, dc))
 
+-- goLeft (0) and goRight (1) are added to beginning of function heap to facilitate gate functionality
+startMain :: FunctionState ()
+startMain = do
+  funHeap <- doInst $ Load False (ConstantOperand (C.GlobalReference intPtrT functionHeapIndexN)) Nothing 0 []
+  funPtr <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference functionHeapType functionHeapN))
+    [zero, funHeap] []
+  _ <- doInst $ Store False funPtr (ConstantOperand (C.GlobalReference intT (Name "goLeft"))) Nothing 0 []
+  h2 <- doInst $ AST.Add False False funHeap one []
+  fp2 <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference functionHeapType functionHeapN))
+    [zero, h2] []
+  _ <- doInst $ Store False fp2 (ConstantOperand (C.GlobalReference intT (Name "goRight"))) Nothing 0 []
+  h3 <- doInst $ AST.Add False False h2 one []
+  _ <- doInst $ Store False (ConstantOperand (C.GlobalReference intT functionHeapIndexN)) h3 Nothing 0 []
+  --TODO figure out why this dummy instruction is necessary
+  _ <- doInst $ AST.Add False False zero zero []
+  pure ()
+
 toLLVM :: SIL.IExpr -> FunctionState Operand
 toLLVM SIL.Zero = pure negOne
 toLLVM (SIL.Pair a b) = do
@@ -321,7 +364,13 @@ toLLVM (SIL.SetEnv x) = do
     [zero, clo] []
   fun <- doInst $ Load False funPtr Nothing 0 []
   doInst $ Call (Just Tail) CC.Fast [] (Right fun) [(env, [])] [] []
-toLLVM _ = error "TODO toLLVM"
+toLLVM (SIL.Gate x) = do
+  lx <- toLLVM x
+  bool <- doInst $ ICmp IP.SGT lx negOne []
+  doInst $ ZExt bool intT []
+-- TODO
+toLLVM (SIL.Abort _) = pure negOne
+toLLVM (SIL.Trace x) = toLLVM x
 
 finishMain :: Operand -> FunctionState Operand
 finishMain result = do
@@ -340,7 +389,8 @@ finishMain result = do
 
 toLLVM' :: SIL.IExpr -> [Definition]
 toLLVM' iexpr =
-  let (returnOp, (instructions, _, definitions, _)) = runState (toLLVM iexpr >>= finishMain) startFunctionState
+  let (returnOp, (instructions, _, definitions, _)) =
+        runState (startMain >> toLLVM iexpr >>= finishMain) startFunctionState
   in (GlobalDefinition $ functionDefaults
        { name = Name "main"
        , parameters = ([], False)
