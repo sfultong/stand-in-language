@@ -64,7 +64,7 @@ convertPairs (x, pairs)=
 makeModule :: SIL.IExpr -> AST.Module
 makeModule iexpr = defaultModule
   { moduleDefinitions =
-    [ pairTypeDef, pairHeap, functionHeap, heapIndex, functionHeapIndex, resultStructure, goLeft, goRight ]
+    [ pairTypeDef, pairHeap, heapIndex, resultStructure, goLeft, goRight ]
     ++ (toLLVM' iexpr)
   , moduleName = "SILModule"
   }
@@ -160,14 +160,6 @@ intPtrT = PointerType (IntegerType 64) $ AddrSpace.AddrSpace 0
 funT :: Type
 funT = PointerType (FunctionType intT [intT] False) (AddrSpace.AddrSpace 0)
 
-blks = [testBlock]
-
-mainDef = define double "main2" [] blks
-
-testBlock :: BasicBlock
-testBlock = BasicBlock (UnName 0) []
-  (UnName 1 := Ret (Just . ConstantOperand . C.Float . Double $ 5.5) [])
-
 pairTypeDef :: Definition
 pairTypeDef = TypeDefinition (Name "pair_type") . Just
   $ StructureType False [intT, intT]
@@ -199,17 +191,6 @@ pairHeap = GlobalDefinition
                         . take (fromIntegral heapSize) $ repeat emptyPair)
   }
 
-functionHeap ::Definition
-functionHeap = GlobalDefinition
-  $ globalVariableDefaults
-  { name = functionHeapN
-  , LLVM.AST.Global.type' = functionHeapType
-  , initializer = Just (C.Array funT . take (fromIntegral functionHeapSize) $ repeat (C.Null funT))
-  }
-
-functionHeapN :: Name
-functionHeapN = Name "functionHeap"
-
 heapIndexN :: Name
 heapIndexN = Name "heapIndex"
 
@@ -221,17 +202,6 @@ heapIndex = GlobalDefinition
   , LLVM.AST.Global.type' = intT
   , initializer = Just (C.Int 64 0)
   }
-
-functionHeapIndexN :: Name
-functionHeapIndexN = Name "functionHeapIndex"
-
-functionHeapIndex :: Definition
-functionHeapIndex = GlobalDefinition
- $ globalVariableDefaults
- { name = functionHeapIndexN
- , LLVM.AST.Global.type' = intT
- , initializer = Just (C.Int 64 0)
- }
 
 resultStructureN :: Name
 resultStructureN = Name "resultStructure"
@@ -265,23 +235,6 @@ doInst inst = state $ \(l, c, d, dc) ->
   if c == maxBound
   then error "BasicBlock instruction limit reached"
   else (LocalReference intT $ UnName c, ((UnName c := inst) : l, c + 1, d, dc))
-
--- goLeft (0) and goRight (1) are added to beginning of function heap to facilitate gate functionality
-startMain :: FunctionState ()
-startMain = do
-  funHeap <- doInst $ Load False (ConstantOperand (C.GlobalReference intPtrT functionHeapIndexN)) Nothing 0 []
-  funPtr <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference functionHeapType functionHeapN))
-    [zero, funHeap] []
-  _ <- doInst $ Store False funPtr (ConstantOperand (C.GlobalReference intT (Name "goLeft"))) Nothing 0 []
-  h2 <- doInst $ AST.Add False False funHeap one []
-  fp2 <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference functionHeapType functionHeapN))
-    [zero, h2] []
-  _ <- doInst $ Store False fp2 (ConstantOperand (C.GlobalReference intT (Name "goRight"))) Nothing 0 []
-  h3 <- doInst $ AST.Add False False h2 one []
-  _ <- doInst $ Store False (ConstantOperand (C.GlobalReference intT functionHeapIndexN)) h3 Nothing 0 []
-  --TODO figure out why this dummy instruction is necessary
-  _ <- doInst $ AST.Add False False zero zero []
-  pure ()
 
 toLLVM :: SIL.IExpr -> FunctionState Operand
 toLLVM SIL.Zero = pure negOne
@@ -345,29 +298,22 @@ toLLVM (SIL.Defer x) = do
                 , basicBlocks = [ BasicBlock (Name ('b' : show defC2)) (reverse ins2) (Do $ Ret (Just returnOp) [])]
                 })
   put (ins, insC, newDef : def2, defC2 + 1)
-  funHeap <- doInst $ Load False (ConstantOperand (C.GlobalReference intPtrT functionHeapIndexN)) Nothing 0 []
-  funPtr <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference functionHeapType functionHeapN))
-    [zero, funHeap] []
-  _ <- doInst $ Store False funPtr (ConstantOperand (C.GlobalReference intT newName)) Nothing 0 []
-  newFunHeap <- doInst $ AST.Add False False funHeap one []
-  _ <- doInst $ Store False (ConstantOperand (C.GlobalReference intT functionHeapIndexN)) newFunHeap Nothing 0 []
-  --TODO figure out why this dummy instruction is necessary
-  _ <- doInst $ AST.Add False False zero zero []
-  pure funHeap
+  doInst $ PtrToInt (ConstantOperand (C.GlobalReference intT newName)) intT []
 toLLVM (SIL.SetEnv x) = do
   xp <- toLLVM x
   l <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference heapType heapN)) [zero, xp, zero32] []
   r <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference heapType heapN)) [zero, xp, one32] []
   clo <- doInst $ Load False l Nothing 0 []
   env <- doInst $ Load False r Nothing 0 []
-  funPtr <- doInst $ AST.GetElementPtr False (ConstantOperand (C.GlobalReference functionHeapType functionHeapN))
-    [zero, clo] []
-  fun <- doInst $ Load False funPtr Nothing 0 []
-  doInst $ Call (Just Tail) CC.Fast [] (Right fun) [(env, [])] [] []
+  funPtr <- doInst $ IntToPtr clo funT []
+  doInst $ Call (Just Tail) CC.Fast [] (Right funPtr) [(env, [])] [] []
 toLLVM (SIL.Gate x) = do
   lx <- toLLVM x
   bool <- doInst $ ICmp IP.SGT lx negOne []
-  doInst $ ZExt bool intT []
+  doInst $ Select bool
+    (ConstantOperand (C.GlobalReference intT (Name "goRight")))
+    (ConstantOperand (C.GlobalReference intT (Name "goLeft")))
+    []
 -- TODO
 toLLVM (SIL.Abort _) = pure negOne
 toLLVM (SIL.Trace x) = toLLVM x
@@ -390,7 +336,7 @@ finishMain result = do
 toLLVM' :: SIL.IExpr -> [Definition]
 toLLVM' iexpr =
   let (returnOp, (instructions, _, definitions, _)) =
-        runState (startMain >> toLLVM iexpr >>= finishMain) startFunctionState
+        runState (toLLVM iexpr >>= finishMain) startFunctionState
   in (GlobalDefinition $ functionDefaults
        { name = Name "main"
        , parameters = ([], False)
