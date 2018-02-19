@@ -25,16 +25,52 @@ import qualified LLVM.ExecutionEngine as EE
 
 import qualified SIL as SIL
 
--- TODO figure out if alignment will be an issue when reading LLVM result
+foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
 {-
-foreign import ccall "dynamic" haskFun :: FunPtr (IO Double) -> IO Double
+-- TODO remove because probably unnecessary
+data NExpr
+  = NZero
+  | NPair NExpr NExpr
+  | NEnv
+  | NAbort NExpr
+  | NGate NExpr
+  | NLeft NExpr
+  | NRight NExpr
+  | NTrace NExpr
+  | NSetEnv NExpr
+  | NDefer NExpr
+  | NTwiddle NExpr
+  | NITE NExpr NExpr NExpr
+  deriving (Eq, Show, Ord)
 
-run :: FunPtr a -> IO Double
-run fn = haskFun (castFunPtr fn :: FunPtr (IO Double))
+instance SIL.EndoMapper NExpr where
+  endoMap f NZero = f NZero
+  endoMap f (NPair a b) = f $ NPair (SIL.endoMap f a) (SIL.endoMap f b)
+  endoMap f NEnv = f NEnv
+  endoMap f (NAbort x) = f . NAbort $ SIL.endoMap f x
+  endoMap f (NGate x) = f . NGate $ SIL.endoMap f x
+  endoMap f (NLeft x) = f . NLeft $ SIL.endoMap f x
+  endoMap f (NRight x) = f . NRight $ SIL.endoMap f x
+  endoMap f (NTrace x) = f . NTrace $ SIL.endoMap f x
+  endoMap f (NSetEnv x) = f . NSetEnv $ SIL.endoMap f x
+  endoMap f (NDefer x) = f . NDefer $ SIL.endoMap f x
+  endoMap f (NTwiddle x) = f . NTwiddle $ SIL.endoMap f x
+  endoMap f (NITE i t e) = f $ NITE (SIL.endoMap f i) (SIL.endoMap f t) (SIL.endoMap f e)
+
+toNExpr :: SIL.IExpr -> NExpr
+toNExpr SIL.Zero = NZero
+toNExpr (SIL.Pair a b) = NPair (toNExpr a) (toNExpr b)
+toNExpr SIL.Env = NEnv
+toNExpr (SIL.Abort x) = NAbort $ toNExpr x
+toNExpr (SIL.Gate x) = NGate $ toNExpr x
+toNExpr (SIL.PLeft x) = NLeft $ toNExpr x
+toNExpr (SIL.PRight x) = NRight $ toNExpr x
+toNExpr (SIL.Trace x) = NTrace $ toNExpr x
+toNExpr (SIL.SetEnv x) = NSetEnv $ toNExpr x
+toNExpr (SIL.Defer x) = NDefer $ toNExpr x
+toNExpr (SIL.Twiddle x) = NTwiddle $ toNExpr x
 -}
-
-foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
 run :: FunPtr a -> IO (Int64, [(Int64,Int64)])
 run fn = do
@@ -131,19 +167,11 @@ evalJIT mod = do
                 putStrLn "Couldn't find entry point"
                 pure SIL.Zero
 
-define ::  Type -> String -> [(Type, Name)] -> [BasicBlock] -> Definition
-define retty label argtys body =
-  GlobalDefinition $ functionDefaults {
-    name        = Name label
-  , parameters  = ([Parameter ty nm [] | (ty, nm) <- argtys], False)
-  , returnType  = retty
-  , basicBlocks = body
-}
 -- block instruction list (reversed), instruction counter, definition list, definition counter
-type FunctionState a = State ([Named Instruction], Word, [Definition], Word) a
+type FunctionState a = State ([Named Instruction], Word, [BasicBlock], Word, [Definition], Word) a
 
-startFunctionState :: ([Named Instruction], Word, [Definition], Word)
-startFunctionState = ([], 0, [], 0)
+startFunctionState :: ([Named Instruction], Word, [BasicBlock], Word, [Definition], Word)
+startFunctionState = ([], 0, [], 0, [], 0)
 
 double :: Type
 double = FloatingPointType 64 IEEE
@@ -170,11 +198,7 @@ pairT = NamedTypeReference $ Name "pair_type"
 heapType :: Type
 heapType = ArrayType heapSize pairT
 
-functionHeapType :: Type
-functionHeapType = ArrayType functionHeapSize funT
-
-heapSize = 65536
-functionHeapSize = 70000
+heapSize = 655360
 
 emptyPair :: C.Constant
 emptyPair = C.Struct Nothing False [C.Int 64 (-1), C.Int 64 (-1)]
@@ -231,12 +255,41 @@ negOne :: Operand
 negOne = ConstantOperand (C.Int 64 (-1))
 
 doInst :: Instruction -> FunctionState Operand
-doInst inst = state $ \(l, c, d, dc) ->
+doInst inst = state $ \(l, c, b, bc, d, dc) ->
   if c == maxBound
   then error "BasicBlock instruction limit reached"
-  else (LocalReference intT $ UnName c, ((UnName c := inst) : l, c + 1, d, dc))
+  else (LocalReference intT $ UnName c, ((UnName c := inst) : l, c + 1, b, bc, d, dc))
+
+doTypedInst :: Type -> Instruction -> FunctionState Operand
+doTypedInst t inst = state $ \(l, c, b, bc, d, dc) ->
+  if c == maxBound
+  then error "BasicBlock instruction limit reached"
+  else (LocalReference t $ UnName c, ((UnName c := inst) : l, c + 1, b, bc, d, dc))
+
+doBlock :: Terminator -> FunctionState Name
+doBlock term = state $ \(l, c, b, bc, d, dc) ->
+  if bc == maxBound
+  then error "BasicBlock limit reached"
+  else (UnName bc, ([], c, BasicBlock (UnName bc) (reverse l) (Do term) : b, bc + 1, d, dc))
+
+doNamedBlock :: Name -> Terminator -> FunctionState ()
+doNamedBlock name term = state $ \(l, c, b, bc, d, dc) ->
+  ((), ([], c, BasicBlock name (reverse l) (Do term) : b, bc, d, dc))
+
+getBlockName :: FunctionState Name
+getBlockName = state $ \(l, c, b, bc, d, dc) ->
+  if bc == maxBound
+  then error "BasicBlock limit reached"
+  else (UnName bc, (l, c, b, bc + 1, d, dc))
+
+peekBlockName :: FunctionState Name
+peekBlockName = get >>= \(_, _, _, bc, _, _) -> pure $ UnName bc
+
+heapC = ConstantOperand (C.GlobalReference heapType heapN)
 
 toLLVM :: SIL.IExpr -> FunctionState Operand
+-- chunks of AST that can be translated to optimized instructions
+-- single instruction translation
 toLLVM SIL.Zero = pure negOne
 toLLVM (SIL.Pair a b) = do
   oa <- toLLVM a
@@ -280,24 +333,43 @@ toLLVM (SIL.Twiddle x) = do
   pure p2
 toLLVM (SIL.PLeft x) = do
   xp <- toLLVM x
-  doInst $ AST.Call (Just Tail) CC.Fast [] (Right $ ConstantOperand (C.GlobalReference intT (Name "goLeft")))
-    [(xp, [])] [] []
+  condB <- getBlockName
+  trueB <- getBlockName
+  falseB <- getBlockName
+  exitB <- peekBlockName
+  brCond <- doTypedInst boolT $ ICmp IP.SLT xp zero []
+  doNamedBlock condB (CondBr brCond trueB falseB [])
+  doNamedBlock trueB (Br exitB [])
+  la <- doInst $ GetElementPtr False heapC [zero, xp, zero32] []
+  l <- doInst $ Load False la Nothing 0 []
+  doNamedBlock falseB (Br exitB [])
+  doInst $ Phi intT [(negOne, trueB), (l, falseB)] []
 toLLVM (SIL.PRight x) = do
   xp <- toLLVM x
-  doInst $ AST.Call (Just Tail) CC.Fast [] (Right $ ConstantOperand (C.GlobalReference intT (Name "goRight")))
-    [(xp, [])] [] []
+  condB <- getBlockName
+  trueB <- getBlockName
+  falseB <- getBlockName
+  exitB <- peekBlockName
+  brCond <- doTypedInst boolT $ ICmp IP.SLT xp zero []
+  doNamedBlock condB (CondBr brCond trueB falseB [])
+  doNamedBlock trueB (Br exitB [])
+  ra <- doInst $ GetElementPtr False heapC [zero, xp, one32] []
+  r <- doInst $ Load False ra Nothing 0 []
+  doNamedBlock falseB (Br exitB [])
+  doInst $ Phi intT [(negOne, trueB), (r, falseB)] []
 toLLVM SIL.Env = pure . LocalReference intT $ Name "env"
 toLLVM (SIL.Defer x) = do
-  (ins, insC, def, defC) <- get
-  let (returnOp, (ins2, _, def2, defC2)) = runState (toLLVM x) ([], 0, def, defC)
+  (ins, insC, blks, blkC, def, defC) <- get
+  let (_, (_, _, blks2, _, def2, defC2)) = runState (toLLVM x >>= \op -> doBlock (Ret (Just op) []))
+        ([], 0, [], 0, def, defC)
       newName = Name ('f' : show defC2)
       newDef = (GlobalDefinition $ functionDefaults
                 { name = newName
                 , parameters = ([Parameter intT (Name "env") []], False)
                 , returnType = intT
-                , basicBlocks = [ BasicBlock (Name ('b' : show defC2)) (reverse ins2) (Do $ Ret (Just returnOp) [])]
+                , basicBlocks = reverse blks2
                 })
-  put (ins, insC, newDef : def2, defC2 + 1)
+  put (ins, insC, blks, blkC, newDef : def2, defC2 + 1)
   doInst $ PtrToInt (ConstantOperand (C.GlobalReference intT newName)) intT []
 toLLVM (SIL.SetEnv x) = do
   xp <- toLLVM x
@@ -318,7 +390,7 @@ toLLVM (SIL.Gate x) = do
 toLLVM (SIL.Abort _) = pure negOne
 toLLVM (SIL.Trace x) = toLLVM x
 
-finishMain :: Operand -> FunctionState Operand
+finishMain :: Operand -> FunctionState Name
 finishMain result = do
   heapC <- doInst $ Load False (ConstantOperand (C.GlobalReference intT heapIndexN)) Nothing 0 []
   numPairs <- doInst $ AST.GetElementPtr False
@@ -331,70 +403,16 @@ finishMain result = do
   _ <- doInst $ Store False resultPair result Nothing 0 []
   _ <- doInst $ Store False heapStart (ConstantOperand (C.PtrToInt (C.GlobalReference heapType heapN) intT))
        Nothing 0 []
-  pure $ ConstantOperand (C.GlobalReference resultStructureT resultStructureN)
+  doBlock (Ret (Just $ ConstantOperand (C.GlobalReference resultStructureT resultStructureN)) [])
 
 toLLVM' :: SIL.IExpr -> [Definition]
 toLLVM' iexpr =
-  let (returnOp, (instructions, _, definitions, _)) =
+  let (returnOp, (_, _, blocks, _, definitions, _)) =
         runState (toLLVM iexpr >>= finishMain) startFunctionState
   in (GlobalDefinition $ functionDefaults
        { name = Name "main"
        , parameters = ([], False)
        , returnType = intT
-       , basicBlocks = [ BasicBlock (Name "mainBlock") (reverse instructions)
-                       (Do $ Ret (Just returnOp) [])
-                       ]
+       , basicBlocks = reverse blocks
        }
      ) : definitions
-
--- TODO make always inlined
-goLeft :: Definition
-goLeft = GlobalDefinition $ functionDefaults
-  { name = Name "goLeft"
-  , parameters = ([Parameter intT (Name "x") []], False)
-  , returnType = intT
-  , basicBlocks =
-    [ BasicBlock (Name "gl1")
-      [ UnName 0 := ICmp IP.SLT (LocalReference intT (Name "x")) zero []
-      ]
-      (Do $ CondBr (LocalReference boolT (UnName 0)) (Name "true") (Name "false") [])
-    , BasicBlock (Name "true") []
-      (Do $ Br (Name "exit") [])
-    , BasicBlock (Name "false")
-      [ UnName 1 := AST.GetElementPtr False (ConstantOperand (C.GlobalReference heapType heapN))
-        [zero, LocalReference intT (Name "x"), zero32] []
-      , UnName 2 := Load False (LocalReference intT (UnName 1)) Nothing 0 []
-      ]
-      (Do $ Br (Name "exit") [])
-    , BasicBlock (Name "exit")
-      [ UnName 3 := AST.Phi intT [(negOne, Name "true"), (LocalReference intT (UnName 2), Name "false")] []
-      ]
-      (Do $ Ret (Just (LocalReference intT (UnName 3))) [])
-    ]
-  }
-
--- TODO make always inlined
-goRight :: Definition
-goRight = GlobalDefinition $ functionDefaults
-  { name = Name "goRight"
-  , parameters = ([Parameter intT (Name "x") []], False)
-  , returnType = intT
-  , basicBlocks =
-    [ BasicBlock (Name "gr1")
-      [ UnName 0 := ICmp IP.SLT (LocalReference intT (Name "x")) zero []
-      ]
-      (Do $ CondBr (LocalReference boolT (UnName 0)) (Name "true") (Name "false") [])
-    , BasicBlock (Name "true") []
-      (Do $ Br (Name "exit") [])
-    , BasicBlock (Name "false")
-      [ UnName 1 := AST.GetElementPtr False (ConstantOperand (C.GlobalReference heapType heapN))
-        [zero, LocalReference intT (Name "x"), one32] []
-      , UnName 2 := Load False (LocalReference intT (UnName 1)) Nothing 0 []
-      ]
-      (Do $ Br (Name "exit") [])
-    , BasicBlock (Name "exit")
-      [ UnName 3 := AST.Phi intT [(negOne, Name "true"), (LocalReference intT (UnName 2), Name "false")] []
-      ]
-      (Do $ Ret (Just (LocalReference intT (UnName 3))) [])
-    ]
-  }
