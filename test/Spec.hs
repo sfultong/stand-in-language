@@ -254,7 +254,22 @@ d_plus = lam (lam (app c2d (plus_
                                    (app (d2c zero) (varN 0))
                                    )))
 
-d2c_test = app (app (app (d2c zero) (i2g 2)) (lam (pair (varN 0) zero))) zero
+d2c_test =
+  let s_d2c = app (app (toChurch 3) layer) base
+      layer = lam (lam (lam (lam (ite
+                             (varN 2)
+                             (app (varN 1)
+                              (app (app (app (varN 3)
+                                   (pleft $ varN 2))
+                                   (varN 1))
+                                   (varN 0)
+                                  ))
+                             (varN 0)
+                            ))))
+      base = lam (lam (lam (varN 0)))
+  in app (app (app s_d2c (i2g 2)) (lam (pair (varN 0) zero))) zero
+
+d2c2_test = ite zero (pleft (i2g 1)) (pleft (i2g 2))
 
 c2d_test = app c2d (toChurch 2)
 c2d_test2 = app (lam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)) (toChurch 2)
@@ -405,51 +420,21 @@ debugPEIITO iexpr = do
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ debugMark "Starting testing tests for testing"
-  , unitTest "zed" "0" (i2g 0)
-  , debugMark "0"
-  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  , unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
   , debugMark "1"
-  , unitTest "c2d3" "1" c2d_test3
+  , unitTest2 "main = range 2 5" "{2,{3,5}}"
   , debugMark "2"
-  , unitTest "c2d2" "2" c2d_test2
-  , debugMark "3"
-  , unitTest "c2d" "2" c2d_test
+  , unitTest2 "main = range 6 6" "0"
   , debugMark "4"
-  , unitTest "oneplusone" "2" one_plus_one
+  , unitTest2 "main = c2d (factorial 4)" "24"
   , debugMark "5"
-  , unitTest "church 3+2" "5" three_plus_two
-  , debugMark "6"
-  , unitTest "3*2" "6" three_times_two
+  , unitTest2 "main = c2d (factorial 0)" "1"
   , debugMark "7"
-  , unitTest "3^2" "9" three_pow_two
-  , debugMark "8"
-  , unitTest "test_tochurch" "2" test_toChurch
-  , debugMark "9"
-  , unitTest "three" "3" three_succ
+  , unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
+    "{4,{5,{6,8}}}"
   , debugMark "1"
-  , unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
-  , unitTest "d2c" "2" $ d2c_test
-  , debugMark "1.2"
-  , unitTest "data 1+1" "2" $ app (app d_plus (i2g 1)) (i2g 1)
-  {-
-  , debugMark "2"
-  , unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
-  , debugMark "4"
-  , unitTest "listlength0" "0" $ app list_length zero
-  , debugMark "6"
-  , unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
-  , debugMark "7"
-  , unitTest "zipwith" "{{4,1},{{5,1},{{6,2},0}}}"
-    $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
-           (ints2g [4,5,6]))
-    (ints2g [1,1,2,3])
-  , unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
-  , unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
-  , unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
-  -- because of the way lists are represented, the last number will be prettyPrinted + 1
-  , unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
-    (ints2g [1,2,3])
--}
+  , unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
+    "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
   ]
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
@@ -659,5 +644,5 @@ main = do
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}
-  result <- unitTests_ unitTest2 unitTestType
+  result <- unitTests unitTest2 unitTestType
   exitWith $ if result then ExitSuccess else ExitFailure 1

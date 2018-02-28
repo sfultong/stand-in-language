@@ -42,6 +42,11 @@ instance EndoMapper RExpr where
   endoMap f (RITE i t e) = f $ RITE (endoMap f i) (endoMap f t) (endoMap f e)
   endoMap f r@(RChurch _ Nothing) = f r
 
+-- cPlus :: (t3 -> t2 -> t1) -> (t3 -> t -> t2) -> t3 -> t -> t1
+cPlus :: ((a -> a) -> a -> a) -> ((a -> a) -> a -> a) -> (a -> a) -> a -> a
+-- cPlus m n f x = m f (n f x)
+cPlus m n f = m f . n f
+
 toRExpr :: IExpr -> RExpr
 toRExpr Zero = RZero
 toRExpr (Pair a b) = RPair (toRExpr a) (toRExpr b)
@@ -188,14 +193,9 @@ fasterEval =
   in fmap fromRExpr . frEval . rOptimize . toRExpr
 
 llvmEval :: IExpr -> IO IExpr
-  {-
-llvmEval iexpr = LLVM.evalJIT (LLVM.makeModule iexpr) >>= \r -> case r of
-  Left s -> fail s
-  Right x -> pure x
--}
 llvmEval iexpr = do
   let lmod = LLVM.makeModule iexpr
-  --print lmod
+  --print $ LLVM.DebugModule lmod
   result <- catchError (LLVM.evalJIT lmod) $ \e -> pure . Left $ show e
   case result of
     Left s -> do

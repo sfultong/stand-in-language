@@ -1,8 +1,9 @@
 module SIL.Llvm where
 
 import Control.Monad.Except
-import Control.Monad.State.Lazy
+import Control.Monad.State.Strict
 import Data.Int (Int64)
+import Debug.Trace
 import Foreign.Ptr (FunPtr, castFunPtr, Ptr, plusPtr, castPtr)
 import Foreign.Storable (peek)
 
@@ -105,6 +106,17 @@ makeModule iexpr = defaultModule
   , moduleName = "SILModule"
   }
 
+data DebugModule = DebugModule AST.Module
+
+instance Show DebugModule where
+  show (DebugModule m) = concatMap showDefinition $ moduleDefinitions m
+    where showDefinition (GlobalDefinition f@(Function _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _)) = displayFunction f
+          showDefinition _ = ""
+          displayFunction f = concat [show (name f), "\n", (concatMap displayBlock (basicBlocks f)), "\n"]
+          displayBlock (BasicBlock n inst term) =
+            concat ["  ", show n, "\n", concatMap displayInstruction inst, "    ", show term, "\n"]
+          displayInstruction i = concat ["    ", show i, "\n"]
+
 jit :: Context -> (EE.MCJIT -> IO a) -> IO a
 jit c = EE.withMCJIT c optlevel model ptrelim fastins
   where
@@ -167,11 +179,11 @@ evalJIT mod = do
                 putStrLn "Couldn't find entry point"
                 pure SIL.Zero
 
--- block instruction list (reversed), instruction counter, definition list, definition counter
-type FunctionState a = State ([Named Instruction], Word, [BasicBlock], Word, [Definition], Word) a
+-- name counter, block instruction list (reversed), block name, block list, definition list, definition counter
+type FunctionState a = State (Word, [Named Instruction], Name, [BasicBlock], [Definition], Word) a
 
-startFunctionState :: ([Named Instruction], Word, [BasicBlock], Word, [Definition], Word)
-startFunctionState = ([], 0, [], 0, [], 0)
+startFunctionState :: (Word, [Named Instruction], Name, [BasicBlock], [Definition], Word)
+startFunctionState = (1, [], UnName 0, [], [], 0)
 
 double :: Type
 double = FloatingPointType 64 IEEE
@@ -254,41 +266,63 @@ two32 = ConstantOperand (C.Int 32 2)
 negOne :: Operand
 negOne = ConstantOperand (C.Int 64 (-1))
 
+--startFunctionState :: (Word, [Named Instruction], Name, [BasicBlock], [Definition], Word)
 doInst :: Instruction -> FunctionState Operand
-doInst inst = state $ \(l, c, b, bc, d, dc) ->
+doInst inst = state $ \(c, l, n, b, d, dc) ->
   if c == maxBound
   then error "BasicBlock instruction limit reached"
-  else (LocalReference intT $ UnName c, ((UnName c := inst) : l, c + 1, b, bc, d, dc))
+  else (LocalReference intT $ UnName c, (c + 1, (UnName c := inst) : l, n, b, d, dc))
 
 doTypedInst :: Type -> Instruction -> FunctionState Operand
-doTypedInst t inst = state $ \(l, c, b, bc, d, dc) ->
+doTypedInst t inst = state $ \(c, l, n, b, d, dc) ->
   if c == maxBound
   then error "BasicBlock instruction limit reached"
-  else (LocalReference t $ UnName c, ((UnName c := inst) : l, c + 1, b, bc, d, dc))
+  else (LocalReference t $ UnName c, (c + 1, (UnName c := inst) : l, n, b, d, dc))
 
 doBlock :: Terminator -> FunctionState Name
-doBlock term = state $ \(l, c, b, bc, d, dc) ->
-  if bc == maxBound
+doBlock term = state $ \(c, l, n, b, d, dc) ->
+  if c == maxBound
   then error "BasicBlock limit reached"
-  else (UnName bc, ([], c, BasicBlock (UnName bc) (reverse l) (Do term) : b, bc + 1, d, dc))
+  else (n, (c, [], UnName c, BasicBlock n (reverse l) (Do term) : b, d, dc))
 
 doNamedBlock :: Name -> Terminator -> FunctionState ()
-doNamedBlock name term = state $ \(l, c, b, bc, d, dc) ->
-  ((), ([], c, BasicBlock name (reverse l) (Do term) : b, bc, d, dc))
+doNamedBlock name term = state $ \(c, l, n, b, d, dc) ->
+  ((), (c, [], n, BasicBlock name (reverse l) (Do term) : b, d, dc))
 
-getBlockName :: FunctionState Name
-getBlockName = state $ \(l, c, b, bc, d, dc) ->
-  if bc == maxBound
-  then error "BasicBlock limit reached"
-  else (UnName bc, (l, c, b, bc + 1, d, dc))
+getName :: FunctionState Name
+getName = state $ \(c, l, n, b, d, dc) -> (UnName c, (c + 1, l, n, b, d, dc))
 
-peekBlockName :: FunctionState Name
-peekBlockName = get >>= \(_, _, _, bc, _, _) -> pure $ UnName bc
+setBlockName :: Name -> FunctionState ()
+setBlockName n = state $ \(c, l, _, b, d, dc) -> ((), (c, l, n, b, d, dc))
 
 heapC = ConstantOperand (C.GlobalReference heapType heapN)
 
+lComment :: String -> (String, MetadataNode)
+lComment s = (s, MetadataNode [])
+
 toLLVM :: SIL.IExpr -> FunctionState Operand
 -- chunks of AST that can be translated to optimized instructions
+toLLVM (SIL.SetEnv (SIL.Pair (SIL.Gate i) (SIL.Pair e t))) = do
+  ip <- toLLVM i
+  elseB <- getName
+  thenB <- getName
+  exitB <- getName
+  -- trace ("ITE block labels: " ++ show (condB, elseB, thenB, exitB)) $ pure ()
+  brCond <- doTypedInst boolT $ ICmp IP.SLT ip zero [("optimized_if_conditional", MetadataNode [])]
+  _ <- doBlock (CondBr brCond elseB thenB [])
+
+  setBlockName elseB
+  ep <- toLLVM e
+  endElseB <- doBlock (Br exitB [lComment "elseB"])
+
+  setBlockName thenB
+  tp <- toLLVM t
+  endThenB <- doBlock (Br exitB [lComment "thenB"])
+
+  setBlockName exitB
+  result <- doInst $ Phi intT [(ep, endElseB), (tp, endThenB)] [("from_if_else", MetadataNode [])]
+  -- doNamedBlock exitB (Br continueB [lComment "exitB"])
+  pure result
 -- single instruction translation
 toLLVM SIL.Zero = pure negOne
 toLLVM (SIL.Pair a b) = do
@@ -333,35 +367,37 @@ toLLVM (SIL.Twiddle x) = do
   pure p2
 toLLVM (SIL.PLeft x) = do
   xp <- toLLVM x
-  condB <- getBlockName
-  trueB <- getBlockName
-  falseB <- getBlockName
-  exitB <- peekBlockName
+  trueB <- getName
+  falseB <- getName
+  exitB <- getName
   brCond <- doTypedInst boolT $ ICmp IP.SLT xp zero []
-  doNamedBlock condB (CondBr brCond trueB falseB [])
+  _ <- doBlock (CondBr brCond trueB falseB [])
   doNamedBlock trueB (Br exitB [])
+  setBlockName falseB
   la <- doInst $ GetElementPtr False heapC [zero, xp, zero32] []
   l <- doInst $ Load False la Nothing 0 []
-  doNamedBlock falseB (Br exitB [])
+  _ <- doBlock (Br exitB [])
+  setBlockName exitB
   doInst $ Phi intT [(negOne, trueB), (l, falseB)] []
 toLLVM (SIL.PRight x) = do
   xp <- toLLVM x
-  condB <- getBlockName
-  trueB <- getBlockName
-  falseB <- getBlockName
-  exitB <- peekBlockName
+  trueB <- getName
+  falseB <- getName
+  exitB <- getName
   brCond <- doTypedInst boolT $ ICmp IP.SLT xp zero []
-  doNamedBlock condB (CondBr brCond trueB falseB [])
+  _ <- doBlock (CondBr brCond trueB falseB [])
   doNamedBlock trueB (Br exitB [])
+  setBlockName falseB
   ra <- doInst $ GetElementPtr False heapC [zero, xp, one32] []
   r <- doInst $ Load False ra Nothing 0 []
-  doNamedBlock falseB (Br exitB [])
+  _ <- doBlock (Br exitB [])
+  setBlockName exitB
   doInst $ Phi intT [(negOne, trueB), (r, falseB)] []
 toLLVM SIL.Env = pure . LocalReference intT $ Name "env"
 toLLVM (SIL.Defer x) = do
-  (ins, insC, blks, blkC, def, defC) <- get
-  let (_, (_, _, blks2, _, def2, defC2)) = runState (toLLVM x >>= \op -> doBlock (Ret (Just op) []))
-        ([], 0, [], 0, def, defC)
+  (c, ins, n, blks, def, defC) <- get
+  let (_, (_, _, _, blks2, def2, defC2)) = runState (toLLVM x >>= \op -> doBlock (Ret (Just op) []))
+        (1, [], UnName 0, [], def, defC)
       newName = Name ('f' : show defC2)
       newDef = (GlobalDefinition $ functionDefaults
                 { name = newName
@@ -369,7 +405,7 @@ toLLVM (SIL.Defer x) = do
                 , returnType = intT
                 , basicBlocks = reverse blks2
                 })
-  put (ins, insC, blks, blkC, newDef : def2, defC2 + 1)
+  put (c, ins, n, blks, newDef : def2, defC2 + 1)
   doInst $ PtrToInt (ConstantOperand (C.GlobalReference intT newName)) intT []
 toLLVM (SIL.SetEnv x) = do
   xp <- toLLVM x
@@ -405,9 +441,10 @@ finishMain result = do
        Nothing 0 []
   doBlock (Ret (Just $ ConstantOperand (C.GlobalReference resultStructureT resultStructureN)) [])
 
+--getName = state $ \(c, l, n, b, d, dc) -> (UnName c, (c + 1, l, n, b, d, dc))
 toLLVM' :: SIL.IExpr -> [Definition]
 toLLVM' iexpr =
-  let (returnOp, (_, _, blocks, _, definitions, _)) =
+  let (_, (_, _, _, blocks, definitions, _)) =
         runState (toLLVM iexpr >>= finishMain) startFunctionState
   in (GlobalDefinition $ functionDefaults
        { name = Name "main"
@@ -416,3 +453,55 @@ toLLVM' iexpr =
        , basicBlocks = reverse blocks
        }
      ) : definitions
+
+--- TODO make always inlined
+goLeft :: Definition
+goLeft = GlobalDefinition $ functionDefaults
+  { name = Name "goLeft"
+  , parameters = ([Parameter intT (Name "x") []], False)
+  , returnType = intT
+  , basicBlocks =
+    [ BasicBlock (Name "gl1")
+      [ UnName 0 := ICmp IP.SLT (LocalReference intT (Name "x")) zero []
+      ]
+      (Do $ CondBr (LocalReference boolT (UnName 0)) (Name "true") (Name "false") [])
+    , BasicBlock (Name "true") []
+      (Do $ Br (Name "exit") [])
+    , BasicBlock (Name "false")
+      [ UnName 1 := AST.GetElementPtr False (ConstantOperand (C.GlobalReference heapType heapN))
+        [zero, LocalReference intT (Name "x"), zero32] []
+      , UnName 2 := Load False (LocalReference intT (UnName 1)) Nothing 0 []
+      ]
+      (Do $ Br (Name "exit") [])
+    , BasicBlock (Name "exit")
+      [ UnName 3 := AST.Phi intT [(negOne, Name "true"), (LocalReference intT (UnName 2), Name "false")] []
+      ]
+      (Do $ Ret (Just (LocalReference intT (UnName 3))) [])
+    ]
+  }
+
+-- TODO make always inlined
+goRight :: Definition
+goRight = GlobalDefinition $ functionDefaults
+  { name = Name "goRight"
+  , parameters = ([Parameter intT (Name "x") []], False)
+  , returnType = intT
+  , basicBlocks =
+    [ BasicBlock (Name "gr1")
+      [ UnName 0 := ICmp IP.SLT (LocalReference intT (Name "x")) zero []
+      ]
+      (Do $ CondBr (LocalReference boolT (UnName 0)) (Name "true") (Name "false") [])
+    , BasicBlock (Name "true") []
+      (Do $ Br (Name "exit") [])
+    , BasicBlock (Name "false")
+      [ UnName 1 := AST.GetElementPtr False (ConstantOperand (C.GlobalReference heapType heapN))
+        [zero, LocalReference intT (Name "x"), one32] []
+      , UnName 2 := Load False (LocalReference intT (UnName 1)) Nothing 0 []
+      ]
+      (Do $ Br (Name "exit") [])
+    , BasicBlock (Name "exit")
+      [ UnName 3 := AST.Phi intT [(negOne, Name "true"), (LocalReference intT (UnName 2), Name "false")] []
+      ]
+      (Do $ Ret (Just (LocalReference intT (UnName 3))) [])
+    ]
+  }
