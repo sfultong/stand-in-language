@@ -508,50 +508,6 @@ CountBranchStop:;
 }
 
 
-int main(){
-   SIL_Root root;
-   SIL_Pair pair;
-   SIL_Zero zero;
-   SIL_SetEnv setenv;
-   SIL_Env  env;
-
-   root.type = SIL_PAIR;
-   root.value = &pair;
-
-   pair.left_type   = SIL_SETENV;
-   pair.left_value  = &setenv;
-   pair.right_type  = SIL_ZERO;
-   pair.right_value = &zero;
-
-   setenv.type  = SIL_ENV;
-   setenv.value = 0;
-
-   unsigned long no_nodes  = sil_count(&root);
-   unsigned long no_nodes2 = sil_count_old(&root);
-   printf("%d %d\n",no_nodes, no_nodes2);
-
-   unsigned char eq = sil_equal(&root,&root);
-   printf("equality: %d\n", eq);
-
-   SIL_Serialized serialized = sil_serialize(&root);
-   for(int i = 0; i < serialized.size; i++){
-        printf("%d ",serialized.storage[i]);
-   }
-   printf("\n");
-   serialized.storage[1] = SIL_ZERO;
-   serialized.size =2;
-   //serialized.storage[2] = SIL_ZERO;
-   //serialized.storage[3] = SIL_ENV;
-   SIL_Root deserialized = sil_deserialize(&serialized);
-
-   printf("Is serialized and deserialized tree okay: %d\n", sil_equal(&root,&deserialized));
-   SIL_Serialized serialized2 = sil_serialize(&deserialized);
-   for(int i = 0; i < serialized2.size; i++){
-        printf("%d ",serialized2.storage[i]);
-   }
-   printf("\n");
-
-}
 
 // SIL_Serialized SIL_serialize(SIL_Root * root, unsigned long count){
 //     

@@ -7,6 +7,9 @@
  * @brief Stand-in-language C representation.
  */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 // Tags for SIL grammar
 #define SIL_ZERO    (0)
@@ -149,5 +152,9 @@ SIL_Root sil_deserialize(SIL_Serialized * serialized);
  * @brief Count the number of nodes in AST.
  */
 unsigned long sil_count_old(SIL_Root * root);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
