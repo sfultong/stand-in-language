@@ -10,19 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-//Representation for dynamic construction
-
-/* Note [C AST and SIL_Root]
- * ~~~~~~~~~~~~~~~~~~~~~~~~~
- * 
- * The C AST representation is designed to be somewhat memory efficient.
- * Each expression is a struct, which contains the type and pointer
- * to next expressions.
- *
- * That's why we needed to have SIL_Root - initial entry point,
- * pointing to the top-most node.
- */
-
 
 SIL_Stack* sil_stack_new(sil_type type, void * val){
     SIL_Stack * ret = (SIL_Stack*)malloc(sizeof(SIL_Stack));
@@ -61,11 +48,12 @@ void sil_traverse(SIL_Root * root, void (*fn)(sil_type, void*), void * state){
         type  = stack->type;
         value = stack->value;
         sil_stack_pop(&stack);
-        while(value != 0){
+        while(1){
             fn(type,state);
             switch(type){
                 case SIL_ZERO:
                     value = 0;    
+                    goto TraverseBranchStop;
                     break;
                 case SIL_PAIR:;
                     //Assuming there are no null pointers
@@ -76,6 +64,7 @@ void sil_traverse(SIL_Root * root, void (*fn)(sil_type, void*), void * state){
                     break;
                 case SIL_ENV:
                     value = 0;
+                    goto TraverseBranchStop;
                     break;
                 case SIL_SETENV:;
                     SIL_SetEnv * setenv = value;
@@ -117,8 +106,13 @@ void sil_traverse(SIL_Root * root, void (*fn)(sil_type, void*), void * state){
                     type  = trace->type;
                     value = trace->value; 
                     break; 
+                default:
+                    fprintf( stderr, "sil_traverse: Received unsupported type %d. Debug me through call stack.\n", type);
+                    goto TraverseBranchStop;
+                    break;
             }
         }
+TraverseBranchStop:;
     }
 }
 
@@ -150,7 +144,7 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
         if(type1 != type2){
             return 0;
         }
-        while(value1 != 0 && value2 != 0){
+        while(1){
             //Types not equal:
             if(type1 != type2){
                 return 0;
@@ -159,6 +153,7 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
                 case SIL_ZERO:
                     value1 = 0;    
                     value2 = 0;    
+                    goto EqualBranchStop;
                     break;
                 case SIL_PAIR:;
                     SIL_Pair * pair1 = value1;
@@ -174,6 +169,7 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
                 case SIL_ENV:
                     value1 = 0;
                     value2 = 0;
+                    goto EqualBranchStop;
                     break;
                 case SIL_SETENV:;
                     SIL_SetEnv * setenv1 = value1;
@@ -249,6 +245,7 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
                     break; 
             }
         }
+EqualBranchStop:;
     }
     //Both stacks should be 0.
     return stack1 == stack2;
@@ -286,6 +283,36 @@ SIL_Serialized sil_serialize(SIL_Root * root){
     return ret;
 }
 
+/**
+ * @brief Stack for deserialization
+ */
+
+typedef struct SIL_Deserialize_Stack{
+    struct SIL_Deserialize_Stack * next;
+    sil_type * type_ptr;
+    void    ** value_ptr;
+}SIL_Deserialize_Stack;
+
+
+SIL_Deserialize_Stack* sil_deserialize_stack_new(sil_type * type, void ** val){
+    SIL_Deserialize_Stack * ret = (SIL_Deserialize_Stack*)malloc(sizeof(SIL_Deserialize_Stack));
+    ret->next  = 0;
+    ret->type_ptr  = type;
+    ret->value_ptr = val;
+    return ret;
+}
+
+void sil_deserialize_stack_add(SIL_Deserialize_Stack ** stack, sil_type * type, void ** val){
+    SIL_Deserialize_Stack * tmp = sil_deserialize_stack_new(type, val); 
+    tmp->next = (*stack);
+    (*stack) = tmp;
+}
+
+void sil_deserialize_stack_pop(SIL_Deserialize_Stack ** stack){
+    SIL_Deserialize_Stack * tmp = (*stack);
+    (*stack) = (*stack)->next;
+    free(tmp);
+}
 
 /**
  * @brief Deserialize into SIL AST.
@@ -300,14 +327,14 @@ SIL_Root sil_deserialize(SIL_Serialized * serialized){
         return ret;
     }
    // ret.type = serialized->storage[0];
-    SIL_Stack * stack = sil_stack_new(ret.type, ret.value);
+    SIL_Deserialize_Stack * stack = sil_deserialize_stack_new(&ret.type, &ret.value);
     sil_type  * type  = 0;
     void     ** value = 0;
     unsigned long i = 0;
     while(stack != 0 && i < serialized->size){
-        type  = &stack->type; 
-        value = &stack->value; 
-        sil_stack_pop(&stack);
+        type  = stack->type_ptr; 
+        value = stack->value_ptr; 
+        sil_deserialize_stack_pop(&stack);
         while(type != 0 && i < serialized->size){
             sil_type current_type = serialized->storage[i];
             switch(current_type){
@@ -323,7 +350,8 @@ SIL_Root sil_deserialize(SIL_Serialized * serialized){
                     (*value) = pair;
                     type  = &(pair->left_type);
                     value = &(pair->left_value);
-                    sil_stack_add(&stack, pair->right_type, pair->right_value);
+                    pair->right_type = 100;
+                    sil_deserialize_stack_add(&stack, &pair->right_type, &pair->right_value);
                     break;
                 case SIL_ENV:;
                     (*type)  = current_type;
@@ -414,11 +442,12 @@ unsigned long sil_count_old(SIL_Root * root){
         type  = stack->type;
         value = stack->value;
         sil_stack_pop(&stack);
-        while(value != 0){
+        while(1){
             counter += 1; 
             switch(type){
                 case SIL_ZERO:
-                    value = 0;    
+                    value = 0;
+                    goto CountBranchStop;
                     break;
                 case SIL_PAIR:;
                     //Assuming there are no null pointers
@@ -429,6 +458,7 @@ unsigned long sil_count_old(SIL_Root * root){
                     break;
                 case SIL_ENV:
                     value = 0;
+                    goto CountBranchStop;
                     break;
                 case SIL_SETENV:;
                     SIL_SetEnv * setenv = value;
@@ -472,6 +502,7 @@ unsigned long sil_count_old(SIL_Root * root){
                     break; 
             }
         }
+CountBranchStop:;
     }
     return counter;
 }
@@ -482,6 +513,7 @@ int main(){
    SIL_Pair pair;
    SIL_Zero zero;
    SIL_SetEnv setenv;
+   SIL_Env  env;
 
    root.type = SIL_PAIR;
    root.value = &pair;
@@ -491,8 +523,8 @@ int main(){
    pair.right_type  = SIL_ZERO;
    pair.right_value = &zero;
 
-   setenv.type  = SIL_ZERO;
-   setenv.value = &zero;
+   setenv.type  = SIL_ENV;
+   setenv.value = 0;
 
    unsigned long no_nodes  = sil_count(&root);
    unsigned long no_nodes2 = sil_count_old(&root);
@@ -506,6 +538,10 @@ int main(){
         printf("%d ",serialized.storage[i]);
    }
    printf("\n");
+   serialized.storage[1] = SIL_ZERO;
+   serialized.size =2;
+   //serialized.storage[2] = SIL_ZERO;
+   //serialized.storage[3] = SIL_ENV;
    SIL_Root deserialized = sil_deserialize(&serialized);
 
    printf("Is serialized and deserialized tree okay: %d\n", sil_equal(&root,&deserialized));
