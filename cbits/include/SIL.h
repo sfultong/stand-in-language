@@ -126,7 +126,7 @@ unsigned long sil_count(SIL_Root * root);
  */
 typedef struct SIL_Serialized{
     unsigned long      size;
-    sil_type      * storage;
+    sil_type      storage[];
 } SIL_Serialized;
 
 
@@ -138,7 +138,7 @@ typedef struct SIL_Serializer_State{
     SIL_Serialized * serialized;
 } SIL_Serializer_State;
 
-SIL_Serialized sil_serialize(SIL_Root * root);
+SIL_Serialized * sil_serialize(SIL_Root * root);
 
 /**
  * @brief Deserialize into SIL AST.

@@ -34,21 +34,21 @@ bool unit_tests(){
    unsigned char eq = sil_equal(&root,&root);
    printf("equality: %d\n", eq);
 
-   SIL_Serialized serialized = sil_serialize(&root);
-   for(int i = 0; i < serialized.size; i++){
-        printf("%d ",serialized.storage[i]);
+   SIL_Serialized * serialized = sil_serialize(&root);
+   for(int i = 0; i < serialized->size; i++){
+        printf("%d ",serialized->storage[i]);
    }
    printf("\n");
-   serialized.storage[1] = SIL_ZERO;
-   serialized.size =2;
+   serialized->storage[1] = SIL_ZERO;
+   serialized->size =2;
    //serialized.storage[2] = SIL_ZERO;
    //serialized.storage[3] = SIL_ENV;
-   SIL_Root deserialized = sil_deserialize(&serialized);
+   SIL_Root deserialized = sil_deserialize(serialized);
 
    printf("Is serialized and deserialized tree okay: %d\n", sil_equal(&root,&deserialized));
-   SIL_Serialized serialized2 = sil_serialize(&deserialized);
-   for(int i = 0; i < serialized2.size; i++){
-        printf("%d ",serialized2.storage[i]);
+   SIL_Serialized * serialized2 = sil_serialize(&deserialized);
+   for(int i = 0; i < serialized2->size; i++){
+        printf("%d ",serialized2->storage[i]);
    }
    printf("\n");
 
@@ -146,9 +146,9 @@ int main(){
             if(!ok){
                 cerr << ast_size << " vs " << size << endl;
                 cerr << (int)root.type << " and " << root.value << endl;
-                SIL_Serialized serialized = sil_serialize(&root);
-                for(unsigned int i = 0; i < serialized.size; i++){
-                    cerr << (int)serialized.storage[i] << " ";
+                SIL_Serialized * serialized = sil_serialize(&root);
+                for(unsigned int i = 0; i < serialized->size; i++){
+                    cerr << (int)serialized->storage[i] << " ";
                 }
                 cerr << endl;
             }
@@ -161,9 +161,9 @@ int main(){
             SIL_Root root = genAST(size);
             bool ok = sil_equal(&root, &root);
             if(!ok){
-                SIL_Serialized serialized = sil_serialize(&root);
-                for(unsigned int i = 0; i < serialized.size; i++){
-                    cerr << (int)serialized.storage[i] << " ";
+                SIL_Serialized * serialized = sil_serialize(&root);
+                for(unsigned int i = 0; i < serialized->size; i++){
+                    cerr << (int)serialized->storage[i] << " ";
                 }
                 cerr << endl;
             }
@@ -178,14 +178,14 @@ int main(){
             SIL_Root root2 = genAST(size2);
             bool ok = !sil_equal(&root1, &root2);
             if(!ok){
-                SIL_Serialized serialized1 = sil_serialize(&root1);
-                SIL_Serialized serialized2 = sil_serialize(&root2);
-                for(unsigned int i = 0; i < serialized1.size; i++){
-                    cerr << (int)serialized1.storage[i] << " ";
+                SIL_Serialized * serialized1 = sil_serialize(&root1);
+                SIL_Serialized * serialized2 = sil_serialize(&root2);
+                for(unsigned int i = 0; i < serialized1->size; i++){
+                    cerr << (int)serialized1->storage[i] << " ";
                 }
                 cerr << endl;
-                for(unsigned int i = 0; i < serialized2.size; i++){
-                    cerr << (int)serialized2.storage[i] << " ";
+                for(unsigned int i = 0; i < serialized2->size; i++){
+                    cerr << (int)serialized2->storage[i] << " ";
                 }
                 cerr << endl;
             }
@@ -195,13 +195,13 @@ int main(){
         [&]() {
             unsigned long        size = *rc::gen::inRange(1,1000);
             SIL_Root             root = genAST(size);
-            SIL_Serialized serialized = sil_serialize(&root);
-            SIL_Root     deserialized = sil_deserialize(&serialized);
+            SIL_Serialized * serialized = sil_serialize(&root);
+            SIL_Root     deserialized = sil_deserialize(serialized);
             bool ok = sil_equal(&root, &deserialized);
             if(!ok){
                 cerr << "Size: " << size << endl;
-                for(unsigned int i = 0; i < serialized.size; i++){
-                    cerr << (int)serialized.storage[i] << " ";
+                for(unsigned int i = 0; i < serialized->size; i++){
+                    cerr << (int)serialized->storage[i] << " ";
                 }
                 cerr << endl;
             }
@@ -211,22 +211,22 @@ int main(){
         [&]() {
             unsigned long        size = *rc::gen::inRange(1,1000);
             SIL_Root             root = genAST(size);
-            SIL_Serialized serialized = sil_serialize(&root);
-            SIL_Root     deserialized = sil_deserialize(&serialized);
-            SIL_Serialized serialized2 = sil_serialize(&deserialized);
+            SIL_Serialized * serialized = sil_serialize(&root);
+            SIL_Root     deserialized = sil_deserialize(serialized);
+            SIL_Serialized * serialized2 = sil_serialize(&deserialized);
 
-            bool ok = serialized.size == serialized2.size;
-            for(unsigned long i = 0; i < serialized.size && ok; i++){
-               ok = serialized.storage[i] == serialized2.storage[i]; 
+            bool ok = serialized->size == serialized2->size;
+            for(unsigned long i = 0; i < serialized->size && ok; i++){
+               ok = serialized->storage[i] == serialized2->storage[i]; 
             }
             if(!ok){
                 cerr << "Size: " << size << endl;
-                for(unsigned int i = 0; i < serialized.size; i++){
-                    cerr << (int)serialized.storage[i] << " ";
+                for(unsigned int i = 0; i < serialized->size; i++){
+                    cerr << (int)serialized->storage[i] << " ";
                 }
                 cerr << " vs ";
-                for(unsigned int i = 0; i < serialized2.size; i++){
-                    cerr << (int)serialized2.storage[i] << " ";
+                for(unsigned int i = 0; i < serialized2->size; i++){
+                    cerr << (int)serialized2->storage[i] << " ";
                 }
                 cerr << endl;
             }

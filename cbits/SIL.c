@@ -262,14 +262,15 @@ static void sil_serializer(sil_type type, void* void_state){
     state->count += 1;
 }
 
-SIL_Serialized sil_serialize(SIL_Root * root){
-    SIL_Serialized ret;
-    ret.size = sil_count(root);
-    ret.storage = (sil_type*)malloc(ret.size*sizeof(sil_type));
+SIL_Serialized * sil_serialize(SIL_Root * root){
+    SIL_Serialized * ret;
+    unsigned long size = sil_count(root);
+    ret = (SIL_Serialized*)malloc(sizeof(SIL_Serialized) + size * sizeof(sil_type));
+    ret->size = size;
 
     SIL_Serializer_State state;
     state.count = 0;
-    state.serialized = &ret;
+    state.serialized = ret;
 
     sil_traverse(root, sil_serializer, &state);
 
