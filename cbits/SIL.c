@@ -35,10 +35,6 @@ void sil_stack_pop(SIL_Stack ** stack){
  * @brief Traverse each node and perform a computation based on the node type. Does not change the AST.
  */
 void sil_traverse(SIL_Root * root, void (*fn)(sil_type, void*), void * state){
-    if(root->value == 0){
-        return;
-    }
-
     SIL_Stack * stack = sil_stack_new(root->type, root->value);
 
     sil_type type = 0;
@@ -120,10 +116,6 @@ TraverseBranchStop:;
  * @brief Checks for equality between two ASTs.
  */
 unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
-    if(root1->value == 0 || root2->value == 0){
-        return root1->value == root2->value;
-    }
-
     SIL_Stack * stack1 = sil_stack_new(root1->type, root1->value);
     SIL_Stack * stack2 = sil_stack_new(root2->type, root2->value);
 
@@ -191,8 +183,8 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
                     break;
                 case SIL_TWIDDLE:;
                     SIL_Twiddle * twiddle1 = value1;
-                    type2  = twiddle1->type;
-                    value2 = twiddle1->value; 
+                    type1  = twiddle1->type;
+                    value1 = twiddle1->value; 
 
                     SIL_Twiddle * twiddle2 = value2;
                     type2  = twiddle2->type;
@@ -248,6 +240,7 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
 EqualBranchStop:;
     }
     //Both stacks should be 0.
+    
     return stack1 == stack2;
 }
 
@@ -404,7 +397,7 @@ SIL_Root sil_deserialize(SIL_Serialized * serialized){
                 case SIL_PRIGHT:;
                     SIL_PRight * pright = (SIL_PRight*)malloc(sizeof(SIL_PRight));
                     (*type)  = current_type;
-                    (*value) = pleft;
+                    (*value) = pright;
                     type  = &(pright->type);
                     value = &(pright->value);
                     break;
@@ -428,9 +421,6 @@ SIL_Root sil_deserialize(SIL_Serialized * serialized){
  * @brief Count the number of nodes in AST.
  */
 unsigned long sil_count_old(SIL_Root * root){
-    if(root->value == 0){
-        return 0;
-    }
     unsigned long counter = 0;
 
     SIL_Stack * stack = sil_stack_new(root->type, root->value);

@@ -85,7 +85,7 @@ int main(){
                 SIL_Pair * node = new SIL_Pair();
                 value = node;
                 huh(node->left_type, node->left_value, nodes_left-nodes_right);
-                huh(node->left_type, node->left_value, nodes_right);
+                huh(node->right_type, node->right_value, nodes_right);
                 } break;
             case SIL_SETENV:{
                 SIL_SetEnv * node = new SIL_SetEnv();
@@ -130,6 +130,7 @@ int main(){
         }
     };
 
+    //Generates AST.
     auto genAST = [&](unsigned long size){
         SIL_Root ret;
         huh(ret.type, ret.value, size);
@@ -144,7 +145,90 @@ int main(){
             bool ok = ast_size == size;
             if(!ok){
                 cerr << ast_size << " vs " << size << endl;
-                cerr << (int)root.type << endl;
+                cerr << (int)root.type << " and " << root.value << endl;
+                SIL_Serialized serialized = sil_serialize(&root);
+                for(unsigned int i = 0; i < serialized.size; i++){
+                    cerr << (int)serialized.storage[i] << " ";
+                }
+                cerr << endl;
+            }
+            return ok;
+        });
+    
+    rc::check("the tree is equal to itself",
+        [&]() {
+            unsigned long size = *rc::gen::inRange(1,1000);
+            SIL_Root root = genAST(size);
+            bool ok = sil_equal(&root, &root);
+            if(!ok){
+                SIL_Serialized serialized = sil_serialize(&root);
+                for(unsigned int i = 0; i < serialized.size; i++){
+                    cerr << (int)serialized.storage[i] << " ";
+                }
+                cerr << endl;
+            }
+            return ok;
+        });
+    rc::check("the tree is not equal to any tree of other size",
+        [&]() {
+            unsigned long size1 = *rc::gen::inRange(1,1000);
+            unsigned long size2 = *rc::gen::suchThat(rc::gen::inRange(1,1000),[&](unsigned long x){
+                            return x != size1;});
+            SIL_Root root1 = genAST(size1);
+            SIL_Root root2 = genAST(size2);
+            bool ok = !sil_equal(&root1, &root2);
+            if(!ok){
+                SIL_Serialized serialized1 = sil_serialize(&root1);
+                SIL_Serialized serialized2 = sil_serialize(&root2);
+                for(unsigned int i = 0; i < serialized1.size; i++){
+                    cerr << (int)serialized1.storage[i] << " ";
+                }
+                cerr << endl;
+                for(unsigned int i = 0; i < serialized2.size; i++){
+                    cerr << (int)serialized2.storage[i] << " ";
+                }
+                cerr << endl;
+            }
+            return ok;
+        });
+    rc::check("(serializing -> deserializing) => equal pre-serialized and deserialized versions",
+        [&]() {
+            unsigned long        size = *rc::gen::inRange(1,1000);
+            SIL_Root             root = genAST(size);
+            SIL_Serialized serialized = sil_serialize(&root);
+            SIL_Root     deserialized = sil_deserialize(&serialized);
+            bool ok = sil_equal(&root, &deserialized);
+            if(!ok){
+                cerr << "Size: " << size << endl;
+                for(unsigned int i = 0; i < serialized.size; i++){
+                    cerr << (int)serialized.storage[i] << " ";
+                }
+                cerr << endl;
+            }
+            return ok;
+        });
+    rc::check("(serializing -> deserializing -> serializing) => equal serializations",
+        [&]() {
+            unsigned long        size = *rc::gen::inRange(1,1000);
+            SIL_Root             root = genAST(size);
+            SIL_Serialized serialized = sil_serialize(&root);
+            SIL_Root     deserialized = sil_deserialize(&serialized);
+            SIL_Serialized serialized2 = sil_serialize(&deserialized);
+
+            bool ok = serialized.size == serialized2.size;
+            for(unsigned long i = 0; i < serialized.size && ok; i++){
+               ok = serialized.storage[i] == serialized2.storage[i]; 
+            }
+            if(!ok){
+                cerr << "Size: " << size << endl;
+                for(unsigned int i = 0; i < serialized.size; i++){
+                    cerr << (int)serialized.storage[i] << " ";
+                }
+                cerr << " vs ";
+                for(unsigned int i = 0; i < serialized2.size; i++){
+                    cerr << (int)serialized2.storage[i] << " ";
+                }
+                cerr << endl;
             }
             return ok;
         });
