@@ -7,7 +7,7 @@ import Control.Monad.Except
 import Control.Monad.Fix
 
 import SIL
-import qualified SIL.Llvm as LLVM
+-- import qualified SIL.Llvm as LLVM
 
 -- runtime expression
 data RExpr
@@ -192,20 +192,20 @@ fasterEval =
         Right i -> pure i
   in fmap fromRExpr . frEval . rOptimize . toRExpr
 
-llvmEval :: IExpr -> IO IExpr
-llvmEval iexpr = do
-  let lmod = LLVM.makeModule iexpr
-  --print $ LLVM.DebugModule lmod
-  result <- catchError (LLVM.evalJIT lmod) $ \e -> pure . Left $ show e
-  case result of
-    Left s -> do
-      putStrLn $ "failed llvmEval: " ++ s
-      fail s
-    Right x -> do
-      pure x
+--llvmEval :: IExpr -> IO IExpr
+--llvmEval iexpr = do
+--  let lmod = LLVM.makeModule iexpr
+--  --print $ LLVM.DebugModule lmod
+--  result <- catchError (LLVM.evalJIT lmod) $ \e -> pure . Left $ show e
+--  case result of
+--    Left s -> do
+--      putStrLn $ "failed llvmEval: " ++ s
+--      fail s
+--    Right x -> do
+--      pure x
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = llvmEval -- fasterEval --simpleEval . optimize
+optimizedEval = fasterEval --simpleEval . optimize
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g

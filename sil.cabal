@@ -17,17 +17,19 @@ library
   hs-source-dirs:      src
   exposed-modules:     SIL
                      , SIL.Eval
-                     , SIL.Llvm
+                    -- , SIL.Llvm
                      , SIL.Optimizer
                      , SIL.Parser
                      , SIL.RunTime
                      , SIL.TypeChecker
+                     , SIL.Serializer
   build-depends:       base >= 4.7 && < 5
                      , recursion-schemes
                      , parsec
                      , indents
                      , containers
                      , mtl
+                     , derive-storable >= 0.1.1.1
                      , llvm-hs         >= 4.0
                      , llvm-hs-pure    >= 4.0
 

@@ -1,5 +1,6 @@
 module SIL where
 
+
 import Data.Char
 
 -- if classes were categories, this would be an EndoFunctor?

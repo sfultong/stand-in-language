@@ -1,13 +1,13 @@
 resolver: lts-8.0
 packages:
 
-nix:
-  enable: true
-  packages: [llvm_4, zlib, libedit, ncurses,binutils]
+#nix:
+#  enable: true
+#  packages: [llvm_4, zlib, libedit, ncurses,binutils]
 
 extra-deps:
- - llvm-hs-4.0.1.0
- - llvm-hs-pure-4.0.0.0
+ - llvm-hs-6.0.0
+ - llvm-hs-pure-6.0.0
 flags:
   llvm-hs:
     shared-llvm: true
