@@ -29,12 +29,14 @@ main = do
     testData = ite (Pair Zero Zero) (Pair (Pair Zero Zero) Zero) (Pair Zero (Pair Zero Zero))
 
   --print $ makeModule testData
+  {-
   runJIT (makeModule testData) >>= \result -> case result of
     Left err -> putStrLn $ concat ["JIT error: ", err]
     Right mod -> putStrLn "JIT seemed to finish ok"
+-}
 
   -- printBindingTypes prelude
-  -- Strict.readFile "tictactoe.sil" >>= runMain
+  Strict.readFile "tictactoe.sil" >>= runMain
   --runMain "main = #x -> 0"
   --runMain "main = #x -> if x then 0 else {\"Test message\", 0}"
   --runMain "main = #x -> if listEqual (left x) \"quit\" then 0 else {\"type quit to exit\", 1}"

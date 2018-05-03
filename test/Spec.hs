@@ -420,21 +420,33 @@ debugPEIITO iexpr = do
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ debugMark "Starting testing tests for testing"
-  , unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
+  , unitTest "basiczero" "0" Zero
+  , debugMark "0"
+  {-
+  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
   , debugMark "1"
-  , unitTest2 "main = range 2 5" "{2,{3,5}}"
+  , unitTest "c2d3" "1" c2d_test3
   , debugMark "2"
-  , unitTest2 "main = range 6 6" "0"
+  , unitTest "c2d2" "2" c2d_test2
+  , debugMark "3"
+  , unitTest "c2d" "2" c2d_test
   , debugMark "4"
-  , unitTest2 "main = c2d (factorial 4)" "24"
+  , unitTest "oneplusone" "2" one_plus_one
   , debugMark "5"
-  , unitTest2 "main = c2d (factorial 0)" "1"
+  , unitTest "church 3+2" "5" three_plus_two
+  , debugMark "6"
+  , unitTest "3*2" "6" three_times_two
   , debugMark "7"
-  , unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
-    "{4,{5,{6,8}}}"
-  , debugMark "1"
-  , unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
-    "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
+  , unitTest "3^2" "9" three_pow_two
+  , debugMark "8"
+  , unitTest "test_tochurch" "2" test_toChurch
+  , debugMark "9"
+  , unitTest "three" "3" three_succ
+  , debugMark "10"
+  , unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
+  , debugMark "11"
+  , unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+-}
   ]
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
@@ -644,5 +656,5 @@ main = do
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}
-  result <- unitTests unitTest2 unitTestType
+  result <- unitTests_ unitTest2 unitTestType
   exitWith $ if result then ExitSuccess else ExitFailure 1
