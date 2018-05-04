@@ -11,6 +11,7 @@ import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
 import SIL.Optimizer
+import SIL.Serializer
 import System.Exit
 import Test.QuickCheck
 import qualified System.IO.Strict as Strict
@@ -239,7 +240,9 @@ allowedTypeCheck (Just (UnboundType _)) = True
 allowedTypeCheck _ = False
 
 testEval :: IExpr -> IO IExpr
-testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
+testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
+    where serialized   = serialize iexpr
+          deserialized = unsafeDeserialize serialized
 
 unitTest :: String -> String -> IExpr -> IO Bool
 unitTest name expected iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)

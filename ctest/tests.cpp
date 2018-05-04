@@ -43,10 +43,10 @@ bool unit_tests(){
    serialized->size =2;
    //serialized.storage[2] = SIL_ZERO;
    //serialized.storage[3] = SIL_ENV;
-   SIL_Root deserialized = sil_deserialize(serialized);
+   SIL_Root * deserialized = sil_deserialize(serialized);
 
-   printf("Is serialized and deserialized tree okay: %d\n", sil_equal(&root,&deserialized));
-   SIL_Serialized * serialized2 = sil_serialize(&deserialized);
+   printf("Is serialized and deserialized tree okay: %d\n", sil_equal(&root,deserialized));
+   SIL_Serialized * serialized2 = sil_serialize(deserialized);
    for(int i = 0; i < serialized2->size; i++){
         printf("%d ",serialized2->storage[i]);
    }
@@ -196,8 +196,8 @@ int main(){
             unsigned long        size = *rc::gen::inRange(1,1000);
             SIL_Root             root = genAST(size);
             SIL_Serialized * serialized = sil_serialize(&root);
-            SIL_Root     deserialized = sil_deserialize(serialized);
-            bool ok = sil_equal(&root, &deserialized);
+            SIL_Root    *deserialized = sil_deserialize(serialized);
+            bool ok = sil_equal(&root, deserialized);
             if(!ok){
                 cerr << "Size: " << size << endl;
                 for(unsigned int i = 0; i < serialized->size; i++){
@@ -212,8 +212,8 @@ int main(){
             unsigned long        size = *rc::gen::inRange(1,1000);
             SIL_Root             root = genAST(size);
             SIL_Serialized * serialized = sil_serialize(&root);
-            SIL_Root     deserialized = sil_deserialize(serialized);
-            SIL_Serialized * serialized2 = sil_serialize(&deserialized);
+            SIL_Root    *deserialized = sil_deserialize(serialized);
+            SIL_Serialized * serialized2 = sil_serialize(deserialized);
 
             bool ok = serialized->size == serialized2->size;
             for(unsigned long i = 0; i < serialized->size && ok; i++){

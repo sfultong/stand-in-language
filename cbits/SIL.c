@@ -313,15 +313,15 @@ void sil_deserialize_stack_pop(SIL_Deserialize_Stack ** stack){
  * 
  * Assumes correct input. Undefined behaviour otherwise.
  */
-SIL_Root sil_deserialize(SIL_Serialized * serialized){
-    SIL_Root ret;
-    ret.value = 0;
+SIL_Root * sil_deserialize(SIL_Serialized * serialized){
+    SIL_Root * ret = (SIL_Root*)malloc(sizeof(SIL_Root));
+    ret->value = 0;
 
     if(serialized->size == 0){
         return ret;
     }
    // ret.type = serialized->storage[0];
-    SIL_Deserialize_Stack * stack = sil_deserialize_stack_new(&ret.type, &ret.value);
+    SIL_Deserialize_Stack * stack = sil_deserialize_stack_new(&ret->type, &ret->value);
     sil_type  * type  = 0;
     void     ** value = 0;
     unsigned long i = 0;

@@ -145,7 +145,7 @@ SIL_Serialized * sil_serialize(SIL_Root * root);
  * 
  * Assumes correct input. Undefined behaviour otherwise.
  */
-SIL_Root sil_deserialize(SIL_Serialized * serialized);
+SIL_Root * sil_deserialize(SIL_Serialized * serialized);
 
 
 /**
