@@ -2,14 +2,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module SIL.BadLLVM where
 
+import Foreign.Storable
 import Control.Monad.State.Strict
 import Data.Int (Int64)
-import Foreign.Ptr (FunPtr, castFunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr, castPtr)
+import Foreign.Ptr (FunPtr, castFunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr, castPtr, nullPtr)
+import qualified Data.ByteString.Char8 as ByteString
 
 import LLVM.AST
 import LLVM.AST.Global
 import LLVM.Context
 import LLVM.Module as Mod
+import qualified LLVM.CodeModel as CodeModel
+import qualified LLVM.CodeGenOpt as CodeGenOpt
+import qualified LLVM.Relocation as Reloc
 
 import qualified Data.ByteString as BS
 import qualified LLVM.AST as AST
@@ -33,11 +38,25 @@ resolver compileLayer = OJ.SymbolResolver
   (\s -> OJ.findSymbol compileLayer s True)
   (\s -> fmap (\a -> OJ.JITSymbol a (OJ.JITSymbolFlags False True)) (Linking.getSymbolAddressInProcess s))
 
-evalJIT :: AST.Module -> IO (Either String SIL.IExpr)
+withTargetMachine :: (Target.TargetMachine -> IO a) -> IO a
+withTargetMachine f = do
+  Target.initializeAllTargets
+  triple <- Target.getProcessTargetTriple
+  cpu <- Target.getHostCPUName
+  features <- Target.getHostCPUFeatures
+  (target, _) <- Target.lookupTarget Nothing triple
+  Target.withTargetOptions $ \options ->
+    Target.withTargetMachine target triple cpu features options Reloc.Default
+      -- We need to set the CodeModel to JITDefault to allow for larger relocations
+      CodeModel.JITDefault
+      CodeGenOpt.Default f
+
+evalJIT :: AST.Module -> IO ()
 evalJIT amod = do
   withContext $ \ctx ->
-    withModuleFromAST ctx amod $ \mod ->
-      Target.withHostTargetMachine $ \tm ->
+    withModuleFromAST ctx amod $ \mod -> do
+      ByteString.putStrLn =<< moduleLLVMAssembly mod
+      withTargetMachine $ \tm ->
         OJ.withObjectLinkingLayer $ \objectLayer ->
           OJ.withIRCompileLayer objectLayer tm $ \compileLayer ->
             OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
@@ -47,7 +66,14 @@ evalJIT amod = do
                 then do
                 putStrLn "Could not find main"
                 pure $ error "Couldn't find main"
-                else pure . Right $ SIL.Zero
+                else do
+                  -- Get the pointer to "pair_heap"
+                  ptr <- mkMain (castPtrToFunPtr (wordPtrToPtr mainFn))
+                  -- Read the value stored at that pointer
+                  print =<< (peek (plusPtr nullPtr (fromIntegral ptr)) :: IO Int64)
+
+foreign import ccall "dynamic"
+  mkMain :: FunPtr (IO Int64) -> IO Int64
 
 -- name counter, block instruction list (reversed), block name, block list, definition list, definition counter
 type FunctionState a = State (Word, [Named Instruction], Name, [BasicBlock], [Definition], Word) a
