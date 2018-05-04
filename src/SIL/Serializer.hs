@@ -7,16 +7,50 @@ module SIL.Serializer (
 import Data.Word
 
 import           Data.Vector.Storable (Vector, fromList, (!))
-import qualified Data.Vector.Storable as S
+import qualified Data.Vector.Storable         as S
+import qualified Data.Vector.Storable.Mutable as SM
 
-import SIL.Serializer.C (typeId)
-import SIL (IExpr(..), monoidFold)
+import SIL.Serializer.C
+import SIL (IExpr(..))
 
 
 serialize :: IExpr -> Vector Word8
-serialize iexpr = fromList bytes
-    where bytes = monoidFold (\e -> [fromIntegral $ typeId e]) iexpr
-          len   = length bytes
+serialize iexpr = S.create $ do 
+    vec <- SM.new $ silSize iexpr
+    serialize_loop 0 vec iexpr
+    return vec
+
+silSize :: IExpr -> Int
+silSize iexpr = silSize' iexpr 0
+
+silSize' :: IExpr -> Int -> Int
+silSize' Zero         acc = acc + 1
+silSize' (Pair e1 e2) acc = silSize' e1 (silSize' e2 (acc + 1)) 
+silSize' Env          acc = acc + 1
+silSize' (SetEnv  e)  acc = silSize' e (acc + 1)
+silSize' (Defer   e)  acc = silSize' e (acc + 1)
+silSize' (Twiddle e)  acc = silSize' e (acc + 1)
+silSize' (Abort   e)  acc = silSize' e (acc + 1)
+silSize' (Gate    e)  acc = silSize' e (acc + 1)
+silSize' (PLeft   e)  acc = silSize' e (acc + 1)
+silSize' (PRight  e)  acc = silSize' e (acc + 1)
+silSize' (Trace   e)  acc = silSize' e (acc + 1)
+
+
+serialize_loop ix vec ie@Zero = SM.write vec ix (fromIntegral $ typeId ie) >> return ix
+serialize_loop ix vec ie@(Pair e1 e2) = do
+    SM.write vec ix (fromIntegral $ typeId ie)
+    end_ix <- serialize_loop (ix+1) vec e1
+    serialize_loop (end_ix+1) vec e2
+serialize_loop ix vec ie@Env        = SM.write vec ix (fromIntegral $ typeId ie) >> return ix
+serialize_loop ix vec ie@(SetEnv e) = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
+serialize_loop ix vec ie@(Defer e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
+serialize_loop ix vec ie@(Twiddle e)= SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
+serialize_loop ix vec ie@(Abort e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
+serialize_loop ix vec ie@(Gate e)   = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
+serialize_loop ix vec ie@(PLeft e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
+serialize_loop ix vec ie@(PRight e) = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
+serialize_loop ix vec ie@(Trace e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 
 deserialize :: Vector Word8 -> Maybe IExpr
 deserialize arr = if S.length arr == 0

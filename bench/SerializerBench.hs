@@ -1,10 +1,15 @@
+{-#LANGUAGE StandaloneDeriving #-}
 module Main where
 
 import Data.Char
 import qualified Data.Vector.Storable as S
 
+
+
 import Criterion.Main
 import Criterion.Types
+
+
 
 import SIL
 --import SIL.Llvm
@@ -21,20 +26,22 @@ performTests :: IExpr -> IO ()
 performTests iexpr = do
     let serialized = serialize iexpr
         len = S.length serialized
+        withCleanup = envWithCleanup (return ())
+    putStrLn $ "The vector contains " ++ show len ++ " bytes."
     c_rep        <- toC iexpr  
     c_serialized <- serializedToC serialized
-    putStrLn $ "The vector contains " ++ show len ++ " bytes."
+
     defaultMain $ 
       [ bgroup "Vector Word8"
         [ bench "serialization"   $ nf serialize   iexpr
-        , bench "deserialization" $ whnf deserialize serialized
+        , bench "deserialization" $ nf deserialize serialized
         ]
       , bgroup "C dynamic representation"
         [ bench "serialization"   $ nfIO   (toC   iexpr)
-        , bench "deserialization" $ whnfIO (fromC c_rep)
+        , bench "deserialization" $ nfIO (fromC c_rep)
         ]
       , bgroup "Vector <-> SIL_Serialized"
-        [ bench "to SIL_Serialized"   $ nfIO (serializedToC   iexpr)
+        [ bench "to SIL_Serialized"   $ nfIO (serializedToC   serialized)
         , bench "from SIL_Serialized" $ nfIO (serializedFromC c_serialized)
         ]
       ]

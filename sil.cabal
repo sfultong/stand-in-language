@@ -33,6 +33,7 @@ library
                      , containers
                      , mtl
                      , vector
+                     , deepseq
                      , derive-storable >= 0.1.1.1
                      , derive-storable-plugin >= 0.2
                      , llvm-hs         >= 4.0
