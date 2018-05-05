@@ -118,6 +118,10 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2);
  */
 unsigned long sil_count(SIL_Root * root);
 
+/**
+ * @brief Delete the memory under SIL AST
+ */
+void sil_free(SIL_Root * root);
 
 /**
  * @brief Serialized representation of SIL.

@@ -81,7 +81,8 @@ benchmark sil-serializer-benchmark
   hs-source-dirs:      bench/
   default-language:    Haskell2010
   Main-is:             SerializerBench.hs
-  build-depends:       base, sil, strict, vector, criterion
+  build-depends:       base, sil, deepseq, strict, vector, criterion
+  ghc-options:         -with-rtsopts=-T
 
 source-repository head
   type:     git

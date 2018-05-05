@@ -2,8 +2,8 @@
 {-#LANGUAGE CApiFFI        #-}
 {-#LANGUAGE DeriveGeneric  #-}
 {-#LANGUAGE DeriveAnyClass #-}
--- {-# OPTIONS_GHC -fplugin=Foreign.Storable.Generic.Plugin #-}
--- {-# OPTIONS_GHC -fplugin-opt=Foreign.Storable.Generic.Plugin:-v0 #-} 
+--{-# OPTIONS_GHC -fplugin=Foreign.Storable.Generic.Plugin #-}
+--{-# OPTIONS_GHC -fplugin-opt=Foreign.Storable.Generic.Plugin:-v0 #-} 
 module SIL.Serializer.C (
     -- Types
       CTypeId
@@ -43,6 +43,7 @@ module SIL.Serializer.C (
     -- C calls
     , sil_serialize
     , sil_deserialize
+    , sil_free
 ) where
 
 import SIL (IExpr(..))
@@ -282,5 +283,7 @@ serializedFromC ptr = do
  
 foreign import ccall sil_serialize   :: Ptr CRoot       -> IO (Ptr CSerialized)
 foreign import ccall sil_deserialize :: Ptr CSerialized -> IO (Ptr CRoot)
-foreign import ccall sil_equal       :: Ptr CSerialized -> IO (Ptr CRoot)
+-- | Free the memory reserved for C dynamic representation
+foreign import ccall sil_free        :: Ptr CRoot       
+                                     -> IO ()
 

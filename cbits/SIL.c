@@ -255,6 +255,102 @@ unsigned long sil_count(SIL_Root * root){
     return counter;
 }
 
+/**
+ * @brief Free the memory under SIL AST
+ */
+void sil_free(SIL_Root * root){
+    SIL_Stack * stack = sil_stack_new(root->type, root->value);
+
+    sil_type type = 0;
+    void* value   = 0;
+
+    while(stack != 0){
+        type  = stack->type;
+        value = stack->value;
+        sil_stack_pop(&stack);
+        while(1){
+            switch(type){
+                case SIL_ZERO:
+                    if(value != 0){
+                        free(value);
+                    }
+                    value = 0;    
+                    goto FreeBranchStop;
+                    break;
+                case SIL_PAIR:;
+                    //Assuming there are no null pointers
+                    SIL_Pair * pair = value;
+                    type  = pair->left_type;
+                    value = pair->left_value; 
+                    sil_stack_add(&stack, pair->right_type, pair->right_value);
+                    free(pair);
+                    break;
+                case SIL_ENV:
+                    if(value != 0){
+                        free(value);
+                    }
+                    value = 0;
+                    goto FreeBranchStop;
+                    break;
+                case SIL_SETENV:;
+                    SIL_SetEnv * setenv = value;
+                    type  = setenv->type;
+                    value = setenv->value; 
+                    free(setenv);
+                    break;
+                case SIL_DEFER:;
+                    SIL_Defer * defer = value;
+                    type  = defer->type;
+                    value = defer->value; 
+                    free(defer);
+                    break;
+                case SIL_TWIDDLE:;
+                    SIL_Twiddle * twiddle = value;
+                    type  = twiddle->type;
+                    value = twiddle->value; 
+                    free(twiddle);
+                    break;
+                case SIL_ABORT:;
+                    SIL_Abort * abort = value;
+                    type  = abort->type;
+                    value = abort->value; 
+                    free(abort);
+                    break;
+                case SIL_GATE:;
+                    SIL_Gate *gate = value;
+                    type  = gate->type;
+                    value = gate->value; 
+                    free(gate);
+                    break;
+                case SIL_PLEFT:;
+                    SIL_PLeft *pleft = value;
+                    type  = pleft->type;
+                    value = pleft->value; 
+                    free(pleft);
+                    break;
+                case SIL_PRIGHT:;
+                    SIL_PRight *pright = value;
+                    type  = pright->type;
+                    value = pright->value; 
+                    free(pright);
+                    break;
+                case SIL_TRACE:;
+                    SIL_Trace *trace = value;
+                    type  = trace->type;
+                    value = trace->value; 
+                    free(trace);
+                    break; 
+                default:
+                    fprintf( stderr, "free: Received unsupported type %d. Debug me through call stack.\n", type);
+                    goto FreeBranchStop;
+                    break;
+            }
+        }
+FreeBranchStop:;
+    }
+}
+
+
 
 static void sil_serializer(sil_type type, void* void_state){
     SIL_Serializer_State * state = void_state;

@@ -52,42 +52,59 @@ serialize_loop ix vec ie@(PLeft e)  = SM.write vec ix (fromIntegral $ typeId ie)
 serialize_loop ix vec ie@(PRight e) = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(Trace e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 
+
+-- | Safe deserialization. Will return Nothing for bad input arguments.
 deserialize :: Vector Word8 -> Maybe IExpr
-deserialize arr = if S.length arr == 0
+deserialize vec = if S.length vec == 0
     then Nothing
-    else Just $ unsafeDeserialize arr
+    else case S.foldl' deserializer_inside (Call1 id) vec of
+        Call1 c -> Just $ c undefined
+        CallN c -> Nothing 
 
--- | Unsafe version of deserialize - works only with arrays of size 1 or more.
--- Undefined behaviour otherwise.
-unsafeDeserialize :: Vector Word8 -> IExpr
-unsafeDeserialize arr = deserializer_inside (len-2) arr [] init_expr
-  where len       = S.length arr
-        init_expr = case arr ! (len-1) of
-          0         -> Zero
-          2         -> Env
-          otherwise -> error "SIL.Serializer.unsafeDeserialize: The last serialized element is not a leaf."
+-- | Unsafe deserialization. Throws runtime errors.
+unsafeDeserialize :: Vector Word8 
+                  -> IExpr
+unsafeDeserialize vec = case S.foldl' deserializer_inside (Call1 id) vec of
+    Call1 c -> c (error "SIL.Serializer.unsafeDeserialize: I'm being evaluated. That means I was called on an empty vector.")
+    CallN c -> error "SIL.Serializer.unsafeDeserialize: Could not reduce the CPS stack. Possibly wrong input arguments."
 
-deserializer_inside :: Int          -- ^ Ix
-                    -> Vector Word8 -- ^ Array 
-                    -> [IExpr]      -- ^ Stack (for pairs)
-                    -> IExpr        -- ^ Accumulator
-                    -> IExpr
-deserializer_inside ix arr stack acc = to_recurse_or_not
-  where to_recurse_or_not   = if ix >= 0 
-          then deserializer_inside (ix-1) arr new_stack new_acc  
-          else acc
-        (new_acc,new_stack) = case arr ! ix of
-          0  -> (Zero, acc:stack)
-          1  -> (Pair acc (head stack), tail stack) 
-          2  -> (Env,   acc:stack)
-          3  -> (SetEnv  acc, stack) 
-          4  -> (Defer   acc, stack)
-          5  -> (Twiddle acc, stack)
-          6  -> (Abort   acc, stack)
-          7  -> (Gate    acc, stack)
-          8  -> (PLeft   acc, stack)
-          9  -> (PRight  acc, stack)
-          10 -> (Trace   acc, stack)
-          err -> error $ error_msg err
-        error_msg err = concat ["SIL.Serializer.deserializer_inside: Received unknown identifier ", show err, " at position ", show ix]
+-- | Continuation-passing-style function stack.
+data FunStack = Call1 (IExpr -> IExpr)
+              | CallN (IExpr -> FunStack)
+
+deserializer_inside cont 0 = case cont of
+    Call1 c -> Call1 $ \_ -> c Zero
+    CallN c -> c Zero 
+deserializer_inside cont 1 = case cont of
+    Call1 c ->  CallN $ \e1 -> Call1 (\e2 -> c (Pair e1 e2))
+    CallN c ->  CallN $ \e1 -> CallN (\e2 -> c (Pair e1 e2))
+deserializer_inside cont 2 = case cont of
+    Call1 c -> Call1 $ \_ -> c Env
+    CallN c -> c Env
+deserializer_inside cont 3 = case cont of
+    Call1 c -> Call1 $ \e -> c (SetEnv e) 
+    CallN c -> CallN $ \e -> c (SetEnv e)
+deserializer_inside cont 4 = case cont of
+    Call1 c -> Call1 $ \e -> c (Defer e) 
+    CallN c -> CallN $ \e -> c (Defer e)
+deserializer_inside cont 5 = case cont of
+    Call1 c -> Call1 $ \e -> c (Twiddle e) 
+    CallN c -> CallN $ \e -> c (Twiddle e)
+deserializer_inside cont 6 = case cont of
+    Call1 c -> Call1 $ \e -> c (Abort e) 
+    CallN c -> CallN $ \e -> c (Abort e)
+deserializer_inside cont 7 = case cont of
+    Call1 c -> Call1 $ \e -> c (Gate e) 
+    CallN c -> CallN $ \e -> c (Gate e)
+deserializer_inside cont 8 = case cont of
+    Call1 c -> Call1 $ \e -> c (PLeft e) 
+    CallN c -> CallN $ \e -> c (PLeft e)
+deserializer_inside cont 9 = case cont of
+    Call1 c -> Call1 $ \e -> c (PRight e) 
+    CallN c -> CallN $ \e -> c (PRight e)
+deserializer_inside cont 10 = case cont of
+    Call1 c -> Call1 $ \e -> c (Trace e) 
+    CallN c -> CallN $ \e -> c (Trace e)
+
+
 

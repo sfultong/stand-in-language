@@ -1,14 +1,16 @@
 {-#LANGUAGE StandaloneDeriving #-}
 module Main where
 
+import Control.DeepSeq
 import Data.Char
 import qualified Data.Vector.Storable as S
 
+import Foreign.Marshal.Alloc
 
 
 import Criterion.Main
 import Criterion.Types
-
+import Criterion.Measurement
 
 
 import SIL
@@ -22,27 +24,33 @@ import SIL.Serializer
 import SIL.Serializer.C
 import qualified System.IO.Strict as Strict
 
+import System.Mem
+
 performTests :: IExpr -> IO ()
 performTests iexpr = do
     let serialized = serialize iexpr
         len = S.length serialized
-        withCleanup = envWithCleanup (return ())
+    serialized `deepseq` putStrLn $ "GC stats:"
+    performGC
+    print =<< getGCStatistics
     putStrLn $ "The vector contains " ++ show len ++ " bytes."
     c_rep        <- toC iexpr  
     c_serialized <- serializedToC serialized
 
     defaultMain $ 
-      [ bgroup "Vector Word8"
+      [ bgroup "Vector"
         [ bench "serialization"   $ nf serialize   iexpr
         , bench "deserialization" $ nf deserialize serialized
         ]
-      , bgroup "C dynamic representation"
-        [ bench "serialization"   $ nfIO   (toC   iexpr)
+      , bgroup "CRep"
+        [ bench "serialization"   $ nfIO (toC   iexpr)
         , bench "deserialization" $ nfIO (fromC c_rep)
-        ]
-      , bgroup "Vector <-> SIL_Serialized"
-        [ bench "to SIL_Serialized"   $ nfIO (serializedToC   serialized)
-        , bench "from SIL_Serialized" $ nfIO (serializedFromC c_serialized)
+        ] 
+      , bgroup "SIL_Serialized"
+        [ bench "from Vector"   $ nfIO (free =<< serializedToC   serialized)
+        , bench "to Vector" $ nfIO (serializedFromC c_serialized)
+        , bench "from CRep" $ nfIO (free =<< sil_serialize c_rep)
+        , bench "to CRep" $ nfIO (sil_deserialize c_serialized)
         ]
       ]
 
