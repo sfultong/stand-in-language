@@ -85,15 +85,19 @@ pair :: IExpr -> IExpr -> IExpr
 pair = Pair
 var :: IExpr
 var = Env
+env :: IExpr
+env = Env
+twiddle :: IExpr -> IExpr
+twiddle = Twiddle
 app :: IExpr -> IExpr -> IExpr
-app c i = SetEnv (Twiddle (Pair i c))
+app c i = setenv (twiddle (pair i c))
 check :: IExpr -> IExpr -> IExpr
-check c tc = SetEnv (Pair (Defer (ite
-                                  (app (PLeft Env) (PRight Env))
-                                  (Abort $ app (PLeft Env) (PRight Env))
-                                  (PRight Env)
+check c tc = setenv (pair (defer (ite
+                                  (app (pleft env) (pright env))
+                                  (Abort $ app (pleft env) (pright env))
+                                  (pright env)
                           ))
-                          (Pair tc c)
+                          (pair tc c)
                     )
 gate :: IExpr -> IExpr
 gate = Gate
@@ -106,14 +110,14 @@ setenv = SetEnv
 defer :: IExpr -> IExpr
 defer = Defer
 lam :: IExpr -> IExpr
-lam x = Pair (Defer x) Env
+lam x = pair (defer x) env
 -- a form of lambda that does not pull in a surrounding environment
 completeLam :: IExpr -> IExpr
-completeLam x = Pair (Defer x) Zero
+completeLam x = pair (defer x) zero
 ite :: IExpr -> IExpr -> IExpr -> IExpr
-ite i t e = SetEnv (Pair (Gate i) (Pair e t))
+ite i t e = setenv (pair (gate i) (pair e t))
 varN :: Int -> IExpr
-varN n = PLeft (iterate PRight Env !! n)
+varN n = pleft (iterate pright env !! n)
 
 data DataType
   = ZeroType
