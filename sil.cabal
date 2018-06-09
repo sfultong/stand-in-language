@@ -18,7 +18,6 @@ library
   exposed-modules:     SIL
                      , SIL.Eval
                      , SIL.Llvm
-                     , SIL.BadLLVM
                      , SIL.Optimizer
                      , SIL.Parser
                      , SIL.RunTime
@@ -32,7 +31,6 @@ library
                      , bytestring
                      , llvm-hs         >= 5.0
                      , llvm-hs-pure    >= 5.0
-  extra-libraries:     jumper
 
   default-language:    Haskell2010
 
