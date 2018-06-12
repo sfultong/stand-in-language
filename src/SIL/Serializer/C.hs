@@ -1,5 +1,4 @@
 {-#LANGUAGE ForeignFunctionInterface #-}
-{-#LANGUAGE CApiFFI        #-}
 {-#LANGUAGE DeriveGeneric  #-}
 {-#LANGUAGE DeriveAnyClass #-}
 --{-# OPTIONS_GHC -fplugin=Foreign.Storable.Generic.Plugin #-}
