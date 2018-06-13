@@ -423,53 +423,14 @@ unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ debugMark "Starting testing tests for testing"
   , unitTest "basiczero" "0" Zero
   , debugMark "0"
-  , unitTest "twiddle" "{0,1}" (twiddle (pair zero (pair zero zero)))
-  , debugMark "0.8"
-  , unitTest "simpleSetenv" "0" (setenv (pair (defer env) zero))
-  , debugMark "0.9"
   , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-  , debugMark "1"
-  , unitTest "leftzero" "0" (pleft zero)
-  , debugMark "1.1"
-  , unitTest "rightzero" "0" (pright zero)
-  , debugMark "1.2"
-  , unitTest "leftone" "1" (pleft (pair (pair zero zero) zero))
-  , debugMark "1.3"
-  , unitTest "rightone" "1" (pright (pair zero (pair zero zero)))
-  , debugMark "1.4"
-  , unitTest "c2d3" "1" c2d_test3
-  , debugMark "2"
-  , unitTest "c2d2" "2" c2d_test2
-  , debugMark "3"
   , unitTest "c2d" "2" c2d_test
-  , debugMark "4"
+  , unitTest "c2d2" "2" c2d_test2
+  , unitTest "c2d3" "1" c2d_test3
   , unitTest "oneplusone" "2" one_plus_one
-  , debugMark "5"
-  , unitTest "church 3+2" "5" three_plus_two
-  , debugMark "6"
-  , unitTest "3*2" "6" three_times_two
-  , debugMark "7"
-  , unitTest "3^2" "9" three_pow_two
-  , debugMark "8"
-  , unitTest "test_tochurch" "2" test_toChurch
-  , debugMark "9"
-  , unitTest "three" "3" three_succ
-  , debugMark "10"
-  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
   , debugMark "1"
-  , unitTest "ite2" "0" (ite (i2g 1) zero zero)
-  , debugMark "1.1"
-  , unitTest "ite test2" "0" (ite zero zero zero)
-  , debugMark "10.01"
-  , unitTest "d2c2_test" "1" d2c2_test
-  , debugMark "10.1"
-  , unitTest "d2c_test" "2" d2c_test
-  , debugMark "10.2"
-  , unitTest "data 1+1" "2" $ app (app d_plus (i2g 1)) (i2g 1)
-  , debugMark "10.3"
-  , unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
-  , debugMark "11"
-  , unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+  , unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+  , unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
   ]
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
@@ -513,6 +474,8 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   -- TODO fix
   --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
   , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  , unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+  , unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
   , unitTest "c2d" "2" c2d_test
   , unitTest "c2d2" "2" c2d_test2
   , unitTest "c2d3" "1" c2d_test3

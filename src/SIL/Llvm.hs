@@ -67,7 +67,7 @@ convertPairs (x, pairs)=
 makeModule :: SIL.IExpr -> AST.Module
 makeModule iexpr = defaultModule
   { moduleDefinitions =
-    [ pairHeap, heapIndex, resultStructure, goLeft, goRight, jumpBufTypeDef, jumpBuf ]
+    [ pairHeap, heapIndex, resultStructure, goLeft, goRight, jumpBufTypeDef, jumpBuf, setjmpDef, longjmpDef ]
     ++ (toLLVM' iexpr)
     -- ++ testLLVM
   , moduleName = "SILModule"
@@ -150,6 +150,15 @@ intPtrT = PointerType intT $ AddrSpace.AddrSpace 0
 
 funT :: Type
 funT = PointerType (FunctionType intT [intT] False) (AddrSpace.AddrSpace 0)
+
+voidFunT :: Type
+voidFunT = PointerType (FunctionType VoidType [] False) (AddrSpace.AddrSpace 0)
+
+setjmpT :: Type
+setjmpT = PointerType (FunctionType intT [] False) (AddrSpace.AddrSpace 0)
+
+longjmpT :: Type
+longjmpT = PointerType (FunctionType VoidType [intT] False) (AddrSpace.AddrSpace 0)
 
 funPtrT :: Type
 funPtrT = PointerType funT $ AddrSpace.AddrSpace 0
@@ -432,8 +441,22 @@ toLLVM (SIL.Gate x) = do
     (ConstantOperand (C.PtrToInt (C.GlobalReference funT "goRight") intT))
     (ConstantOperand (C.PtrToInt (C.GlobalReference funT "goLeft") intT))
     []
--- TODO
-toLLVM (SIL.Abort _) = pure zero
+toLLVM (SIL.Abort x) = do
+  lx <- toLLVM x
+  abortB <- getName
+  exitB <- getName
+  brCond <- doTypedInst boolT $ ICmp IP.EQ lx zero []
+  _ <- doBlock (CondBr brCond exitB abortB [])
+
+  setBlockName abortB
+  doVoidInst $ Call Nothing CC.C [] (Right (ConstantOperand (C.GlobalReference longjmpT "w_longjmp")))
+    [(lx, [])] [] []
+  _ <- doBlock (Unreachable [])
+
+  setBlockName exitB
+  pure zero
+
+-- TODO this will be hard
 toLLVM (SIL.Trace x) = toLLVM x
 
 resultC :: Operand
@@ -454,7 +477,23 @@ finishMain result = do
 toLLVM' :: SIL.IExpr -> [Definition]
 toLLVM' iexpr =
   let (_, (_, _, _, blocks, definitions, _)) =
-        runState (toLLVM iexpr >>= finishMain) startFunctionState
+        runState wrappedMain startFunctionState
+      wrappedMain = do
+        jumped <- doInst $ Call Nothing CC.C [] (Right (ConstantOperand (C.GlobalReference setjmpT "w_setjmp")))
+          [] [] []
+        mainB <- getName
+        exitB <- getName
+        brCond <- doTypedInst boolT $ ICmp IP.EQ jumped zero []
+        preludeB <- doBlock (CondBr brCond mainB exitB [])
+
+        setBlockName mainB
+        mainExp <- toLLVM iexpr
+        endMainB <- doBlock (Br exitB [])
+
+        setBlockName exitB
+        result <- doInst $ Phi intT [(mainExp, endMainB), (jumped, preludeB)] []
+        finishMain result
+
   in (GlobalDefinition $ functionDefaults
        { name = "main"
        , parameters = ([], False)
@@ -478,7 +517,6 @@ testLLVM =
        }
      ) : definitions
 
---- TODO make always inlined
 goLeft :: Definition
 goLeft = GlobalDefinition $ functionDefaults
   { name = "goLeft"
@@ -495,7 +533,6 @@ goLeft = GlobalDefinition $ functionDefaults
     ]
   }
 
--- TODO make always inlined
 goRight :: Definition
 goRight = GlobalDefinition $ functionDefaults
   { name = "goRight"
@@ -510,4 +547,18 @@ goRight = GlobalDefinition $ functionDefaults
       ]
       (Do $ Ret (Just (LocalReference intT (UnName 3))) [])
     ]
+  }
+
+setjmpDef :: Definition
+setjmpDef = GlobalDefinition $ functionDefaults
+  { name = "w_setjmp"
+  , parameters = ([], False)
+  , returnType = intT
+  }
+
+longjmpDef :: Definition
+longjmpDef = GlobalDefinition $ functionDefaults
+  { name = "w_longjmp"
+  , parameters = ([Parameter intT "x" []], False)
+  , returnType = VoidType
   }
