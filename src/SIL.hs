@@ -1,5 +1,6 @@
 module SIL where
 
+import Control.DeepSeq
 import Data.Char
 
 -- if classes were categories, this would be an EndoFunctor?
@@ -78,6 +79,19 @@ instance MonoidEndoFolder IExpr where
   monoidFold f (PLeft x) = mconcat [f (PLeft x), monoidFold f x]
   monoidFold f (PRight x) = mconcat [f (PRight x), monoidFold f x]
   monoidFold f (Trace x) = mconcat [f (Trace x), monoidFold f x]
+
+instance NFData  IExpr where
+  rnf Zero         = ()
+  rnf (Pair e1 e2) = rnf e1 `seq` rnf e2
+  rnf Env          = ()
+  rnf (SetEnv  e)  = rnf e
+  rnf (Defer   e)  = rnf e
+  rnf (Twiddle e)  = rnf e
+  rnf (Abort   e)  = rnf e
+  rnf (Gate    e)  = rnf e
+  rnf (PLeft   e)  = rnf e
+  rnf (PRight  e)  = rnf e
+  rnf (Trace   e)  = rnf e
 
 zero :: IExpr
 zero = Zero

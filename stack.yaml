@@ -1,0 +1,16 @@
+resolver: lts-8.0
+packages:
+
+#nix:
+#  enable: true
+#  packages: [llvm_4, zlib, libedit, ncurses,binutils]
+
+extra-deps:
+ - llvm-hs-6.0.0
+ - llvm-hs-pure-6.0.0
+ - derive-storable-0.1.1.1
+ - derive-storable-plugin-0.2.1.0
+flags:
+  llvm-hs:
+    shared-llvm: true
+
