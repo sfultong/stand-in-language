@@ -13,11 +13,13 @@ import SIL.TypeChecker
 import SIL.Optimizer
 import SIL.Serializer
 import System.Exit
+import System.IO
 import Test.QuickCheck
 import qualified System.IO.Strict as Strict
 
 -- Common datatypes for generating SIL AST.
 import Common
+
 -- recursively finds shrink matching invariant, ordered simplest to most complex
 shrinkComplexCase :: Arbitrary a => (a -> Bool) -> [a] -> [a]
 shrinkComplexCase test a =
@@ -250,9 +252,9 @@ unitTest name expected iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)
     result <- (show . PrettyIExpr) <$> testEval iexpr
     if result == expected
       then pure True
-      else (putStrLn $ concat [name, ": expected ", expected, " result ", result]) >>
+      else (hPutStrLn stderr $ concat [name, ": expected ", expected, " result ", result]) >>
            pure False
-  else putStrLn ( concat [name, " failed typecheck: ", show (typeCheck ZeroType iexpr)])
+  else hPutStrLn stderr ( concat [name, " failed typecheck: ", show (typeCheck ZeroType iexpr)])
        >> pure False
 
 unitTestRefinement :: String -> Bool -> IExpr -> IO Bool
@@ -331,21 +333,16 @@ debugPEIITO iexpr = do
 
 unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   [ debugMark "Starting testing tests for testing"
-  , unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
+  , unitTest "basiczero" "0" Zero
+  , debugMark "0"
+  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  , unitTest "c2d" "2" c2d_test
+  , unitTest "c2d2" "2" c2d_test2
+  , unitTest "c2d3" "1" c2d_test3
+  , unitTest "oneplusone" "2" one_plus_one
   , debugMark "1"
-  , unitTest2 "main = range 2 5" "{2,{3,5}}"
-  , debugMark "2"
-  , unitTest2 "main = range 6 6" "0"
-  , debugMark "4"
-  , unitTest2 "main = c2d (factorial 4)" "24"
-  , debugMark "5"
-  , unitTest2 "main = c2d (factorial 0)" "1"
-  , debugMark "7"
-  , unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
-    "{4,{5,{6,8}}}"
-  , debugMark "1"
-  , unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
-    "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
+  , unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+  , unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
   ]
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
@@ -368,7 +365,7 @@ unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p 
   (Success _ _ _) -> pure True
   x -> (putStrLn $ concat [name, " failed: ", show x]) >> pure False
 
-debugMark s = putStrLn s >> pure True
+debugMark s = hPutStrLn stderr s >> pure True
 
 unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   (
@@ -389,6 +386,8 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   -- TODO fix
   --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
   , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  , unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+  , unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
   , unitTest "c2d" "2" c2d_test
   , unitTest "c2d2" "2" c2d_test2
   , unitTest "c2d3" "1" c2d_test3

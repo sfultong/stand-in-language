@@ -1,13 +1,19 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module SIL.RunTime where
 
 import Data.Functor.Identity
 import Debug.Trace
+import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Fix
+import System.IO (hPutStrLn, stderr)
 
 import SIL
--- import qualified SIL.Llvm as LLVM
+import qualified SIL.Llvm as LLVM
+
+debug :: Bool
+debug = False
 
 -- runtime expression
 data RExpr
@@ -170,7 +176,7 @@ toChurch x =
 rOptimize :: RExpr -> RExpr
 rOptimize =
   let modR (RSetEnv (RPair (RGate i) (RPair e t))) = RITE i t e
-      modR c@(RPair (RDefer (RPair (RDefer (apps)) REnv)) REnv) = let appCount = countApps 0 apps in
+      modR c@(RPair (RDefer (RPair (RDefer (apps)) REnv)) RZero) = let appCount = countApps 0 apps in
         if appCount > 0
         then RChurch appCount Nothing
         else c
@@ -192,20 +198,23 @@ fasterEval =
         Right i -> pure i
   in fmap fromRExpr . frEval . rOptimize . toRExpr
 
---llvmEval :: IExpr -> IO IExpr
---llvmEval iexpr = do
---  let lmod = LLVM.makeModule iexpr
---  --print $ LLVM.DebugModule lmod
---  result <- catchError (LLVM.evalJIT lmod) $ \e -> pure . Left $ show e
---  case result of
---    Left s -> do
---      putStrLn $ "failed llvmEval: " ++ s
---      fail s
---    Right x -> do
---      pure x
+llvmEval :: IExpr -> IO IExpr
+llvmEval iexpr = do
+  let lmod = LLVM.makeModule iexpr
+  when debug $ do
+    print $ LLVM.DebugModule lmod
+    putStrLn . concat . take 100 . repeat $ "                                                                     \n"
+  result <- catch (LLVM.evalJIT lmod) $ \(e :: SomeException) -> pure . Left $ show e
+  case result of
+    Left s -> do
+      hPutStrLn stderr . show $ iexpr
+      hPutStrLn stderr $ "failed llvmEval: " ++ s
+      fail s
+    Right x -> do
+      pure x
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = fasterEval --simpleEval . optimize
+optimizedEval = llvmEval
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g
