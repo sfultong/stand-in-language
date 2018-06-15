@@ -35,6 +35,8 @@ import qualified LLVM.Target as Target
 
 import qualified SIL as SIL
 
+import Debug.Trace
+
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
 debug :: Bool
@@ -60,8 +62,8 @@ run fn = do
 convertPairs :: (Int64, [(Int64,Int64)]) -> SIL.IExpr
 convertPairs (x, pairs)=
   let convertPair 0 = SIL.Zero
-      convertPair n = let (l,r) = pairs !! fromIntegral n
-                      in SIL.Pair (convertPair l) (convertPair r)
+      convertPair n = let (l,r) = trace (show [show $ length pairs, show n, show $ fromIntegral n]) (pairs !! fromIntegral n)
+        in SIL.Pair (convertPair l) (convertPair r)
   in convertPair x
 
 makeModule :: SIL.IExpr -> AST.Module
@@ -131,7 +133,7 @@ evalJIT amod = do
                 else do
                   debugLog "running main"
                   res <- run mainFn
-                  pure . Right $ convertPairs res
+                  trace (concat [show mainFn, " and ", show res]) $ pure . Right $ convertPairs res
 
 -- name counter, block instruction list (reversed), block name, block list, definition list, definition counter
 type FunctionState a = State (Word, [Named Instruction], Name, [BasicBlock], [Definition], Word) a
