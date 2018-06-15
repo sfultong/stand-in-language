@@ -1,4 +1,3 @@
-main 
- = #input -> plus 2 2
+main = succ 0
 
 

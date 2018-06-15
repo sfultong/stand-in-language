@@ -30,8 +30,8 @@ let
   haskellPkgs = pkgs.haskell.packages."${compiler}".extend(
       self: super: {
           indents = pkgs.haskell.lib.dontCheck super.indents;           
-          llvm-hs-pure = super.callHackage "llvm-hs-pure" "5.1.2" {}; 
-          llvm-hs      = super.callHackage "llvm-hs" "5.1.3" { llvm-config = pkgs.llvm_5; }; 
+#          llvm-hs-pure = super.callHackage "llvm-hs-pure" "6.2.0" {}; 
+#          llvm-hs      = super.callHackage "llvm-hs" "6.2.0" { llvm-config = pkgs.llvm_6; }; 
       });
   drv = haskellPkgs.callPackage silEnv {};
 
