@@ -1,0 +1,2 @@
+"Adding small numbers" "main = plus $3 $4 succ 0"
+"Adding big   numbers" "main = plus $10002313 $23145124512 succ 0"

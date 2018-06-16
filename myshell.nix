@@ -11,7 +11,7 @@ let
   };
   silEnv = { mkDerivation, base, llvm-hs, llvm-hs-pure, bytestring, llvm_6, binutils, stdenv
            , indents, containers, mtl, parsec, QuickCheck, recursion-schemes, strict, vector
-           , hspec, criterion, derive-storable, derive-storable-plugin} : mkDerivation
+           , hspec, criterion, weigh, derive-storable, derive-storable-plugin} : mkDerivation
   {
     pname = "silEnv";
     src = ./src;
@@ -22,7 +22,7 @@ let
     librarySystemDepends = [ binutils sil_jumper llvm_6];
     libraryHaskellDepends =
      [ base bytestring containers indents llvm-hs llvm-hs-pure mtl parsec recursion-schemes
-       vector hspec criterion derive-storable derive-storable-plugin
+       vector hspec criterion weigh derive-storable derive-storable-plugin
      ];
     executableHaskellDepends = [ base containers strict ];
     testHaskellDepends = [ base QuickCheck strict ];
