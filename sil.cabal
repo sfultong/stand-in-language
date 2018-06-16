@@ -96,7 +96,6 @@ executable memory
   Main-is:             MemoryBench.hs
   other-modules:       Cases, Paths_sil
   build-depends:       base, sil, deepseq, strict, weigh, parsec
-  ghc-options:         -with-rtsopts=-T
 
 source-repository head
   type:     git

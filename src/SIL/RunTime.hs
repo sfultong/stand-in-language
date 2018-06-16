@@ -214,7 +214,7 @@ llvmEval iexpr = do
       pure x
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = fasterEval -- llvmEval
+optimizedEval = llvmEval
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g
