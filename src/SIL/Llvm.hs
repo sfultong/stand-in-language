@@ -280,6 +280,7 @@ getName = state $ \(c, l, n, b, d, dc) -> (UnName c, (c + 1, l, n, b, d, dc))
 setBlockName :: Name -> FunctionState ()
 setBlockName n = state $ \(c, l, _, b, d, dc) -> ((), (c, l, n, b, d, dc))
 
+-- | Wrap the argument in a function that accepts an integer environment as its argument.
 doFunction :: FunctionState Operand -> FunctionState Operand
 doFunction body = do
   (c, ins, n, blks, def, defC) <- get
@@ -309,6 +310,8 @@ leftStartC = ConstantOperand (C.PtrToInt (C.GlobalReference heapPType heapN) int
 rightStartC :: Operand
 rightStartC = ConstantOperand (C.Add True True (C.PtrToInt (C.GlobalReference heapPType heapN) intT) (C.Int 64 8))
 
+-- | @makePair a b@ allocates a new pair (a,b) at the current heap
+-- index and increments the heap index.
 makePair :: Operand -> Operand -> FunctionState Operand
 makePair a b = do
   heap <- doInst $ Load False (ConstantOperand (C.GlobalReference intPtrT heapIndexN)) Nothing 0 []
@@ -320,6 +323,7 @@ makePair a b = do
   doVoidInst $ Store False (ConstantOperand (C.GlobalReference intPtrT heapIndexN)) nc Nothing 0 []
   pure heap
 
+-- | @doLeft p@ loads the first element of the pair @p@.
 doLeft :: Operand -> FunctionState Operand
 doLeft xp = do
   offset <- doInst $ Mul False False xp pairOffC []
@@ -327,6 +331,7 @@ doLeft xp = do
   ptr <- doInst $ IntToPtr addr intPtrT []
   doInst $ Load False ptr Nothing 0 []
 
+-- | @doRight p@ loads the second element of the pair @p@.
 doRight :: Operand -> FunctionState Operand
 doRight xp = do
   offset <- doInst $ Mul False False xp pairOffC []
@@ -428,12 +433,14 @@ toLLVM (SIL.PRight x) = toLLVM x >>= doRight
 toLLVM SIL.Env = pure envC
 toLLVM (SIL.Defer x) = doFunction $ toLLVM x
 toLLVM (SIL.SetEnv x) = do
+  -- Evaluate x to (clo, env)
   xp <- toLLVM x
   l <- doTypedInst intPtrT $ AST.GetElementPtr False heapC [zero, xp, zero32] []
   r <- doTypedInst intPtrT $ AST.GetElementPtr False heapC [zero, xp, one32] []
   clo <- doInst $ Load False l Nothing 0 []
   env <- doInst $ Load False r Nothing 0 []
   funPtr <- doInst $ IntToPtr clo funT []
+  -- Call the function stored at clo with argument env
   doInst $ Call (Just Tail) CC.Fast [] (Right funPtr) [(env, [])] [] []
 toLLVM (SIL.Gate x) = do
   lx <- toLLVM x
@@ -518,6 +525,7 @@ testLLVM =
        }
      ) : definitions
 
+-- | Load the first element of the pair pointed to by the argument.
 goLeft :: Definition
 goLeft = GlobalDefinition $ functionDefaults
   { name = "goLeft"
@@ -534,6 +542,7 @@ goLeft = GlobalDefinition $ functionDefaults
     ]
   }
 
+-- | Load the second element of the pair pointed to by the argument.
 goRight :: Definition
 goRight = GlobalDefinition $ functionDefaults
   { name = "goRight"
