@@ -18,6 +18,7 @@ library
   include-dirs:        cbits/include
   c-sources:           cbits/SIL.c
   exposed-modules:     SIL
+                     , Naturals
                      , SIL.Eval
                      , SIL.Llvm
                      , SIL.Optimizer
