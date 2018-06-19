@@ -94,9 +94,9 @@ executable memory
   hs-source-dirs:      bench/
   default-language:    Haskell2010
   Main-is:             MemoryBench.hs
-  other-modules:       Cases, LLVMDive, Paths_sil
+  other-modules:       Cases, MemoryBench.LLVMDive, Paths_sil
   build-depends:       base, sil, deepseq, strict, weigh, parsec
-                     , llvm-hs-pure, llvm-hs
+                     , containers, bytestring ,llvm-hs-pure, llvm-hs
 
 source-repository head
   type:     git

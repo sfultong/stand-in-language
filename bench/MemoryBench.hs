@@ -20,7 +20,7 @@ import SIL.Optimizer
 import SIL.Eval
 import qualified System.IO.Strict as Strict
 
-import LLVMDive
+import MemoryBench.LLVMDive
 import Cases
 import Paths_sil
 
@@ -41,7 +41,6 @@ import Debug.Trace
 -- Required by Weigh - we do not have access to ParseError's constructor.
 instance NFData ParseError where
     rnf a = ()
-
 
 
 processCase :: Bindings -> Case -> Weigh ()
@@ -74,6 +73,13 @@ benchEvalOptimized iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
 config :: Config
 config = Config [Weigh.Case, Allocated, GCs, Live] "" Plain
 
+
+debugCase :: Bindings -> Case -> IO IExpr
+debugCase bindings (Case label code) = do
+    let e_parsed       = parseMain bindings code
+        (Right parsed) = e_parsed --Taking advantage of lazy evalutation here
+    benchEval parsed
+
 main = do
   preludeFile <- Strict.readFile "Prelude.sil"
 
@@ -85,5 +91,6 @@ main = do
 
 
   cases <- loadCases =<< getDataFileName "bench/cases/funs"
+  mapM_ (debugCase prelude) cases
   mainWith $ setConfig config >> processAllCases prelude cases
 
