@@ -10,6 +10,7 @@ import Control.Monad.Fix
 import System.IO (hPutStrLn, stderr)
 
 import SIL
+import Naturals
 import qualified SIL.Llvm as LLVM
 
 debug :: Bool
@@ -200,7 +201,7 @@ fasterEval =
 
 llvmEval :: IExpr -> IO IExpr
 llvmEval iexpr = do
-  let lmod = LLVM.makeModule iexpr
+  let lmod = LLVM.makeModule $ toNExpr iexpr
   when debug $ do
     print $ LLVM.DebugModule lmod
     putStrLn . concat . take 100 . repeat $ "                                                                     \n"
@@ -211,7 +212,7 @@ llvmEval iexpr = do
       hPutStrLn stderr $ "failed llvmEval: " ++ s
       fail s
     Right x -> do
-      pure x
+      pure $ fromNExpr x
 
 optimizedEval :: IExpr -> IO IExpr
 optimizedEval = llvmEval

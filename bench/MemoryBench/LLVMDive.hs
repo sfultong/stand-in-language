@@ -83,6 +83,7 @@ import Foreign.C.String
 
 import           SIL
 import qualified SIL.Llvm as LLVM
+import           Naturals
 
 import Weigh
 
@@ -199,7 +200,7 @@ instance NFData (OJ.IRCompileLayer a) where
 
 benchEval :: IExpr -> IO IExpr
 benchEval iexpr = do
-  let lmod = LLVM.makeModule iexpr
+  let lmod = LLVM.makeModule $ toNExpr iexpr
   result <- catch (myevalJIT lmod) $ \(e :: SomeException) -> pure . Left $ show e
   case result of
     Left s -> do
@@ -213,7 +214,7 @@ localEval iexpr = benchEval (SetEnv (Pair (Defer iexpr) Zero))
 benchLLVMDetails :: IExpr -> IO (Weigh ())
 benchLLVMDetails iexpr = do
     let wrap_iexpr = SetEnv (Pair (Defer iexpr) Zero)
-        lmod = LLVM.makeModule wrap_iexpr
+        lmod = LLVM.makeModule $ toNExpr wrap_iexpr
     bench_jit <- benchJIT lmod
     bench_OJModuleCreation <- benchOJModuleCreation lmod
     return $ sequence_ [ func "---------------" id              ()
@@ -307,7 +308,7 @@ myevalJIT amod = do
           Left err -> return $ error $ show err
           Right (OJ.JITSymbol mainFn _) -> do
               res <- LLVM.run mainFn
-              return $ Right $ LLVM.convertPairs res
+              return $ Right $ fromNExpr $ LLVM.convertPairs res
   ----
   OJ.removeModule compileLayer' ojmod'
   OJ.disposeCompileLayer compileLayer'
