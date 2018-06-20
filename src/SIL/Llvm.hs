@@ -222,7 +222,7 @@ pairHeap = GlobalDefinition
   $ globalVariableDefaults
   { name = heapN
   , LLVM.AST.Global.type' = heapType
-  , initializer = Just (C.Array pairT . take (fromIntegral heapSize) $ repeat emptyPair)
+  , initializer = Just (C.AggregateZero heapType)
   }
 
 heapIndexN :: Name
