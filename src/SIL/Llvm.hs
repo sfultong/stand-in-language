@@ -39,7 +39,7 @@ import qualified LLVM.IRBuilder.Instruction as IRI
 import qualified LLVM.IRBuilder.Constant as IRC
 import qualified LLVM.IRBuilder.Module as IRM
 
-import qualified SIL as SIL
+import Naturals
 
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
@@ -63,14 +63,14 @@ run fn = do
   pairs <- (reverse . snd) <$> foldM readPair (startHeap, []) [1..numPairs]
   pure (resultPair, pairs)
 
-convertPairs :: (Int64, [(Int64,Int64)]) -> SIL.IExpr
+convertPairs :: (Int64, [(Int64,Int64)]) -> NExpr
 convertPairs (x, pairs)=
-  let convertPair 0 = SIL.Zero
+  let convertPair 0 = NZero
       convertPair n = let (l,r) = pairs !! fromIntegral n
-                      in SIL.Pair (convertPair l) (convertPair r)
+                      in NPair (convertPair l) (convertPair r)
   in convertPair x
 
-makeModule :: SIL.IExpr -> AST.Module
+makeModule :: NExpr -> AST.Module
 makeModule iexpr = flip evalState startBuilderInternal . buildModuleT "SILModule" $ do
   mapM_ emitDefn [pairHeap, heapIndex, resultStructure]
 
@@ -150,7 +150,7 @@ debugLog = if debug
   then hPutStrLn stderr
   else const $ pure ()
 
-evalJIT :: AST.Module -> IO (Either String SIL.IExpr)
+evalJIT :: AST.Module -> IO (Either String NExpr)
 evalJIT amod = do
   b <- Linking.loadLibraryPermanently Nothing
   withContext $ \ctx ->
@@ -323,11 +323,11 @@ envC = LocalReference intT "env"
 lComment :: a -> (a, MDRef MDNode)
 lComment s = (s, MDInline (MDTuple []))
 
-toLLVM :: SIL.IExpr -> SILBuilder Operand
+toLLVM :: NExpr -> SILBuilder Operand
 -- chunks of AST that can be translated to optimized instructions
-toLLVM (SIL.SetEnv (SIL.Pair (SIL.Gate i) (SIL.Pair e t))) = case i of
-  SIL.Zero -> toLLVM e
-  (SIL.Pair _ _) -> toLLVM t
+toLLVM (NSetEnv (NPair (NGate i) (NPair e t))) = case i of
+  NZero -> toLLVM e
+  (NPair _ _) -> toLLVM t
   _ -> do
     ip <- toLLVM i
     elseB <- freshUnName
@@ -349,30 +349,16 @@ toLLVM (SIL.SetEnv (SIL.Pair (SIL.Gate i) (SIL.Pair e t))) = case i of
     emitBlockStart exitB
     IRI.phi [(ep, endElseB), (tp, endThenB)]
 -- single instruction translation
-toLLVM SIL.Zero = pure zero
-toLLVM (SIL.Pair a b) = do
+toLLVM NZero = pure zero
+toLLVM (NPair a b) = do
   oa <- toLLVM a
   ob <- toLLVM b
   makePair oa ob
-toLLVM (SIL.Twiddle x) = do
-  xp <- toLLVM x
-  -- get values for current pairs
-  ia <- IRI.gep heapC [zero, xp, zero32]
-  ca <- IRI.gep heapC [zero, xp, one32]
-  i <- IRI.load ia 0
-  c <- IRI.load ca 0
-  cla <- IRI.gep heapC [zero, c, zero32]
-  cea <- IRI.gep heapC [zero, c, one32]
-  cl <- IRI.load cla 0
-  ce <- IRI.load cea 0
-  -- create new pairs
-  nenv <- makePair i ce
-  makePair cl nenv
-toLLVM (SIL.PLeft x) = toLLVM x >>= doLeft
-toLLVM (SIL.PRight x) = toLLVM x >>= doRight
-toLLVM SIL.Env = pure envC
-toLLVM (SIL.Defer x) = doFunction $ toLLVM x
-toLLVM (SIL.SetEnv x) = do
+toLLVM (NLeft x) = toLLVM x >>= doLeft
+toLLVM (NRight x) = toLLVM x >>= doRight
+toLLVM NEnv = pure envC
+toLLVM (NDefer x) = doFunction $ toLLVM x
+toLLVM (NSetEnv x) = do
   -- Evaluate x to (clo, env)
   xp <- toLLVM x
   l <- IRI.gep heapC [zero, xp, zero32]
@@ -382,13 +368,13 @@ toLLVM (SIL.SetEnv x) = do
   funPtr <- IRI.inttoptr clo funT
   -- Call the function stored at clo with argument env
   IRI.call funPtr [(env, [])]
-toLLVM (SIL.Gate x) = do
+toLLVM (NGate x) = do
   lx <- toLLVM x
   bool <- IRI.icmp IP.NE lx zero
   IRI.select bool
     (ConstantOperand (C.PtrToInt (C.GlobalReference funT "goRight") intT))
     (ConstantOperand (C.PtrToInt (C.GlobalReference funT "goLeft") intT))
-toLLVM (SIL.Abort x) = do
+toLLVM (NAbort x) = do
   lx <- toLLVM x
 
   abortB <- freshUnName
@@ -404,7 +390,7 @@ toLLVM (SIL.Abort x) = do
   pure zero
 
 -- TODO this will be hard
-toLLVM (SIL.Trace x) = toLLVM x
+toLLVM (NTrace x) = toLLVM x
 
 resultC :: Operand
 resultC = ConstantOperand $ C.GlobalReference (PointerType resultStructureT (AddrSpace.AddrSpace 0)) resultStructureN

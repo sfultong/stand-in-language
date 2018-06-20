@@ -102,9 +102,11 @@ var = Env
 env :: IExpr
 env = Env
 twiddle :: IExpr -> IExpr
-twiddle = Twiddle
+twiddle x = setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env))))) x)
 app :: IExpr -> IExpr -> IExpr
-app c i = setenv (twiddle (pair i c))
+--app c i = setenv (twiddle (pair i c))
+app c i = setenv (setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env)))))
+                          (pair i c)))
 check :: IExpr -> IExpr -> IExpr
 check c tc = setenv (pair (defer (ite
                                   (app (pleft env) (pright env))
