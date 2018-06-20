@@ -14,6 +14,7 @@ import SIL.Optimizer
 import SIL.Serializer
 import System.Exit
 import System.IO
+import Test.Hspec
 import Test.QuickCheck
 import qualified System.IO.Strict as Strict
 
@@ -246,30 +247,23 @@ testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
     where serialized   = serialize iexpr
           deserialized = unsafeDeserialize serialized
 
-unitTest :: String -> String -> IExpr -> IO Bool
-unitTest name expected iexpr = if allowedTypeCheck (typeCheck ZeroType iexpr)
+unitTest :: String -> String -> IExpr -> Spec
+unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroType iexpr)
   then do
     result <- (show . PrettyIExpr) <$> testEval iexpr
-    if result == expected
-      then pure True
-      else (hPutStrLn stderr $ concat [name, ": expected ", expected, " result ", result]) >>
-           pure False
-  else hPutStrLn stderr ( concat [name, " failed typecheck: ", show (typeCheck ZeroType iexpr)])
-       >> pure False
+    result `shouldBe` expected
+  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroType iexpr)])
 
-unitTestRefinement :: String -> Bool -> IExpr -> IO Bool
-unitTestRefinement name shouldSucceed iexpr = case inferType iexpr of
+unitTestRefinement :: String -> Bool -> IExpr -> Spec
+unitTestRefinement name shouldSucceed iexpr = it name $ case inferType iexpr of
   Right t -> case (pureEvalWithError iexpr, shouldSucceed) of
     (Left err, True) -> do
-      putStrLn $ concat [name, ": failed refinement type -- ", show err]
-      pure False
+      expectationFailure $ concat [name, ": failed refinement type -- ", show err]
     (Right _, False) -> do
-      putStrLn $ concat [name, ": expected refinement failure, but passed"]
-      pure False
-    _ -> pure True
+      expectationFailure $ concat [name, ": expected refinement failure, but passed"]
+    _ -> pure ()
   Left err -> do
-    putStrLn $ concat ["refinement test failed typecheck: ", name, " ", show err]
-    pure False
+    expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
 {-
 unitTestOptimization :: String -> IExpr -> IO Bool
 unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
@@ -314,7 +308,7 @@ partiallyEvaluatedIsIsomorphicToOriginal vte =
     (Left a, Left b) -> sameError a b
     (a, b) -> a == b
 
-debugPEIITO :: IExpr -> IO Bool
+debugPEIITO :: IExpr -> Expectation
 debugPEIITO iexpr = do
   putStrLn "regular app:"
   putStrLn $ show (app iexpr Zero)
@@ -323,27 +317,27 @@ debugPEIITO iexpr = do
   putStrLn "evaled:"
   putStrLn $ show (eval iexpr)
   case (\x -> pureREval (app x Zero)) <$> eval iexpr of
-    Left (RTE e) -> do
-      putStrLn . concat $ ["partially evaluated error: ", show e]
-      putStrLn . concat $ ["regular evaluation result: ", show (pureREval (app iexpr Zero))]
-    Right x -> do
-      putStrLn . concat $ ["partially evaluated result: ", show x]
-      putStrLn . concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]
-  pure False
+    Left (RTE e) ->
+      expectationFailure
+        (unlines
+           [ concat $ ["partially evaluated error: ", show e]
+           , concat $ ["regular evaluation result: ", show (pureREval (app iexpr Zero))]])
+    Right x ->
+      expectationFailure
+        (unlines
+           [ concat $ ["partially evaluated result: ", show x]
+           , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
 
-unitTests_ unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
-  [ debugMark "Starting testing tests for testing"
-  , unitTest "basiczero" "0" Zero
-  , debugMark "0"
-  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-  , unitTest "c2d" "2" c2d_test
-  , unitTest "c2d2" "2" c2d_test2
-  , unitTest "c2d3" "1" c2d_test3
-  , unitTest "oneplusone" "2" one_plus_one
-  , debugMark "1"
-  , unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
-  , unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
-  ]
+unitTests_ :: Spec
+unitTests_ = do
+  unitTest "basiczero" "0" Zero
+  unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  unitTest "c2d" "2" c2d_test
+  unitTest "c2d2" "2" c2d_test2
+  unitTest "c2d3" "1" c2d_test3
+  unitTest "oneplusone" "2" one_plus_one
+  unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+  unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
 isInconsistentType _ = False
@@ -367,97 +361,101 @@ unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p 
 
 debugMark s = hPutStrLn stderr s >> pure True
 
-unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
-  (
-  [ unitTestType "main = \\x -> {x,0}" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
-  , unitTestType "main = \\x -> {x,0}" ZeroType isInconsistentType
-  , unitTestType "main = succ 0" ZeroType (== Nothing)
-  , unitTestType "main = succ 0" (ArrType ZeroType ZeroType) isInconsistentType
-  , unitTestType "main = or 0" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
-  , unitTestType "main = or 0" ZeroType isInconsistentType
-  , unitTestType "main = or succ" (ArrType ZeroType ZeroType) isInconsistentType
-  , unitTestType "main = 0 succ" ZeroType isInconsistentType
-  , unitTestType "main = 0 0" ZeroType isInconsistentType
-  -- I guess this is inconsistently typed now?
-  , unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-    (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
-  , unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
-  , unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
+unitTests :: (String -> String -> Spec) -> (String -> DataType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
+unitTests unitTest2 unitTestType = do
+  describe "type checker" $ do
+    unitTestType "main = \\x -> {x,0}" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
+    unitTestType "main = \\x -> {x,0}" ZeroType isInconsistentType
+    unitTestType "main = succ 0" ZeroType (== Nothing)
+    unitTestType "main = succ 0" (ArrType ZeroType ZeroType) isInconsistentType
+    unitTestType "main = or 0" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
+    unitTestType "main = or 0" ZeroType isInconsistentType
+    unitTestType "main = or succ" (ArrType ZeroType ZeroType) isInconsistentType
+    unitTestType "main = 0 succ" ZeroType isInconsistentType
+    unitTestType "main = 0 0" ZeroType isInconsistentType
+    -- I guess this is inconsistently typed now?
+    unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
+    unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
   -- TODO fix
   --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
-  , unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-  , unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
-  , unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
-  , unitTest "c2d" "2" c2d_test
-  , unitTest "c2d2" "2" c2d_test2
-  , unitTest "c2d3" "1" c2d_test3
-  , unitTest "oneplusone" "2" one_plus_one
-  , unitTest "church 3+2" "5" three_plus_two
-  , unitTest "3*2" "6" three_times_two
-  , unitTest "3^2" "9" three_pow_two
-  , unitTest "test_tochurch" "2" test_toChurch
-  , unitTest "three" "3" three_succ
-  , unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
-  , unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
-  , unitTest "listlength0" "0" $ app list_length zero
-  , unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
-  , unitTest "zipwith" "{{4,1},{{5,1},{{6,2},0}}}"
-    $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
-           (ints2g [4,5,6]))
-    (ints2g [1,1,2,3])
-  , unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
-  , unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
-  , unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
+  describe "unitTest" $ do
+    unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+    unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+    unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
+    unitTest "c2d" "2" c2d_test
+    unitTest "c2d2" "2" c2d_test2
+    unitTest "c2d3" "1" c2d_test3
+    unitTest "oneplusone" "2" one_plus_one
+    unitTest "church 3+2" "5" three_plus_two
+    unitTest "3*2" "6" three_times_two
+    unitTest "3^2" "9" three_pow_two
+    unitTest "test_tochurch" "2" test_toChurch
+    unitTest "three" "3" three_succ
+    unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
+    unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+    unitTest "listlength0" "0" $ app list_length zero
+    unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
+    unitTest "zipwith" "{{4,1},{{5,1},{{6,2},0}}}"
+      $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
+                 (ints2g [4,5,6]))
+            (ints2g [1,1,2,3])
+    unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
+    unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
+    unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
   -- because of the way lists are represented, the last number will be prettyPrinted + 1
-  , unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
-    (ints2g [1,2,3])
-  , unitTestRefinement "minimal refinement success" True (check zero (completeLam (varN 0)))
-  , unitTestRefinement "minimal refinement failure" False
-    (check (i2g 1) (completeLam (ite (varN 0) (s2g "whoops") zero)))
-  , unitTestRefinement "refinement: test of function success" True
-    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 1))))
-  , unitTestRefinement "refinement: test of function failure" False
-    (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 2))))
-  , unitTest2 "main = 0" "0"
-  , unitTest2 fiveApp "5"
-  , unitTest2 "main = plus $3 $2 succ 0" "5"
-  , unitTest2 "main = times $3 $2 succ 0" "6"
-  , unitTest2 "main = pow $3 $2 succ 0" "8"
-  , unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
-  , unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
-  , unitTest2 "main = dEqual 0 0" "1"
-  , unitTest2 "main = dEqual 1 0" "0"
-  , unitTest2 "main = dEqual 0 1" "0"
-  , unitTest2 "main = dEqual 1 1" "1"
-  , unitTest2 "main = dEqual 2 1" "0"
-  , unitTest2 "main = dEqual 1 2" "0"
-  , unitTest2 "main = dEqual 2 2" "1"
-  , unitTest2 "main = listLength []" "0"
-  , unitTest2 "main = listLength [1,2,3]" "3"
-  , unitTest2 "main = listEqual \"hey\" \"hey\"" "1"
-  , unitTest2 "main = listEqual \"hey\" \"he\"" "0"
-  , unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
-  , unitTest2 "main = listPlus [1,2] [3,4]" "{1,{2,{3,5}}}"
-  , unitTest2 "main = listPlus 0 [1]" "2"
-  , unitTest2 "main = listPlus [1] 0" "2"
-  , unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "{97,{98,100}}"
-  , unitTest2 nestedNamedFunctionsIssue "2"
-  , unitTest2 "main = take $0 [1,2,3]" "0"
-  , unitTest2 "main = take $1 [1,2,3]" "2"
-  , unitTest2 "main = take $5 [1,2,3]" "{1,{2,4}}"
-  , unitTest2 "main = c2d (minus $4 $3)" "1"
-  , unitTest2 "main = c2d (minus $4 $4)" "0"
-  , unitTest2 "main = dMinus 4 3" "1"
-  , unitTest2 "main = dMinus 4 4" "0"
-  , unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
-  , unitTest2 "main = range 2 5" "{2,{3,5}}"
-  , unitTest2 "main = range 6 6" "0"
-  , unitTest2 "main = c2d (factorial 4)" "24"
-  , unitTest2 "main = c2d (factorial 0)" "1"
-  , unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
-    "{4,{5,{6,8}}}"
-  , unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
-    "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
+    unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
+                                     (ints2g [1,2,3])
+  describe "refinement" $ do
+    unitTestRefinement "minimal refinement success" True (check zero (completeLam (varN 0)))
+    unitTestRefinement "minimal refinement failure" False
+      (check (i2g 1) (completeLam (ite (varN 0) (s2g "whoops") zero)))
+    unitTestRefinement "refinement: test of function success" True
+     (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 1))))
+    unitTestRefinement "refinement: test of function failure" False
+     (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 2))))
+  describe "unitTest2" $ do
+    unitTest2 "main = 0" "0"
+    unitTest2 fiveApp "5"
+    unitTest2 "main = plus $3 $2 succ 0" "5"
+    unitTest2 "main = times $3 $2 succ 0" "6"
+    unitTest2 "main = pow $3 $2 succ 0" "8"
+    unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
+    unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
+    unitTest2 "main = dEqual 0 0" "1"
+    unitTest2 "main = dEqual 1 0" "0"
+    unitTest2 "main = dEqual 0 1" "0"
+    unitTest2 "main = dEqual 1 1" "1"
+    unitTest2 "main = dEqual 2 1" "0"
+    unitTest2 "main = dEqual 1 2" "0"
+    unitTest2 "main = dEqual 2 2" "1"
+    unitTest2 "main = listLength []" "0"
+    unitTest2 "main = listLength [1,2,3]" "3"
+    unitTest2 "main = listEqual \"hey\" \"hey\"" "1"
+    unitTest2 "main = listEqual \"hey\" \"he\"" "0"
+    unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
+    unitTest2 "main = listPlus [1,2] [3,4]" "{1,{2,{3,5}}}"
+    unitTest2 "main = listPlus 0 [1]" "2"
+    unitTest2 "main = listPlus [1] 0" "2"
+    unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "{97,{98,100}}"
+    unitTest2 nestedNamedFunctionsIssue "2"
+    unitTest2 "main = take $0 [1,2,3]" "0"
+    unitTest2 "main = take $1 [1,2,3]" "2"
+    unitTest2 "main = take $5 [1,2,3]" "{1,{2,4}}"
+    unitTest2 "main = c2d (minus $4 $3)" "1"
+    unitTest2 "main = c2d (minus $4 $4)" "0"
+    unitTest2 "main = dMinus 4 3" "1"
+    unitTest2 "main = dMinus 4 4" "0"
+    unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
+    unitTest2 "main = range 2 5" "{2,{3,5}}"
+    unitTest2 "main = range 6 6" "0"
+    unitTest2 "main = c2d (factorial 4)" "24"
+    unitTest2 "main = c2d (factorial 0)" "1"
+    unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
+      "{4,{5,{6,8}}}"
+    unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
+      "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
   -- , debugPEIITO (SetEnv (Twiddle (Twiddle (Pair (Defer Var) Zero))))
   -- , debugPEIITO (SetEnv (Pair (Defer Var) Zero))
   -- , debugPEIITO (SetEnv (Pair (Defer (Pair Zero Var)) Zero))
@@ -473,9 +471,7 @@ unitTests unitTest2 unitTestType = foldl (liftA2 (&&)) (pure True)
   , unitTestOptimization "listequal0" $ app (app list_equality (s2g "hey")) (s2g "he")
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
-  ]
   -- ++ quickCheckTests unitTest2 unitTestType
-  )
 
 -- slow, don't regularly run
 quickCheckTests unitTest2 unitTestType =
@@ -514,11 +510,11 @@ main = do
       Right pg -> if pg == g
         then pure ()
         else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
-    unitTest2 s r = case parseMain prelude s of
-      Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
+    unitTest2 s r = it s $ case parseMain prelude s of
+      Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
       Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
-        then pure True
-        else (putStrLn $ concat [s, " result ", r2]) >> pure False
+        then pure ()
+        else expectationFailure $ concat [s, " result ", r2]
     unitTest3 s r = let parsed = parseMain prelude s in case (inferType <$> parsed, parsed) of
       (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
         then pure True
@@ -533,14 +529,13 @@ main = do
       e -> do
         putStrLn $ concat ["could not infer type ", show e]
         pure False
-    unitTestType s t tef = case parseMain prelude s of
-      Left e -> (putStrLn $ concat ["failed to parse ", s, " ", show e]) >> pure False
+    unitTestType s t tef = it s $ case parseMain prelude s of
+      Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
       Right g -> let apt = typeCheck t g
                  in if tef apt
-                    then pure True
-                    else (putStrLn $
-                          concat [s, " failed typecheck, result ", show apt])
-             >> pure False
+                    then pure ()
+                    else expectationFailure $
+                          concat [s, " failed typecheck, result ", show apt]
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
@@ -554,5 +549,4 @@ main = do
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}
-  result <- unitTests unitTest2 unitTestType
-  exitWith $ if result then ExitSuccess else ExitFailure 1
+  hspec (unitTests unitTest2 unitTestType)
