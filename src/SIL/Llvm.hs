@@ -10,9 +10,11 @@ import Data.String (fromString)
 import Debug.Trace
 import Foreign.Ptr (FunPtr, castFunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr, castPtr)
 import Foreign.Storable (peek)
+import System.Clock
 import System.IO (hPutStrLn, stderr)
+import Text.Printf
 
-import LLVM.AST
+import LLVM.AST hiding (Monotonic)
 import LLVM.AST.Global
 import LLVM.AST.Linkage
 import LLVM.Context
@@ -160,11 +162,12 @@ optimizeModule jitConfig module' = do
 
 data JITConfig = JITConfig
   { debugOutput :: !Bool
+  , timingOutput :: !Bool
   , optimizerLevel :: !OptimizerLevel
   }
 
 defaultJITConfig :: JITConfig
-defaultJITConfig = JITConfig {debugOutput = False, optimizerLevel = Two}
+defaultJITConfig = JITConfig {debugOutput = False, timingOutput = False, optimizerLevel = Two}
 
 data OptimizerLevel
   = None
@@ -183,9 +186,12 @@ optimizerLevelToWord l =
 evalJIT :: JITConfig -> AST.Module -> IO (Either String NExpr)
 evalJIT jitConfig amod = do
   b <- Linking.loadLibraryPermanently Nothing
-  withContext $ \ctx ->
+  withContext $ \ctx -> do
+    t0 <- getTime Monotonic
     withModuleFromAST ctx amod $ \mod -> do
+      t1 <- getTime Monotonic
       optimizeModule jitConfig mod
+      t2 <- getTime Monotonic
       when (debugOutput jitConfig) $ do
         asm <- moduleLLVMAssembly mod
         BSC.putStrLn asm
@@ -194,7 +200,9 @@ evalJIT jitConfig amod = do
           debugLog jitConfig "in objectlinkinglayer"
           OJ.withIRCompileLayer objectLayer tm $ \compileLayer -> do
             debugLog jitConfig "in compilelayer"
+            t3 <- getTime Monotonic
             OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
+              t4 <- getTime Monotonic
               debugLog jitConfig "in modulelayer"
               mainSymbol <- OJ.mangleSymbol compileLayer "main"
               jitSymbolOrError <- OJ.findSymbol compileLayer mainSymbol True
@@ -204,8 +212,27 @@ evalJIT jitConfig amod = do
                   pure $ error "Couldn't find main"
                 Right (OJ.JITSymbol mainFn _) -> do
                   debugLog jitConfig "running main"
+                  t5 <- getTime Monotonic
                   res <- run jitConfig mainFn
+                  t6 <- getTime Monotonic
+                  when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
                   pure . Right $ convertPairs res
+
+printTimings :: TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> IO ()
+printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer beforeAddingModule afterAddingModule beforeRun afterRun = do
+  printf "module serialization: %s, optimizer %s, adding module: %s, run: %s\n"
+    (fmtTS moduleSerialization)
+    (fmtTS optimizer)
+    (fmtTS addingModule)
+    (fmtTS run)
+  where
+    moduleSerialization = afterModuleSerialization `diffTimeSpec` beforeModuleSerialization
+    optimizer = afterOptimizer `diffTimeSpec` afterModuleSerialization
+    addingModule = afterAddingModule `diffTimeSpec` beforeAddingModule
+    run = afterRun `diffTimeSpec` beforeRun
+
+fmtTS :: TimeSpec -> String
+fmtTS (TimeSpec s ns) = printf "%.3f" (fromIntegral s + fromIntegral ns / (10 ^ (9 :: Int)) :: Double)
 
 intT :: Type
 intT = IntegerType 64
