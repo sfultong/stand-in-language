@@ -20,7 +20,7 @@ import SIL.Optimizer
 import SIL.Eval
 import qualified System.IO.Strict as Strict
 
-import MemoryBench.LLVMDive
+import MemoryBench.LLVM
 import MemoryBench.Cases
 import Paths_sil
 

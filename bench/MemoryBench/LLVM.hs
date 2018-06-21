@@ -1,7 +1,7 @@
 {-#LANGUAGE OverloadedStrings #-}
 {-#LANGUAGE ScopedTypeVariables #-}
 {-#LANGUAGE TupleSections #-}
-module MemoryBench.LLVMDive where
+module MemoryBench.LLVM where
 
 import LLVM.Module hiding (Module)
 import LLVM.Context
