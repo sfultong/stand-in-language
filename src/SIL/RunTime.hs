@@ -205,7 +205,7 @@ llvmEval iexpr = do
   when debug $ do
     print $ LLVM.DebugModule lmod
     putStrLn . concat . take 100 . repeat $ "                                                                     \n"
-  result <- catch (LLVM.evalJIT lmod) $ \(e :: SomeException) -> pure . Left $ show e
+  result <- catch (LLVM.evalJIT LLVM.defaultJITConfig lmod) $ \(e :: SomeException) -> pure . Left $ show e
   case result of
     Left s -> do
       hPutStrLn stderr . show $ iexpr

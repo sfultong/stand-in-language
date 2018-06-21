@@ -4,6 +4,7 @@ module SIL.Llvm where
 
 import Control.Monad.Except
 import Control.Monad.State.Strict
+import Data.Data
 import Data.Int (Int64)
 import Data.String (fromString)
 import Debug.Trace
@@ -32,6 +33,9 @@ import qualified LLVM.OrcJIT.CompileLayer as OJ
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.Target as Target
 
+
+import LLVM.PassManager
+
 import LLVM.IRBuilder.Module
 import LLVM.IRBuilder.Monad
 import LLVM.IRBuilder.Internal.SnocList
@@ -43,16 +47,13 @@ import Naturals
 
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
-debug :: Bool
-debug = False
-
-run :: WordPtr -> IO (Int64, [(Int64,Int64)])
-run fn = do
+run :: JITConfig -> WordPtr -> IO (Int64, [(Int64,Int64)])
+run jitConfig fn = do
   let
     mungedPtr :: FunPtr (IO (Ptr Int64))
     mungedPtr = castPtrToFunPtr . wordPtrToPtr $ fn
   result <- haskFun mungedPtr
-  debugLog "finished evaluation"
+  debugLog jitConfig "finished evaluation"
   numPairs <- peek result
   resultPair <- peek (plusPtr result 8)
   startHeap <- peek (plusPtr result 16)
@@ -127,7 +128,7 @@ instance Show DebugModule where
             concat ["  ", show n, "\n", concatMap displayInstruction inst, "    ", show term, "\n"]
           displayInstruction i = concat ["    ", show i, "\n"]
 
-resolver :: OJ.IRCompileLayer l -> OJ.SymbolResolver
+resolver :: OJ.CompileLayer l => l -> OJ.SymbolResolver
 resolver compileLayer = OJ.SymbolResolver
   (\s -> OJ.findSymbol compileLayer s True)
   (\s -> fmap (\a -> Right $ OJ.JITSymbol a (OJ.defaultJITSymbolFlags { OJ.jitSymbolExported = True })) (Linking.getSymbolAddressInProcess s))
@@ -145,35 +146,65 @@ withTargetMachine f = do
       CodeModel.JITDefault
       CodeGenOpt.Default f
 
-debugLog :: String -> IO ()
-debugLog = if debug
+debugLog :: JITConfig -> String -> IO ()
+debugLog jitConfig = if debugOutput jitConfig
   then hPutStrLn stderr
   else const $ pure ()
 
-evalJIT :: AST.Module -> IO (Either String NExpr)
-evalJIT amod = do
+optimizeModule :: JITConfig -> Mod.Module -> IO ()
+optimizeModule jitConfig module' = do
+  withPassManager defaultCuratedPassSetSpec
+    { optLevel = Just (optimizerLevelToWord (optimizerLevel jitConfig)) } $ \pm -> do
+    _ <- runPassManager pm module'
+    pure ()
+
+data JITConfig = JITConfig
+  { debugOutput :: !Bool
+  , optimizerLevel :: !OptimizerLevel
+  }
+
+defaultJITConfig :: JITConfig
+defaultJITConfig = JITConfig {debugOutput = False, optimizerLevel = Two}
+
+data OptimizerLevel
+  = None
+  | One
+  | Two
+  | Three
+
+optimizerLevelToWord :: OptimizerLevel -> Word
+optimizerLevelToWord l =
+  case l of
+    None -> 0
+    One -> 1
+    Two -> 2
+    Three -> 3
+
+evalJIT :: JITConfig -> AST.Module -> IO (Either String NExpr)
+evalJIT jitConfig amod = do
   b <- Linking.loadLibraryPermanently Nothing
   withContext $ \ctx ->
     withModuleFromAST ctx amod $ \mod -> do
-      when debug $ do
+      optimizeModule jitConfig mod
+      when (debugOutput jitConfig) $ do
         asm <- moduleLLVMAssembly mod
         BSC.putStrLn asm
       withTargetMachine $ \tm ->
         OJ.withObjectLinkingLayer $ \objectLayer -> do
-          debugLog "in objectlinkinglayer"
+          debugLog jitConfig "in objectlinkinglayer"
           OJ.withIRCompileLayer objectLayer tm $ \compileLayer -> do
-            debugLog "in compilelayer"
+            debugLog jitConfig "in compilelayer"
             OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
-              debugLog "in modulelayer"
+              debugLog jitConfig "in modulelayer"
               mainSymbol <- OJ.mangleSymbol compileLayer "main"
               jitSymbolOrError <- OJ.findSymbol compileLayer mainSymbol True
               case jitSymbolOrError of
                 Left err -> do
-                  debugLog ("Could not find main: " <> show err)
+                  debugLog jitConfig ("Could not find main: " <> show err)
                   pure $ error "Couldn't find main"
                 Right (OJ.JITSymbol mainFn _) -> do
-                  debugLog "running main"
-                  res <- run mainFn
+                  debugLog jitConfig "running main"
+                  res <- run jitConfig mainFn
                   pure . Right $ convertPairs res
 
 intT :: Type
