@@ -1,6 +1,6 @@
 "main = plus $3 $4 succ 0"
--- "main = plus $30 $40 succ 0"
--- "main = plus $300 $400 succ 0"
+"main = plus $30 $40 succ 0"
+"main = plus $300 $400 succ 0"
 -- Can add labels:
 -- "Adding bit bigger numbers"   "main = plus $30 $40 succ 0"
 -- Supports files

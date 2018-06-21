@@ -21,7 +21,7 @@ import SIL.Eval
 import qualified System.IO.Strict as Strict
 
 import MemoryBench.LLVMDive
-import Cases
+import MemoryBench.Cases
 import Paths_sil
 
 import Weigh hiding (Case, Max)
@@ -43,11 +43,11 @@ instance NFData ParseError where
     rnf a = ()
 
 
-processCase :: Bindings -> Case -> IO (Weigh ())
+processCase :: Bindings -> Case -> Weigh ()
 processCase bindings (Case label code) = do
     let e_parsed       = parseMain bindings code
         (Right parsed) = e_parsed --Taking advantage of lazy evalutation here
-    details <- benchLLVMDetails parsed
+        details = benchLLVMDetails parsed
     let parsing = func "parsing" (parseMain bindings) code -- Parsing
         evals   = [ io "simpleEval" benchEvalSimple parsed
                   , io "fasterEval" benchEvalFaster parsed
@@ -57,10 +57,10 @@ processCase bindings (Case label code) = do
         weighs  = if isRight e_parsed 
                      then sequence_ (parsing : evals) 
                      else parsing
-    return $ wgroup label weighs
+    wgroup label weighs
         
-processAllCases :: Bindings -> [Case] -> IO (Weigh ())
-processAllCases bindings cases = sequence_ <$> mapM (processCase bindings) cases 
+processAllCases :: Bindings -> [Case] -> Weigh ()
+processAllCases bindings cases = mapM_ (processCase bindings) cases 
 
 benchEvalSimple :: IExpr -> IO IExpr
 benchEvalSimple iexpr = simpleEval (SetEnv (Pair (Defer iexpr) Zero))
@@ -74,13 +74,6 @@ benchEvalOptimized iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
 config :: Config
 config = Config [Weigh.Case, Allocated, GCs, Live] "" Plain
 
-
-debugCase :: Bindings -> Case -> IO IExpr
-debugCase bindings (Case label code) = do
-    let e_parsed       = parseMain bindings code
-        (Right parsed) = e_parsed --Taking advantage of lazy evalutation here
-    benchEval parsed
-
 main = do
   preludeFile <- Strict.readFile "Prelude.sil"
 
@@ -91,9 +84,6 @@ main = do
       Left pe -> error $ show pe
 
 
-  cases <- loadCases =<< getDataFileName "bench/cases/funs"
-  return ()
-  -- mapM_ (debugCase prelude) cases
-  process <- processAllCases prelude cases
-  mainWith $ setConfig config >> process
+  cases <- loadCases =<< getDataFileName "bench/MemoryBench/cases"
+  mainWith $ setConfig config >> processAllCases prelude cases
 

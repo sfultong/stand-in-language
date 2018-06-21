@@ -1,12 +1,12 @@
 {-|
   Module: Cases.hs
 
-  Defines cases for memory benchmarks, as well as simple parsers.
+  Defines parsers for cases for memory benchmark.
 -}
 
 {-# LANGUAGE FlexibleContexts #-}
 
-module Cases where
+module MemoryBench.Cases where
 
 import Text.Parsec hiding (label)
 import Text.Parsec.Char
