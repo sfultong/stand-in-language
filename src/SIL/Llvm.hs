@@ -47,6 +47,8 @@ import qualified LLVM.IRBuilder.Module as IRM
 
 import Naturals
 
+import Debug.Trace
+
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
 run :: JITConfig -> WordPtr -> IO (Int64, [(Int64,Int64)])

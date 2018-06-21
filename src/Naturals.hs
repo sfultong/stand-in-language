@@ -1,6 +1,10 @@
+{-#LANGUAGE DeriveGeneric#-}
+{-#LANGUAGE DeriveAnyClass#-}
 module Naturals where
 
 import Data.Int (Int64)
+import Control.DeepSeq
+import GHC.Generics
 
 import SIL
 
@@ -26,7 +30,7 @@ data NExpr
   | NMult NExpr NExpr
   | NPow NExpr NExpr
   | NITE NExpr NExpr NExpr
-  deriving (Eq, Show, Ord)
+  deriving (Eq, Show, Ord, Generic, NFData)
 
 toNExpr :: IExpr -> NExpr
 toNExpr x = case x of
