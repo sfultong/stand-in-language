@@ -7,6 +7,8 @@ import Data.List (partition)
 import Data.Monoid
 import SIL
 import SIL.Eval
+import SIL.Llvm (RunResult(..))
+import Naturals
 import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
@@ -498,6 +500,26 @@ nestedNamedFunctionsIssue = concat
   , "       in bindTest 0"
   ]
 
+nexprTests :: Spec
+nexprTests = do
+  describe "nexpr eval" $ do
+    it "literal" $
+      NChurch 42 `shouldEvalTo` 42
+    it "add" $
+      NChurch 2 `NAdd` NChurch 3 `shouldEvalTo` 5
+    it "mul" $
+      NChurch 2 `NMult` NChurch 3 `shouldEvalTo` 6
+    it "pow" $
+      NChurch 2 `NPow` NChurch 3 `shouldEvalTo` 8
+    it "ite false" $
+      NITE (NChurch 0) (NChurch 1) (NChurch 2) `shouldEvalTo` 2
+    it "ite true" $
+      NITE (NChurch 1) (NChurch 1) (NChurch 2) `shouldEvalTo` 1
+  where
+    nexpr `shouldEvalTo` r = do
+      RunResult r' _ <- llvmEval (NSetEnv (NPair (NDefer nexpr) NZero))
+      r' `shouldBe` r
+
 main = do
   preludeFile <- Strict.readFile "Prelude.sil"
 
@@ -549,4 +571,6 @@ main = do
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}
-  hspec (unitTests unitTest2 unitTestType)
+  hspec $ do
+    unitTests unitTest2 unitTestType
+    nexprTests
