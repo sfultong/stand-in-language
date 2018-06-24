@@ -199,23 +199,22 @@ fasterEval =
         Right i -> pure i
   in fmap fromRExpr . frEval . rOptimize . toRExpr
 
-llvmEval :: IExpr -> IO IExpr
-llvmEval iexpr = do
-  let lmod = LLVM.makeModule $ toNExpr iexpr
+llvmEval :: NExpr -> IO LLVM.RunResult
+llvmEval nexpr = do
+  let lmod = LLVM.makeModule nexpr
   when debug $ do
     print $ LLVM.DebugModule lmod
     putStrLn . concat . take 100 . repeat $ "                                                                     \n"
   result <- catch (LLVM.evalJIT LLVM.defaultJITConfig lmod) $ \(e :: SomeException) -> pure . Left $ show e
   case result of
     Left s -> do
-      hPutStrLn stderr . show $ iexpr
+      hPutStrLn stderr . show $ nexpr
       hPutStrLn stderr $ "failed llvmEval: " ++ s
       fail s
-    Right x -> do
-      pure $ fromNExpr x
+    Right x -> pure x
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = llvmEval
+optimizedEval = fmap (fromNExpr . LLVM.convertPairs) . llvmEval . toNExpr
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g

@@ -1,14 +1,15 @@
+{-# OPTIONS_GHC -Wall -Wno-name-shadowing #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module SIL.Llvm where
 
 import Control.Monad.Except
 import Control.Monad.State.Strict
-import Data.Data
 import Data.Int (Int64)
 import Data.String (fromString)
-import Debug.Trace
-import Foreign.Ptr (FunPtr, castFunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr, castPtr)
+import Data.Word
+import Foreign.Ptr (FunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr)
 import Foreign.Storable (peek)
 import System.Clock
 import System.IO (hPutStrLn, stderr)
@@ -16,16 +17,13 @@ import Text.Printf
 
 import LLVM.AST hiding (Monotonic)
 import LLVM.AST.Global
-import LLVM.AST.Linkage
 import LLVM.Context
 import LLVM.Module as Mod
 
 import qualified Data.ByteString.Char8 as BSC
 import qualified LLVM.AST as AST
 import qualified LLVM.AST.AddrSpace as AddrSpace
-import qualified LLVM.AST.CallingConvention as CC
 import qualified LLVM.AST.Constant as C
-import qualified LLVM.AST.Global as G
 import qualified LLVM.AST.IntegerPredicate as IP
 import qualified LLVM.CodeGenOpt as CodeGenOpt
 import qualified LLVM.CodeModel as CodeModel
@@ -38,20 +36,22 @@ import qualified LLVM.Target as Target
 
 import LLVM.PassManager
 
+import LLVM.IRBuilder.Constant (int64)
 import LLVM.IRBuilder.Module
 import LLVM.IRBuilder.Monad
-import LLVM.IRBuilder.Internal.SnocList
 import qualified LLVM.IRBuilder.Instruction as IRI
-import qualified LLVM.IRBuilder.Constant as IRC
 import qualified LLVM.IRBuilder.Module as IRM
 
 import Naturals
 
-import Debug.Trace
-
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
-run :: JITConfig -> WordPtr -> IO (Int64, [(Int64,Int64)])
+data RunResult = RunResult
+  { resultValue :: Int64
+  , resultPairs :: [(Int64, Int64)]
+  }
+
+run :: JITConfig -> WordPtr -> IO RunResult
 run jitConfig fn = do
   let
     mungedPtr :: FunPtr (IO (Ptr Int64))
@@ -59,17 +59,20 @@ run jitConfig fn = do
   result <- haskFun mungedPtr
   debugLog jitConfig "finished evaluation"
   numPairs <- peek result
-  resultPair <- peek (plusPtr result 8)
+  resultVal <- peek (plusPtr result 8)
   startHeap <- peek (plusPtr result 16)
   let readPair (addr,l) _ = do
         lp <- peek addr
         rp <- peek $ plusPtr addr 8
         pure (plusPtr addr 16, (lp,rp):l)
   pairs <- (reverse . snd) <$> foldM readPair (startHeap, []) [1..numPairs]
-  pure (resultPair, pairs)
+  pure (RunResult resultVal pairs)
 
-convertPairs :: (Int64, [(Int64,Int64)]) -> NExpr
-convertPairs (x, pairs)=
+
+-- | Recursively follow all integers by interpreting them as indices
+-- in the pair array until a 0 is found.
+convertPairs :: RunResult -> NExpr
+convertPairs (RunResult x pairs)=
   let convertPair 0 = NZero
       convertPair n = let (l,r) = pairs !! fromIntegral n
                       in NPair (convertPair l) (convertPair r)
@@ -80,26 +83,26 @@ makeModule iexpr = flip evalState startBuilderInternal . buildModuleT "SILModule
   mapM_ emitDefn [pairHeap, heapIndex, resultStructure]
 
   -- | Load the first element of the pair pointed to by the argument.
-  IRM.function "goLeft" [(intT, ParameterName "x")] intT $ \[x] -> do
+  _ <- IRM.function "goLeft" [(intT, ParameterName "x")] intT $ \[x] -> do
     la <- IRI.gep heapC [zero, x, zero32]
     l <- IRI.load la 0
     emitTerm (Ret (Just l) [])
 
   -- | Load the second element of the pair pointed to by the argument.
-  IRM.function "goRight" [(intT, ParameterName "x")] intT $ \[x] -> do
+  _ <- IRM.function "goRight" [(intT, ParameterName "x")] intT $ \[x] -> do
     la <- IRI.gep heapC [zero, x, one32]
     l <- IRI.load la 0
     emitTerm (Ret (Just l) [])
 
-  IRM.extern "w_setjmp" [] intT
-  IRM.extern "w_longjmp" [intT] VoidType
+  setJmp <- IRM.extern "w_setjmp" [] intT
+  _ <- IRM.extern "w_longjmp" [intT] VoidType
 
   IRM.function "main" [] (PointerType resultStructureT (AddrSpace.AddrSpace 0))
     $ \_ -> do
         -- wrap the evaluation of iexpr in a setjmp branch, so that an abort instruction can return for an early exit
         preludeB <- freshUnName
         emitBlockStart preludeB
-        jumped <- IRI.call (ConstantOperand (C.GlobalReference setjmpT "w_setjmp")) []
+        jumped <- IRI.call setJmp []
         mainB <- freshUnName
         exitB <- freshUnName
         brCond <- IRI.icmp IP.EQ jumped zero
@@ -185,9 +188,9 @@ optimizerLevelToWord l =
     Two -> 2
     Three -> 3
 
-evalJIT :: JITConfig -> AST.Module -> IO (Either String NExpr)
+evalJIT :: JITConfig -> AST.Module -> IO (Either String RunResult)
 evalJIT jitConfig amod = do
-  b <- Linking.loadLibraryPermanently Nothing
+  _ <- Linking.loadLibraryPermanently Nothing
   withContext $ \ctx -> do
     t0 <- getTime Monotonic
     withModuleFromAST ctx amod $ \mod -> do
@@ -218,7 +221,7 @@ evalJIT jitConfig amod = do
                   res <- run jitConfig mainFn
                   t6 <- getTime Monotonic
                   when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
-                  pure . Right $ convertPairs res
+                  pure . Right $ res
 
 printTimings :: TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> IO ()
 printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer beforeAddingModule afterAddingModule beforeRun afterRun = do
@@ -269,6 +272,7 @@ heapType = ArrayType heapSize pairT
 heapPType :: Type
 heapPType = PointerType heapType (AddrSpace.AddrSpace 0)
 
+heapSize :: Word64
 heapSize = 655350
 
 emptyPair :: C.Constant
@@ -323,6 +327,7 @@ two32 :: Operand
 two32 = ConstantOperand (C.Int 32 2)
 
 type BuilderInternal = State Int
+startBuilderInternal :: Int
 startBuilderInternal = 0
 type SILBuilder = IRBuilderT (ModuleBuilderT BuilderInternal)
 
@@ -333,7 +338,7 @@ getFunctionName = state $ \n -> (fromString $ 'f' : show n, n + 1)
 doFunction :: SILBuilder Operand -> SILBuilder Operand
 doFunction body = do
   name <- lift $ lift getFunctionName
-  lift $ IRM.function name [(intT, ParameterName "env")] intT $ \_ -> (body >>= \op -> emitTerm (Ret (Just op) []))
+  _ <- lift $ IRM.function name [(intT, ParameterName "env")] intT $ \_ -> (body >>= \op -> emitTerm (Ret (Just op) []))
   pure $ ConstantOperand (C.PtrToInt (C.GlobalReference funT name) intT)
 
 heapC :: Operand
@@ -443,12 +448,56 @@ toLLVM (NAbort x) = do
   emitTerm (CondBr brCond exitB abortB [])
 
   emitBlockStart abortB
-  IRI.call (ConstantOperand (C.GlobalReference longjmpT "w_longjmp")) [(lx, [])]
+  _ <- IRI.call (ConstantOperand (C.GlobalReference longjmpT "w_longjmp")) [(lx, [])]
   emitTerm (Unreachable [])
 
   emitBlockStart exitB
   pure zero
+toLLVM (NChurch i) = int64 (fromIntegral i)
+toLLVM (NAdd a b) = do
+  a' <- toLLVM a
+  b' <- toLLVM b
+  IRI.add a' b'
+toLLVM (NMult a b) = do
+  a' <- toLLVM a
+  b' <- toLLVM b
+  IRI.mul a' b'
+toLLVM (NPow a e) = mdo
+  a' <- toLLVM a
+  e' <- toLLVM e
+  IRI.br powPre
 
+  powPre <- block `named` "pow.pre"
+  IRI.br powHeader
+
+  powHeader <- block `named` "pow.loop-header"
+  eAcc <- IRI.phi [(e', powPre), (eAcc', powBody)]
+  acc <- IRI.phi [(one, powPre), (acc', powBody)]
+  cond <- IRI.icmp IP.SGT eAcc zero
+  IRI.condBr cond powBody powExit
+
+  powBody <- block `named` "pow.loop-body"
+  acc' <- IRI.mul acc a'
+  eAcc' <- IRI.sub eAcc one
+  IRI.br powHeader
+
+  powExit <- block `named` "pow.exit"
+  pure acc
+toLLVM (NITE c t f) = mdo
+  c' <- toLLVM c
+  cond <- IRI.icmp IP.NE c' zero
+  IRI.condBr cond ifThen ifElse
+
+  ifThen <- block `named` "if.then"
+  trueVal <- toLLVM t
+  IRI.br ifExit
+
+  ifElse <- block `named` "if.else"
+  falseVal <- toLLVM f
+  IRI.br ifExit
+
+  ifExit <- block `named` "if.exit"
+  IRI.phi [(trueVal, ifThen), (falseVal, ifElse)]
 -- TODO this will be hard
 toLLVM (NTrace x) = toLLVM x
 
