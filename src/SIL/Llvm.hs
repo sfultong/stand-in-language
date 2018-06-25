@@ -8,15 +8,14 @@ import Control.Monad.Except
 import Control.Monad.State.Strict
 import Data.Int (Int64)
 import Data.String (fromString)
-import Data.Word
-import Foreign.Ptr (FunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr)
+import Foreign.Ptr (FunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr, IntPtr(..), intPtrToPtr)
 import Foreign.Storable (peek)
 import System.Clock
 import System.IO (hPutStrLn, stderr)
 import Text.Printf
 
 import LLVM.AST hiding (Monotonic)
-import LLVM.AST.Global
+import LLVM.AST.Global as G
 import LLVM.Context
 import LLVM.Module as Mod
 
@@ -25,6 +24,7 @@ import qualified LLVM.AST as AST
 import qualified LLVM.AST.AddrSpace as AddrSpace
 import qualified LLVM.AST.Constant as C
 import qualified LLVM.AST.IntegerPredicate as IP
+import qualified LLVM.AST.ParameterAttribute as PA
 import qualified LLVM.CodeGenOpt as CodeGenOpt
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.Linking as Linking
@@ -48,7 +48,7 @@ foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int
 
 data RunResult = RunResult
   { resultValue :: Int64
-  , resultPairs :: [(Int64, Int64)]
+  , resultNumPairs :: Int64
   }
 
 run :: JITConfig -> WordPtr -> IO RunResult
@@ -60,69 +60,60 @@ run jitConfig fn = do
   debugLog jitConfig "finished evaluation"
   numPairs <- peek result
   resultVal <- peek (plusPtr result 8)
-  startHeap <- peek (plusPtr result 16)
-  let readPair (addr,l) _ = do
-        lp <- peek addr
-        rp <- peek $ plusPtr addr 8
-        pure (plusPtr addr 16, (lp,rp):l)
-  pairs <- (reverse . snd) <$> foldM readPair (startHeap, []) [1..numPairs]
-  pure (RunResult resultVal pairs)
+  pure (RunResult resultVal numPairs)
 
 
 -- | Recursively follow all integers by interpreting them as indices
 -- in the pair array until a 0 is found.
-convertPairs :: RunResult -> NExpr
-convertPairs (RunResult x pairs)=
-  let convertPair 0 = NZero
-      convertPair n = let (l,r) = pairs !! fromIntegral n
-                      in NPair (convertPair l) (convertPair r)
-  in convertPair x
+convertPairs :: RunResult -> IO NExpr
+convertPairs (RunResult x _) = go x
+  where
+    go 0 = pure NZero
+    go i = do
+      let ptr = intPtrToPtr (IntPtr (fromIntegral i))
+      l <- peek ptr
+      r <- peek (ptr `plusPtr` 8)
+      NPair <$> go l <*> go r
 
 makeModule :: NExpr -> AST.Module
 makeModule iexpr = flip evalState startBuilderInternal . buildModuleT "SILModule" $ do
-  mapM_ emitDefn [pairHeap, heapIndex, resultStructure]
+  _ <- emitDefn
+    (GlobalDefinition (functionDefaults {
+                          name = "GC_malloc",
+                          returnType = PointerType (IntegerType 8) (AddrSpace.AddrSpace 0),
+                          G.returnAttributes = [PA.NoAlias],
+                          parameters = ([Parameter intT "" []], False)
+                          }))
+  mapM_ emitDefn [heapIndex, resultStructure]
 
-  -- | Load the first element of the pair pointed to by the argument.
-  _ <- IRM.function "goLeft" [(intT, ParameterName "x")] intT $ \[x] -> do
-    la <- IRI.gep heapC [zero, x, zero32]
-    l <- IRI.load la 0
-    emitTerm (Ret (Just l) [])
-
-  -- | Load the second element of the pair pointed to by the argument.
-  _ <- IRM.function "goRight" [(intT, ParameterName "x")] intT $ \[x] -> do
-    la <- IRI.gep heapC [zero, x, one32]
-    l <- IRI.load la 0
-    emitTerm (Ret (Just l) [])
+  _ <- goLeft
+  _ <- goRight
 
   setJmp <- IRM.extern "w_setjmp" [] intT
   _ <- IRM.extern "w_longjmp" [intT] VoidType
 
   IRM.function "main" [] (PointerType resultStructureT (AddrSpace.AddrSpace 0))
-    $ \_ -> do
+    $ \_ -> mdo
         -- wrap the evaluation of iexpr in a setjmp branch, so that an abort instruction can return for an early exit
-        preludeB <- freshUnName
-        emitBlockStart preludeB
+        preludeB <- block `named` "prelude"
         jumped <- IRI.call setJmp []
-        mainB <- freshUnName
-        exitB <- freshUnName
         brCond <- IRI.icmp IP.EQ jumped zero
-        emitTerm (CondBr brCond mainB exitB [])
+        IRI.condBr brCond mainB exitB
 
-        emitBlockStart mainB
+        mainB <- block `named` "main"
         mainExp <- toLLVM iexpr
         endMainB <- currentBlock
+        IRI.br exitB
         emitTerm (Br exitB [])
 
-        emitBlockStart exitB
+        exitB <- block `named` "exit"
         result <- IRI.phi [(mainExp, endMainB), (jumped, preludeB)]
         heapC <- IRI.load heapIndexC 0
         numPairs <- IRI.gep resultC [zero, zero32]
         resultPair <- IRI.gep resultC [zero, one32]
-        heapStart <- IRI.gep resultC [zero, two32]
         IRI.store numPairs 0 heapC
         IRI.store resultPair 0 result
-        IRI.store heapStart 0 (ConstantOperand (C.PtrToInt (C.GlobalReference heapPType heapN) intT))
-        emitTerm (Ret (Just resultC) [])
+        IRI.ret resultC
 
 data DebugModule = DebugModule AST.Module
 
@@ -260,34 +251,17 @@ setjmpT = PointerType (FunctionType intT [] False) (AddrSpace.AddrSpace 0)
 longjmpT :: Type
 longjmpT = PointerType (FunctionType VoidType [intT] False) (AddrSpace.AddrSpace 0)
 
+gcMallocT :: Type
+gcMallocT = PointerType (FunctionType (PointerType (IntegerType 8) (AddrSpace.AddrSpace 0)) [intT] False) (AddrSpace.AddrSpace 0)
+
 funPtrT :: Type
 funPtrT = PointerType funT $ AddrSpace.AddrSpace 0
 
 pairT :: Type
 pairT = StructureType False [intT, intT]
 
-heapType :: Type
-heapType = ArrayType heapSize pairT
-
-heapPType :: Type
-heapPType = PointerType heapType (AddrSpace.AddrSpace 0)
-
-heapSize :: Word64
-heapSize = 655350
-
-emptyPair :: C.Constant
-emptyPair = C.Struct Nothing False [C.Int 64 0, C.Int 64 0]
-
-heapN :: Name
-heapN = "pair_heap"
-
-pairHeap :: Definition
-pairHeap = GlobalDefinition
-  $ globalVariableDefaults
-  { name = heapN
-  , LLVM.AST.Global.type' = heapType
-  , initializer = Just (C.AggregateZero heapType)
-  }
+pairPtrT :: Type
+pairPtrT = PointerType pairT (AddrSpace.AddrSpace 0)
 
 heapIndexN :: Name
 heapIndexN = "heapIndex"
@@ -297,7 +271,7 @@ heapIndex :: Definition
 heapIndex = GlobalDefinition
   $ globalVariableDefaults
   { name = heapIndexN
-  , LLVM.AST.Global.type' = intT
+  , G.type' = intT
   , initializer = Just (C.Int 64 1)
   }
 
@@ -305,14 +279,14 @@ resultStructureN :: Name
 resultStructureN = "resultStructure"
 
 resultStructureT :: Type
-resultStructureT = StructureType False [intT,intT,intT]
+resultStructureT = StructureType False [intT,intT]
 
 resultStructure :: Definition
 resultStructure = GlobalDefinition
   $ globalVariableDefaults
   { name = resultStructureN
-  , LLVM.AST.Global.type' = resultStructureT
-  , initializer = Just $ C.Struct Nothing False [C.Int 64 0, C.Int 64 0, C.Int 64 0]
+  , G.type' = resultStructureT
+  , initializer = Just $ C.Struct Nothing False [C.Int 64 0, C.Int 64 0]
   }
 
 zero :: Operand
@@ -341,46 +315,79 @@ doFunction body = do
   _ <- lift $ IRM.function name [(intT, ParameterName "env")] intT $ \_ -> (body >>= \op -> emitTerm (Ret (Just op) []))
   pure $ ConstantOperand (C.PtrToInt (C.GlobalReference funT name) intT)
 
-heapC :: Operand
-heapC = ConstantOperand (C.GlobalReference heapPType heapN)
-
 pairOffC :: Operand
 pairOffC = ConstantOperand (C.Int 64 16)
 
--- put "official" start of heap at index one. index zero "points" to itself, so traversing left/right stays there
-leftStartC :: Operand
-leftStartC = ConstantOperand (C.PtrToInt (C.GlobalReference heapPType heapN) intT)
-
-rightStartC :: Operand
-rightStartC = ConstantOperand (C.Add True True (C.PtrToInt (C.GlobalReference heapPType heapN) intT) (C.Int 64 8))
-
 heapIndexC :: Operand
 heapIndexC = ConstantOperand (C.GlobalReference intPtrT heapIndexN)
+
+gcMallocPair :: MonadIRBuilder m => m Operand
+gcMallocPair = do
+  sizePtr <- IRI.gep (ConstantOperand (C.Null pairPtrT)) [one32]
+    `named` "size.ptr"
+  size <- IRI.ptrtoint sizePtr intT `named` "size"
+  ptr <- IRI.call (ConstantOperand (C.GlobalReference gcMallocT "GC_malloc")) [(size, [])]
+  IRI.bitcast ptr pairPtrT
 
 -- | @makePair a b@ allocates a new pair (a,b) at the current heap
 -- index and increments the heap index.
 makePair :: MonadIRBuilder m => Operand -> Operand -> m Operand
 makePair a b = do
-  heap <- IRI.load heapIndexC 0
-  l <- IRI.gep heapC [zero, heap, zero32]
-  r <- IRI.gep heapC [zero, heap, one32]
+  ptr <- gcMallocPair
+  l <- IRI.gep ptr [zero, zero32]
+  r <- IRI.gep ptr [zero, one32]
   IRI.store l 0 a
   IRI.store r 0 b
+  heap <- IRI.load heapIndexC 0
   nc <- IRI.add heap one
   IRI.store heapIndexC 0 nc
-  pure heap
+  IRI.ptrtoint ptr intT
 
--- | @doLeft p@ loads the first element of the pair @p@.
+-- | @goLeft p@ loads the first element of the pair @p@.
+goLeft :: (MonadModuleBuilder m, MonadFix m) => m Operand
+goLeft = IRM.function "goLeft" [(intT, ParameterName "x")] intT $ \[xp] -> mdo
+  cond <- IRI.icmp IP.EQ xp zero
+  IRI.condBr cond ptrZero ptrNonZero
+
+  ptrZero <- block
+  ptrZeroRes <- pure zero
+  IRI.br exit
+
+  ptrNonZero <- block
+  ptr <- IRI.inttoptr xp pairPtrT
+  la <- IRI.gep ptr [zero, zero32]
+  ptrNonZeroRes <- IRI.load la 0
+  IRI.br exit
+
+  exit <- block
+  res <- IRI.phi [(ptrZeroRes, ptrZero), (ptrNonZeroRes, ptrNonZero)]
+  IRI.ret res
+
+-- | @goRight p@ loads the second element of the pair @p@.
+goRight :: (MonadModuleBuilder m, MonadFix m) => m Operand
+goRight = IRM.function "goRight" [(intT, ParameterName "x")] intT $ \[xp] -> mdo
+  cond <- IRI.icmp IP.EQ xp zero
+  IRI.condBr cond ptrZero ptrNonZero
+
+  ptrZero <- block
+  ptrZeroRes <- pure zero
+  IRI.br exit
+
+  ptrNonZero <- block
+  ptr <- IRI.inttoptr xp pairPtrT
+  la <- IRI.gep ptr [zero, one32]
+  ptrNonZeroRes <- IRI.load la 0
+  IRI.br exit
+
+  exit <- block
+  res <- IRI.phi [(ptrZeroRes, ptrZero), (ptrNonZeroRes, ptrNonZero)]
+  IRI.ret res
+
 doLeft :: MonadIRBuilder m => Operand -> m Operand
-doLeft xp = do
-  la <- IRI.gep heapC [zero, xp, zero32]
-  IRI.load la 0
+doLeft x = IRI.call (ConstantOperand (C.GlobalReference funT "goLeft")) [(x, [])]
 
--- | @doRight p@ loads the second element of the pair @p@.
 doRight :: MonadIRBuilder m => Operand -> m Operand
-doRight xp = do
-  ra <- IRI.gep heapC [zero, xp, one32]
-  IRI.load ra 0
+doRight x = IRI.call (ConstantOperand (C.GlobalReference funT "goRight")) [(x, [])]
 
 envC :: Operand
 envC = LocalReference intT "env"
@@ -393,26 +400,23 @@ toLLVM :: NExpr -> SILBuilder Operand
 toLLVM (NSetEnv (NPair (NGate i) (NPair e t))) = case i of
   NZero -> toLLVM e
   (NPair _ _) -> toLLVM t
-  _ -> do
+  _ -> mdo
     ip <- toLLVM i
-    elseB <- freshUnName
-    thenB <- freshUnName
-    exitB <- freshUnName
     brCond <- IRI.icmp IP.EQ ip zero
-    emitTerm (CondBr brCond elseB thenB [])
+    IRI.condBr brCond elseB thenB
 
-    emitBlockStart elseB
+    elseB <- block `named` "if.else"
     ep <- toLLVM e
-    endElseB <- currentBlock
-    emitTerm (Br exitB [])
+    elseEnd <- currentBlock
+    IRI.br exitB
 
-    emitBlockStart thenB
+    thenB <- block `named` "if.then"
     tp <- toLLVM t
-    endThenB <- currentBlock
-    emitTerm (Br exitB [])
+    thenEnd <- currentBlock
+    IRI.br exitB
 
-    emitBlockStart exitB
-    IRI.phi [(ep, endElseB), (tp, endThenB)]
+    exitB <- block `named` "if.exit"
+    IRI.phi [(ep, elseEnd), (tp, thenEnd)]
 -- single instruction translation
 toLLVM NZero = pure zero
 toLLVM (NPair a b) = do
@@ -426,8 +430,9 @@ toLLVM (NDefer x) = doFunction $ toLLVM x
 toLLVM (NSetEnv x) = do
   -- Evaluate x to (clo, env)
   xp <- toLLVM x
-  l <- IRI.gep heapC [zero, xp, zero32]
-  r <- IRI.gep heapC [zero, xp, one32]
+  ptr <- IRI.inttoptr xp pairPtrT
+  l <- IRI.gep ptr [zero, zero32]
+  r <- IRI.gep ptr [zero, one32]
   clo <- IRI.load l 0
   env <- IRI.load r 0
   funPtr <- IRI.inttoptr clo funT
@@ -439,19 +444,16 @@ toLLVM (NGate x) = do
   IRI.select bool
     (ConstantOperand (C.PtrToInt (C.GlobalReference funT "goRight") intT))
     (ConstantOperand (C.PtrToInt (C.GlobalReference funT "goLeft") intT))
-toLLVM (NAbort x) = do
+toLLVM (NAbort x) = mdo
   lx <- toLLVM x
-
-  abortB <- freshUnName
-  exitB <- freshUnName
   brCond <- IRI.icmp IP.EQ lx zero
   emitTerm (CondBr brCond exitB abortB [])
 
-  emitBlockStart abortB
+  abortB <- block `named` "abort"
   _ <- IRI.call (ConstantOperand (C.GlobalReference longjmpT "w_longjmp")) [(lx, [])]
-  emitTerm (Unreachable [])
+  IRI.unreachable
 
-  emitBlockStart exitB
+  exitB <- block `named` "exit"
   pure zero
 toLLVM (NChurch i) = int64 (fromIntegral i)
 toLLVM (NAdd a b) = do
@@ -490,14 +492,16 @@ toLLVM (NITE c t f) = mdo
 
   ifThen <- block `named` "if.then"
   trueVal <- toLLVM t
+  ifThenEnd <- currentBlock
   IRI.br ifExit
 
   ifElse <- block `named` "if.else"
   falseVal <- toLLVM f
+  ifElseEnd <- currentBlock
   IRI.br ifExit
 
   ifExit <- block `named` "if.exit"
-  IRI.phi [(trueVal, ifThen), (falseVal, ifElse)]
+  IRI.phi [(trueVal, ifThenEnd), (falseVal, ifElseEnd)]
 -- TODO this will be hard
 toLLVM (NTrace x) = toLLVM x
 

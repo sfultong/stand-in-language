@@ -42,8 +42,10 @@ library
                      , derive-storable-plugin >= 0.2
                      , bytestring
                      , llvm-hs         >= 5.0 
-                     , llvm-hs-pure    >= 5.0 
-  extra-libraries:     jumper
+                     , llvm-hs-pure    >= 5.0
+                     , text
+  extra-libraries:     gc
+                       jumper
 
   default-language:    Haskell2010
 
