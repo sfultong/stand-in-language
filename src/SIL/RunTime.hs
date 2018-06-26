@@ -191,7 +191,9 @@ llvmEval nexpr = do
     Right x -> pure x
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = fmap (fromNExpr . LLVM.convertPairs) . llvmEval . toNExpr
+optimizedEval e = do
+  res <- llvmEval (toNExpr e)
+  fromNExpr <$> LLVM.convertPairs res
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g

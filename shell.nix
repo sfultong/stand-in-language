@@ -27,7 +27,7 @@ let
       sha256 = "16agk33n7kzz5hdjq805mpdcv0cvgxqkvjb5ipq7bn7ahqw0lfil";
     };
     overrides = self: super: {
-      sil = super.callCabal2nix "sil" ./. { jumper = sil_jumper; };
+      sil = super.callCabal2nix "sil" ./. { gc = pkgs.boehmgc; jumper = sil_jumper; };
       llvm-hs = super.callHackage "llvm-hs" "6.3.0" { llvm-config = pkgs.llvm_6; };
       llvm-hs-pure = super.callHackage "llvm-hs-pure" "6.2.1" {};
       indents = dontCheck super.indents;
