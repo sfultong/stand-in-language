@@ -20,6 +20,7 @@ let
   sil_jumper = pkgs.stdenv.mkDerivation {
     name = "silJumper";
     src = ./cbits;
+    buildInputs = [pkgs.boehmgc];
   };
   haskellPkgs = with pkgs.haskell.lib; pkgs.haskell.packages.ghc843.override(old: {
     all-cabal-hashes = builtins.fetchurl {
