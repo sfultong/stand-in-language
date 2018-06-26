@@ -12,6 +12,9 @@ import qualified Data.Set as Set
 
 import SIL
 
+debug :: Bool
+debug = False
+
 data ExprTA a
   = ZeroTA
   | PairTA (ExprTA a) (ExprTA a)
@@ -137,6 +140,7 @@ noteError err = state $ \s -> case s of
   (env, typeMap, v, Nothing) -> ((), (env, typeMap, v, Just err))
   _ -> ((), s)
 
+-- | attempt to unify two types, creating new references if applicable
 checkOrAssociate :: PartialType -> PartialType -> Set Int -> Map Int PartialType
   -> Either TypeCheckError (Map Int PartialType)
 -- do nothing for circular (already resolved) references (not type error until later)
@@ -175,8 +179,8 @@ checkOrAssociate a b _ typeMap = if a == b then pure typeMap else Left $ Inconsi
 getTypeMap :: AnnotateState (Map Int PartialType)
 getTypeMap = get >>= \(_, tm, _, _) -> pure tm
 
+-- | try to make first type fit into second type, creating referencs or errors as needed
 -- if second argument is subtype of first, do nothing
--- should probably rewrite to be more annotatestate-esque
 checkOrAssociateSubtype :: PartialType -> PartialType -> Set Int -> AnnotateState ()
 checkOrAssociateSubtype (TypeVariable _) _ _ = pure ()
 checkOrAssociateSubtype AnyType _ _ = pure ()
@@ -209,7 +213,9 @@ checkOrAssociateSubtype (ArrTypeP a b) (ArrTypeP c d) resolvedSet =
 checkOrAssociateSubtype a b _ = if a == b then pure () else noteError $ InconsistentTypes a b
 
 traceAssociate :: PartialType -> PartialType -> a -> a
-traceAssociate a b = id --  trace (concat ["associateVar ", show a, " -- ", show b])
+traceAssociate a b = if debug
+  then trace (concat ["associateVar ", show a, " -- ", show b])
+  else id
 
 associateVar :: PartialType -> PartialType -> AnnotateState ()
 associateVar a b = state $ \(env, typeMap, v, err)
@@ -283,24 +289,23 @@ getUnboundType (PRightTA x _) = getUnboundType x
 getUnboundType (TraceTA x) = getUnboundType x
 
 traceFullAnnotation :: PartialType -> AnnotateState ()
-traceFullAnnotation _ = pure ()
-{-
-traceFullAnnotation pt = do
-  (_, tm, _, _) <- get
-  trace (concat [ "tracefullannotation "
-                , show (PrettyPartialType <$> mostlyResolve tm pt)
-                , " ("
-                , show (PrettyPartialType $ mostlyResolveRecursive tm pt)
-                , ")"
-                ])  pure ()-}
+traceFullAnnotation pt = if debug
+  then do
+    (_, tm, _, _) <- get
+    trace (concat [ "tracefullannotation "
+                  , show (PrettyPartialType <$> mostlyResolve tm pt)
+                  , " ("
+                  , show (PrettyPartialType $ mostlyResolveRecursive tm pt)
+                  , ")"
+                  ])  pure ()
+  else pure ()
 
 debugAnnotate :: IExpr -> AnnotateState ()
-debugAnnotate _ = pure ()
-{-
-debugAnnotate x = do
-  (e, tm, varI, err) <- get
-  trace ("debugAnnotate " ++ show x ++ " -- " ++ show e) $ pure ()
--}
+debugAnnotate x = if debug
+  then do
+    (e, tm, varI, err) <- get
+    trace ("debugAnnotate " ++ show x ++ " -- " ++ show e) $ pure ()
+  else pure ()
 
 annotate :: IExpr -> AnnotateState ExprPA
 annotate Zero = debugAnnotate Zero *> pure ZeroTA
@@ -413,9 +418,8 @@ tcStart = (TypeVariable 0, Map.empty, 1, Nothing)
 partiallyAnnotate :: IExpr -> Either TypeCheckError (Map Int PartialType, ExprPA)
 partiallyAnnotate iexpr =
   let (iexpra, (_, typeMap, _, err)) = runState (annotate iexpr) tcStart
-      debugT = trace (show $ DebugTypeCheck iexpra typeMap 80)
-      debug2 x = trace (concat ["iexpra:\n", show iexpra, "\niexpra2:\n", show x, "\ntypemap:\n", show typeMap]) x
-  in case err of
+      debugT = if debug then trace (show $ DebugTypeCheck iexpra typeMap 80) else id
+  in debugT $ case err of
     Nothing -> pure (typeMap, iexpra)
     Just et -> Left et
 
