@@ -331,8 +331,10 @@ debugPEIITO iexpr = do
            [ concat $ ["partially evaluated result: ", show x]
            , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
 
-unitTests_ :: Spec
-unitTests_ = do
+unitTests_ :: (String -> String -> Spec) -> (String -> DataType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
+unitTests_ unitTest2 unitTestType = do
+  unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
+    (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
   unitTest "basiczero" "0" Zero
   unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
   unitTest "c2d" "2" c2d_test
