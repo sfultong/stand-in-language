@@ -251,11 +251,11 @@ testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
           deserialized = unsafeDeserialize serialized
 
 unitTest :: String -> String -> IExpr -> Spec
-unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroType iexpr)
+unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroTypeP iexpr)
   then do
     result <- (show . PrettyIExpr) <$> testEval iexpr
     result `shouldBe` expected
-  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroType iexpr)])
+  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroTypeP iexpr)])
 
 unitTestRefinement :: String -> Bool -> IExpr -> Spec
 unitTestRefinement name shouldSucceed iexpr = it name $ case inferType iexpr of
@@ -331,10 +331,32 @@ debugPEIITO iexpr = do
            [ concat $ ["partially evaluated result: ", show x]
            , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
 
-unitTests_ :: (String -> String -> Spec) -> (String -> DataType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
+unitTests_ :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
 unitTests_ unitTest2 unitTestType = do
+  unitTestType "main = \\x -> {x,0}" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+  unitTestType "main = \\x -> {x,0}" ZeroTypeP isInconsistentType
+  unitTestType "main = succ 0" ZeroTypeP (== Nothing)
+  unitTestType "main = succ 0" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
+  unitTestType "main = or 0" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+  unitTestType "main = or 0" ZeroTypeP isInconsistentType
+  unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
+  unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
+  unitTestType "main = 0 0" ZeroTypeP isInconsistentType
+  -- I guess this is inconsistently typed now?
   unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-    (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroTypeP (== Nothing)
+  unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
   unitTest "basiczero" "0" Zero
   unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
   unitTest "c2d" "2" c2d_test
@@ -366,33 +388,33 @@ unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p 
 
 debugMark s = hPutStrLn stderr s >> pure True
 
-unitTests :: (String -> String -> Spec) -> (String -> DataType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
+unitTests :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
 unitTests unitTest2 unitTestType = do
   describe "type checker" $ do
-    unitTestType "main = \\x -> {x,0}" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
-    unitTestType "main = \\x -> {x,0}" ZeroType isInconsistentType
-    unitTestType "main = succ 0" ZeroType (== Nothing)
-    unitTestType "main = succ 0" (ArrType ZeroType ZeroType) isInconsistentType
-    unitTestType "main = or 0" (PairType (ArrType ZeroType ZeroType) ZeroType) (== Nothing)
-    unitTestType "main = or 0" ZeroType isInconsistentType
-    unitTestType "main = or succ" (ArrType ZeroType ZeroType) isInconsistentType
-    unitTestType "main = 0 succ" ZeroType isInconsistentType
-    unitTestType "main = 0 0" ZeroType isInconsistentType
+    unitTestType "main = \\x -> {x,0}" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+    unitTestType "main = \\x -> {x,0}" ZeroTypeP isInconsistentType
+    unitTestType "main = succ 0" ZeroTypeP (== Nothing)
+    unitTestType "main = succ 0" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
+    unitTestType "main = or 0" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+    unitTestType "main = or 0" ZeroTypeP isInconsistentType
+    unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
+    unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
+    unitTestType "main = 0 0" ZeroTypeP isInconsistentType
     -- I guess this is inconsistently typed now?
     unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
-      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
-      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
-      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
-      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
-      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
-    unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
-    unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
+      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroTypeP (== Nothing)
+    unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
   -- TODO fix
   --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
   describe "unitTest" $ do

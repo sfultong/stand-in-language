@@ -108,11 +108,6 @@ getPartialAnnotation (PLeftTA _ a) = a
 getPartialAnnotation (PRightTA _ a) = a
 getPartialAnnotation (TraceTA x) = getPartialAnnotation x
 
-toPartial :: DataType -> PartialType
-toPartial ZeroType = ZeroTypeP
-toPartial (ArrType a b) = ArrTypeP (toPartial a) (toPartial b)
-toPartial (PairType a b) = PairTypeP (toPartial a) (toPartial b)
-
 data TypeCheckError
   = UnboundType Int
   | InconsistentTypes PartialType PartialType
@@ -133,6 +128,9 @@ withNewEnv action = do
 setEnv :: PartialType -> AnnotateState ()
 setEnv env = state $ \(_, typeMap, v, err) ->
   ((), (env, typeMap, v, err))
+
+aliasType :: Int -> PartialType -> AnnotateState ()
+aliasType k val = state $ \(env, typeMap, v, err) -> ((), (env, Map.insert k val typeMap, v, err))
 
 noteError :: TypeCheckError -> AnnotateState ()
 noteError err = state $ \s -> case s of
@@ -174,41 +172,41 @@ checkOrAssociate ZeroTypeP p@(PairTypeP _ _) resolvedSet typeMap =
   checkOrAssociate p ZeroTypeP resolvedSet typeMap
 checkOrAssociate a b _ typeMap = if a == b then pure typeMap else Left $ InconsistentTypes a b
 
+getTypeMap :: AnnotateState (Map Int PartialType)
+getTypeMap = get >>= \(_, tm, _, _) -> pure tm
+
 -- if second argument is subtype of first, do nothing
 -- should probably rewrite to be more annotatestate-esque
-checkOrAssociateSubtype :: PartialType -> PartialType -> Set Int -> Map Int PartialType
-  -> AnnotateState (Map Int PartialType)
-checkOrAssociateSubtype (TypeVariable _) _ _ tm = pure tm
-checkOrAssociateSubtype AnyType _ _ tm = pure tm
-checkOrAssociateSubtype a AnyType _ tm = do
-  noteError $ InconsistentTypes a AnyType
-  pure tm
-checkOrAssociateSubtype _ (TypeVariable t) resolvedSet tm | Set.member t resolvedSet = pure tm
-checkOrAssociateSubtype x (TypeVariable t) resolvedSet tm = case Map.lookup t tm of
-  Nothing -> case x of
-    ZeroTypeP -> pure $ Map.insert t ZeroTypeP tm
-    PairTypeP a b -> do
-      (c, (d, _)) <- withNewEnv . withNewEnv $ pure ()
-      checkOrAssociateSubtype (PairTypeP a b) (PairTypeP c d) resolvedSet $ Map.insert t (PairTypeP c d) tm
-    ArrTypeP a b -> do
-      (c, (d, _)) <- withNewEnv . withNewEnv $ pure ()
-      checkOrAssociateSubtype (ArrTypeP a b) (ArrTypeP c d) resolvedSet $ Map.insert t (ArrTypeP c d) tm
-    _ -> fail "shouldn't get here in checkOrAssociateSubtype"
-  Just tb -> checkOrAssociateSubtype x tb (Set.insert t resolvedSet) tm
-checkOrAssociateSubtype (PairTypeP a b) (PairTypeP c d) resolvedSet typeMap =
-  checkOrAssociateSubtype a c resolvedSet typeMap >>= checkOrAssociateSubtype b d resolvedSet
-checkOrAssociateSubtype ZeroTypeP (PairTypeP a b) resolvedSet typeMap =
-  checkOrAssociateSubtype ZeroTypeP a resolvedSet typeMap >>=
-  checkOrAssociateSubtype ZeroTypeP b resolvedSet
-checkOrAssociateSubtype (PairTypeP a b) ZeroTypeP resolvedSet typeMap =
-  checkOrAssociateSubtype a ZeroTypeP resolvedSet typeMap >>=
-  checkOrAssociateSubtype b ZeroTypeP resolvedSet
-checkOrAssociateSubtype (ArrTypeP a b) (ArrTypeP c d) resolvedSet typeMap =
-  checkOrAssociateSubtype c a resolvedSet typeMap >>=
+checkOrAssociateSubtype :: PartialType -> PartialType -> Set Int -> AnnotateState ()
+checkOrAssociateSubtype (TypeVariable _) _ _ = pure ()
+checkOrAssociateSubtype AnyType _ _ = pure ()
+checkOrAssociateSubtype a AnyType _ = noteError $ InconsistentTypes a AnyType
+checkOrAssociateSubtype _ (TypeVariable t) resolvedSet | Set.member t resolvedSet = pure ()
+checkOrAssociateSubtype x (TypeVariable t) resolvedSet = getTypeMap >>= \tm -> case (Map.lookup t tm, x) of
+  (Just tb, _) -> checkOrAssociateSubtype x tb (Set.insert t resolvedSet)
+  (_, ZeroTypeP)  -> aliasType t ZeroTypeP
+  (_, PairTypeP a b) -> do
+    (c, (d, _)) <- withNewEnv . withNewEnv $ pure ()
+    checkOrAssociateSubtype (PairTypeP a b) (PairTypeP c d) resolvedSet
+    aliasType t (PairTypeP c d)
+  (_, ArrTypeP a b) -> do
+    (c, (d, _)) <- withNewEnv . withNewEnv $ pure ()
+    checkOrAssociateSubtype (ArrTypeP a b) (ArrTypeP c d) resolvedSet
+    aliasType t (ArrTypeP c d)
+  _ -> fail "shouldn't get here in checkOrAssociateSubtype"
+checkOrAssociateSubtype (PairTypeP a b) (PairTypeP c d) resolvedSet =
+  checkOrAssociateSubtype a c resolvedSet >>
   checkOrAssociateSubtype b d resolvedSet
-checkOrAssociateSubtype a b _ typeMap = if a == b then pure typeMap else do
-  noteError $ InconsistentTypes a b
-  pure typeMap
+checkOrAssociateSubtype ZeroTypeP (PairTypeP a b) resolvedSet =
+  checkOrAssociateSubtype ZeroTypeP a resolvedSet >>
+  checkOrAssociateSubtype ZeroTypeP b resolvedSet
+checkOrAssociateSubtype (PairTypeP a b) ZeroTypeP resolvedSet =
+  checkOrAssociateSubtype a ZeroTypeP resolvedSet >>
+  checkOrAssociateSubtype b ZeroTypeP resolvedSet
+checkOrAssociateSubtype (ArrTypeP a b) (ArrTypeP c d) resolvedSet =
+  checkOrAssociateSubtype c a resolvedSet >>
+  checkOrAssociateSubtype b d resolvedSet
+checkOrAssociateSubtype a b _ = if a == b then pure () else noteError $ InconsistentTypes a b
 
 traceAssociate :: PartialType -> PartialType -> a -> a
 traceAssociate a b = id --  trace (concat ["associateVar ", show a, " -- ", show b])
@@ -221,10 +219,7 @@ associateVar a b = state $ \(env, typeMap, v, err)
        (Left te, _) -> traceAssociate a b $ ((), (env, typeMap, v, Just te))
 
 associateSubtypeVar :: PartialType -> PartialType -> AnnotateState ()
-associateSubtypeVar a b = do
-  (_, typeMap, _, _) <- get
-  ntm <- checkOrAssociateSubtype a b Set.empty typeMap
-  state $ \(env, _, v, err) -> ((), (env, ntm, v, err))
+associateSubtypeVar a b = checkOrAssociateSubtype a b Set.empty
 
 {-
 -- convert a PartialType to a full type, aborting on circular references
@@ -430,10 +425,10 @@ inferType iexpr = partiallyAnnotate iexpr >>= (\(tm, exp) -> mostlyResolve tm $ 
 debugInferType :: IExpr -> Either TypeCheckError PartialType
 debugInferType iexpr = partiallyAnnotate iexpr >>= (\(tm, exp) -> trace (show $ DebugTypeCheck exp tm 80) . mostlyResolve tm $ getPartialAnnotation exp)
 
-typeCheck :: DataType -> IExpr -> Maybe TypeCheckError
+typeCheck :: PartialType -> IExpr -> Maybe TypeCheckError
 typeCheck t iexpr =
   let assocAndAnno (tm, exp) =
-        case checkOrAssociate (toPartial t) (getPartialAnnotation exp) Set.empty tm of
+        case checkOrAssociate t (getPartialAnnotation exp) Set.empty tm of
           Right ntm -> resolveOrAlt ntm (getPartialAnnotation exp)
           Left x -> Left x
   in case partiallyAnnotate iexpr >>= assocAndAnno of
