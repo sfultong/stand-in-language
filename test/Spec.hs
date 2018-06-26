@@ -1,3 +1,4 @@
+{-# LANGUAGE CApiFFI #-}
 module Main where
 
 import Control.Applicative (liftA2)
@@ -530,7 +531,12 @@ nexprTests = do
       RunResult r' _ <- llvmEval (NSetEnv (NPair (NDefer nexpr) NZero))
       r' `shouldBe` r
 
+foreign import capi "gc.h GC_INIT" gcInit :: IO ()
+foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
+
 main = do
+  gcInit
+  gcAllowRegisterThreads
   preludeFile <- Strict.readFile "Prelude.sil"
 
   let

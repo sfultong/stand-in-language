@@ -25,6 +25,7 @@ import qualified LLVM.AST.AddrSpace as AddrSpace
 import qualified LLVM.AST.Constant as C
 import qualified LLVM.AST.IntegerPredicate as IP
 import qualified LLVM.AST.ParameterAttribute as PA
+import qualified LLVM.AST.Type as T
 import qualified LLVM.CodeGenOpt as CodeGenOpt
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.Linking as Linking
@@ -84,6 +85,7 @@ makeModule iexpr = flip evalState startBuilderInternal . buildModuleT "SILModule
                           G.returnAttributes = [PA.NoAlias],
                           parameters = ([Parameter intT "" []], False)
                           }))
+  gcRegisterMyThread <- extern "SIL_register_my_thread" [] T.void
   mapM_ emitDefn [heapIndex, resultStructure]
 
   _ <- goLeft
@@ -96,6 +98,7 @@ makeModule iexpr = flip evalState startBuilderInternal . buildModuleT "SILModule
     $ \_ -> mdo
         -- wrap the evaluation of iexpr in a setjmp branch, so that an abort instruction can return for an early exit
         preludeB <- block `named` "prelude"
+        _ <- IRI.call gcRegisterMyThread []
         jumped <- IRI.call setJmp []
         brCond <- IRI.icmp IP.EQ jumped zero
         IRI.condBr brCond mainB exitB
