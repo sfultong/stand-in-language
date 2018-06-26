@@ -378,6 +378,16 @@ unitTests unitTest2 unitTestType = do
     -- I guess this is inconsistently typed now?
     unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
       (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
     unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
   -- TODO fix
