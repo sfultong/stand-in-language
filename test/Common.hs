@@ -58,7 +58,6 @@ instance Arbitrary TestIExpr where
                     , lift2Texpr pair <$> tree half <*> tree half
                     , lift1Texpr SetEnv <$> tree (i - 1)
                     , lift1Texpr Defer <$> tree (i - 1)
-                    , lift1Texpr twiddle <$> tree (i - 1)
                     , lift2Texpr check <$> tree half <*> tree half
                     , lift1Texpr gate <$> tree (i - 1)
                     , lift1Texpr pleft <$> tree (i - 1)
@@ -74,7 +73,6 @@ instance Arbitrary TestIExpr where
     (Trace x) -> TestIExpr x : (map (lift1Texpr Trace) . shrink $ TestIExpr x)
     (SetEnv x) -> TestIExpr x : (map (lift1Texpr SetEnv) . shrink $ TestIExpr x)
     (Defer x) -> TestIExpr x : (map (lift1Texpr Defer) . shrink $ TestIExpr x)
-    (Twiddle x) -> TestIExpr x : (map (lift1Texpr twiddle) . shrink $ TestIExpr x)
     (Abort x) -> TestIExpr x : (map (lift1Texpr Abort) . shrink $ TestIExpr x)
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]

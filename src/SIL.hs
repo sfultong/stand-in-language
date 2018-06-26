@@ -19,7 +19,6 @@ data IExpr
   | Env                      -- identifier
   | SetEnv !IExpr
   | Defer !IExpr
-  | Twiddle !IExpr
   | Abort !IExpr
   | Gate !IExpr
   | PLeft !IExpr             -- left
@@ -33,7 +32,6 @@ data ExprA a
   | VarA a
   | SetEnvA !(ExprA a) a
   | DeferA !(ExprA a) a
-  | TwiddleA !(ExprA a) a
   | AbortA !(ExprA a) a
   | GateA !(ExprA a) a
   | PLeftA !(ExprA a) a
@@ -47,7 +45,6 @@ instance EndoMapper IExpr where
   endoMap f Env = f Env
   endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
   endoMap f (Defer x) = f $ Defer (endoMap f x)
-  endoMap f (Twiddle x) = f $ Twiddle (endoMap f x)
   endoMap f (Abort x) = f $ Abort (endoMap f x)
   endoMap f (Gate g) = f $ Gate (endoMap f g)
   endoMap f (PLeft x) = f $ PLeft (endoMap f x)
@@ -60,7 +57,6 @@ instance EitherEndoMapper IExpr where
   eitherEndoMap f Env = f Env
   eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (Twiddle x) = (Twiddle <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Abort x) = (Abort <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Gate x) = (Gate <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
@@ -73,7 +69,6 @@ instance MonoidEndoFolder IExpr where
   monoidFold f Env = f Env
   monoidFold f (SetEnv x) = mconcat [f (SetEnv x), monoidFold f x]
   monoidFold f (Defer x) = mconcat [f (Defer x), monoidFold f x]
-  monoidFold f (Twiddle x) = mconcat [f (Twiddle x), monoidFold f x]
   monoidFold f (Abort x) = mconcat [f (Abort x), monoidFold f x]
   monoidFold f (Gate x) = mconcat [f (Gate x), monoidFold f x]
   monoidFold f (PLeft x) = mconcat [f (PLeft x), monoidFold f x]
@@ -86,7 +81,6 @@ instance NFData  IExpr where
   rnf Env          = ()
   rnf (SetEnv  e)  = rnf e
   rnf (Defer   e)  = rnf e
-  rnf (Twiddle e)  = rnf e
   rnf (Abort   e)  = rnf e
   rnf (Gate    e)  = rnf e
   rnf (PLeft   e)  = rnf e

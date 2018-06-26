@@ -23,7 +23,6 @@ data ExprTA a
   | TraceTA (ExprTA a)
   | SetEnvTA (ExprTA a) a
   | DeferTA (ExprTA a)
-  | TwiddleTA (ExprTA a) a
   deriving (Eq, Show, Ord, Functor)
 
 type ExprPA = ExprTA PartialType
@@ -40,7 +39,6 @@ instance EndoMapper (ExprTA a) where
   endoMap f (TraceTA x) = f $ TraceTA (endoMap f x)
   endoMap f (SetEnvTA x t) = f $ SetEnvTA (endoMap f x) t
   endoMap f (DeferTA x) = f $ DeferTA (endoMap f x)
-  endoMap f (TwiddleTA x t) = f $ TwiddleTA (endoMap f x) t
 
 indent :: Int -> String
 indent 0 = []
@@ -79,11 +77,6 @@ showExpra l i (SetEnvTA x a) =
   in if length (lineShow) > l
   then concat ["SetEnvA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (TwiddleTA x a) =
-  let lineShow = concat ["TwiddleA ", show x, "  ", show (PrettyPartialType a)]
-  in if length (lineShow) > l
-  then concat ["TwiddleA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
-  else lineShow
 
 newtype DebugTypeMap = DebugTypeMap (Map Int PartialType)
 
@@ -107,7 +100,6 @@ getPartialAnnotation (SetEnvTA _ a) = a
 getPartialAnnotation (DeferTA x) = case getUnboundType x of
   Nothing -> ArrTypeP AnyType $ getPartialAnnotation x
   Just t -> ArrTypeP t (getPartialAnnotation x)
-getPartialAnnotation (TwiddleTA _ a) = a
 getPartialAnnotation ZeroTA = ZeroTypeP
 getPartialAnnotation (PairTA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
 getPartialAnnotation (AbortTA _ a) = a
@@ -289,7 +281,6 @@ getUnboundType (PairTA a b) = getUnboundType a <|> getUnboundType b
 getUnboundType (EnvTA a) = pure a
 getUnboundType (SetEnvTA x _) = getUnboundType x
 getUnboundType (DeferTA _) = Nothing
-getUnboundType (TwiddleTA x _) = getUnboundType x
 getUnboundType (AbortTA x _) = getUnboundType x
 getUnboundType (GateTA x _) = getUnboundType x
 getUnboundType (PLeftTA x _) = getUnboundType x
@@ -350,13 +341,6 @@ annotate (Defer x) = do
   debugAnnotate (Defer x)
   (_, nx) <- withNewEnv $ annotate x
   pure $ DeferTA nx
-annotate (Twiddle x) = do
-  debugAnnotate (Twiddle x)
-  (aa, (ab, (ac, _))) <- withNewEnv . withNewEnv . withNewEnv $ pure ()
-  nx <- annotate x
-  associateVar (PairTypeP aa (PairTypeP ab ac)) (getPartialAnnotation nx)
-  debugAnnotate (Twiddle x)
-  pure $ TwiddleTA nx (PairTypeP ab (PairTypeP aa ac))
 -- abort is polymorphic so that it matches any expression
 annotate (Abort x) = do
   nx <- annotate x
@@ -414,9 +398,6 @@ fullyMostlyAnnotate tm (SetEnvTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, SetEnvTA x a)
   (Right mra) -> SetEnvTA <$> fullyMostlyAnnotate tm x <*> pure mra
 fullyMostlyAnnotate tm (DeferTA x) = DeferTA <$> fullyMostlyAnnotate tm x
-fullyMostlyAnnotate tm (TwiddleTA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, TwiddleTA x a)
-  (Right mra) -> TwiddleTA <$> fullyMostlyAnnotate tm x <*> pure mra
 fullyMostlyAnnotate tm (AbortTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, AbortTA x a)
   (Right mra) -> AbortTA <$> fullyMostlyAnnotate tm x <*> pure mra

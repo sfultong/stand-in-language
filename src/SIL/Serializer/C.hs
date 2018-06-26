@@ -11,7 +11,6 @@ module SIL.Serializer.C (
     , env_type
     , setenv_type
     , defer_type
-    , twiddle_type
     , abort_type
     , gate_type
     , pleft_type
@@ -25,7 +24,6 @@ module SIL.Serializer.C (
     , CEnv(..)
     , CSetEnv(..)
     , CDefer(..)
-    , CTwiddle(..)
     , CAbort(..)
     , CGate(..)
     , CPLeft(..)
@@ -68,12 +66,11 @@ pair_type    = 1
 env_type     = 2
 setenv_type  = 3
 defer_type   = 4
-twiddle_type = 5
-abort_type   = 6
-gate_type    = 7
-pleft_type   = 8
-pright_type  = 9
-trace_type   = 10
+abort_type   = 5
+gate_type    = 6
+pleft_type   = 7
+pright_type  = 8
+trace_type   = 9
 
 
 typeId :: IExpr -> CTypeId
@@ -82,7 +79,6 @@ typeId (Pair  _ _) = pair_type
 typeId  Env        = env_type
 typeId (SetEnv  _) = setenv_type
 typeId (Defer   _) = defer_type
-typeId (Twiddle _) = twiddle_type
 typeId (Abort   _) = abort_type
 typeId (Gate    _) = gate_type
 typeId (PLeft   _) = pleft_type
@@ -107,7 +103,6 @@ data CPair = CPair
 data CEnv     = CEnv deriving(Show, Generic) 
 data CSetEnv  = CSetEnv  CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 data CDefer   = CDefer   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
-data CTwiddle = CTwiddle CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 data CAbort   = CAbort   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 data CGate    = CGate    CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 data CPLeft   = CPLeft   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
@@ -135,21 +130,18 @@ fromC' type_id ptr = case type_id of
         (CDefer t v) <- peek $ castPtr ptr
         Defer <$> fromC' t v
     5    -> do
-        (CTwiddle t v) <- peek $ castPtr ptr
-        Twiddle <$> fromC' t v
-    6    -> do
         (CAbort t v) <- peek $ castPtr ptr
         Abort <$> fromC' t v
-    7    -> do
+    6    -> do
         (CGate t v) <- peek $ castPtr ptr
         Gate <$> fromC' t v
-    8    -> do
+    7    -> do
         (CPLeft t v) <- peek $ castPtr ptr
         PLeft <$> fromC' t v
-    9    -> do
+    8    -> do
         (CPRight t v) <- peek $ castPtr ptr
         PRight <$> fromC' t v
-    10   -> do
+    9    -> do
         (CTrace t v) <- peek $ castPtr ptr
         Trace <$> fromC' t v
     otherwise -> error "SIL.Serializer.fromC': Invalid type id - possibly corrupted data."
@@ -200,14 +192,6 @@ toC' (Defer e) ptr_type ptr_value = do
         next_type  = castPtr value
         next_value = castPtr $ value `plusPtr` align
     poke ptr_type defer_type
-    poke ptr_value $ castPtr value
-    toC' e next_type next_value
-toC' (Twiddle e) ptr_type ptr_value = do
-    value <- malloc :: IO (Ptr CTwiddle)
-    let align      = alignment (undefined :: CTwiddle)
-        next_type  = castPtr value
-        next_value = castPtr $ value `plusPtr` align
-    poke ptr_type twiddle_type
     poke ptr_value $ castPtr value
     toC' e next_type next_value
 toC' (Abort e) ptr_type ptr_value = do

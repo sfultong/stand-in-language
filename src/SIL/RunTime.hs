@@ -28,7 +28,6 @@ data RExpr
   | RTrace !RExpr
   | RSetEnv !RExpr
   | RDefer !RExpr
-  | RTwiddle !RExpr
   -- machine optimized instructions
   | RITE !RExpr !RExpr !RExpr
   | RChurch !Int !(Maybe RExpr)
@@ -45,7 +44,6 @@ instance EndoMapper RExpr where
   endoMap f (RTrace x) = f . RTrace $ endoMap f x
   endoMap f (RSetEnv x) = f . RSetEnv $ endoMap f x
   endoMap f (RDefer x) = f . RDefer $ endoMap f x
-  endoMap f (RTwiddle x) = f . RTwiddle $ endoMap f x
   endoMap f (RITE i t e) = f $ RITE (endoMap f i) (endoMap f t) (endoMap f e)
   endoMap f r@(RChurch _ Nothing) = f r
 
@@ -65,7 +63,6 @@ toRExpr (PRight x) = RRight $ toRExpr x
 toRExpr (Trace x) = RTrace $ toRExpr x
 toRExpr (SetEnv x) = RSetEnv $ toRExpr x
 toRExpr (Defer x) = RDefer $ toRExpr x
-toRExpr (Twiddle x) = RTwiddle $ toRExpr x
 
 fromRExpr :: RExpr -> IExpr
 fromRExpr RZero = Zero
@@ -78,19 +75,16 @@ fromRExpr (RRight x) = PRight $ fromRExpr x
 fromRExpr (RTrace x) = Trace $ fromRExpr x
 fromRExpr (RSetEnv x) = SetEnv $ fromRExpr x
 fromRExpr (RDefer x) = Defer $ fromRExpr x
-fromRExpr (RTwiddle x) = Twiddle $ fromRExpr x
 fromRExpr (RITE i t e) = app (Gate $ fromRExpr i) (Pair (fromRExpr e) (fromRExpr t))
 fromRExpr (RChurch i Nothing) = toChurch i
 
 data RunTimeError
-  = TwiddleError IExpr
-  | AbortRunTime IExpr
+  = AbortRunTime IExpr
   | SetEnvError IExpr
   | GenericRunTimeError String IExpr
   deriving (Eq, Ord)
 
 instance Show RunTimeError where
-  show (TwiddleError t) = "Can't Twiddle: " ++ show t
   show (AbortRunTime a) = "Abort: " ++ (show $ g2s a)
   show (SetEnvError e) = "Can't SetEnv: " ++ show e
   show (GenericRunTimeError s i) = "Generic Runtime Error: " ++ s ++ " -- " ++ show i
@@ -115,14 +109,7 @@ rEval f env g = let f' = f env
   RAbort x -> f' x >>= \nx -> if nx == RZero then pure RZero
                               else throwError $ AbortRunTime (fromRExpr nx)
   RDefer x -> pure x
-  RTwiddle x -> f' x >>= \nx -> case nx of
-    RPair i (RPair c cenv) -> pure $ RPair c (RPair i cenv)
-    bx -> throwError $ TwiddleError (fromRExpr nx)
   -- this seems a bit hacky
-  RSetEnv (RTwiddle (RPair i g)) -> do
-    ng <- f' g
-    ni <- f' i
-    rApply ng ni
   RSetEnv x -> f' x >>= \g -> case g of
     RPair c i -> rApply2 c i
     bx -> throwError $ SetEnvError (fromRExpr bx)
@@ -154,9 +141,6 @@ iEval f env g = let f' = f env in case g of
     Pair c nenv -> f nenv c
     bx -> throwError $ SetEnvError bx
   Defer x -> pure x
-  Twiddle x -> (f' x >>=) $ \nx -> case nx of
-    Pair i (Pair c cenv) -> pure $ Pair c (Pair i cenv)
-    bx -> throwError $ TwiddleError bx
   Gate x -> f' x >>= \g -> case g of
     Zero -> pure $ PLeft Env
     _ -> pure $ PRight Env
@@ -177,14 +161,7 @@ toChurch x =
 rOptimize :: RExpr -> RExpr
 rOptimize =
   let modR (RSetEnv (RPair (RGate i) (RPair e t))) = RITE i t e
-      modR c@(RPair (RDefer (RPair (RDefer (apps)) REnv)) RZero) = let appCount = countApps 0 apps in
-        if appCount > 0
-        then RChurch appCount Nothing
-        else c
       modR x = x
-      countApps x (RLeft REnv) = x
-      countApps x (RSetEnv (RTwiddle (RPair ia (RLeft (RRight REnv))))) = countApps (x + 1) ia
-      countApps _ _ = 0
   in endoMap modR
 
 simpleEval :: IExpr -> IO IExpr
