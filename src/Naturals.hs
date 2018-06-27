@@ -2,6 +2,7 @@
 {-#LANGUAGE DeriveAnyClass#-}
 module Naturals where
 
+import Data.Binary
 import Data.Int (Int64)
 import Control.DeepSeq
 import GHC.Generics
@@ -31,6 +32,8 @@ data NExpr
   | NPow NExpr NExpr
   | NITE NExpr NExpr NExpr
   deriving (Eq, Show, Ord, Generic, NFData)
+
+instance Binary NExpr
 
 {-
 data NZeroType

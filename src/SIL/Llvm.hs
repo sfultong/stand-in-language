@@ -6,8 +6,14 @@ module SIL.Llvm where
 
 import Control.Monad.Except
 import Control.Monad.State.Strict
+import Crypto.Hash.SHA256 (hashlazy)
+import Data.Binary (encode)
+import Data.ByteString (ByteString)
+import Data.ByteString.Short (toShort)
+import qualified Data.ByteString.Base16 as Base16
 import Data.Int (Int64)
-import Data.String (fromString)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Foreign.Ptr (FunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr, IntPtr(..), intPtrToPtr)
 import Foreign.Storable (peek)
 import System.Clock
@@ -77,7 +83,7 @@ convertPairs (RunResult x _) = go x
       NPair <$> go l <*> go r
 
 makeModule :: NExpr -> AST.Module
-makeModule iexpr = flip evalState startBuilderInternal . buildModuleT "SILModule" $ do
+makeModule iexpr = flip evalState Map.empty . buildModuleT "SILModule" $ do
   _ <- emitDefn
     (GlobalDefinition (functionDefaults {
                           name = "GC_malloc",
@@ -303,20 +309,24 @@ one32 = ConstantOperand (C.Int 32 1)
 two32 :: Operand
 two32 = ConstantOperand (C.Int 32 2)
 
-type BuilderInternal = State Int
-startBuilderInternal :: Int
-startBuilderInternal = 0
+type BuilderInternal = State (Map ByteString Operand)
 type SILBuilder = IRBuilderT (ModuleBuilderT BuilderInternal)
 
-getFunctionName :: BuilderInternal Name
-getFunctionName = state $ \n -> (fromString $ 'f' : show n, n + 1)
-
 -- | Wrap the argument in a function that accepts an integer (index to environment) as its argument.
-doFunction :: SILBuilder Operand -> SILBuilder Operand
+doFunction :: NExpr -> SILBuilder Operand
 doFunction body = do
-  name <- lift $ lift getFunctionName
-  _ <- lift $ IRM.function name [(intT, ParameterName "env")] intT $ \_ -> (body >>= \op -> emitTerm (Ret (Just op) []))
-  pure $ ConstantOperand (C.PtrToInt (C.GlobalReference funT name) intT)
+  functions <- get
+  case Map.lookup h functions of
+    Just f -> pure f
+    Nothing -> do
+      let name = Name ("function_" <> toShort (Base16.encode h))
+      _ <- lift $ IRM.function name [(intT, ParameterName "env")] intT $ \_ -> do
+         x <- toLLVM body
+         IRI.ret x
+      let r = ConstantOperand (C.PtrToInt (C.GlobalReference funT name) intT)
+      modify (Map.insert h r)
+      pure r
+  where h = hashlazy (encode body)
 
 pairOffC :: Operand
 pairOffC = ConstantOperand (C.Int 64 16)
@@ -429,7 +439,7 @@ toLLVM (NPair a b) = do
 toLLVM (NLeft x) = toLLVM x >>= doLeft
 toLLVM (NRight x) = toLLVM x >>= doRight
 toLLVM NEnv = pure envC
-toLLVM (NDefer x) = doFunction $ toLLVM x
+toLLVM (NDefer x) = doFunction x
 toLLVM (NSetEnv x) = do
   -- Evaluate x to (clo, env)
   xp <- toLLVM x
