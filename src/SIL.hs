@@ -1,6 +1,7 @@
 module SIL where
 
 import Control.DeepSeq
+import Control.Monad.State.Lazy
 import Data.Char
 
 -- if classes were categories, this would be an EndoFunctor?
@@ -28,16 +29,18 @@ data IExpr
 
 data ExprA a
   = ZeroA a
-  | PairA !(ExprA a) !(ExprA a) a
-  | VarA a
-  | SetEnvA !(ExprA a) a
-  | DeferA !(ExprA a) a
-  | AbortA !(ExprA a) a
-  | GateA !(ExprA a) a
-  | PLeftA !(ExprA a) a
-  | PRightA !(ExprA a) a
-  | TraceA !(ExprA a) a
+  | PairA (ExprA a) (ExprA a) a
+  | EnvA a
+  | SetEnvA (ExprA a) a
+  | DeferA (ExprA a) a
+  | AbortA (ExprA a) a
+  | GateA (ExprA a) a
+  | PLeftA (ExprA a) a
+  | PRightA (ExprA a) a
+  | TraceA (ExprA a) a
   deriving (Eq, Ord, Show)
+
+type IndExpr = ExprA Int
 
 instance EndoMapper IExpr where
   endoMap f Zero = f Zero
@@ -192,15 +195,6 @@ mergePairTypeP = endoMap f where
   f (PairTypeP ZeroTypeP ZeroTypeP) = ZeroTypeP
   f x = x
 
-packType :: DataType -> IExpr
-packType ZeroType = Zero
-packType (ArrType a b) = Pair (packType a) (packType b)
-
-unpackType :: IExpr -> Maybe DataType
-unpackType Zero = pure ZeroType
-unpackType (Pair a b) = ArrType <$> unpackType a <*> unpackType b
-unpackType _ = Nothing
-
 newtype PrettyIExpr = PrettyIExpr IExpr
 
 instance Show PrettyIExpr where
@@ -239,3 +233,21 @@ isNum :: IExpr -> Bool
 isNum Zero = True
 isNum (Pair n Zero) = isNum n
 isNum _ = False
+
+nextI :: State Int Int
+nextI = state $ \n -> (n, n + 1)
+
+toIndExpr :: IExpr -> State Int IndExpr
+toIndExpr Zero = ZeroA <$> nextI
+toIndExpr (Pair a b) = PairA <$> toIndExpr a <*> toIndExpr b <*> nextI
+toIndExpr Env = EnvA <$> nextI
+toIndExpr (SetEnv x) = SetEnvA <$> toIndExpr x <*> nextI
+toIndExpr (Defer x) = DeferA <$> toIndExpr x <*> nextI
+toIndExpr (Abort x) = AbortA <$> toIndExpr x <*> nextI
+toIndExpr (Gate x) = GateA <$> toIndExpr x <*> nextI
+toIndExpr (PLeft x) = PLeftA <$> toIndExpr x <*> nextI
+toIndExpr (PRight x) = PRightA <$> toIndExpr x <*> nextI
+toIndExpr (Trace x) = TraceA <$> toIndExpr x <*> nextI
+
+toIndExpr' :: IExpr -> IndExpr
+toIndExpr' x = evalState (toIndExpr x) 0

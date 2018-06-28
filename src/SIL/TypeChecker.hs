@@ -143,11 +143,10 @@ noteError err = state $ \s -> case s of
 -- | attempt to unify two types, creating new references if applicable
 checkOrAssociate :: PartialType -> PartialType -> Set Int -> Map Int PartialType
   -> Either TypeCheckError (Map Int PartialType)
--- do nothing for circular (already resolved) references (not type error until later)
 checkOrAssociate (TypeVariable t) _ resolvedSet typeMap | Set.member t resolvedSet
-  = trace "recursiveType" $ pure typeMap
+  = Left $ RecursiveType t
 checkOrAssociate _ (TypeVariable t) resolvedSet typeMap | Set.member t resolvedSet
-  = trace "recursiveType" $ pure typeMap
+  = Left $ RecursiveType t
 checkOrAssociate AnyType _ _ tm = pure tm
 checkOrAssociate _ AnyType _ tm = pure tm
 checkOrAssociate (TypeVariable ta) (TypeVariable tb) resolvedSet typeMap =
@@ -179,39 +178,6 @@ checkOrAssociate a b _ typeMap = if a == b then pure typeMap else Left $ Inconsi
 getTypeMap :: AnnotateState (Map Int PartialType)
 getTypeMap = get >>= \(_, tm, _, _) -> pure tm
 
--- | try to make first type fit into second type, creating referencs or errors as needed
--- if second argument is subtype of first, do nothing
-checkOrAssociateSubtype :: PartialType -> PartialType -> Set Int -> AnnotateState ()
-checkOrAssociateSubtype (TypeVariable _) _ _ = pure ()
-checkOrAssociateSubtype AnyType _ _ = pure ()
-checkOrAssociateSubtype a AnyType _ = noteError $ InconsistentTypes a AnyType
-checkOrAssociateSubtype _ (TypeVariable t) resolvedSet | Set.member t resolvedSet = pure ()
-checkOrAssociateSubtype x (TypeVariable t) resolvedSet = getTypeMap >>= \tm -> case (Map.lookup t tm, x) of
-  (Just tb, _) -> checkOrAssociateSubtype x tb (Set.insert t resolvedSet)
-  (_, ZeroTypeP)  -> aliasType t ZeroTypeP
-  (_, PairTypeP a b) -> do
-    (c, (d, _)) <- withNewEnv . withNewEnv $ pure ()
-    checkOrAssociateSubtype (PairTypeP a b) (PairTypeP c d) resolvedSet
-    aliasType t (PairTypeP c d)
-  (_, ArrTypeP a b) -> do
-    (c, (d, _)) <- withNewEnv . withNewEnv $ pure ()
-    checkOrAssociateSubtype (ArrTypeP a b) (ArrTypeP c d) resolvedSet
-    aliasType t (ArrTypeP c d)
-  _ -> fail "shouldn't get here in checkOrAssociateSubtype"
-checkOrAssociateSubtype (PairTypeP a b) (PairTypeP c d) resolvedSet =
-  checkOrAssociateSubtype a c resolvedSet >>
-  checkOrAssociateSubtype b d resolvedSet
-checkOrAssociateSubtype ZeroTypeP (PairTypeP a b) resolvedSet =
-  checkOrAssociateSubtype ZeroTypeP a resolvedSet >>
-  checkOrAssociateSubtype ZeroTypeP b resolvedSet
-checkOrAssociateSubtype (PairTypeP a b) ZeroTypeP resolvedSet =
-  checkOrAssociateSubtype a ZeroTypeP resolvedSet >>
-  checkOrAssociateSubtype b ZeroTypeP resolvedSet
-checkOrAssociateSubtype (ArrTypeP a b) (ArrTypeP c d) resolvedSet =
-  checkOrAssociateSubtype c a resolvedSet >>
-  checkOrAssociateSubtype b d resolvedSet
-checkOrAssociateSubtype a b _ = if a == b then pure () else noteError $ InconsistentTypes a b
-
 traceAssociate :: PartialType -> PartialType -> a -> a
 traceAssociate a b = if debug
   then trace (concat ["associateVar ", show a, " -- ", show b])
@@ -223,9 +189,6 @@ associateVar a b = state $ \(env, typeMap, v, err)
        (Right tm, _) -> traceAssociate a b $ ((), (env, tm, v, err))
        (Left err1, Just err2) | err1 < err2 -> ((), (env, typeMap, v, err))
        (Left te, _) -> traceAssociate a b $ ((), (env, typeMap, v, Just te))
-
-associateSubtypeVar :: PartialType -> PartialType -> AnnotateState ()
-associateSubtypeVar a b = checkOrAssociateSubtype a b Set.empty
 
 {-
 -- convert a PartialType to a full type, aborting on circular references
@@ -314,27 +277,8 @@ annotate Env = (debugAnnotate Env *>) get >>= \(e, _, _, _) -> pure $ EnvTA e
 annotate (SetEnv x) = do
   debugAnnotate (SetEnv x)
   nx <- annotate x
-  (_, tm, _, _) <- get
-  -- for type unification, we want to treat input as a subtype
-  -- but to give this expression the proper type annotation, we need to use the exact input type
-  -- to derive the output type
-  ot <- case mostlyResolveRecursive tm (getPartialAnnotation nx) of
-    (PairTypeP (ArrTypeP it ot) sit) -> do
-      associateSubtypeVar it sit
-      case checkOrAssociate it sit Set.empty tm of
-        -- Left _ -> pure badType
-        Left _ -> pure ot
-        Right ntm -> pure $ mostlyResolveRecursive ntm ot
-    (PairTypeP ft sit) -> do
-      (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
-      associateVar ft (ArrTypeP it ot)
-      associateSubtypeVar it sit
-      pure ot
-    xt -> do
-      (it, (ot, (sit, _))) <- withNewEnv . withNewEnv . withNewEnv $ pure ()
-      associateVar (PairTypeP (ArrTypeP it ot) sit) xt
-      associateSubtypeVar it sit
-      pure ot
+  (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
+  associateVar (PairTypeP (ArrTypeP it ot) it) $ getPartialAnnotation nx
   traceFullAnnotation (getPartialAnnotation nx)
   pure $ SetEnvTA nx ot
 annotate (Defer x) = do
@@ -356,20 +300,21 @@ annotate (Gate x) = do
 annotate (PLeft x) = do
   debugAnnotate (PLeft x)
   nx <- annotate x
-  (la, (ra, _)) <- withNewEnv . withNewEnv $ pure ()
-  associateVar (PairTypeP la ra) (getPartialAnnotation nx)
+  (la, _) <- withNewEnv $ pure ()
+  associateVar (PairTypeP la AnyType) (getPartialAnnotation nx)
   pure $ PLeftTA nx la
 annotate (PRight x) = do
   debugAnnotate (PRight x)
   nx <- annotate x
-  (la, (ra, _)) <- withNewEnv . withNewEnv $ pure ()
-  associateVar (PairTypeP la ra) (getPartialAnnotation nx)
+  (ra, _) <- withNewEnv $ pure ()
+  associateVar (PairTypeP AnyType ra) (getPartialAnnotation nx)
   pure $ PRightTA nx ra
 annotate (Trace x) = debugAnnotate (Trace x) *> (TraceTA <$> annotate x)
 
 resolveOrAlt_ :: Set Int -> Map Int PartialType -> PartialType
   -> Either TypeCheckError DataType
 resolveOrAlt_ _ _ ZeroTypeP = pure ZeroType
+resolveOrAlt_ _ _ AnyType = pure ZeroType -- just set any remaining type holes to zero
 resolveOrAlt_ resolved typeMap (PairTypeP a b) = PairType
   <$> resolveOrAlt_ resolved typeMap a <*> resolveOrAlt_ resolved typeMap b
 resolveOrAlt_ resolved typeMap (ArrTypeP a b) = ArrType
