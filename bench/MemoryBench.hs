@@ -1,3 +1,4 @@
+{-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE DeriveGeneric       #-}
@@ -30,6 +31,8 @@ import Text.Parsec.Error (ParseError)
 
 import Debug.Trace
 
+foreign import capi "gc.h GC_INIT" gcInit :: IO ()
+foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
 -- TODO:
 -- Get some expressions/groups of expressions.
 -- Measure memory needed to:
@@ -75,6 +78,8 @@ config :: Config
 config = Config [Weigh.Case, Allocated, GCs, Live] "" Plain
 
 main = do
+  gcInit
+  gcAllowRegisterThreads
   preludeFile <- Strict.readFile "Prelude.sil"
 
   let

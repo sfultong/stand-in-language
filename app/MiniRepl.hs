@@ -1,7 +1,10 @@
+{-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE TupleSections #-}
 module Main where
 
+import           Options.Applicative hiding (ParseError, (<|>))
+import qualified Options.Applicative as O
 import System.Console.Haskeline
 
 import Text.Parsec.Error (ParseError)
@@ -18,6 +21,10 @@ import Data.List
 
 import qualified Data.Map         as Map
 import qualified System.IO.Strict as Strict
+
+foreign import capi "gc.h GC_INIT" gcInit :: IO ()
+foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
+
 
 -- REPL parsing
 
@@ -54,12 +61,17 @@ runReplParser :: Bindings -> String -> Either ParseError (ReplStep, Bindings)
 runReplParser prelude = let startState = ParserState prelude
                         in runIndentParser parseReplStep startState "sil"
 
+
+
 -- Repl loop
 
-data ReplState = ReplState Bindings
+data ReplState = ReplState 
+    { replBindings :: Bindings
+    , replEval     :: (IExpr -> IO IExpr)
+    }
 
-replStep :: Bindings -> String -> InputT IO Bindings
-replStep bindings s = do
+replStep :: (IExpr -> IO IExpr) -> Bindings -> String -> InputT IO Bindings
+replStep eval bindings s = do
     let e_new_bindings = runReplParser bindings s
     case e_new_bindings of
         Left err -> do 
@@ -73,7 +85,7 @@ replStep bindings s = do
                     case m_iexpr of
                         Nothing     -> outputStrLn "conversion error"
                         Just iexpr' -> do
-                            iexpr <- liftIO $ simpleEval iexpr' 
+                            iexpr <- liftIO $ eval (SetEnv (Pair (Defer iexpr') Zero))
                             outputStrLn $ (show.PrettyIExpr) iexpr
             return bindings
         Right (ReplAssignment, new_bindings) -> do
@@ -90,16 +102,41 @@ replMultiline buffer = do
 
 
 replLoop :: ReplState -> InputT IO ()
-replLoop (ReplState bs) = do 
+replLoop (ReplState bs eval) = do 
     minput <- getInputLine "sil> "
     case minput of
         Nothing   -> return ()
-        Just ":{" -> replLoop =<< (ReplState <$> (replStep bs =<< replMultiline [])) 
-        Just s    -> replLoop =<< (ReplState <$> replStep bs s)
+        Just ":{" -> do
+            new_bs <- replStep eval bs =<< replMultiline []
+            replLoop $ ReplState new_bs eval 
+        Just s    -> do 
+            new_bs <- replStep eval bs s
+            replLoop $ (ReplState new_bs eval)
+
+-- Parse options
+
+data ReplBackend = SimpleBackend
+                 | LLVMBackend 
+
+backendOpts :: Parser ReplBackend
+backendOpts = flag'     LLVMBackend (long "llvm" <> help "LLVM Backend")
+              O.<|> flag' SimpleBackend (long "haskell" <> help "Haskell Backend")
+
+opts :: ParserInfo ReplBackend
+opts = info (backendOpts <**> helper)
+    ( fullDesc
+    <> progDesc "Stand-in-language simple read-eval-print-loop")
 
 main = do
     e_prelude <- parsePrelude <$> Strict.readFile "Prelude.sil" 
+    backend <- execParser opts
+    eval <- case backend of
+        SimpleBackend -> return simpleEval
+        LLVMBackend   -> do 
+            gcInit
+            gcAllowRegisterThreads
+            return optimizedEval
     let bindings = case e_prelude of
             Left  _   -> Map.empty
             Right bds -> bds
-    runInputT defaultSettings $ replLoop (ReplState bindings)
+    runInputT defaultSettings $ replLoop (ReplState bindings eval)
