@@ -69,9 +69,12 @@ replStep bindings s = do
             case Map.lookup "_tmp_" new_bindings of
                 Nothing -> outputStrLn "Could not find _tmp_ in bindings"
                 Just e  -> do
-                    iexpr <- convertPT <$> debruijinize [] e 
-                    e_iexpr <- liftIO $ simpleEval iexpr
-                    outputStrLn $ (show.PrettyIExpr) e_iexpr
+                    let m_iexpr = convertPT <$> debruijinize [] e 
+                    case m_iexpr of
+                        Nothing     -> outputStrLn "conversion error"
+                        Just iexpr' -> do
+                            iexpr <- liftIO $ simpleEval iexpr' 
+                            outputStrLn $ (show.PrettyIExpr) iexpr
             return bindings
         Right (ReplAssignment, new_bindings) -> do
             return new_bindings
