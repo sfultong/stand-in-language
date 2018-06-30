@@ -1,3 +1,4 @@
+{-# LANGUAGE CApiFFI #-}
 module Main where
 
 import Control.Applicative (liftA2)
@@ -7,6 +8,8 @@ import Data.List (partition)
 import Data.Monoid
 import SIL
 import SIL.Eval
+import SIL.Llvm (RunResult(..))
+import Naturals
 import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
@@ -376,6 +379,16 @@ unitTests unitTest2 unitTestType = do
     -- I guess this is inconsistently typed now?
     unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
       (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
+      (ArrType (ArrType ZeroType ZeroType) ZeroType) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroType (== Nothing)
     unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroType (== Nothing)
   -- TODO fix
@@ -498,7 +511,32 @@ nestedNamedFunctionsIssue = concat
   , "       in bindTest 0"
   ]
 
+nexprTests :: Spec
+nexprTests = do
+  describe "nexpr eval" $ do
+    it "literal" $
+      NChurch 42 `shouldEvalTo` 42
+    it "add" $
+      NChurch 2 `NAdd` NChurch 3 `shouldEvalTo` 5
+    it "mul" $
+      NChurch 2 `NMult` NChurch 3 `shouldEvalTo` 6
+    it "pow" $
+      NChurch 2 `NPow` NChurch 3 `shouldEvalTo` 8
+    it "ite false" $
+      NITE (NChurch 0) (NChurch 1) (NChurch 2) `shouldEvalTo` 2
+    it "ite true" $
+      NITE (NChurch 1) (NChurch 1) (NChurch 2) `shouldEvalTo` 1
+  where
+    nexpr `shouldEvalTo` r = do
+      RunResult r' _ <- llvmEval (NSetEnv (NPair (NDefer nexpr) NZero))
+      r' `shouldBe` r
+
+foreign import capi "gc.h GC_INIT" gcInit :: IO ()
+foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
+
 main = do
+  gcInit
+  gcAllowRegisterThreads
   preludeFile <- Strict.readFile "Prelude.sil"
 
   let
@@ -549,4 +587,6 @@ main = do
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}
-  hspec (unitTests unitTest2 unitTestType)
+  hspec $ do
+    unitTests unitTest2 unitTestType
+    nexprTests

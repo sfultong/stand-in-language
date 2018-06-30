@@ -2,6 +2,7 @@
 {-#LANGUAGE DeriveAnyClass#-}
 module Naturals where
 
+import Data.Binary
 import Data.Int (Int64)
 import Control.DeepSeq
 import GHC.Generics
@@ -12,7 +13,7 @@ data NaturalType
   = NZeroType
   | NArrType NaturalType NaturalType
   | NPairType NaturalType NaturalType
-  | NNatural
+  | NNatural Int
 
 data NExpr
   = NZero
@@ -32,6 +33,20 @@ data NExpr
   | NITE NExpr NExpr NExpr
   deriving (Eq, Show, Ord, Generic, NFData)
 
+instance Binary NExpr
+
+{-
+data NZeroType
+data NArrType a b
+data NPairType a b
+data NNatural = NNatural Int
+
+data NExpr a where
+  NZero :: NExpr NZeroType
+  NPair :: NExpr a -> NExpr b -> NExpr (NPairType a b)
+  NEnv ::
+-}
+
 toNExpr :: IExpr -> NExpr
 toNExpr x = case x of
   Zero -> NZero
@@ -39,7 +54,6 @@ toNExpr x = case x of
   Env -> NEnv
   (SetEnv x) -> NSetEnv (toNExpr x)
   (Defer x) -> NDefer (toNExpr x)
-  (Twiddle x) -> toNExpr $ twiddle x -- temporary hack while Twiddle exists
   (Abort x) -> NAbort (toNExpr x)
   (Gate x) -> NGate (toNExpr x)
   (PLeft x) -> NLeft (toNExpr x)

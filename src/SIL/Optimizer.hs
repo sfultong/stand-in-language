@@ -41,7 +41,6 @@ precompute :: IExpr -> IExpr
 precompute = endoMap f where
   f (PLeft (Pair x _)) = x
   f (PRight (Pair _ x)) = x
-  f (Twiddle (Pair i (Pair c env))) = Pair c (Pair i env)
   f x = x
 
 optimize :: IExpr -> IExpr

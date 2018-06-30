@@ -29,7 +29,6 @@ silSize' (Pair e1 e2) acc = silSize' e1 (silSize' e2 (acc + 1))
 silSize' Env          acc = acc + 1
 silSize' (SetEnv  e)  acc = silSize' e (acc + 1)
 silSize' (Defer   e)  acc = silSize' e (acc + 1)
-silSize' (Twiddle e)  acc = silSize' e (acc + 1)
 silSize' (Abort   e)  acc = silSize' e (acc + 1)
 silSize' (Gate    e)  acc = silSize' e (acc + 1)
 silSize' (PLeft   e)  acc = silSize' e (acc + 1)
@@ -45,7 +44,6 @@ serialize_loop ix vec ie@(Pair e1 e2) = do
 serialize_loop ix vec ie@Env        = SM.write vec ix (fromIntegral $ typeId ie) >> return ix
 serialize_loop ix vec ie@(SetEnv e) = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(Defer e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
-serialize_loop ix vec ie@(Twiddle e)= SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(Abort e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(Gate e)   = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(PLeft e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
@@ -88,21 +86,18 @@ deserializer_inside cont 4 = case cont of
     Call1 c -> Call1 $ \e -> c (Defer e) 
     CallN c -> CallN $ \e -> c (Defer e)
 deserializer_inside cont 5 = case cont of
-    Call1 c -> Call1 $ \e -> c (Twiddle e) 
-    CallN c -> CallN $ \e -> c (Twiddle e)
-deserializer_inside cont 6 = case cont of
     Call1 c -> Call1 $ \e -> c (Abort e) 
     CallN c -> CallN $ \e -> c (Abort e)
-deserializer_inside cont 7 = case cont of
+deserializer_inside cont 6 = case cont of
     Call1 c -> Call1 $ \e -> c (Gate e) 
     CallN c -> CallN $ \e -> c (Gate e)
-deserializer_inside cont 8 = case cont of
+deserializer_inside cont 7 = case cont of
     Call1 c -> Call1 $ \e -> c (PLeft e) 
     CallN c -> CallN $ \e -> c (PLeft e)
-deserializer_inside cont 9 = case cont of
+deserializer_inside cont 8 = case cont of
     Call1 c -> Call1 $ \e -> c (PRight e) 
     CallN c -> CallN $ \e -> c (PRight e)
-deserializer_inside cont 10 = case cont of
+deserializer_inside cont 9 = case cont of
     Call1 c -> Call1 $ \e -> c (Trace e) 
     CallN c -> CallN $ \e -> c (Trace e)
 

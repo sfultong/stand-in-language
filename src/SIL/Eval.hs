@@ -13,7 +13,6 @@ data ExpP
   | VarP
   | SetEnvP ExpP Bool
   | DeferP ExpP
-  | TwiddleP ExpP
   | AbortP ExpP
   | GateP ExpP
   | LeftP ExpP
@@ -27,7 +26,6 @@ instance EndoMapper ExpP where
   endoMap f VarP = f VarP
   endoMap f (SetEnvP x fe) = f $ SetEnvP (endoMap f x) fe
   endoMap f (DeferP x) = f . DeferP $ endoMap f x
-  endoMap f (TwiddleP x) = f . TwiddleP $ endoMap f x
   endoMap f (AbortP x) = f . AbortP $ endoMap f x
   endoMap f (GateP x) = f . GateP $ endoMap f x
   endoMap f (LeftP x) = f . LeftP $ endoMap f x
@@ -50,7 +48,6 @@ annotateEnv (Pair a b) =
 annotateEnv Env = (False, VarP)
 annotateEnv (SetEnv x) = let (xt, nx) = annotateEnv x in (xt, SetEnvP nx xt)
 annotateEnv (Defer x) = let (_, nx) = annotateEnv x in (True, DeferP nx)
-annotateEnv (Twiddle x) = TwiddleP <$> annotateEnv x
 annotateEnv (Abort x) = AbortP <$> annotateEnv x
 annotateEnv (Gate x) = GateP <$> annotateEnv x
 annotateEnv (PLeft x) = LeftP <$> annotateEnv x
@@ -63,7 +60,6 @@ fromFullEnv f (PairP a b) = Pair <$> f a <*> f b
 fromFullEnv _ VarP = pure Env
 fromFullEnv f (SetEnvP x _) = SetEnv <$> f x
 fromFullEnv f (DeferP x) = Defer <$> f x
-fromFullEnv f (TwiddleP x) = Twiddle <$> f x
 fromFullEnv f (AbortP x) = Abort <$> f x
 fromFullEnv f (GateP x) = Gate <$> f x
 fromFullEnv f (LeftP x) = PLeft <$> f x
