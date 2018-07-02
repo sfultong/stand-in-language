@@ -1,16 +1,6 @@
-resolver: lts-11.14
+resolver: nightly-2018-06-29 #lts-11.14
 packages:
 
-#nix:
-#  enable: true
-#  packages: [llvm_4, zlib, libedit, ncurses,binutils]
-
-extra-deps:
- - llvm-hs-6.3.0
- - llvm-hs-pure-6.2.1
- - derive-storable-0.1.1.1
- - derive-storable-plugin-0.2.1.0
-flags:
-  llvm-hs:
-    shared-llvm: true
-
+nix:
+  enable: true
+  shell-file: shell.nix
