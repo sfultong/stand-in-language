@@ -29,7 +29,7 @@ library
                      , SIL.TypeChecker
                      , SIL.Serializer
                      , SIL.Serializer.C
-  build-depends:       base >= 4.7 && < 5
+  build-depends:       base
                      , base16-bytestring
                      , binary
                      , cryptohash-sha256
@@ -41,11 +41,11 @@ library
                      , mtl
                      , vector
                      , deepseq
-                     , derive-storable >= 0.1.1.1
-                     , derive-storable-plugin >= 0.2
+                     , derive-storable
+                     , derive-storable-plugin
                      , bytestring
-                     , llvm-hs         >= 5.0 
-                     , llvm-hs-pure    >= 5.0
+                     , llvm-hs
+                     , llvm-hs-pure
                      , text
   extra-libraries:     gc
                        jumper
