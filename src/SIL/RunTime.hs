@@ -131,15 +131,12 @@ rEval f env g = let f' = f env
 iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
 iEval f env g = let f' = f env in case g of
   Zero -> pure Zero
-  Pair a b -> do
-    na <- f' a
-    nb <- f' b
-    pure $ Pair na nb
+  Pair a b -> Pair <$> f' a <*> f' b
   Env -> pure env
   Abort x -> f' x >>= \nx -> if nx == Zero then pure Zero else throwError $ AbortRunTime nx
   SetEnv x -> (f' x >>=) $ \nx -> case nx of
     Pair c nenv -> f nenv c
-    bx -> throwError $ SetEnvError bx
+    bx -> throwError $ SetEnvError bx -- TODO maybe replace this with just returning Zero?
   Defer x -> pure x
   Gate x -> f' x >>= \g -> case g of
     Zero -> pure $ PLeft Env
