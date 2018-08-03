@@ -109,6 +109,13 @@ replLoop (ReplState bs eval) = do
         Just ":{" -> do
             new_bs <- replStep eval bs =<< replMultiline []
             replLoop $ ReplState new_bs eval 
+        Just s | ":d" `isPrefixOf` s -> do
+                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":d" s of
+                     Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
+                       Just iexpr -> print iexpr
+                       _ -> putStrLn "some sort of error?"
+                     _ -> putStrLn "parse error"
+                   replLoop $ ReplState bs eval
         Just s    -> do 
             new_bs <- replStep eval bs s
             replLoop $ (ReplState new_bs eval)
