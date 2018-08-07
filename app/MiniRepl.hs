@@ -15,6 +15,7 @@ import Text.Parsec.Indent
 import SIL.Parser
 import SIL.RunTime
 import SIL
+import PrettyPrint
 
 import Control.Monad.IO.Class
 import Data.List
@@ -112,7 +113,7 @@ replLoop (ReplState bs eval) = do
         Just s | ":d" `isPrefixOf` s -> do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":d" s of
                      Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
-                       Just iexpr -> print iexpr
+                       Just iexpr -> putStrLn $ showPIE iexpr
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval

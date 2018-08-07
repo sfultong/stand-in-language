@@ -20,6 +20,7 @@ library
   include-dirs:        cbits/include
   c-sources:           cbits/SIL.c
   exposed-modules:     Naturals
+                     , PrettyPrint
                      , SIL
                      , SIL.Eval
                      , SIL.Llvm
