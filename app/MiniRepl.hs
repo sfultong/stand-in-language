@@ -14,7 +14,9 @@ import Text.Parsec.Indent
 
 import SIL.Parser
 import SIL.RunTime
+import SIL.TypeChecker
 import SIL
+import Naturals
 import PrettyPrint
 
 import Control.Monad.IO.Class
@@ -110,10 +112,26 @@ replLoop (ReplState bs eval) = do
         Just ":{" -> do
             new_bs <- replStep eval bs =<< replMultiline []
             replLoop $ ReplState new_bs eval 
+        Just s | ":dn" `isPrefixOf` s -> do
+                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":dn" s of
+                     Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
+                       Just iexpr -> do
+                         putStrLn . showNExprs $ toNExpr iexpr
+                         putStrLn . showNIE $ toNExpr iexpr
+                       _ -> putStrLn "some sort of error?"
+                     _ -> putStrLn "parse error"
+                   replLoop $ ReplState bs eval
         Just s | ":d" `isPrefixOf` s -> do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":d" s of
                      Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
                        Just iexpr -> putStrLn $ showPIE iexpr
+                       _ -> putStrLn "some sort of error?"
+                     _ -> putStrLn "parse error"
+                   replLoop $ ReplState bs eval
+        Just s | ":t" `isPrefixOf` s -> do
+                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":t" s of
+                     Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
+                       Just iexpr -> print $ PrettyPartialType <$> inferType iexpr
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
@@ -125,10 +143,12 @@ replLoop (ReplState bs eval) = do
 
 data ReplBackend = SimpleBackend
                  | LLVMBackend 
+                 | NaturalsBackend
 
 backendOpts :: Parser ReplBackend
 backendOpts = flag'     LLVMBackend (long "llvm" <> help "LLVM Backend")
               O.<|> flag' SimpleBackend (long "haskell" <> help "Haskell Backend")
+              O.<|> flag' NaturalsBackend (long "naturals" <> help "Naturals Interpretation Backend")
 
 opts :: ParserInfo ReplBackend
 opts = info (backendOpts <**> helper)
@@ -144,6 +164,7 @@ main = do
             gcInit
             gcAllowRegisterThreads
             return optimizedEval
+        NaturalsBackend -> return fastInterpretEval
     let bindings = case e_prelude of
             Left  _   -> Map.empty
             Right bds -> bds

@@ -1,3 +1,5 @@
+{-#LANGUAGE PatternSynonyms#-}
+{-#LANGUAGE ViewPatterns#-}
 module SIL where
 
 import Control.DeepSeq
@@ -40,7 +42,22 @@ data ExprA a
   | TraceA (ExprA a) a
   deriving (Eq, Ord, Show)
 
-type IndExpr = ExprA Int
+-- there must be a typeclass I can derive that does this
+getA :: ExprA a -> a
+getA (ZeroA a) = a
+getA (PairA _ _ a) = a
+getA (EnvA a) = a
+getA (SetEnvA _ a) = a
+getA (DeferA _ a) = a
+getA (AbortA _ a) = a
+getA (GateA _ a) = a
+getA (PLeftA _ a) = a
+getA (PRightA _ a) = a
+getA (TraceA _ a) = a
+
+newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
+
+type IndExpr = ExprA EIndex
 
 instance EndoMapper IExpr where
   endoMap f Zero = f Zero
@@ -131,6 +148,72 @@ ite :: IExpr -> IExpr -> IExpr -> IExpr
 ite i t e = setenv (pair (gate i) (pair e t))
 varN :: Int -> IExpr
 varN n = pleft (iterate pright env !! n)
+
+-- make sure these patterns are in exact correspondence with the shortcut functions above
+pattern FirstArg :: IExpr
+pattern FirstArg <- PLeft Env
+pattern SecondArg :: IExpr
+pattern SecondArg <- PLeft (PRight Env)
+pattern Lam :: IExpr -> IExpr
+pattern Lam x <- Pair (Defer x) Env
+pattern App :: IExpr -> IExpr -> IExpr
+pattern App c i <- SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env)))))
+                          (Pair i c)))
+pattern TwoArgFun :: IExpr -> IExpr
+pattern TwoArgFun c <- Pair (Defer (Pair (Defer c) Env)) Env
+pattern ITE :: IExpr -> IExpr -> IExpr -> IExpr
+pattern ITE i t e <- SetEnv (Pair (Gate i) (Pair e t))
+
+countApps :: Int -> IExpr -> Maybe Int
+countApps x FirstArg = pure x
+countApps x (App SecondArg c) = countApps (x + 1) c
+countApps _ _ = Nothing
+
+pattern ChurchNum :: Int -> IExpr
+pattern ChurchNum x <- TwoArgFun (countApps 0 -> Just x)
+
+pattern FirstArgA :: ExprA a
+pattern FirstArgA <- PLeftA (EnvA _) _
+pattern SecondArgA :: ExprA a
+pattern SecondArgA <- PLeftA (PRightA (EnvA _) _) _
+pattern ThirdArgA :: ExprA a
+pattern ThirdArgA <- PLeftA (PRightA (PRightA (EnvA _) _) _) _
+pattern FourthArgA :: ExprA a
+pattern FourthArgA <- PLeftA (PRightA (PRightA (PRightA (EnvA _) _) _) _) _
+pattern AppA :: ExprA a -> ExprA a -> ExprA a
+pattern AppA c i <- SetEnvA (SetEnvA (PairA
+                                      (DeferA (PairA
+                                               (PLeftA (PRightA (EnvA _) _) _)
+                                               (PairA (PLeftA (EnvA _) _) (PRightA (PRightA (EnvA _) _) _) _)
+                                               _)
+                                       _)
+                                      (PairA i c _)
+                                      _)
+                            _)
+                    _
+pattern LamA :: ExprA a -> ExprA a
+pattern LamA x <- PairA (DeferA x _) (EnvA _) _
+pattern TwoArgFunA :: ExprA a -> a -> a -> ExprA a
+pattern TwoArgFunA c ana anb <- PairA (DeferA (PairA (DeferA c ana) (EnvA _) _) anb) (EnvA _) _
+pattern ITEA :: ExprA a -> ExprA a -> ExprA a -> ExprA a
+pattern ITEA i t e <- SetEnvA (PairA (GateA i _) (PairA e t _) _) _
+-- TODO check if these make sense at all. A church type should have two arguments (lamdas), but the inner lambdas
+-- for addition/multiplication should be f, f+x rather than m+n
+-- no, it does not, in \m n f x -> m f (n f x), m and n are FourthArg and ThirdArg respectively
+pattern PlusA :: ExprA a -> ExprA a -> ExprA a
+pattern PlusA m n <- LamA (LamA (AppA (AppA m SecondArgA) (AppA (AppA n SecondArgA) FirstArgA)))
+pattern MultA :: ExprA a -> ExprA a -> ExprA a
+pattern MultA m n <- LamA (AppA m (AppA n FirstArgA))
+{-
+pattern PlusA :: ExprA a -> ExprA a -> ExprA a
+pattern PlusA m n <- AppA (AppA m SecondArgA) (AppA (AppA n SecondArgA) FirstArgA)
+pattern MultA :: ExprA a -> ExprA a -> ExprA a
+pattern MultA m n <- AppA m (AppA n FirstArgA)
+-}
+{-
+pattern PlusA :: ExprA a
+pattern PlusA <- AppA (AppA FourthArgA SecondArgA) (AppA (AppA ThirdArgA SecondArgA) FirstArgA)
+  -}
 
 data DataType
   = ZeroType
@@ -234,10 +317,10 @@ isNum Zero = True
 isNum (Pair n Zero) = isNum n
 isNum _ = False
 
-nextI :: State Int Int
-nextI = state $ \n -> (n, n + 1)
+nextI :: State EIndex EIndex
+nextI = state $ \(EIndex n) -> ((EIndex n), EIndex (n + 1))
 
-toIndExpr :: IExpr -> State Int IndExpr
+toIndExpr :: IExpr -> State EIndex IndExpr
 toIndExpr Zero = ZeroA <$> nextI
 toIndExpr (Pair a b) = PairA <$> toIndExpr a <*> toIndExpr b <*> nextI
 toIndExpr Env = EnvA <$> nextI
@@ -250,4 +333,4 @@ toIndExpr (PRight x) = PRightA <$> toIndExpr x <*> nextI
 toIndExpr (Trace x) = TraceA <$> toIndExpr x <*> nextI
 
 toIndExpr' :: IExpr -> IndExpr
-toIndExpr' x = evalState (toIndExpr x) 0
+toIndExpr' x = evalState (toIndExpr x) (EIndex 0)

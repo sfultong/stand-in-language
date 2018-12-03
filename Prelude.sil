@@ -6,23 +6,23 @@ not = #x -> if x then 0 else 1
 
 succ = #x -> {x,0}
 
-d2c = let layer = \recur i f b -> if i
-                                     then f (recur (left i) f b)
-                                     else b
-          fixer = $1024
-      in fixer layer (\i f b -> 0)
+d2cG = \r -> let layer = \recur i f b -> if i
+                                            then f (recur (left i) f b)
+                                            else b
+             in r layer (\i f b -> b)
+d2c = d2cG $1024
 
 c2d = #c -> c succ 0
 
-plus = #m n f x -> m f (n f x)
+plus = \m n f x -> m f (n f x)
 
-times = #m n f -> m (n f)
+times = \m n f -> m (n f)
 
-pow = #m n -> m n
+pow = \m n -> n m
 
 dMinus = #a b -> d2c b (\x -> left x) a
 
-minus = #a b -> d2c (b (\x -> left x) (c2d a))
+minus = \a b -> d2c (b (\x -> left x) (c2d a))
 
 range = #a b -> let layer = \recur i -> if dMinus b i
                                            then {i, recur {i,0}}

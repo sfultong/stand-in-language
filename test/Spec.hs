@@ -119,7 +119,7 @@ zipWith_ =
 -- layer :: (zero -> baseType) -> zero -> (baseType -> baseType) -> baseType
 --           -> baseType
 -- converts plain data type number (0-255) to church numeral
-d2c baseType =
+d2c recur =
   let layer = lam (lam (lam (lam (ite
                              (varN 2)
                              (app (varN 1)
@@ -131,7 +131,7 @@ d2c baseType =
                              (varN 0)
                             ))))
       base = lam (lam (lam (varN 0)))
-  in app (app (toChurch 255) layer) base
+  in app (app (toChurch recur) layer) base
 
 -- d_equality_h iexpr = (\d -> if d > 0
 --                                then \x -> d_equals_one ((d2c (pleft d) pleft) x)
@@ -142,7 +142,7 @@ d2c baseType =
 d_equals_one = lam (ite (varN 0) (ite (pleft (varN 0)) zero (i2g 1)) zero)
 
 d_to_equality = lam (lam (ite (varN 1)
-                                          (app d_equals_one (app (app (app (d2c zero) (pleft $ varN 1)) (lam . pleft $ varN 0)) (varN 0)))
+                                          (app d_equals_one (app (app (app (d2c 255) (pleft $ varN 1)) (lam . pleft $ varN 0)) (varN 0)))
                                           (ite (varN 0) zero (i2g 1))
                                          ))
 
@@ -165,8 +165,13 @@ plus_ x y =
   in app (app plus x) y
 
 d_plus = lam (lam (app c2d (plus_
-                                   (app (d2c zero) (varN 1))
-                                   (app (d2c zero) (varN 0))
+                                   (app (d2c 255) (varN 1))
+                                   (app (d2c 255) (varN 0))
+                                   )))
+
+d_plus2 = lam (lam (app c2d (plus_
+                                   (app (d2c 6) (varN 1))
+                                   (app (d2c 6) (varN 0))
                                    )))
 
 d2c_test =
@@ -194,19 +199,19 @@ double_app = app (app (lam (lam (pair (varN 0) (varN 1)))) zero) zero
 
 test_plus0 = app c2d (plus_
                          (toChurch 3)
-                         (app (d2c zero) zero))
+                         (app (d2c 255) zero))
 test_plus1 = app c2d (plus_
                          (toChurch 3)
-                         (app (d2c zero) (i2g 1)))
+                         (app (d2c 255) (i2g 1)))
 test_plus254 = app c2d (plus_
                          (toChurch 3)
-                         (app (d2c zero) (i2g 254)))
+                         (app (d2c 255) (i2g 254)))
 test_plus255 = app c2d (plus_
                          (toChurch 3)
-                         (app (d2c zero) (i2g 255)))
+                         (app (d2c 255) (i2g 255)))
 test_plus256 = app c2d (plus_
                          (toChurch 3)
-                         (app (d2c zero) (i2g 256)))
+                         (app (d2c 255) (i2g 256)))
 
 one_plus_one =
   let succ = lam (pair (varN 0) zero)
@@ -331,40 +336,27 @@ debugPEIITO iexpr = do
            [ concat $ ["partially evaluated result: ", show x]
            , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
 
+{-
+testRecur = concat
+  [ "main = let layer = \\recur l -> "
+  ]
+-}
+
+
 unitTests_ :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
 unitTests_ unitTest2 unitTestType = do
-  unitTestType "main = \\x -> {x,0}" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
-  unitTestType "main = \\x -> {x,0}" ZeroTypeP isInconsistentType
-  unitTestType "main = succ 0" ZeroTypeP (== Nothing)
-  unitTestType "main = succ 0" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
-  unitTestType "main = or 0" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
-  unitTestType "main = or 0" ZeroTypeP isInconsistentType
-  unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
-  unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
-  unitTestType "main = 0 0" ZeroTypeP isInconsistentType
-  -- I guess this is inconsistently typed now?
-  unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroTypeP (== Nothing)
-  unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
-  unitTest "basiczero" "0" Zero
-  unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-  unitTest "c2d" "2" c2d_test
-  unitTest "c2d2" "2" c2d_test2
-  unitTest "c2d3" "1" c2d_test3
-  unitTest "oneplusone" "2" one_plus_one
-  unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
-  unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
+  {-
+  unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
+    "{0,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
+-}
+  -- unitTest2 "main = $3 ($2 succ) 0" "6"
+  -- unitTest "3*2" "6" three_times_two
+  -- unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
+  unitTest2 "main = (d2cG $4 3) succ 0" "3"
+  --unitTest2 "main = (d2cG $4 3) $2 succ 0" "8"
+  -- unitTest "data 3+5" "8" $ app (app d_plus2 (i2g 3)) (i2g 5)
+
+c2dApp = "main = (c2dG $4 3) $2 succ 0"
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
 isInconsistentType _ = False
@@ -419,7 +411,7 @@ unitTests unitTest2 unitTestType = do
   --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
   describe "unitTest" $ do
     unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-    unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+    -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
     unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
     unitTest "c2d" "2" c2d_test
     unitTest "c2d2" "2" c2d_test2
@@ -457,7 +449,8 @@ unitTests unitTest2 unitTestType = do
     unitTest2 fiveApp "5"
     unitTest2 "main = plus $3 $2 succ 0" "5"
     unitTest2 "main = times $3 $2 succ 0" "6"
-    unitTest2 "main = pow $3 $2 succ 0" "8"
+    unitTest2 "main = pow $3 $2 succ 0" "9"
+    unitTest2 "main = (d2cG $4 3) succ 0" "3"
     unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
     unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
     unitTest2 "main = dEqual 0 0" "1"
@@ -535,25 +528,25 @@ nestedNamedFunctionsIssue = concat
   , "       in bindTest 0"
   ]
 
+{-
 nexprTests :: Spec
 nexprTests = do
   describe "nexpr eval" $ do
     it "literal" $
-      NChurch 42 `shouldEvalTo` 42
+      NNum 42 `shouldEvalTo` 42
     it "add" $
-      NChurch 2 `NAdd` NChurch 3 `shouldEvalTo` 5
+      NNum 2 `NAdd` NNum 3 `shouldEvalTo` 5
     it "mul" $
-      NChurch 2 `NMult` NChurch 3 `shouldEvalTo` 6
-    it "pow" $
-      NChurch 2 `NPow` NChurch 3 `shouldEvalTo` 8
+      NNum 2 `NMult` NNum 3 `shouldEvalTo` 6
     it "ite false" $
-      NITE (NChurch 0) (NChurch 1) (NChurch 2) `shouldEvalTo` 2
+      NITE (NNum 0) (NNum 1) (NNum 2) `shouldEvalTo` 2
     it "ite true" $
-      NITE (NChurch 1) (NChurch 1) (NChurch 2) `shouldEvalTo` 1
+      NITE (NNum 1) (NNum 1) (NNum 2) `shouldEvalTo` 1
   where
     nexpr `shouldEvalTo` r = do
       RunResult r' _ <- llvmEval (NSetEnv (NPair (NDefer nexpr) NZero))
       r' `shouldBe` r
+-}
 
 foreign import capi "gc.h GC_INIT" gcInit :: IO ()
 foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
@@ -613,4 +606,4 @@ main = do
 -}
   hspec $ do
     unitTests unitTest2 unitTestType
-    nexprTests
+    --nexprTests
