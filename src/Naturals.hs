@@ -131,9 +131,12 @@ isPartialChurchPair :: FragType -> Bool
 isPartialChurchPair (PairTypeF (PartialChurchTypeF _) _) = True
 isPartialChurchPair _ = False
 -}
+{-
 traceSet inds x = if elem (FragIndex 1) inds
                   then trace ("env at index 1: " ++ show x) x
                   else x
+-}
+traceSet _ x = x
 
 fTypeSetA :: Applicative a => ([FragIndex] -> FragType -> a ()) -> FragType -> FragType -> a (Maybe FragType)
 fTypeSetA f (ArrTypeF ind ft) x = f ind (traceSet ind x) *> (pure . pure $ ft x)
@@ -236,7 +239,7 @@ toFrag :: IExpr -> FragState ExprFrag
 -- complex instructions
 toFrag (ITE i t e) = FITE <$> toFrag i <*> toFrag t <*> toFrag e
 toFrag (App f x) = FApp <$> toFrag f <*> toFrag x
-toFrag (ChurchNum x) = pure . FNum $ fromIntegral x
+-- toFrag (ChurchNum x) = pure . FNum $ fromIntegral x -- TODO fix
 -- simple instructions
 toFrag Zero = pure FZero
 toFrag (Pair a b) = FPair <$> toFrag a <*> toFrag b
@@ -316,34 +319,6 @@ getFragType getFrag fragMap frag envType =
         then Just $ ChurchTypeF -- PairTypeF ChurchTypeF envType
         else Nothing
       passChurch _ _ = Nothing
-  {-
-      passOneChurch et (Just (a,b)) =
-        let secondType = getFragType getFrag fragMap b et
-        in if isChurchTypePair (getFragType getFrag fragMap a et) && not (isChurchTypePair secondType)
-           then Just $ PairTypeF (PartialChurchTypeF secondType) envType
-           else Nothing
--}
-      passOneChurch _ _ = Nothing
-      passPartialChurch et (Just (a,b)) =
-        let firstType = getFragType getFrag fragMap a et
-        in case firstType of
-             (PairTypeF (PartialChurchTypeF pctf) nenv) -> fTypeSet pctf $
-               PairTypeF (getFragType getFrag fragMap b et) nenv
-             _ -> Nothing
-      passPartialChurch _ _ = Nothing
-
-  {-
-      bothChurch et (Just (a,b)) = isChurchTypePair (getFragType getFrag fragMap a et)
-                                   && isChurchTypePair (getFragType getFrag fragMap b et)
--}
-  {-
-      bothChurch et (Just (a,b)) = trace "FOFOOFOOO  " isChurchTypePair (tgt a et)
-                                   && isChurchTypePair (tgt2 b et)
--}
-      bothChurch _ _ = False
-      isChurch = (bothChurch envUpTwo $ matchChurchPlus fragMap frag)
-        || (bothChurch envUpOne $ matchChurchMult fragMap frag)
-        || (bothChurch envType $ matchApp frag)
       complexOptions = [ passChurch envUpTwo $ matchChurchPlus fragMap frag
                        , passChurch envUpOne $ matchChurchMult fragMap frag
                        -- , matchApp frag >>= \(a,b) -> fTypeApply (recur a) (recur b)
@@ -353,7 +328,7 @@ getFragType getFrag fragMap frag envType =
                        , passPartialChurch envType $ matchApp frag
 -}
                        ]
-      complexMatch = getAlt . mconcat $ map Alt complexOptions
+      complexMatch = Nothing -- getAlt . mconcat $ map Alt complexOptions -- TODO FIX
       dumpInfo = concat ["\n", show fragMap, "\n", show frag, "\n", show envType, "\n"]
       simpleInstruction = case frag of
         FZero -> ZeroTypeF
@@ -470,13 +445,16 @@ fragsToNExpr fragMap getType et =
                              , fmap (uncurry NChurchAppTwo) <$> (passPartialChurch envType $ matchApp frag)
 -}
                              ]
-            complexMatch = getAlt . mconcat $ map Alt complexMatches
+            complexMatch = Nothing -- getAlt . mconcat $ map Alt complexMatches -- TODO FIX
             processInnerDefer ind t =
               let processOne i = case Map.lookup i fragMap of
                     (Just fg) -> do
+                      {-
                       let traceOne = case i of
                             (FragIndex 1) -> trace ("processindef env " ++ show t)
                             _ -> id
+-}
+                      let traceOne = id
                       nMap <- traceOne $ State.get
                       if Map.member i nMap
                         then pure ()
@@ -515,7 +493,10 @@ fragsToNExpr fragMap getType et =
             (FDefer ind) -> pure $ NDefer ind
             (FNum x) -> pure $ NNum x
             (FITE i t e) -> NITE <$> recur i <*> recur t <*> recur e
+  {-
             (FApp c i) -> trace ("apping " ++ show c ++ " --- " ++  show (getType c envType) ++ show " --- " ++ show envType) $ case (getType c envType, getType i envType) of
+-}
+            (FApp c i) -> case (getType c envType, getType i envType) of
               (ChurchTypeF, ChurchTypeF) -> NPow <$> recur i <*> recur c
               (ChurchTypeF, (PartialChurchTypeF _)) -> NMult <$> recur c <*> recur i
               (ChurchTypeF, _) -> NChurchAppOne <$> recur c <*> recur i
@@ -540,8 +521,12 @@ fragsToNExpr fragMap getType et =
               (Just (df, ft)) -> trace ("processing " ++ show ind) processFrag df ft
               _ -> error ("fragsToNExpr simplematch fdefer index not found " ++ show ind)
 -}
+      runIsolated x = fst $ State.runState (processFrag x ZeroTypeF) Map.empty
+      -- functions not given a type may be referenced even if not applied to, so they should be present
+      unTypedMap = Map.map (\x -> (runIsolated x, ZeroTypeF)) fragMap
   in case Map.lookup (FragIndex 0) fragMap of
-    (Just x) -> (\(n, m) -> Map.insert (FragIndex 0) (n, et) m) $ State.runState (processFrag x et) Map.empty
+    (Just x) -> (`Map.union` unTypedMap) .
+      (\(n, m) -> Map.insert (FragIndex 0) (n, et) m) $ State.runState (processFrag x et) Map.empty
     _ -> error "fragsToNExpr top level frag not found"
 
 debugShow x = x -- trace ("toNExpr\n" ++ show x) x

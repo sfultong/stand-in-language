@@ -76,6 +76,9 @@ drop = #n l -> n (\x -> right x) l
 take = #n l -> let lengthed = n (\x -> {0,x}) 0
                in zipWith (\a b -> a) l lengthed
 
+takeG = #r n l -> let lengthed = n (\x -> {0,x}) 0
+                  in zipWithG r (\a b -> a) l lengthed
+
 factorial = #n -> foldr (\a b -> times (d2c a) b) $1 (range 1 {n,0})
 
 quicksort = let layer = \recur l -> if right l

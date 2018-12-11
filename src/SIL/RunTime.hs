@@ -16,69 +16,12 @@ import qualified Data.Map as Map
 import qualified SIL.Llvm as LLVM
 
 debug :: Bool
-debug = True
-
--- runtime expression
-data RExpr
-  = RZero
-  | RPair !RExpr !RExpr
-  | REnv
-  | RAbort !RExpr
-  | RGate !RExpr
-  | RLeft !RExpr
-  | RRight !RExpr
-  | RTrace !RExpr
-  | RSetEnv !RExpr
-  | RDefer !RExpr
-  -- machine optimized instructions
-  | RITE !RExpr !RExpr !RExpr
-  | RChurch !Int !(Maybe RExpr)
-  deriving (Eq, Show, Ord)
-
-instance EndoMapper RExpr where
-  endoMap f RZero = f RZero
-  endoMap f (RPair a b) = f $ RPair (endoMap f a) (endoMap f b)
-  endoMap f REnv = f REnv
-  endoMap f (RAbort x) = f . RAbort $ endoMap f x
-  endoMap f (RGate x) = f . RGate $ endoMap f x
-  endoMap f (RLeft x) = f . RLeft $ endoMap f x
-  endoMap f (RRight x) = f . RRight $ endoMap f x
-  endoMap f (RTrace x) = f . RTrace $ endoMap f x
-  endoMap f (RSetEnv x) = f . RSetEnv $ endoMap f x
-  endoMap f (RDefer x) = f . RDefer $ endoMap f x
-  endoMap f (RITE i t e) = f $ RITE (endoMap f i) (endoMap f t) (endoMap f e)
-  endoMap f r@(RChurch _ Nothing) = f r
+debug = False
 
 -- cPlus :: (t3 -> t2 -> t1) -> (t3 -> t -> t2) -> t3 -> t -> t1
 cPlus :: ((a -> a) -> a -> a) -> ((a -> a) -> a -> a) -> (a -> a) -> a -> a
 -- cPlus m n f x = m f (n f x)
 cPlus m n f = m f . n f
-
-toRExpr :: IExpr -> RExpr
-toRExpr Zero = RZero
-toRExpr (Pair a b) = RPair (toRExpr a) (toRExpr b)
-toRExpr Env = REnv
-toRExpr (Abort x) = RAbort $ toRExpr x
-toRExpr (Gate x) = RGate $ toRExpr x
-toRExpr (PLeft x) = RLeft $ toRExpr x
-toRExpr (PRight x) = RRight $ toRExpr x
-toRExpr (Trace x) = RTrace $ toRExpr x
-toRExpr (SetEnv x) = RSetEnv $ toRExpr x
-toRExpr (Defer x) = RDefer $ toRExpr x
-
-fromRExpr :: RExpr -> IExpr
-fromRExpr RZero = Zero
-fromRExpr (RPair a b) = Pair (fromRExpr a) (fromRExpr b)
-fromRExpr REnv = Env
-fromRExpr (RAbort x) = Abort $ fromRExpr x
-fromRExpr (RGate x) = Gate $ fromRExpr x
-fromRExpr (RLeft x) = PLeft $ fromRExpr x
-fromRExpr (RRight x) = PRight $ fromRExpr x
-fromRExpr (RTrace x) = Trace $ fromRExpr x
-fromRExpr (RSetEnv x) = SetEnv $ fromRExpr x
-fromRExpr (RDefer x) = Defer $ fromRExpr x
-fromRExpr (RITE i t e) = app (Gate $ fromRExpr i) (Pair (fromRExpr e) (fromRExpr t))
-fromRExpr (RChurch i Nothing) = toChurch i
 
 data RunTimeError
   = AbortRunTime IExpr
@@ -90,45 +33,6 @@ instance Show RunTimeError where
   show (AbortRunTime a) = "Abort: " ++ (show $ g2s a)
   show (SetEnvError e) = "Can't SetEnv: " ++ show e
   show (GenericRunTimeError s i) = "Generic Runtime Error: " ++ s ++ " -- " ++ show i
-
-rEval :: MonadError RunTimeError m => (RExpr -> RExpr -> m RExpr) -> RExpr -> RExpr -> m RExpr
-rEval f env g = let f' = f env
-                    rApply (RPair ng eenv) v = f (RPair v eenv) ng
-                    rApply (RChurch ci Nothing) v = pure $ RChurch ci (Just v)
-                    rApply (RChurch ci (Just cf)) v =
-                      let step 0 cv = pure cv
-                          step x cv = rApply cf cv >>= step (x - 1)
-                      in step ci v
-                    rApply ng _ = throwError $ GenericRunTimeError "rApply: not a closure -- " (fromRExpr ng)
-                    rApply2 (RChurch ci Nothing) (RPair cf (RPair iv _)) = rApply (RChurch ci (Just cf)) iv
-                    rApply2 (RChurch ci Nothing) (RPair cf _) = pure $ RChurch ci (Just cf)
-                    rApply2 rc@(RChurch _ _) (RPair iv _) = rApply rc iv
-                    rApply2 g nenv = f nenv g
-                in case g of
-  RZero -> pure RZero
-  (RPair a b) -> RPair <$> f' a <*> f' b
-  REnv -> pure env
-  RAbort x -> f' x >>= \nx -> if nx == RZero then pure RZero
-                              else throwError $ AbortRunTime (fromRExpr nx)
-  RDefer x -> pure x
-  -- this seems a bit hacky
-  RSetEnv x -> f' x >>= \g -> case g of
-    RPair c i -> rApply2 c i
-    bx -> throwError $ SetEnvError (fromRExpr bx)
-  RGate x -> f' x >>= \g -> case g of
-    RZero -> pure $ RLeft REnv
-    _ -> pure $ RRight REnv
-  RLeft g -> f' g >>= \g -> case g of
-    (RPair a _) -> pure a
-    _ -> pure RZero
-  RRight g -> f' g >>= \g -> case g of
-    (RPair _ b) -> pure b
-    _ -> pure RZero
-  RTrace g -> f' g >>= \g -> pure $ trace (show g) g
-  RITE i t e -> f' i >>= \ng -> case ng of
-    RZero -> f' e
-    _ -> f' t
-  r@(RChurch _ _) -> pure r
 
 nEval :: MonadError RunTimeError m => NExprs -> m NExpr
 nEval (NExprs m) =
@@ -149,7 +53,7 @@ nEval (NExprs m) =
           z -> error ("nright on " ++ show z)
         (NDefer ind) -> case Map.lookup ind m of
           (Just (x, _)) -> pure x
-          _ -> throwError $ GenericRunTimeError "nEval bad index for function" Zero
+          _ -> throwError $ GenericRunTimeError ("nEval bad index for function: " ++ show ind) Zero
         (NTrace x) -> (\t -> trace (show t) t) <$> recur x
         (NAbort x) -> recur x >>= \y -> case y of
           NZero -> pure NZero
@@ -215,11 +119,22 @@ nEval (NExprs m) =
             p@(NPair _ _) -> appl p ni -- eval (NPair ni ce) cc
             (NChurchAppOne cn f) -> do
               nn <- recur cn
-              nf <- recur f
+              nf <- pure f -- recur f
               case nn of
-                (NNum nat) -> iterate (>>= appl nf) (pure ni) !! fromIntegral nat
+                (NNum nat) -> let buildF 0 = ni
+                                  buildF x = NApp nf (buildF (x - 1))
+                              in trace ("nEval napp churapp - " ++ show (buildF nat)) $ eval (NPair ni NEnv) (buildF nat)
+                  -- iterate (>>= appl nf) (pure ni) !! fromIntegral nat
                 z -> error ("neval napp churchappone - no num - " ++ show cn)
             z -> error ("nEval napp error - non pair c - " ++ show z)
+  {-
+        (NChurchAppOne cn f) -> recur cn >>= \nn -> case nn of
+          (NNum nat) -> let buildF ff 0 = NApp ff (NLeft NEnv)
+                            buildF ff x = NApp ff (buildF ff (x - 1))
+                            wrappedF ff = NPair (NDefer $ buildF ff nat)
+                        in recur f >>= \nf -> pure (buildF nf nat)
+          z -> error ("neval napp churchappone - no num - " ++ show cn)
+-}
   {-
         (NChurchAppTwo c i) -> do
           nc <- recur c
@@ -249,12 +164,12 @@ iEval f env g = let f' = f env in case g of
   Env -> pure env
   Abort x -> f' x >>= \nx -> if nx == Zero then pure Zero else throwError $ AbortRunTime nx
   SetEnv x -> (f' x >>=) $ \nx -> case nx of
-    Pair c nenv -> f nenv c
+    Pair (Defer c) nenv -> f nenv c
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
-  Defer x -> pure x
+  Defer x -> pure $ Defer x
   Gate x -> f' x >>= \g -> case g of
-    Zero -> pure $ PLeft Env
-    _ -> pure $ PRight Env
+    Zero -> pure $ Defer (PLeft Env)
+    _ -> pure $ Defer (PRight Env)
   PLeft g -> f' g >>= \g -> case g of
     (Pair a _) -> pure a
     _ -> pure Zero
@@ -269,23 +184,10 @@ toChurch x =
       inner x = app (PLeft $ PRight Env) (inner (x - 1))
   in lam (lam (inner x))
 
-rOptimize :: RExpr -> RExpr
-rOptimize =
-  let modR (RSetEnv (RPair (RGate i) (RPair e t))) = RITE i t e
-      modR x = x
-  in endoMap modR
-
 simpleEval :: IExpr -> IO IExpr
 simpleEval x = runExceptT (fix iEval Zero x) >>= \r -> case r of
   Left e -> fail (show e)
   Right i -> pure i
-
-fasterEval :: IExpr -> IO IExpr
-fasterEval =
-  let frEval x = runExceptT (fix rEval RZero x) >>= \r -> case r of
-        Left e -> fail (show e)
-        Right i -> pure i
-  in fmap fromRExpr . frEval . rOptimize . toRExpr
 
 fastInterpretEval :: IExpr -> IO IExpr
 fastInterpretEval e = do
@@ -310,16 +212,10 @@ llvmEval nexpr = do
     Right x -> pure x
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = simpleEval -- fastInterpretEval -- TODO fix
+optimizedEval = fastInterpretEval -- TODO fix
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g
-
-pureREval :: IExpr -> Either RunTimeError IExpr
-pureREval = fmap fromRExpr . runIdentity . runExceptT . fix rEval RZero . rOptimize . toRExpr
-
-showROptimized :: IExpr -> IO ()
-showROptimized = putStrLn . show . rOptimize . toRExpr
 
 pureEvalWithError :: IExpr -> Either RunTimeError IExpr
 pureEvalWithError = fix iEval Zero

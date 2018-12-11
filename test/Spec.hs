@@ -283,14 +283,9 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
+{-
 rEvaluationIsomorphicToIEvaluation :: ZeroTypedTestIExpr -> Bool
 rEvaluationIsomorphicToIEvaluation vte = case (pureEval $ getIExpr vte, pureREval $ getIExpr vte) of
-  {-
-  (Left _, Left _) -> True
-  -- (Right a, Right b) -> a == b
-  (Right _, Right _) -> True
-  (Left _, Right _) -> True -- I guess failing to fail is fine for rEval
--}
   (Left _, Left _) -> True
   (a, b) | a == b -> True
   _ -> False
@@ -336,11 +331,11 @@ debugPEIITO iexpr = do
            [ concat $ ["partially evaluated result: ", show x]
            , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
 
-{-
-testRecur = concat
-  [ "main = let layer = \\recur l -> "
-  ]
 -}
+testRecur = concat
+  [ "main = let layer = \\recur x -> recur {x, 0}"
+  , "       in $3 layer (\\x -> x) 0"
+  ]
 
 
 unitTests_ :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
@@ -352,7 +347,11 @@ unitTests_ unitTest2 unitTestType = do
   -- unitTest2 "main = $3 ($2 succ) 0" "6"
   -- unitTest "3*2" "6" three_times_two
   -- unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
-  unitTest2 "main = (d2cG $4 3) succ 0" "3"
+  --unitTest2 "main = $3 succ 0" "3"
+  --unitTest2 "main = (d2cG $4 3) succ 0" "3"
+  unitTest2 "main = takeG $4 $0 [1,2,3]" "0"
+  -- unitTest2 "main = $0 succ 0" "0"
+  -- unitTest2 testRecur "3"
   --unitTest2 "main = (d2cG $4 3) $2 succ 0" "8"
   -- unitTest "data 3+5" "8" $ app (app d_plus2 (i2g 3)) (i2g 5)
 
@@ -480,12 +479,12 @@ unitTests unitTest2 unitTestType = do
     unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
     unitTest2 "main = range 2 5" "{2,{3,5}}"
     unitTest2 "main = range 6 6" "0"
-    unitTest2 "main = c2d (factorial 4)" "24"
-    unitTest2 "main = c2d (factorial 0)" "1"
     unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
       "{4,{5,{6,8}}}"
     unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
       "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
+    unitTest2 "main = c2d (factorial 0)" "1"
+    unitTest2 "main = c2d (factorial 4)" "24"
   -- , debugPEIITO (SetEnv (Twiddle (Twiddle (Pair (Defer Var) Zero))))
   -- , debugPEIITO (SetEnv (Pair (Defer Var) Zero))
   -- , debugPEIITO (SetEnv (Pair (Defer (Pair Zero Var)) Zero))
@@ -505,7 +504,8 @@ unitTests unitTest2 unitTestType = do
 
 -- slow, don't regularly run
 quickCheckTests unitTest2 unitTestType =
-  [ unitTestQC "rEvaluationIsIsomorphicToIEvaluation" 100 rEvaluationIsomorphicToIEvaluation
+  [
+  --[ unitTestQC "rEvaluationIsIsomorphicToIEvaluation" 100 rEvaluationIsomorphicToIEvaluation
   -- too slow
   -- , unitTestQC "partiallyEvaluatedIsIsomorphicToOriginal" 100 partiallyEvaluatedIsIsomorphicToOriginal
   ]
