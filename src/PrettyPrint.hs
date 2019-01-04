@@ -58,6 +58,8 @@ showNExpr nMap l i expr =
   (NChurchAppTwo n f) -> showTwo "V" n f -- concat ["(C ", show n, ")", recur f]
   (NApp c i) -> showTwo "$" c i
   (NNum n) -> show n --concat ["()"]
+  (NToChurch x) -> concat ["< ", recur x]
+  (NOldDefer x) -> concat ["% ", recur x]
 
 showNIE (NExprs m) = case Map.lookup (FragIndex 0) m of
   Just (f, _) -> showNExpr m 80 1 f
@@ -78,11 +80,17 @@ instance Show PrettyFragType where
     (PartialChurchTypeF t) -> concat ["P[", show $ PrettyFragType t, "]"]
 
 showEnvPart :: FragType -> NExpr -> Maybe String
-showEnvPart ft expr = case (ft, expr) of
-  (PairTypeF t _, NLeft x) -> ("L " ++) <$> showEnvPart t x
-  (PairTypeF _ t, NRight x) -> ("R " ++) <$> showEnvPart t x
-  (e, NEnv) -> pure $ "E -- " ++ show (PrettyFragType e)
-  _ -> Nothing
+showEnvPart ft expr =
+  let showInternal expr showF = case expr of
+        (NLeft x) -> ("L " ++) <$> showInternal x (\t -> typeLeft t >>= showF)
+        (NRight x) -> ("R " ++) <$> showInternal x (\t -> typeRight t >>= showF)
+        NEnv -> (\it -> "E -- " ++ show (PrettyFragType it)) <$> showF ft
+        _ -> Nothing
+      typeLeft (PairTypeF t _) = Just t
+      typeLeft _ = Nothing
+      typeRight (PairTypeF _ t) = Just t
+      typeRight _ = Nothing
+  in showInternal expr pure
 
 showOneNExpr :: Int -> Int -> FragType -> NExpr -> String
 showOneNExpr l i t expr =
@@ -112,7 +120,16 @@ showOneNExpr l i t expr =
       (NChurchAppTwo n f) -> showTwo "V" n f -- concat ["(C ", show n, ")", recur f]
       (NApp c i) -> showTwo "$" c i
       (NNum n) -> show n --concat ["()"]
+      (NToChurch x) -> concat ["< ", recur x]
+      (NOldDefer x) -> concat ["% ", recur x]
+      NToNum -> "["
 
 showNExprs :: NExprs -> String
+{-
 showNExprs (NExprs m) = concatMap (\((FragIndex k),(v,t)) -> concat [show k, " ", showOneNExpr 80 2 t v, "\n"])
+  $ Map.toList m
+-}
+showNExprs (NExprs m) = concatMap
+  (\((FragIndex k),(v,t)) -> concat
+    [show k, " ", show (PrettyFragType t), "\n", showOneNExpr 80 2 t v, "\n"])
   $ Map.toList m
