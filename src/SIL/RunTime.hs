@@ -10,33 +10,26 @@ import Control.Monad.Fix
 import System.IO (hPutStrLn, stderr)
 
 import SIL
-import Naturals
+import Naturals hiding (debug, debugTrace)
 import PrettyPrint
 import qualified Data.Map as Map
 import qualified SIL.Llvm as LLVM
 
 debug :: Bool
-debug = False
+debug = True
+
+debugTrace :: String -> a -> a
+debugTrace s x = if debug then trace s x else x
 
 -- cPlus :: (t3 -> t2 -> t1) -> (t3 -> t -> t2) -> t3 -> t -> t1
 cPlus :: ((a -> a) -> a -> a) -> ((a -> a) -> a -> a) -> (a -> a) -> a -> a
 -- cPlus m n f x = m f (n f x)
 cPlus m n f = m f . n f
 
-data RunTimeError
-  = AbortRunTime IExpr
-  | SetEnvError IExpr
-  | GenericRunTimeError String IExpr
-  deriving (Eq, Ord)
-
-instance Show RunTimeError where
-  show (AbortRunTime a) = "Abort: " ++ (show $ g2s a)
-  show (SetEnvError e) = "Can't SetEnv: " ++ show e
-  show (GenericRunTimeError s i) = "Generic Runtime Error: " ++ s ++ " -- " ++ show i
-
-nEval :: MonadError RunTimeError m => NExprs -> m NExpr
+nEval :: NExprs -> RunResult NExpr
 nEval (NExprs m) =
-  let eval env frag = let recur = eval env in case frag of
+  let eval :: NExpr -> NExpr -> RunResult NExpr
+      eval env frag = let recur = eval env in case frag of
         NZero -> pure NZero
         (NPair a b) -> NPair <$> recur a <*> recur b
         NEnv -> pure env
@@ -46,67 +39,23 @@ nEval (NExprs m) =
         (NLeft x) -> recur x >>= \y -> case y of
           (NPair l _) -> pure l
           NZero -> pure NZero
-          z -> error ("nleft on " ++ show z)
+          z -> error ("nleft on " ++ show z ++ " before " ++ show x)
         (NRight x) -> recur x >>= \y -> case y of
           (NPair _ r) -> pure r
           NZero -> pure NZero
           z -> error ("nright on " ++ show z)
         (NDefer ind) -> case Map.lookup ind m of
-          (Just (x, _)) -> pure x
+          (Just x) -> pure x
           _ -> throwError $ GenericRunTimeError ("nEval bad index for function: " ++ show ind) Zero
         (NTrace x) -> (\t -> trace (show t) t) <$> recur x
         (NAbort x) -> recur x >>= \y -> case y of
           NZero -> pure NZero
-          z -> throwError . AbortRunTime . fromNExpr $ z
+          z -> case toSIL (NExprs $ Map.insert resultIndex z m) of
+            Just z' -> throwError . AbortRunTime $ z'
+            Nothing -> throwError $ GenericRunTimeError ("Could not convert abort value of: " <> show z) Zero
         (NSetEnv x) -> recur x >>= \y -> case y of
           (NPair c i) -> eval i c
           z -> error ("nEval nsetenv - not pair - " ++ show z)
-  {-
-        (NSetEnv x) ->
-          let se (NPair (NChurchAppOne i f) senv) = trace "making stuff" $ do
-                nf <- recur f
-                recur i >>= \ni -> case ni of
-                  (NNum nn) -> trace ("doing the " ++ show nn) iterate (>>= appl nf) (pure senv) !! (fromIntegral nn)
-                  z -> error ("nEval nSetEnv churchapp, no nnum, instead " ++ show z)
-              se (NPair f nenv) = eval nenv f
-              se z = throwError . SetEnvError $ fromNExpr z
-              appl (NPair c e) i = trace ("evaluating appl") eval (NPair i e) c
-              appl z i = error ("nEval nSetEnv error " ++ show z ++ " <-- " ++ show i)
-          in trace ("setenvinginging\n" ++ show x) recur x >>= se
--}
-  {-
-        (NConvertSetEnv x) -> recur x >>= \y -> case y of
-          (NPair (NNum i) (NPair f _)) -> pure $ NForLoop i f
-          z -> throwError $ GenericRunTimeError "nEval bad convertSetEnv" (fromNExpr z)
--}
-  {-
-        (NAdd a b) -> process <$> recur a <*> recur b where
-          process (NNum na) (NNum nb) = NNum (na + nb)
-          process ea eb = error ("nEval nadd error " ++ show ea ++ " +++ " ++ show eb)
-        (NMult a b) -> process <$> recur a <*> recur b where
-          process (NNum na) (NNum nb) = NNum (na * nb)
-          process ea eb = error ("nEval nmult error " ++ show ea ++ " +++ " ++ show eb)
--}
-        -- hacks for add/mult
-        (NAdd a b) -> process <$> envModRecur a <*> envModRecur b where
-          envModRecur = recur -- eval (NPair NZero $ NPair NZero env)
-          process (NNum na) (NNum nb) = NNum (na + nb)
-          process ea eb = error ("nEval nadd error " ++ show ea ++ " +++ " ++ show eb)
-  {-
-        (NMult a b) -> process <$> eval (NPair NZero env) a <*> eval (NPair NZero env) b where
-          process (NNum na) (NNum nb) = NNum (na * nb)
-          process ea eb = error ("nEval nmult error " ++ show ea ++ " +++ " ++ show eb)
--}
-        (NMult a b) -> ((,) <$> recur a <*> recur b) >>= process where
-          envModRecur = eval (NPair NZero env)
-          process (NNum na, NNum nb) = pure $ NNum (na * nb)
-          process (NNum na, (NChurchAppOne cbn f)) = recur cbn >>= \y -> case y of
-            (NNum nb) -> trace ("doing the thing " ++ show na ++ " " ++ show nb ++ " " ++ show env) pure $ NChurchAppOne (NNum (na * nb)) f
-            z -> error ("nEval nmult error nchurchappone not pair " ++ show z)
-          process z = error ("nEval nmult error not nums or nchurchappone " ++ show z)
-        (NPow a b) -> process <$> recur a <*> recur b where
-          process (NNum na) (NNum nb) = NNum (na ^ nb)
-          process ea eb = error ("nEval npow error " ++ show ea ++ " +++ " ++ show eb)
         (NITE i t e) -> process <$> recur i <*> recur t <*> recur e where
           process NZero _ ne = ne
           process _ nt _ = nt
@@ -116,45 +65,28 @@ nEval (NExprs m) =
           let appl (NPair c e) i = eval (NPair i e) c
               appl y z = error ("nEval napp appl no pair " ++ show y ++ " --- " ++ show z)
           case nc of
-            p@(NPair _ _) -> appl p ni -- eval (NPair ni ce) cc
-            (NChurchAppOne cn f) -> do
-              nn <- recur cn
-              nf <- pure f -- recur f
-              case nn of
-                (NNum nat) -> let buildF 0 = ni
-                                  buildF x = NApp nf (buildF (x - 1))
-                              in trace ("nEval napp churapp - " ++ show (buildF nat)) $ eval (NPair ni NEnv) (buildF nat)
-                  -- iterate (>>= appl nf) (pure ni) !! fromIntegral nat
-                z -> error ("neval napp churchappone - no num - " ++ show cn)
-            z -> error ("nEval napp error - non pair c - " ++ show z)
-  {-
-        (NChurchAppOne cn f) -> recur cn >>= \nn -> case nn of
-          (NNum nat) -> let buildF ff 0 = NApp ff (NLeft NEnv)
-                            buildF ff x = NApp ff (buildF ff (x - 1))
-                            wrappedF ff = NPair (NDefer $ buildF ff nat)
-                        in recur f >>= \nf -> pure (buildF nf nat)
-          z -> error ("neval napp churchappone - no num - " ++ show cn)
--}
-  {-
-        (NChurchAppTwo c i) -> do
-          nc <- recur c
-          ni <- recur i
-          case nc of
-            (NChurchAppOne n f) -> do
-              nn <- recur n
-              nf <- recur f
-              case nn of
-                (NNum nat) ->
-                  let appl (NPair c e) i = eval (NPair i e) c
-                      appl z i = error ("nEval church stuff - appl - " ++ show z ++ " <-- " ++ show i)
-                  in iterate (>>= appl nf) (pure ni) !! (fromIntegral nat)
-                z -> error ("nEval napp - no num - " ++ show z)
-            z -> error ("nEval napp - appone - " ++ show z)
--}
-        -- NChurchApp, NNum
+            p@(NPair _ _) -> appl p ni
+            (NLamNum n e) -> pure $ case ni of
+              (NLamNum m _) -> NPair (NPair (NNum (n ^ m)) NEnv) e
+              (NPartialNum m f) -> NPair (NNum (n * m)) f
+            NToNum -> pure $ NApp NToNum ni
+            (NApp NToNum (NPair (NPair (NNum nn) NEnv) nenv)) ->
+              let fStep 0 _ = 0
+                  fStep _ NZero = 0
+                  fStep x (NPair pr NZero) = 1 + fStep (x - 1) pr
+                  fStep _ z = error ("napp ntonum fstep bad pair: " ++ show z)
+              in pure $ NPair (NPair (NNum $ fStep nn ni) NEnv) nenv
+            z -> error ("nEval napp error - non pair c - " ++ show z ++ " <<from>> " ++ show c)
+        (NOldDefer x) -> pure x
+        (NNum x) -> let buildF 0 = NLeft NEnv
+                        buildF x = NApp (NLeft (NRight NEnv)) (buildF (x - 1))
+                    in pure $ buildF x
+        (NTwiddle x) -> recur x >>= \nx -> case nx of
+          (NPair (NPair c e) i) -> pure $ NPair c (NPair i e)
+          z -> error ("neval ntwiddle not pairpair: " ++ show z)
         z -> pure z
   in case Map.lookup (FragIndex 0) m of
-    (Just (f,_)) -> eval NZero f
+    (Just f) -> eval NZero f
     _ -> throwError $ GenericRunTimeError "nEval: no root frag" Zero
 
 iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
@@ -184,15 +116,49 @@ toChurch x =
       inner x = app (PLeft $ PRight Env) (inner (x - 1))
   in lam (lam (inner x))
 
+instance AbstractRunTime IExpr where
+  eval = fix iEval Zero
+  fromSIL = id
+  toSIL = pure
+
+resultIndex = FragIndex (-1)
+instance AbstractRunTime NExprs where
+  eval x@(NExprs m) = (\r -> NExprs $ Map.insert resultIndex r m) <$> nEval x
+  fromSIL = (NExprs . fragsToNExpr) . fragmentExpr
+  toSIL (NExprs m) =
+    let fromNExpr x = case x of
+          NZero -> pure Zero
+          (NPair a b) -> Pair <$> fromNExpr a <*> fromNExpr b
+          NEnv -> pure Env
+          (NSetEnv x) -> SetEnv <$> fromNExpr x
+          (NAbort x) -> Abort <$> fromNExpr x
+          (NGate x) -> Gate <$> fromNExpr x
+          (NLeft x) -> PLeft <$> fromNExpr x
+          (NRight x) -> PRight <$> fromNExpr x
+          (NTrace x) -> Trace <$> fromNExpr x
+          (NDefer i) -> Map.lookup i m >>= (fmap Defer . fromNExpr)
+          (NOldDefer x) -> Defer <$> fromNExpr x
+          _ -> Nothing
+    in Map.lookup resultIndex m >>= fromNExpr
+
+evalAndConvert :: (Show a, AbstractRunTime a) => a -> RunResult IExpr
+evalAndConvert x = let ar = eval x in (toSIL <$> ar) >>= \r -> case r of
+  Nothing -> do
+    ar' <- ar
+    throwError . ResultConversionError $ show ar'
+  Just ir -> pure ir
+
 simpleEval :: IExpr -> IO IExpr
-simpleEval x = runExceptT (fix iEval Zero x) >>= \r -> case r of
+simpleEval x = runExceptT (eval x) >>= \r -> case r of
   Left e -> fail (show e)
   Right i -> pure i
 
 fastInterpretEval :: IExpr -> IO IExpr
 fastInterpretEval e = do
   let traceShow x = if debug then trace ("toNExpr\n" ++ showNExprs x) x else x
-  result <- runExceptT $ fromNExpr <$> (nEval . traceShow $ toNExpr e)
+      nExpr :: NExprs
+      nExpr = fromSIL e
+  result <- runExceptT $ evalAndConvert nExpr
   case result of
     Left e -> error ("runtime error: " ++ show e)
     Right r -> pure r
@@ -217,9 +183,6 @@ optimizedEval = fastInterpretEval -- TODO fix
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g
 
-pureEvalWithError :: IExpr -> Either RunTimeError IExpr
-pureEvalWithError = fix iEval Zero
-
 showPass :: (Show a, MonadIO m) => m a -> m a
 showPass a = a >>= (liftIO . print) >> a
 
@@ -241,3 +204,16 @@ debugEval typeCheck iexpr = if typeCheck iexpr ZeroType
 fullEval typeCheck i = typedEval typeCheck i print
 
 prettyEval typeCheck i = typedEval typeCheck i (print . PrettyIExpr)
+
+verifyEval :: IExpr -> IO (Maybe (Either RunTimeError IExpr, Either RunTimeError IExpr))
+verifyEval expr =
+  let nexpr :: NExprs
+      nexpr = fromSIL expr
+  in do
+    iResult <- runExceptT $ evalAndConvert expr
+    nResult <- runExceptT $ evalAndConvert nexpr
+    if iResult == nResult
+     then pure Nothing
+     else pure $ pure (iResult, nResult)
+
+testNEval = runExceptT . eval . (fromSIL :: IExpr -> NExprs)

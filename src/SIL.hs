@@ -3,6 +3,7 @@
 module SIL where
 
 import Control.DeepSeq
+import Control.Monad.Except
 import Control.Monad.State.Lazy
 import Data.Char
 
@@ -95,7 +96,7 @@ instance MonoidEndoFolder IExpr where
   monoidFold f (PRight x) = mconcat [f (PRight x), monoidFold f x]
   monoidFold f (Trace x) = mconcat [f (Trace x), monoidFold f x]
 
-instance NFData  IExpr where
+instance NFData IExpr where
   rnf Zero         = ()
   rnf (Pair e1 e2) = rnf e1 `seq` rnf e2
   rnf Env          = ()
@@ -106,6 +107,26 @@ instance NFData  IExpr where
   rnf (PLeft   e)  = rnf e
   rnf (PRight  e)  = rnf e
   rnf (Trace   e)  = rnf e
+
+data RunTimeError
+  = AbortRunTime IExpr
+  | SetEnvError IExpr
+  | GenericRunTimeError String IExpr
+  | ResultConversionError String
+  deriving (Eq, Ord)
+
+instance Show RunTimeError where
+  show (AbortRunTime a) = "Abort: " <> (show $ g2s a)
+  show (SetEnvError e) = "Can't SetEnv: " <> show e
+  show (GenericRunTimeError s i) = "Generic Runtime Error: " <> s <> " -- " <> show i
+  show (ResultConversionError s) = "Couldn't convert runtime result to IExpr: " <> s
+
+type RunResult = ExceptT RunTimeError IO
+
+class AbstractRunTime a where
+  eval :: a -> RunResult a
+  fromSIL :: IExpr -> a
+  toSIL :: a -> Maybe IExpr
 
 zero :: IExpr
 zero = Zero
@@ -154,6 +175,10 @@ pattern FirstArg :: IExpr
 pattern FirstArg <- PLeft Env
 pattern SecondArg :: IExpr
 pattern SecondArg <- PLeft (PRight Env)
+pattern ThirdArg :: IExpr
+pattern ThirdArg <- PLeft (PRight (PRight Env))
+pattern FourthArg :: IExpr
+pattern FourthArg <- PLeft (PRight (PRight (PRight Env)))
 pattern Lam :: IExpr -> IExpr
 pattern Lam x <- Pair (Defer x) Env
 pattern App :: IExpr -> IExpr -> IExpr
@@ -171,6 +196,35 @@ countApps _ _ = Nothing
 
 pattern ChurchNum :: Int -> IExpr
 pattern ChurchNum x <- TwoArgFun (countApps 0 -> Just x)
+
+pattern ToChurch :: IExpr
+pattern ToChurch <-
+  Lam
+    (App
+      (App
+        FirstArg
+        (Lam (Lam (Lam (Lam
+          (ITE
+            ThirdArg
+            (App
+              SecondArg
+              (App
+                (App
+                  (App
+                    FourthArg
+                    (PLeft ThirdArg)
+                  )
+                  SecondArg
+                )
+                FirstArg
+              )
+            )
+            FirstArg
+          )
+        ))))
+      )
+      (Lam (Lam (Lam FirstArg)))
+    )
 
 pattern FirstArgA :: ExprA a
 pattern FirstArgA <- PLeftA (EnvA _) _
@@ -204,16 +258,6 @@ pattern PlusA :: ExprA a -> ExprA a -> ExprA a
 pattern PlusA m n <- LamA (LamA (AppA (AppA m SecondArgA) (AppA (AppA n SecondArgA) FirstArgA)))
 pattern MultA :: ExprA a -> ExprA a -> ExprA a
 pattern MultA m n <- LamA (AppA m (AppA n FirstArgA))
-{-
-pattern PlusA :: ExprA a -> ExprA a -> ExprA a
-pattern PlusA m n <- AppA (AppA m SecondArgA) (AppA (AppA n SecondArgA) FirstArgA)
-pattern MultA :: ExprA a -> ExprA a -> ExprA a
-pattern MultA m n <- AppA m (AppA n FirstArgA)
--}
-{-
-pattern PlusA :: ExprA a
-pattern PlusA <- AppA (AppA FourthArgA SecondArgA) (AppA (AppA ThirdArgA SecondArgA) FirstArgA)
-  -}
 
 data DataType
   = ZeroType
@@ -239,7 +283,7 @@ data PartialType
   | TypeVariable Int
   | ArrTypeP PartialType PartialType
   | PairTypeP PartialType PartialType
-  deriving (Eq, Show, Ord)
+  deriving (Show, Eq, Ord)
 
 newtype PrettyPartialType = PrettyPartialType PartialType
 

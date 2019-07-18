@@ -67,19 +67,18 @@ fromFullEnv f (RightP x) = PRight <$> f x
 fromFullEnv f (TraceP x) = Trace <$> f x
 
 partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
--- partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= pureREval . optimize)
 partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 
-eval :: IExpr -> Either EvalError IExpr
-eval expr = case inferType expr of
+eval' :: IExpr -> Either EvalError IExpr
+eval' expr = case inferType expr of
   Left err -> Left $ TCE err
   Right _ -> case partiallyEvaluate (snd $ annotateEnv expr) of
     Left err -> Left $ RTE err
     Right x -> pure x
 
 evalLoop :: IExpr -> IO ()
-evalLoop iexpr = case eval iexpr of
+evalLoop iexpr = case eval' iexpr of
   Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
   Right peExp ->
     let mainLoop s = do

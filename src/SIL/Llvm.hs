@@ -418,7 +418,7 @@ envC = LocalReference intT "env"
 lComment :: a -> (a, MDRef MDNode)
 lComment s = (s, MDInline (MDTuple []))
 
-toLLVM :: (Map FragIndex ExprFrag, FragType -> ExprFrag -> FragType) -> FragType -> ExprFrag -> SILBuilder Operand
+toLLVM :: Map FragIndex ExprFrag -> ExprFrag -> SILBuilder Operand
 toLLVM = undefined
 -- chunks of AST that can be translated to optimized instructions
 -- single instruction translation

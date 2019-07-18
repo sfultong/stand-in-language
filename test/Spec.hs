@@ -119,6 +119,7 @@ zipWith_ =
 -- layer :: (zero -> baseType) -> zero -> (baseType -> baseType) -> baseType
 --           -> baseType
 -- converts plain data type number (0-255) to church numeral
+{-
 d2c recur =
   let layer = lam (lam (lam (lam (ite
                              (varN 2)
@@ -132,6 +133,20 @@ d2c recur =
                             ))))
       base = lam (lam (lam (varN 0)))
   in app (app (toChurch recur) layer) base
+-}
+d2c recur =
+  let layer = lam (lam (lam (lam (ite
+                             (varN 2)
+                             (app (varN 1)
+                              (app (app (app (varN 3)
+                                   (pleft $ varN 2))
+                                   (varN 1))
+                                   (varN 0)
+                                  ))
+                             (varN 0)
+                            ))))
+      base = lam (lam (lam (varN 0)))
+  in app (lam (app (app (varN 0) layer) base)) (toChurch recur)
 
 -- d_equality_h iexpr = (\d -> if d > 0
 --                                then \x -> d_equals_one ((d2c (pleft d) pleft) x)
@@ -173,6 +188,11 @@ d_plus2 = lam (lam (app c2d (plus_
                                    (app (d2c 6) (varN 1))
                                    (app (d2c 6) (varN 0))
                                    )))
+
+d_plus3 = lam (app c2d (plus_
+                                   (toChurch 2)
+                                   (app (d2c 6) (varN 0))
+                                   ))
 
 d2c_test =
   let s_d2c = app (app (toChurch 3) layer) base
@@ -264,7 +284,7 @@ unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroType
 
 unitTestRefinement :: String -> Bool -> IExpr -> Spec
 unitTestRefinement name shouldSucceed iexpr = it name $ case inferType iexpr of
-  Right t -> case (pureEvalWithError iexpr, shouldSucceed) of
+  Right t -> case (pureEval iexpr, shouldSucceed) of
     (Left err, True) -> do
       expectationFailure $ concat [name, ": failed refinement type -- ", show err]
     (Right _, False) -> do
@@ -272,6 +292,7 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType iexpr of
     _ -> pure ()
   Left err -> do
     expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
+
 {-
 unitTestOptimization :: String -> IExpr -> IO Bool
 unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
@@ -337,23 +358,61 @@ testRecur = concat
   , "       in $3 layer (\\x -> x) 0"
   ]
 
-
-unitTests_ :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
-unitTests_ unitTest2 unitTestType = do
+-- unitTests_ :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
+unitTests_ parse = do
+  let unitTestType = unitTestType' parse
+      unitTest2 = unitTest2' parse
+      unitTestRuntime = unitTestRuntime' parse
+      unitTestSameResult = unitTestSameResult' parse
   {-
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "{0,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
 -}
-  -- unitTest2 "main = $3 ($2 succ) 0" "6"
-  -- unitTest "3*2" "6" three_times_two
-  -- unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
-  --unitTest2 "main = $3 succ 0" "3"
-  --unitTest2 "main = (d2cG $4 3) succ 0" "3"
-  unitTest2 "main = takeG $4 $0 [1,2,3]" "0"
-  -- unitTest2 "main = $0 succ 0" "0"
-  -- unitTest2 testRecur "3"
-  --unitTest2 "main = (d2cG $4 3) $2 succ 0" "8"
-  -- unitTest "data 3+5" "8" $ app (app d_plus2 (i2g 3)) (i2g 5)
+  unitTest2 "main = $3 ($2 succ) 0" "6"
+  unitTest "3*2" "6" three_times_two
+  unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
+  unitTest2 "main = $3 succ 0" "3"
+  unitTest2 "main = (d2cG $4 3) succ 0" "3"
+  unitTest "oneplusone" "2" one_plus_one
+  unitTest "church 3+2" "5" three_plus_two
+  unitTest "3*2" "6" three_times_two
+  unitTest "3^2" "9" three_pow_two
+  unitTest2 "main = $3 succ 0" "3"
+  unitTest "test_tochurch" "2" test_toChurch
+  unitTest "three" "3" three_succ
+  unitTest "data 3+5" "8" $ app (app d_plus2 (i2g 3)) (i2g 5)
+  unitTest "data 2+3" "5" $ app d_plus3 (i2g 3)
+  unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+  unitTest "listlength0" "0" $ app list_length zero
+  unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
+  unitTest "zipwith" "{{4,1},{{5,1},{{6,2},0}}}"
+    $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
+                (ints2g [4,5,6]))
+          (ints2g [1,1,2,3])
+  unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
+  unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
+  unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
+  unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
+                                    (ints2g [1,2,3])
+  --unitTest2 "main = c2d (factorial 0)" "1"
+  --unitTest2 "main = times (times $2 $1) $3 succ 0" "6"
+  --unitTest2 "main = times (d2c 2) $3 succ 0" "6"
+  --unitTest2 "main = times (d2c 3) (times (d2c 2) $1) succ 0" "6"
+  --unitTest2 "main = c2d (foldr (\\a b -> times (d2c a) b) $1 [])" "1"
+  -- unitTest2 "main = foldr (\\a b -> times (d2c a) b) $1 [] succ 0" "1"
+  -- unitTest2 "main = (\\a b c -> if c then a 0 b else b) (\\a b -> times (d2c a) b) $1 [] succ 0" "1"
+  -- unitTest2 "main = (\\a b -> if 0 then a 0 b else b) (\\a b -> times (d2c a) b) $1 succ 0" "1"
+  --unitTest2 "main = (\\a b -> if 0 then a b else b) (\\b -> times $2 b) $1 succ 0" "1"
+  {-
+  unitTest2
+    ( "main = let layer = \\recur f accum l -> if l then f (left l) (recur f accum (right l)) else accum"
+    ++"       in $3 layer (\\f accum l -> accum) (\\a b -> times (d2c a) b) $1 [2, 3] succ 0"
+    ) "6"
+-}
+  unitTest2 "main = (d2cG $4 3) succ 0" "3"
+  -- unitTestSameResult "main = $2" "main = d2cG $3 2"
+  -- unitTestRuntime "main = d2cG $3 2 succ"
+  --unitTest2 "main = c2d (factorial 0)" "1"
 
 c2dApp = "main = (c2dG $4 3) $2 succ 0"
 
@@ -379,8 +438,10 @@ unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p 
 
 debugMark s = hPutStrLn stderr s >> pure True
 
-unitTests :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
-unitTests unitTest2 unitTestType = do
+--unitTests :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
+unitTests parse = do
+  let unitTestType = unitTestType' parse
+      unitTest2 = unitTest2' parse
   describe "type checker" $ do
     unitTestType "main = \\x -> {x,0}" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
     unitTestType "main = \\x -> {x,0}" ZeroTypeP isInconsistentType
@@ -481,10 +542,11 @@ unitTests unitTest2 unitTestType = do
     unitTest2 "main = range 6 6" "0"
     unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
       "{4,{5,{6,8}}}"
-    unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
-      "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
+    unitTest2 "main = (\\a b -> if 0 then a b else b) (\\b -> times $2 b) $1 succ 0" "1"
     unitTest2 "main = c2d (factorial 0)" "1"
     unitTest2 "main = c2d (factorial 4)" "24"
+    unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
+      "{1,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
   -- , debugPEIITO (SetEnv (Twiddle (Twiddle (Pair (Defer Var) Zero))))
   -- , debugPEIITO (SetEnv (Pair (Defer Var) Zero))
   -- , debugPEIITO (SetEnv (Pair (Defer (Pair Zero Var)) Zero))
@@ -551,6 +613,35 @@ nexprTests = do
 foreign import capi "gc.h GC_INIT" gcInit :: IO ()
 foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
 
+unitTest2' parse s r = it s $ case parse s of
+  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+  Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
+    then pure ()
+    else expectationFailure $ concat [s, " result ", r2]
+
+unitTestType' parse s t tef = it s $ case parse s of
+  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+  Right g -> let apt = typeCheck t g
+             in if tef apt
+                then pure ()
+                else expectationFailure $
+                      concat [s, " failed typecheck, result ", show apt]
+
+unitTestRuntime' parse s = it s $ case parse s of
+  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+  Right g -> verifyEval g >>= \x -> case x of
+    Nothing -> pure ()
+    Just (ir, nr) -> expectationFailure $ "expected result: " <> show ir <> "\nactual result: " <> show nr
+
+unitTestSameResult' parse a b = it ("comparing to " <> a) $ case (parse a, parse b) of
+  (Right ga, Right gb) -> do
+    ra <- testNEval ga -- runExceptT . eval $ (fromSIL ga :: NExprs)
+    rb <- testNEval gb
+    if (show ra == show rb)
+      then pure ()
+      else expectationFailure $ "results don't match: " <> show ra <> " --- " <> show rb
+  _ -> expectationFailure "unitTestSameResult failed parsing somewhere"
+
 main = do
   gcInit
   gcAllowRegisterThreads
@@ -560,16 +651,22 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
+    parse = parseMain prelude
+  {-
     unitTestP s g = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right pg -> if pg == g
         then pure ()
         else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
-    unitTest2 s r = it s $ case parseMain prelude s of
+-}
+  {-
+    unitTest2 s r = it s $ case parse s of
       Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
       Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
         then pure ()
         else expectationFailure $ concat [s, " result ", r2]
+-}
+  {-
     unitTest3 s r = let parsed = parseMain prelude s in case (inferType <$> parsed, parsed) of
       (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
         then pure True
@@ -584,16 +681,21 @@ main = do
       e -> do
         putStrLn $ concat ["could not infer type ", show e]
         pure False
-    unitTestType s t tef = it s $ case parseMain prelude s of
+-}
+  {-
+    unitTestType s t tef = it s $ case parse s of
       Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
       Right g -> let apt = typeCheck t g
                  in if tef apt
                     then pure ()
                     else expectationFailure $
                           concat [s, " failed typecheck, result ", show apt]
+-}
+  {-
     parseSIL s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
+-}
 
   -- TODO change eval to use rEval, then run this over a long non-work period
   {-
@@ -605,5 +707,5 @@ main = do
   result <- pure False
 -}
   hspec $ do
-    unitTests unitTest2 unitTestType
+    unitTests_ parse
     --nexprTests

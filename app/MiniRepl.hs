@@ -116,8 +116,8 @@ replLoop (ReplState bs eval) = do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":dn" s of
                      Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
                        Just iexpr -> do
-                         putStrLn . showNExprs $ toNExpr iexpr
-                         putStrLn . showNIE $ toNExpr iexpr
+                         putStrLn . showNExprs $ fromSIL iexpr
+                         putStrLn . showNIE $ fromSIL iexpr
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
@@ -125,6 +125,13 @@ replLoop (ReplState bs eval) = do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":d" s of
                      Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
                        Just iexpr -> putStrLn $ showPIE iexpr
+                       _ -> putStrLn "some sort of error?"
+                     _ -> putStrLn "parse error"
+                   replLoop $ ReplState bs eval
+        Just s | ":tt" `isPrefixOf` s -> do
+                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":tt" s of
+                     Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
+                       Just iexpr -> print . showTraceTypes $ iexpr
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval

@@ -43,6 +43,18 @@ instance EndoMapper (ExprTA a) where
   endoMap f (SetEnvTA x t) = f $ SetEnvTA (endoMap f x) t
   endoMap f (DeferTA x) = f $ DeferTA (endoMap f x)
 
+instance MonoidEndoFolder (ExprTA a) where
+  monoidFold f ZeroTA = f ZeroTA
+  monoidFold f (PairTA a b) = mconcat [f (PairTA a b), monoidFold f a, monoidFold f b]
+  monoidFold f (EnvTA t) = f $ EnvTA t
+  monoidFold f (AbortTA x t) = mconcat [f (AbortTA x t), monoidFold f x]
+  monoidFold f (GateTA x t) = mconcat [f (GateTA x t), monoidFold f x]
+  monoidFold f (PLeftTA x t) = mconcat [f (PLeftTA x t), monoidFold f x]
+  monoidFold f (PRightTA x t) = mconcat [f (PRightTA x t), monoidFold f x]
+  monoidFold f (TraceTA x) = mconcat [f (TraceTA x), monoidFold f x]
+  monoidFold f (SetEnvTA x t) = mconcat [f (SetEnvTA x t), monoidFold f x]
+  monoidFold f (DeferTA x) = mconcat [f (DeferTA x), monoidFold f x]
+
 indent :: Int -> String
 indent 0 = []
 indent n = ' ' : ' ' : indent (n - 1)
@@ -383,3 +395,11 @@ typeCheck t iexpr =
   in case partiallyAnnotate iexpr >>= assocAndAnno of
     Left x -> Just x
     _ -> Nothing
+
+showTraceTypes :: IExpr -> String
+showTraceTypes iexpr = showE (partiallyAnnotate iexpr >>= (\(tm, expr) -> pure $ monoidFold (showTrace tm) expr))
+  where
+  showTrace tm (TraceTA x) = show $ (PrettyPartialType <$> (mostlyResolve tm $ getPartialAnnotation x))
+  showTrace _ _ = mempty
+  showE l@(Left _) = show l
+  showE (Right s) = s
