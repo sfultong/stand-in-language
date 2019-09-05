@@ -43,7 +43,8 @@ module SIL.Serializer.C (
     , sil_free
 ) where
 
-import SIL (IExpr(..))
+--import SIL (Expr(..))
+import SIL
 
 import Data.Word
 import           Data.Vector.Storable (Vector, fromList, (!))
@@ -73,7 +74,7 @@ pright_type  = 8
 trace_type   = 9
 
 
-typeId :: IExpr -> CTypeId
+typeId :: Expr -> CTypeId
 typeId  Zero       = zero_type
 typeId (Pair  _ _) = pair_type
 typeId  Env        = env_type
@@ -110,13 +111,13 @@ data CPRight  = CPRight  CTypeId (Ptr CRep) deriving(Show, Generic, GStorable)
 data CTrace   = CTrace   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 
 
--- | Obtains (hopefully valid) IExpr from C representation.
-fromC :: Ptr CRoot -> IO IExpr
+-- | Obtains (hopefully valid) Expr from C representation.
+fromC :: Ptr CRoot -> IO Expr
 fromC ptr = do
     (CRoot t v) <- peek ptr
     fromC' t v
     
-fromC' :: CTypeId -> Ptr CRep -> IO IExpr
+fromC' :: CTypeId -> Ptr CRep -> IO Expr
 fromC' type_id ptr = case type_id of
     0    -> return Zero
     1    -> do
@@ -148,8 +149,8 @@ fromC' type_id ptr = case type_id of
     
     
 
--- | Saves the IExpr as a C representation.
-toC :: IExpr -> IO (Ptr CRoot)
+-- | Saves the Expr as a C representation.
+toC :: Expr -> IO (Ptr CRoot)
 toC iexpr = do
     croot <- malloc
     let ptr_type  = castPtr croot
@@ -161,7 +162,7 @@ toC iexpr = do
 
 
 
-toC' :: IExpr          -- ^ IExpr to traverse
+toC' :: Expr          -- ^ Expr to traverse
              -> Ptr CTypeId    -- ^ Previous expression id
              -> Ptr (Ptr CRep) -- ^ Previous pointer to a value
              -> IO ()

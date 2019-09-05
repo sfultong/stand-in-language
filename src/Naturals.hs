@@ -19,6 +19,8 @@ import Data.Set (Set)
 import Debug.Trace
 import Control.DeepSeq
 import GHC.Generics
+import Data.Functor.Foldable
+import Prelude hiding (Foldable)
 
 import qualified Control.Monad.State.Lazy as State
 import qualified Data.Map as Map
@@ -137,7 +139,7 @@ instance Show NExprs where
 
 type FragState = State (FragIndex, Map FragIndex ExprFrag)
 
-toFrag :: IExpr -> FragState ExprFrag
+toFrag :: Expr -> FragState ExprFrag
 -- complex instructions
 toFrag ToChurch = pure FToNum
 toFrag (ITE i t e) = FITE <$> toFrag i <*> toFrag t <*> toFrag e
@@ -160,20 +162,20 @@ toFrag (PLeft x) = FLeft <$> toFrag x
 toFrag (PRight x) = FRight <$> toFrag x
 toFrag (Trace x) = FTrace <$> toFrag x
 
-fromFrag :: Map FragIndex ExprFrag -> ExprFrag -> IExpr
+fromFrag :: Map FragIndex ExprFrag -> ExprFrag -> Expr
 fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
-  FZero -> Zero
-  (FPair a b) -> Pair (recur a) (recur b)
-  FEnv -> Env
-  (FSetEnv x) -> SetEnv $ recur x
+  FZero -> zero
+  (FPair a b) -> pair (recur a) (recur b)
+  FEnv -> env
+  (FSetEnv x) -> setenv $ recur x
   (FDefer fi) -> case Map.lookup fi fragMap of
     Nothing -> error ("fromFrag bad index " ++ show fi)
-    Just subFrag -> Defer $ recur subFrag
-  (FAbort x) -> Abort $ recur x
-  (FGate x) -> Gate $ recur x
-  (FLeft x) -> PLeft $ recur x
-  (FRight x) -> PRight $ recur x
-  (FTrace x) -> Trace $ recur x
+    Just subFrag -> defer $ recur subFrag
+  (FAbort x) -> Fix . AbortF $ recur x
+  (FGate x) -> gate $ recur x
+  (FLeft x) -> pleft $ recur x
+  (FRight x) -> pright $ recur x
+  (FTrace x) -> Fix . TraceF $ recur x
   z -> error ("fromFrag TODO convert " ++ show z)
 
 matchChurchPlus :: Map FragIndex ExprFrag -> ExprFrag -> Maybe (ExprFrag, ExprFrag)
@@ -210,7 +212,7 @@ matchITE :: ExprFrag -> Maybe (ExprFrag, ExprFrag, ExprFrag)
 matchITE (FSetEnv (FPair (FGate i) (FPair e t))) = Just (i, t, e)
 matchITE _ = Nothing
 
-fragmentExpr :: IExpr -> Map FragIndex ExprFrag
+fragmentExpr :: Expr -> Map FragIndex ExprFrag
 fragmentExpr iexpr = let (expr, (li, m)) = State.runState (toFrag iexpr) ((FragIndex 1), Map.empty)
                          fragMap = Map.insert (FragIndex 0) expr m
                          -- tt x = trace (show x) x

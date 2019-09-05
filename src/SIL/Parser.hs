@@ -7,7 +7,8 @@ import Data.List (elemIndex)
 import Data.Map (Map)
 import Debug.Trace
 import qualified Data.Map as Map
-import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, IExpr(Trace), PrettyPartialType(..))
+--import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, traceE, PrettyPartialType(..))
+import SIL
 import SIL.TypeChecker
 import Text.Parsec
 import Text.Parsec.Indent
@@ -27,6 +28,7 @@ addBound name expr (ParserState bound) = if Map.member name bound
   then Nothing
   else pure $ ParserState (Map.insert name expr bound)
 
+-- TODO replace with recursion schemes
 data ParserTerm v
   = TZero
   | TPair (ParserTerm v) (ParserTerm v)
@@ -79,7 +81,7 @@ debruijinize vl (TCompleteLam x) = TCompleteLam <$> debruijinize ("-- dummyC" : 
 debruijinize vl (TNamedLam n l) = TLam <$> debruijinize (n : vl) l
 debruijinize vl (TNamedCompleteLam n l) = TCompleteLam <$> debruijinize (n : vl) l
 
-convertPT :: ParserTerm Int -> IExpr
+convertPT :: ParserTerm Int -> Expr
 convertPT TZero = zero
 convertPT (TPair a b) = pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
@@ -89,7 +91,7 @@ convertPT (TCheck c tc) = check (convertPT c) (convertPT tc)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = pleft (convertPT i)
 convertPT (TRight i) = pright (convertPT i)
-convertPT (TTrace i) = Trace (convertPT i)
+convertPT (TTrace i) = traceE (convertPT i)
 convertPT (TLam c) = lam (convertPT c)
 convertPT (TCompleteLam x) = completeLam (convertPT x)
 convertPT (TNamedLam n _) = error $ "should be no named lambdas at this stage, name " ++ n
@@ -258,7 +260,7 @@ parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState prelude
                            in runIndentParser parseTopLevel startState "sil"
 
-resolveBinding :: String -> Bindings -> Maybe IExpr
+resolveBinding :: String -> Bindings -> Maybe Expr
 resolveBinding name bindings = Map.lookup name bindings >>=
   \b -> convertPT <$> debruijinize [] b
 
@@ -271,7 +273,7 @@ printBindingTypes bindings =
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showType
 
-parseMain :: Bindings -> String -> Either ParseError IExpr
+parseMain :: Bindings -> String -> Either ParseError Expr
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"

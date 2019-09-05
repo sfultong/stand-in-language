@@ -11,19 +11,19 @@ import qualified Data.Vector.Storable         as S
 import qualified Data.Vector.Storable.Mutable as SM
 
 import SIL.Serializer.C
-import SIL (IExpr(..))
+import SIL
 
 
-serialize :: IExpr -> Vector Word8
+serialize :: Expr -> Vector Word8
 serialize iexpr = S.create $ do 
     vec <- SM.new $ silSize iexpr
     serialize_loop 0 vec iexpr
     return vec
 
-silSize :: IExpr -> Int
+silSize :: Expr -> Int
 silSize iexpr = silSize' iexpr 0
 
-silSize' :: IExpr -> Int -> Int
+silSize' :: Expr -> Int -> Int
 silSize' Zero         acc = acc + 1
 silSize' (Pair e1 e2) acc = silSize' e1 (silSize' e2 (acc + 1)) 
 silSize' Env          acc = acc + 1
@@ -52,7 +52,7 @@ serialize_loop ix vec ie@(Trace e)  = SM.write vec ix (fromIntegral $ typeId ie)
 
 
 -- | Safe deserialization. Will return Nothing for bad input arguments.
-deserialize :: Vector Word8 -> Maybe IExpr
+deserialize :: Vector Word8 -> Maybe Expr
 deserialize vec = if S.length vec == 0
     then Nothing
     else case S.foldl' deserializer_inside (Call1 id) vec of
@@ -61,14 +61,14 @@ deserialize vec = if S.length vec == 0
 
 -- | Unsafe deserialization. Throws runtime errors.
 unsafeDeserialize :: Vector Word8 
-                  -> IExpr
+                  -> Expr
 unsafeDeserialize vec = case S.foldl' deserializer_inside (Call1 id) vec of
     Call1 c -> c (error "SIL.Serializer.unsafeDeserialize: I'm being evaluated. That means I was called on an empty vector.")
     CallN c -> error "SIL.Serializer.unsafeDeserialize: Could not reduce the CPS stack. Possibly wrong input arguments."
 
 -- | Continuation-passing-style function stack.
-data FunStack = Call1 (IExpr -> IExpr)
-              | CallN (IExpr -> FunStack)
+data FunStack = Call1 (Expr -> Expr)
+              | CallN (Expr -> FunStack)
 
 deserializer_inside cont 0 = case cont of
     Call1 c -> Call1 $ \_ -> c Zero

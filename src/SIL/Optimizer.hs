@@ -1,9 +1,12 @@
+{-# LANGUAGE LambdaCase #-}
 module SIL.Optimizer where
 
 import Data.Map (Map)
 import Data.Set (Set)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Functor.Foldable
+import Prelude hiding (Foldable)
 
 import SIL
 
@@ -13,18 +16,18 @@ import SIL
 -- contains prerequisite closures.
 
 
--- IExpr annotated with unbound vars
-data IExprV
+-- Expr annotated with unbound vars
+data ExprV
   = VZero
-  | VPair IExprV IExprV
-  | VVar IExprV
-  | VApp IExprV IExprV
-  | VAnno IExprV IExprV
-  | VGate IExprV
-  | VLeft IExprV
-  | VRight IExprV
-  | VTrace IExprV
-  | VClosure IExprV IExprV
+  | VPair ExprV ExprV
+  | VVar ExprV
+  | VApp ExprV ExprV
+  | VAnno ExprV ExprV
+  | VGate ExprV
+  | VLeft ExprV
+  | VRight ExprV
+  | VTrace ExprV
+  | VClosure ExprV ExprV
   deriving (Eq, Show, Ord)
 
 {- TODO something to convert all closures that don't return zerotype to ones that do
@@ -37,11 +40,17 @@ data IExprV
 
 
 -- converts nested grammar that can be computed locally
-precompute :: IExpr -> IExpr
+precompute :: Expr -> Expr
+{-
 precompute = endoMap f where
   f (PLeft (Pair x _)) = x
   f (PRight (Pair _ x)) = x
   f x = x
+-}
+precompute = cata $ \case
+  (PLeftF (Fix (PairF x _))) -> x
+  (PRightF (Fix (PairF _ x))) -> x
+  x -> Fix x
 
-optimize :: IExpr -> IExpr
+optimize :: Expr -> Expr
 optimize = precompute

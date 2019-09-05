@@ -70,10 +70,10 @@ runReplParser prelude = let startState = ParserState prelude
 
 data ReplState = ReplState 
     { replBindings :: Bindings
-    , replEval     :: (IExpr -> IO IExpr)
+    , replEval     :: (Expr -> IO Expr)
     }
 
-replStep :: (IExpr -> IO IExpr) -> Bindings -> String -> InputT IO Bindings
+replStep :: (Expr -> IO Expr) -> Bindings -> String -> InputT IO Bindings
 replStep eval bindings s = do
     let e_new_bindings = runReplParser bindings s
     case e_new_bindings of
@@ -89,7 +89,7 @@ replStep eval bindings s = do
                         Nothing     -> outputStrLn "conversion error"
                         Just iexpr' -> do
                             iexpr <- liftIO $ eval (SetEnv (Pair (Defer iexpr') Zero))
-                            outputStrLn $ (show.PrettyIExpr) iexpr
+                            outputStrLn $ (show.PrettyExpr) iexpr
             return bindings
         Right (ReplAssignment, new_bindings) -> do
             return new_bindings

@@ -5,51 +5,51 @@ import Test.QuickCheck
 import SIL.TypeChecker
 import SIL
 
-class TestableIExpr a where
-  getIExpr :: a -> IExpr
+class TestableExpr a where
+  getIExpr :: a -> Expr
 
-data TestIExpr = TestIExpr IExpr
+data TestExpr = TestExpr Expr
 
-data ValidTestIExpr = ValidTestIExpr TestIExpr
+data ValidTestExpr = ValidTestExpr TestExpr
 
-data ZeroTypedTestIExpr = ZeroTypedTestIExpr TestIExpr
+data ZeroTypedTestExpr = ZeroTypedTestExpr TestExpr
 
-data ArrowTypedTestIExpr = ArrowTypedTestIExpr TestIExpr
+data ArrowTypedTestExpr = ArrowTypedTestExpr TestExpr
 
-instance TestableIExpr TestIExpr where
-  getIExpr (TestIExpr x) = x
+instance TestableExpr TestExpr where
+  getIExpr (TestExpr x) = x
 
-instance Show TestIExpr where
-  show (TestIExpr t) = show t
+instance Show TestExpr where
+  show (TestExpr t) = show t
 
-instance TestableIExpr ValidTestIExpr where
-  getIExpr (ValidTestIExpr x) = getIExpr x
+instance TestableExpr ValidTestExpr where
+  getIExpr (ValidTestExpr x) = getIExpr x
 
-instance Show ValidTestIExpr where
-  show (ValidTestIExpr v) = show v
+instance Show ValidTestExpr where
+  show (ValidTestExpr v) = show v
 
-instance TestableIExpr ZeroTypedTestIExpr where
-  getIExpr (ZeroTypedTestIExpr x) = getIExpr x
+instance TestableExpr ZeroTypedTestExpr where
+  getIExpr (ZeroTypedTestExpr x) = getIExpr x
 
-instance Show ZeroTypedTestIExpr where
-  show (ZeroTypedTestIExpr v) = show v
+instance Show ZeroTypedTestExpr where
+  show (ZeroTypedTestExpr v) = show v
 
-instance TestableIExpr ArrowTypedTestIExpr where
-  getIExpr (ArrowTypedTestIExpr x) = getIExpr x
+instance TestableExpr ArrowTypedTestExpr where
+  getIExpr (ArrowTypedTestExpr x) = getIExpr x
 
-instance Show ArrowTypedTestIExpr where
-  show (ArrowTypedTestIExpr x) = show x
+instance Show ArrowTypedTestExpr where
+  show (ArrowTypedTestExpr x) = show x
 
-lift1Texpr :: (IExpr -> IExpr) -> TestIExpr -> TestIExpr
-lift1Texpr f (TestIExpr x) = TestIExpr $ f x
+lift1Texpr :: (Expr -> Expr) -> TestExpr -> TestExpr
+lift1Texpr f (TestExpr x) = TestExpr $ f x
 
-lift2Texpr :: (IExpr -> IExpr -> IExpr) -> TestIExpr -> TestIExpr -> TestIExpr
-lift2Texpr f (TestIExpr a) (TestIExpr b) = TestIExpr $ f a b
+lift2Texpr :: (Expr -> Expr -> Expr) -> TestExpr -> TestExpr -> TestExpr
+lift2Texpr f (TestExpr a) (TestExpr b) = TestExpr $ f a b
 
-instance Arbitrary TestIExpr where
+instance Arbitrary TestExpr where
   arbitrary = sized tree where
     tree i = let half = div i 2
-                 pure2 = pure . TestIExpr
+                 pure2 = pure . TestExpr
              in case i of
                   0 -> oneof $ map pure2 [zero, var]
                   x -> oneof
@@ -64,35 +64,35 @@ instance Arbitrary TestIExpr where
                     , lift1Texpr pright <$> tree (i - 1)
                     , lift1Texpr Trace <$> tree (i - 1)
                     ]
-  shrink (TestIExpr x) = case x of
+  shrink (TestExpr x) = case x of
     Zero -> []
     Env -> []
-    (Gate x) -> TestIExpr x : (map (lift1Texpr gate) . shrink $ TestIExpr x)
-    (PLeft x) -> TestIExpr x : (map (lift1Texpr pleft) . shrink $ TestIExpr x)
-    (PRight x) -> TestIExpr x : (map (lift1Texpr pright) . shrink $ TestIExpr x)
-    (Trace x) -> TestIExpr x : (map (lift1Texpr Trace) . shrink $ TestIExpr x)
-    (SetEnv x) -> TestIExpr x : (map (lift1Texpr SetEnv) . shrink $ TestIExpr x)
-    (Defer x) -> TestIExpr x : (map (lift1Texpr Defer) . shrink $ TestIExpr x)
-    (Abort x) -> TestIExpr x : (map (lift1Texpr Abort) . shrink $ TestIExpr x)
-    (Pair a b) -> TestIExpr a : TestIExpr  b :
-      [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
+    (Gate x) -> TestExpr x : (map (lift1Texpr gate) . shrink $ TestExpr x)
+    (PLeft x) -> TestExpr x : (map (lift1Texpr pleft) . shrink $ TestExpr x)
+    (PRight x) -> TestExpr x : (map (lift1Texpr pright) . shrink $ TestExpr x)
+    (Trace x) -> TestExpr x : (map (lift1Texpr Trace) . shrink $ TestExpr x)
+    (SetEnv x) -> TestExpr x : (map (lift1Texpr SetEnv) . shrink $ TestExpr x)
+    (Defer x) -> TestExpr x : (map (lift1Texpr Defer) . shrink $ TestExpr x)
+    (Abort x) -> TestExpr x : (map (lift1Texpr Abort) . shrink $ TestExpr x)
+    (Pair a b) -> TestExpr a : TestExpr  b :
+      [lift2Texpr pair a' b' | (a', b') <- shrink (TestExpr a, TestExpr b)]
 
 typeable x = case inferType (getIExpr x) of
   Left _ -> False
   _ -> True
 
-instance Arbitrary ValidTestIExpr where
-  arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
-  shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
+instance Arbitrary ValidTestExpr where
+  arbitrary = ValidTestExpr <$> suchThat arbitrary typeable
+  shrink (ValidTestExpr te) = map ValidTestExpr . filter typeable $ shrink te
 
-zeroTyped x = inferType (getIExpr x) == Right ZeroTypeP
+zeroTyped x = inferType (getIExpr x) == Right DataOnlyTypeP
 
-instance Arbitrary ZeroTypedTestIExpr where
-  arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
-  shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
+instance Arbitrary ZeroTypedTestExpr where
+  arbitrary = ZeroTypedTestExpr <$> suchThat arbitrary zeroTyped
+  shrink (ZeroTypedTestExpr ztte) = map ZeroTypedTestExpr . filter zeroTyped $ shrink ztte
 
-simpleArrowTyped x = inferType (getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
+simpleArrowTyped x = inferType (getIExpr x) == Right (ArrTypeP DataOnlyTypeP DataOnlyTypeP)
 
-instance Arbitrary ArrowTypedTestIExpr where
-  arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped
-  shrink (ArrowTypedTestIExpr atte) = map ArrowTypedTestIExpr . filter simpleArrowTyped $ shrink atte
+instance Arbitrary ArrowTypedTestExpr where
+  arbitrary = ArrowTypedTestExpr <$> suchThat arbitrary simpleArrowTyped
+  shrink (ArrowTypedTestExpr atte) = map ArrowTypedTestExpr . filter simpleArrowTyped $ shrink atte

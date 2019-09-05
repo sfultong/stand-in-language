@@ -1,56 +1,67 @@
+cabal-version:       >=1.10
 name:                sil
 version:             0.1.0.0
 synopsis:            A simple but robust virtual machine
 description:         Please see README.md
 homepage:            https://github.com/sfultong/sil#readme
+-- bug-reports:
 license:             Apache-2.0
 license-file:        LICENSE
 author:              Sam Griffin
 maintainer:          sam.griffin@gmail.com
-copyright:           2017 Sam Griffin
-category:            Web
+copyright:           2019 Sam Griffin
+category:            Language
 build-type:          Simple
-extra-source-files:  README.md
-cabal-version:       >=1.10
+extra-source-files:  CHANGELOG.md, README.md
 
 data-files:          bench/MemoryBench/cases
 
 library
+  exposed-modules:     PrettyPrint
+                     , SIL
+                     , Naturals
+                     , SIL.Parser
+                     , SIL.TypeChecker
+                     , SIL.Serializer
+                     , SIL.Optimizer
+                     , SIL.Eval
+                     , SIL.RunTime
+                     , SIL.Llvm
+                     , SIL.Serializer.C
+  other-extensions:    PatternSynonyms
+                     , ViewPatterns
+                     , DeriveFunctor
+                     , DeriveFoldable
+                     , DeriveTraversable
+                     , LambdaCase
+                     , StandaloneDeriving
+                     , GADTs
+                     , EmptyDataDecls
+                     , FlexibleContexts
+                     , ScopedTypeVariables
+                     , OverloadedStrings
+                     , RecursiveDo
+  build-depends:       base >=4.11 && <4.12
+                     , containers >=0.5 && <0.6
+                     , deepseq >=1.4 && <1.5
+                     , mtl >=2.2 && <2.3
+                     , recursion-schemes >=5.0 && <5.1
+                     , binary >=0.8 && <0.9
+                     , parsec >=3.1 && <3.2
+                     , indents >=0.4 && <0.5
+                     , vector >=0.12 && <0.13
+                     , cryptohash-sha256 >=0.11 && <0.12
+                     , bytestring >=0.10 && <0.11
+                     , clock >=0.7 && <0.8
+                     , base16-bytestring >=0.1 && <0.2
+                     , llvm-hs-pure >=6.2 && <6.3
+                     , llvm-hs >=6.3 && <6.4
+                     , derive-storable >=0.1 && <0.2
   hs-source-dirs:      src
   include-dirs:        cbits/include
   c-sources:           cbits/SIL.c
-  exposed-modules:     Naturals
-                     , PrettyPrint
-                     , SIL
-                     , SIL.Eval
-                     , SIL.Llvm
-                     , SIL.Optimizer
-                     , SIL.Parser
-                     , SIL.RunTime
-                     , SIL.TypeChecker
-                     , SIL.Serializer
-                     , SIL.Serializer.C
-  build-depends:       base
-                     , base16-bytestring
-                     , binary
-                     , cryptohash-sha256
-                     , recursion-schemes
-                     , parsec
-                     , indents
-                     , clock
-                     , containers
-                     , mtl
-                     , vector
-                     , deepseq
-                     , derive-storable
-                     , derive-storable-plugin
-                     , bytestring
-                     , llvm-hs
-                     , llvm-hs-pure
-                     , text
   extra-libraries:     gc
                        jumper
-
   default-language:    Haskell2010
 
 executable sil-exe

@@ -16,7 +16,7 @@ serializerSpec = do
    describe "C dynamic representation" $ do
         it "Serializing to C dynamic representation and back will give the same result" $ do
             property (\test_iexpr -> do
-                let (TestIExpr iexpr) = test_iexpr
+                let (TestExpr iexpr) = test_iexpr
                 c_rep  <- toC   iexpr
                 hs_rep <- fromC c_rep 
                 sil_free c_rep
@@ -25,15 +25,15 @@ serializerSpec = do
    describe "Vector serialization" $ do
         it "Serializing to Vector Word8 and back will give the same result" $ do
             property (\test_iexpr -> do
-                let (TestIExpr iexpr) = test_iexpr
+                let (TestExpr iexpr) = test_iexpr
                     serialized   = serialize iexpr
                     deserialized = unsafeDeserialize serialized
                 deserialized `shouldBe` iexpr
                 ) 
    describe "C FFI and Haskell" $ do
-        it "IExpr -> Vector Word8 -> SIL_Serialized -> Vector Word8 -> IExpr: IExprs will be the same" $ do
+        it "Expr -> Vector Word8 -> SIL_Serialized -> Vector Word8 -> Expr: Exprs will be the same" $ do
             property (\test_iexpr -> do
-                let (TestIExpr iexpr) = test_iexpr
+                let (TestExpr iexpr) = test_iexpr
                     serialized   = serialize iexpr
                 ptr_serialized <- serializedToC serialized
                 serialized2 <- serializedFromC ptr_serialized
@@ -41,9 +41,9 @@ serializerSpec = do
                 free ptr_serialized
                 deserialized `shouldBe` iexpr
                 ) 
-        it "IExpr -> CRep -> SIL_Serialized -> CRep -> IExpr: IExprs will be the same" $ do
+        it "Expr -> CRep -> SIL_Serialized -> CRep -> Expr: Exprs will be the same" $ do
             property (\test_iexpr -> do
-                let (TestIExpr iexpr) = test_iexpr
+                let (TestExpr iexpr) = test_iexpr
                 c_rep <- toC iexpr
                 c_serialized <- sil_serialize c_rep
                 c_deserialized <- sil_deserialize c_serialized
@@ -52,9 +52,9 @@ serializerSpec = do
                 free c_serialized
                 hs_rep `shouldBe` iexpr
                 )
-        it "IExpr -> Vector Word8 -> SIL_Serialized -> CRep -> IExpr: IExprs will be the same" $ do
+        it "Expr -> Vector Word8 -> SIL_Serialized -> CRep -> Expr: Exprs will be the same" $ do
             property (\test_iexpr -> do
-                let (TestIExpr iexpr) = test_iexpr
+                let (TestExpr iexpr) = test_iexpr
                     serialized   = serialize iexpr
                 ptr_serialized <- serializedToC serialized
                 c_deserialized <- sil_deserialize ptr_serialized
@@ -63,9 +63,9 @@ serializerSpec = do
                 free ptr_serialized
                 hs_rep `shouldBe` iexpr
                 ) 
-        it "IExpr -> CRep -> SIL_Serialized -> Vector Word8 -> IExpr: IExprs will be the same" $ do
+        it "Expr -> CRep -> SIL_Serialized -> Vector Word8 -> Expr: Exprs will be the same" $ do
             property (\test_iexpr -> do
-                let (TestIExpr iexpr) = test_iexpr
+                let (TestExpr iexpr) = test_iexpr
                 c_rep <- toC iexpr
                 ptr_serialized <- sil_serialize c_rep
                 serialized2 <- serializedFromC ptr_serialized

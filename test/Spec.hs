@@ -10,6 +10,7 @@ import SIL
 import SIL.Eval
 import SIL.Llvm (RunResult(..))
 import Naturals
+import PrettyPrint
 import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
@@ -270,19 +271,19 @@ allowedTypeCheck Nothing = True
 allowedTypeCheck (Just (UnboundType _)) = True
 allowedTypeCheck _ = False
 
-testEval :: IExpr -> IO IExpr
+testEval :: Expr -> IO Expr
 testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
     where serialized   = serialize iexpr
           deserialized = unsafeDeserialize serialized
 
-unitTest :: String -> String -> IExpr -> Spec
-unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroTypeP iexpr)
+unitTest :: String -> String -> Expr -> Spec
+unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck DataOnlyTypeP iexpr)
   then do
-    result <- (show . PrettyIExpr) <$> testEval iexpr
+    result <- (show . PrettyExpr) <$> testEval iexpr
     result `shouldBe` expected
-  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroTypeP iexpr)])
+  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck DataOnlyTypeP iexpr)])
 
-unitTestRefinement :: String -> Bool -> IExpr -> Spec
+unitTestRefinement :: String -> Bool -> Expr -> Spec
 unitTestRefinement name shouldSucceed iexpr = it name $ case inferType iexpr of
   Right t -> case (pureEval iexpr, shouldSucceed) of
     (Left err, True) -> do
@@ -294,7 +295,7 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType iexpr of
     expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
 
 {-
-unitTestOptimization :: String -> IExpr -> IO Bool
+unitTestOptimization :: String -> Expr -> IO Bool
 unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
   then pure True
   else (putStrLn $ concat [name, ": optimized1 ", show $ optimize iexpr, " optimized2 "
@@ -302,16 +303,16 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
   >> pure False
 -}
 
-churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
+churchType = (ArrType (ArrType DataOnlyType DataOnlyType) (ArrType DataOnlyType DataOnlyType))
 
 {-
-rEvaluationIsomorphicToIEvaluation :: ZeroTypedTestIExpr -> Bool
-rEvaluationIsomorphicToIEvaluation vte = case (pureEval $ getIExpr vte, pureREval $ getIExpr vte) of
+rEvaluationIsomorphicToIEvaluation :: DataOnlyTypedTestExpr -> Bool
+rEvaluationIsomorphicToIEvaluation vte = case (pureEval $ getExpr vte, pureREval $ getExpr vte) of
   (Left _, Left _) -> True
   (a, b) | a == b -> True
   _ -> False
 
-debugREITIE :: IExpr -> IO Bool
+debugREITIE :: Expr -> IO Bool
 debugREITIE iexpr = if pureEval iexpr == pureREval iexpr
   then pure True
   else do
@@ -319,10 +320,10 @@ debugREITIE iexpr = if pureEval iexpr == pureREval iexpr
   putStrLn . concat $ ["reval: ", show $ pureREval iexpr]
   pure False
 
-partiallyEvaluatedIsIsomorphicToOriginal:: ArrowTypedTestIExpr -> Bool
---partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getIExpr vte) 0) == pureREval (app ())
+partiallyEvaluatedIsIsomorphicToOriginal:: ArrowTypedTestExpr -> Bool
+--partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getExpr vte) 0) == pureREval (app ())
 partiallyEvaluatedIsIsomorphicToOriginal vte =
-  let iexpr = getIExpr vte
+  let iexpr = getExpr vte
       sameError (GenericRunTimeError sa _) (GenericRunTimeError sb _) = sa == sb
       -- sameError (SetEnvError _) (SetEnvError _) = True
       sameError a b = a == b
@@ -332,7 +333,7 @@ partiallyEvaluatedIsIsomorphicToOriginal vte =
     (Left a, Left b) -> sameError a b
     (a, b) -> a == b
 
-debugPEIITO :: IExpr -> Expectation
+debugPEIITO :: Expr -> Expectation
 debugPEIITO iexpr = do
   putStrLn "regular app:"
   putStrLn $ show (app iexpr Zero)
@@ -368,6 +369,40 @@ unitTests_ parse = do
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "{0,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
 -}
+  {-
+  unitTestType "main = \\x -> {x,0}" (PairTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (== Nothing)
+  unitTestType "main = \\x -> {x,0}" DataOnlyTypeP isInconsistentType
+  unitTestType "main = succ 0" DataOnlyTypeP (== Nothing)
+  unitTestType "main = succ 0" (ArrTypeP DataOnlyTypeP DataOnlyTypeP) isInconsistentType
+  unitTestType "main = or 0" (PairTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (== Nothing)
+  unitTestType "main = or 0" DataOnlyTypeP isInconsistentType
+  unitTestType "main = or succ" (ArrTypeP DataOnlyTypeP DataOnlyTypeP) isInconsistentType
+  unitTestType "main = 0 succ" DataOnlyTypeP isInconsistentType
+  unitTestType "main = 0 0" DataOnlyTypeP isInconsistentType
+  unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" DataOnlyTypeP (== Nothing)
+-}
+  -- I guess this is inconsistently typed now?
+  {-
+  unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
+    (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
+    (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
+    (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
+    (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
+    (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
+    (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
+-}
+  -- unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" DataOnlyTypeP (== Nothing)
+  -- unitTestType "main : (#x -> if x then \"f\" else 0) = 0" DataOnlyTypeP (== Nothing)
+  -- unitTestType "main : (#x -> if x then 1 else 0) = 0" DataOnlyTypeP (== Nothing)
+  -- unitTestType "main = \" \"" DataOnlyTypeP (== Nothing)
+  unitTestType "main = {{{{{{{{{{{{{{{{{{{{{{0,0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0}" DataOnlyTypeP (== Nothing)
+  -- unitTestType "main = {{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{0,0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0},0}" DataOnlyTypeP (== Nothing)
+  {-
   unitTest2 "main = $3 ($2 succ) 0" "6"
   unitTest "3*2" "6" three_times_two
   unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
@@ -394,6 +429,7 @@ unitTests_ parse = do
   unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
   unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
+-}
   --unitTest2 "main = c2d (factorial 0)" "1"
   --unitTest2 "main = times (times $2 $1) $3 succ 0" "6"
   --unitTest2 "main = times (d2c 2) $3 succ 0" "6"
@@ -409,7 +445,6 @@ unitTests_ parse = do
     ++"       in $3 layer (\\f accum l -> accum) (\\a b -> times (d2c a) b) $1 [2, 3] succ 0"
     ) "6"
 -}
-  unitTest2 "main = (d2cG $4 3) succ 0" "3"
   -- unitTestSameResult "main = $2" "main = d2cG $3 2"
   -- unitTestRuntime "main = d2cG $3 2 succ"
   --unitTest2 "main = c2d (factorial 0)" "1"
@@ -422,7 +457,7 @@ isInconsistentType _ = False
 isRecursiveType (Just (RecursiveType _)) = True
 isRecursiveType _ = False
 
-unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
+unitTestTypeP :: Expr -> Either TypeCheckError PartialType -> IO Bool
 unitTestTypeP iexpr expected = if inferType iexpr == expected
   then pure True
   else do
@@ -443,32 +478,32 @@ unitTests parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
   describe "type checker" $ do
-    unitTestType "main = \\x -> {x,0}" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
-    unitTestType "main = \\x -> {x,0}" ZeroTypeP isInconsistentType
-    unitTestType "main = succ 0" ZeroTypeP (== Nothing)
-    unitTestType "main = succ 0" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
-    unitTestType "main = or 0" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
-    unitTestType "main = or 0" ZeroTypeP isInconsistentType
-    unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
-    unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
-    unitTestType "main = 0 0" ZeroTypeP isInconsistentType
+    unitTestType "main = \\x -> {x,0}" (PairTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (== Nothing)
+    unitTestType "main = \\x -> {x,0}" DataOnlyTypeP isInconsistentType
+    unitTestType "main = succ 0" DataOnlyTypeP (== Nothing)
+    unitTestType "main = succ 0" (ArrTypeP DataOnlyTypeP DataOnlyTypeP) isInconsistentType
+    unitTestType "main = or 0" (PairTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (== Nothing)
+    unitTestType "main = or 0" DataOnlyTypeP isInconsistentType
+    unitTestType "main = or succ" (ArrTypeP DataOnlyTypeP DataOnlyTypeP) isInconsistentType
+    unitTestType "main = 0 succ" DataOnlyTypeP isInconsistentType
+    unitTestType "main = 0 0" DataOnlyTypeP isInconsistentType
     -- I guess this is inconsistently typed now?
     unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+      (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-    unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroTypeP (== Nothing)
-    unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
+      (ArrTypeP (ArrTypeP DataOnlyTypeP DataOnlyTypeP) DataOnlyTypeP) (/= Nothing) -- isRecursiveType
+    unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" DataOnlyTypeP (== Nothing)
+    unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" DataOnlyTypeP (== Nothing)
   -- TODO fix
-  --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
+  --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" DataOnlyType isRefinementFailure
   describe "unitTest" $ do
     unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
     -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
@@ -615,17 +650,26 @@ foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: 
 
 unitTest2' parse s r = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
+  Right g -> fmap (show . PrettyExpr) (testEval g) >>= \r2 -> if r2 == r
     then pure ()
     else expectationFailure $ concat [s, " result ", r2]
 
 unitTestType' parse s t tef = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
   Right g -> let apt = typeCheck t g
+             in do
+              putStrLn $ showPIE g
+              -- error "whatever"
+              if tef apt
+                then pure ()
+                else expectationFailure $
+                      concat [s, " failed typecheck, result ", show apt]
+  {-
              in if tef apt
                 then pure ()
                 else expectationFailure $
                       concat [s, " failed typecheck, result ", show apt]
+-}
 
 unitTestRuntime' parse s = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
@@ -662,13 +706,13 @@ main = do
   {-
     unitTest2 s r = it s $ case parse s of
       Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-      Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
+      Right g -> fmap (show . PrettyExpr) (testEval g) >>= \r2 -> if r2 == r
         then pure ()
         else expectationFailure $ concat [s, " result ", r2]
 -}
   {-
     unitTest3 s r = let parsed = parseMain prelude s in case (inferType <$> parsed, parsed) of
-      (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
+      (Right (Right _), Right g) -> fmap (show . PrettyExpr) (testEval g) >>= \r2 -> if r2 == r
         then pure True
         else (putStrLn $ concat [s, " result ", r2]) >> pure False
       e -> (putStrLn $ concat ["failed unittest3: ", s, " ", show e ]) >> pure False
@@ -699,11 +743,11 @@ main = do
 
   -- TODO change eval to use rEval, then run this over a long non-work period
   {-
-  let isProblem (TestIExpr iexpr) = typeable (TestIExpr iexpr) && case eval iexpr of
+  let isProblem (TestExpr iexpr) = typeable (TestExpr iexpr) && case eval iexpr of
         Left _ -> True
         _ -> False
   (Right mainAST) <- parseMain prelude <$> Strict.readFile "tictactoe.sil"
-  print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
+  print . head $ shrinkComplexCase isProblem [TestExpr mainAST]
   result <- pure False
 -}
   hspec $ do

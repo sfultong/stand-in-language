@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE LambdaCase #-}
 module SIL.TypeChecker where
 
 import Control.Applicative
@@ -6,6 +7,8 @@ import Control.Monad.State.Lazy
 import Data.Map (Map)
 import Data.Set (Set)
 import Debug.Trace
+import Data.Functor.Foldable
+import Prelude hiding (Foldable)
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -13,8 +16,9 @@ import qualified Data.Set as Set
 import SIL
 
 debug :: Bool
-debug = False
+debug = True
 
+{-
 data ExprTA a
   = ZeroTA
   | PairTA (ExprTA a) (ExprTA a)
@@ -28,9 +32,12 @@ data ExprTA a
   | DeferTA (ExprTA a)
   deriving (Eq, Show, Ord, Functor)
 
-type ExprPA = ExprTA PartialType
+-}
+
+type ExprPA = ExprA PartialType
 
 -- f must be type preserving, since type annotation is not changed
+{-
 instance EndoMapper (ExprTA a) where
   endoMap f ZeroTA = f ZeroTA
   endoMap f (PairTA a b) = f $ PairTA (endoMap f a) (endoMap f b)
@@ -54,44 +61,56 @@ instance MonoidEndoFolder (ExprTA a) where
   monoidFold f (TraceTA x) = mconcat [f (TraceTA x), monoidFold f x]
   monoidFold f (SetEnvTA x t) = mconcat [f (SetEnvTA x t), monoidFold f x]
   monoidFold f (DeferTA x) = mconcat [f (DeferTA x), monoidFold f x]
+-}
 
 indent :: Int -> String
 indent 0 = []
 indent n = ' ' : ' ' : indent (n - 1)
 
 showExpra :: Int -> Int -> ExprPA -> String
-showExpra _ _ ZeroTA = "ZeroA"
-showExpra _ _ (EnvTA a) = "VarA " ++ show (PrettyPartialType a)
-showExpra l i p@(PairTA a b) = if length (show p) > l
+showExpra l i e =
+  let (ExprAF a pe) = project e
+      prettyType = show (PrettyPartialType a)
+      showInnerIndented = (show (const "" <$> pe))
+        <> "\n" <> indent i <> foldMap (showExpra l (i + 1)) pe
+        <> prettyType
+  in if length (show e) > l
+     then showInnerIndented else show e
+
+{-
+showExpra _ _ (ExprAF _ ZeroF) = "ZeroA"
+showExpra _ _ (ExprAF a EnvF) = "EnvA " ++ show (PrettyPartialType a)
+showExpra l i p@(ExprAF _ (PairF a b)) = if length (show p) > l
   then concat ["PairA\n", indent i, showExpra l (i + 1) a, "\n", indent i, showExpra l (i + 1) b]
   else show p
-showExpra l i (AbortTA x a) =
+showExpra l i (ExprAF a (AbortF x)) =
   let lineShow = concat ["AbortA ", show x, "  ", show (PrettyPartialType a)]
   in if length lineShow > l
   then concat ["AbortA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (GateTA x a) =
+showExpra l i (ExprAF a (GateF x)) =
   let lineShow = concat ["GateA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["GateA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (TraceTA x) = concat ["TraceA ", showExpra l i x]
-showExpra l i (DeferTA x) = concat ["DeferA ", showExpra l i x]
-showExpra l i (PLeftTA x a) =
+showExpra l i (ExprAF _ (TraceF x)) = concat ["TraceA ", showExpra l i x]
+showExpra l i (ExprAF _ (DeferF x)) = concat ["DeferA ", showExpra l i x]
+showExpra l i (ExprAF a (PLeftF x)) =
   let lineShow = concat ["PLeftA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["PLeftA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (PRightTA x a) =
+showExpra l i (ExprAF a (PRightF x)) =
   let lineShow = concat ["PRightA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["PRightA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (SetEnvTA x a) =
+showExpra l i (ExprAF a (SetEnvF x)) =
   let lineShow = concat ["SetEnvA ", show x, "  ", show (PrettyPartialType a)]
   in if length (lineShow) > l
   then concat ["SetEnvA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
+-}
 
 newtype DebugTypeMap = DebugTypeMap (Map Int PartialType)
 
@@ -109,19 +128,21 @@ instance Show DebugTypeCheck where
     , show (DebugTypeMap typeMap)
     ]
 
+{-
 getPartialAnnotation :: ExprPA -> PartialType
 getPartialAnnotation (EnvTA a) = a
 getPartialAnnotation (SetEnvTA _ a) = a
 getPartialAnnotation (DeferTA x) = case getUnboundType x of
   Nothing -> ArrTypeP AnyType $ getPartialAnnotation x
   Just t -> ArrTypeP t (getPartialAnnotation x)
-getPartialAnnotation ZeroTA = ZeroTypeP
+getPartialAnnotation ZeroTA = DataOnlyTypeP
 getPartialAnnotation (PairTA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
 getPartialAnnotation (AbortTA _ a) = a
 getPartialAnnotation (GateTA _ a) = a
 getPartialAnnotation (PLeftTA _ a) = a
 getPartialAnnotation (PRightTA _ a) = a
 getPartialAnnotation (TraceTA x) = getPartialAnnotation x
+-}
 
 data TypeCheckError
   = UnboundType Int
@@ -130,6 +151,7 @@ data TypeCheckError
   deriving (Eq, Ord, Show)
 
 -- State is closure environment, map of unresolved types, unresolved type id supply
+-- TODO maybe remove Maybe TypeChecker and convert to EitherT TypeCheckError ...
 type AnnotateState a = State (PartialType, Map Int PartialType, Int, Maybe TypeCheckError) a
 
 withNewEnv :: AnnotateState a -> AnnotateState (PartialType, a)
@@ -176,16 +198,25 @@ checkOrAssociate (TypeVariable t) x resolvedSet typeMap = case Map.lookup t type
   Just rt -> checkOrAssociate x rt (Set.insert t resolvedSet) typeMap
 checkOrAssociate x (TypeVariable t) resolvedSet typeMap =
   checkOrAssociate (TypeVariable t) x resolvedSet typeMap
+{-
 checkOrAssociate (ArrTypeP a b) (ArrTypeP c d) resolvedSet typeMap =
   checkOrAssociate a c resolvedSet typeMap >>= checkOrAssociate b d resolvedSet
 checkOrAssociate (PairTypeP a b) (PairTypeP c d) resolvedSet typeMap =
   checkOrAssociate a c resolvedSet typeMap >>= checkOrAssociate b d resolvedSet
-checkOrAssociate (PairTypeP a b) ZeroTypeP resolvedSet typeMap =
-  checkOrAssociate a ZeroTypeP resolvedSet typeMap >>=
-  checkOrAssociate b ZeroTypeP resolvedSet
-checkOrAssociate ZeroTypeP p@(PairTypeP _ _) resolvedSet typeMap =
-  checkOrAssociate p ZeroTypeP resolvedSet typeMap
-checkOrAssociate a b _ typeMap = if a == b then pure typeMap else Left $ InconsistentTypes a b
+checkOrAssociate (PairTypeP a b) DataOnlyTypeP resolvedSet typeMap =
+  checkOrAssociate a DataOnlyTypeP resolvedSet typeMap >>=
+  checkOrAssociate b DataOnlyTypeP resolvedSet
+checkOrAssociate DataOnlyTypeP p@(PairTypeP _ _) resolvedSet typeMap =
+  checkOrAssociate p DataOnlyTypeP resolvedSet typeMap
+-}
+checkOrAssociate oa@(Fix (SimpleTypeF a)) ob@(Fix (SimpleTypeF b)) resolvedSet typeMap = case (a, b) of
+  (ArrTypeF a b, ArrTypeF c d) -> checkOrAssociate a c resolvedSet typeMap >>= checkOrAssociate b d resolvedSet
+  (PairTypeF a b, PairTypeF c d) -> checkOrAssociate a c resolvedSet typeMap >>= checkOrAssociate b d resolvedSet
+  (PairTypeF a b, DataOnlyTypeF) -> checkOrAssociate a DataOnlyTypeP resolvedSet typeMap >>=
+                                checkOrAssociate b DataOnlyTypeP resolvedSet
+  (DataOnlyTypeF, PairTypeF _ _) -> checkOrAssociate ob oa resolvedSet typeMap
+  (a, b) -> if a == b then pure typeMap else Left $ InconsistentTypes oa ob
+-- checkOrAssociate a b _ typeMap = if a == b then pure typeMap else Left $ InconsistentTypes a b
 
 getTypeMap :: AnnotateState (Map Int PartialType)
 getTypeMap = get >>= \(_, tm, _, _) -> pure tm
@@ -209,7 +240,7 @@ fullyResolve typeMap x = case mostlyResolved of
   Left _ -> Nothing
   Right mr -> filterTypeVars mr
   where
-    filterTypeVars ZeroTypeP = pure ZeroType
+    filterTypeVars DataOnlyTypeP = pure DataOnlyType
     filterTypeVars (TypeVariable _) = Nothing
     filterTypeVars (ArrTypeP a b) = ArrType <$> filterTypeVars a <*> filterTypeVars b
     filterTypeVars (PairTypeP a b) = PairType <$> filterTypeVars a <*> filterTypeVars b
@@ -219,7 +250,8 @@ fullyResolve typeMap x = case mostlyResolved of
 -- resolve as much of a partial type as possible, aborting on circular references
 mostlyResolve_ :: Set Int -> Map Int PartialType -> PartialType
   -> Either TypeCheckError PartialType
-mostlyResolve_ _ _ ZeroTypeP = pure ZeroTypeP
+{-
+mostlyResolve_ _ _ DataOnlyTypeP = pure DataOnlyTypeP
 mostlyResolve_ _ _ AnyType = pure AnyType
 mostlyResolve_ resolved typeMap (TypeVariable i) =
   case (Set.member i resolved, Map.lookup i typeMap) of
@@ -230,13 +262,21 @@ mostlyResolve_ resolved typeMap (ArrTypeP a b) =
   ArrTypeP <$> mostlyResolve_ resolved typeMap a <*> mostlyResolve_ resolved typeMap b
 mostlyResolve_ resolved typeMap (PairTypeP a b) =
   PairTypeP <$> mostlyResolve_ resolved typeMap a <*> mostlyResolve_ resolved typeMap b
+-}
+mostlyResolve_ resolved typeMap = cata $ \case
+  (TypeVariableF i) -> case (Set.member i resolved, Map.lookup i typeMap) of
+    (True, _) -> Left $ RecursiveType i
+    (_, Just x) -> mostlyResolve_ (Set.insert i resolved) typeMap x
+    (_, Nothing) -> pure $ TypeVariable i
+  x -> Fix <$> sequence x
 
 mostlyResolve :: Map Int PartialType -> PartialType -> Either TypeCheckError PartialType
 mostlyResolve typeMap x = mergePairTypeP <$> mostlyResolve_ Set.empty typeMap x
 
 -- resolve as much as possible of recursive references, without returning error
 mostlyResolveRecursive_ :: Set Int -> Map Int PartialType -> PartialType -> PartialType
-mostlyResolveRecursive_ _ _ ZeroTypeP = ZeroTypeP
+{-
+mostlyResolveRecursive_ _ _ DataOnlyTypeP = DataOnlyTypeP
 mostlyResolveRecursive_ _ _ AnyType = AnyType
 mostlyResolveRecursive_ resolved typeMap (TypeVariable i) =
   case (Set.member i resolved, Map.lookup i typeMap) of
@@ -246,11 +286,18 @@ mostlyResolveRecursive_ resolved typeMap (ArrTypeP a b) = ArrTypeP
   (mostlyResolveRecursive_ resolved typeMap a) (mostlyResolveRecursive_ resolved typeMap b)
 mostlyResolveRecursive_ resolved typeMap (PairTypeP a b) = PairTypeP
   (mostlyResolveRecursive_ resolved typeMap a) (mostlyResolveRecursive_ resolved typeMap b)
+-}
+mostlyResolveRecursive_ resolved typeMap = cata $ \case
+  (TypeVariableF i) -> case (Set.member i resolved, Map.lookup i typeMap) of
+    (False, Just x) -> mostlyResolveRecursive_ (Set.insert i resolved) typeMap x
+    _ -> TypeVariable i
+  x -> Fix x
 
 mostlyResolveRecursive :: Map Int PartialType -> PartialType -> PartialType
 mostlyResolveRecursive = mostlyResolveRecursive_ Set.empty
 
 -- if there's an unbound environment, get its type
+{-
 getUnboundType :: ExprPA -> Maybe PartialType
 getUnboundType ZeroTA = Nothing
 getUnboundType (PairTA a b) = getUnboundType a <|> getUnboundType b
@@ -262,6 +309,7 @@ getUnboundType (GateTA x _) = getUnboundType x
 getUnboundType (PLeftTA x _) = getUnboundType x
 getUnboundType (PRightTA x _) = getUnboundType x
 getUnboundType (TraceTA x) = getUnboundType x
+-}
 
 traceFullAnnotation :: PartialType -> AnnotateState ()
 traceFullAnnotation pt = if debug
@@ -275,14 +323,18 @@ traceFullAnnotation pt = if debug
                   ])  pure ()
   else pure ()
 
-debugAnnotate :: IExpr -> AnnotateState ()
+debugAnnotate :: Expr -> AnnotateState ()
 debugAnnotate x = if debug
   then do
     (e, tm, varI, err) <- get
     trace ("debugAnnotate " ++ show x ++ " -- " ++ show e) $ pure ()
   else pure ()
 
-annotate :: IExpr -> AnnotateState ExprPA
+simpleEx :: ExprPA
+simpleEx = Fix . ExprAF DataOnlyTypeP $ ZeroF
+
+annotate :: Expr -> AnnotateState ExprPA
+{-
 annotate Zero = debugAnnotate Zero *> pure ZeroTA
 annotate (Pair a b) = debugAnnotate (Pair a b) *> (PairTA <$> annotate a <*> annotate b)
 annotate Env = (debugAnnotate Env *>) get >>= \(e, _, _, _) -> pure $ EnvTA e
@@ -301,12 +353,12 @@ annotate (Defer x) = do
 annotate (Abort x) = do
   nx <- annotate x
   (it, _) <- withNewEnv $ pure ()
-  associateVar ZeroTypeP (getPartialAnnotation nx)
+  associateVar DataOnlyTypeP (getPartialAnnotation nx)
   pure $ AbortTA nx it
 annotate (Gate x) = do
   debugAnnotate (Gate x)
   nx <- annotate x
-  associateVar ZeroTypeP $ getPartialAnnotation nx
+  associateVar DataOnlyTypeP $ getPartialAnnotation nx
   (ra, _) <- withNewEnv $ pure ()
   pure $ GateTA nx (ArrTypeP (PairTypeP ra ra) ra)
 annotate (PLeft x) = do
@@ -322,11 +374,49 @@ annotate (PRight x) = do
   associateVar (PairTypeP AnyType ra) (getPartialAnnotation nx)
   pure $ PRightTA nx ra
 annotate (Trace x) = debugAnnotate (Trace x) *> (TraceTA <$> annotate x)
+-}
+annotate = cata $ \orig ->
+  let oanno t = ((\e a -> Fix $ ExprAF a e) <$> sequence orig <*> pure t)
+      getAnno = fmap (eanno . project)
+  in case orig of
+    ZeroF -> oanno DataOnlyTypeP
+    PairF a b -> (liftA2 PairTypeP (getAnno a) (getAnno b)) >>= oanno
+    EnvF -> get >>= \(e, _, _, _) -> oanno e
+    SetEnvF x -> do
+      xt <- getAnno x
+      (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
+      associateVar (PairTypeP (ArrTypeP it ot) it) xt
+      oanno ot
+    DeferF x -> do
+      --(vt, nx@(ia :< _)) <- withNewEnv x
+      (vt, nx@(Fix (ExprAF ia _))) <- withNewEnv x
+      pure . Fix $ ExprAF (ArrTypeP vt ia) (DeferF nx)
+    AbortF x -> do -- TODO we're changing the semantics of Abort!
+      xt <- getAnno x
+      (it, _) <- withNewEnv $ pure ()
+      associateVar DataOnlyTypeP xt
+      oanno it
+    GateF x -> do
+      xt <- getAnno x
+      associateVar DataOnlyTypeP xt
+      (ra, _) <- withNewEnv $ pure ()
+      oanno $ ArrTypeP (PairTypeP ra ra) ra
+    PLeftF x -> do
+      xt <- getAnno x
+      (la, _) <- withNewEnv $ pure ()
+      associateVar (PairTypeP la AnyType) xt
+      oanno $ la
+    PRightF x -> do
+      xt <- getAnno x
+      (ra, _) <- withNewEnv $ pure ()
+      associateVar (PairTypeP AnyType ra) xt
+      oanno $ ra
+    TraceF x -> getAnno x >>= oanno
 
-resolveOrAlt_ :: Set Int -> Map Int PartialType -> PartialType
-  -> Either TypeCheckError DataType
-resolveOrAlt_ _ _ ZeroTypeP = pure ZeroType
-resolveOrAlt_ _ _ AnyType = pure ZeroType -- just set any remaining type holes to zero
+resolveOrAlt :: Map Int PartialType -> PartialType -> Either TypeCheckError DataType
+{-
+resolveOrAlt_ _ _ DataOnlyTypeP = pure DataOnlyType
+resolveOrAlt_ _ _ AnyType = pure DataOnlyType -- just set any remaining type holes to zero
 resolveOrAlt_ resolved typeMap (PairTypeP a b) = PairType
   <$> resolveOrAlt_ resolved typeMap a <*> resolveOrAlt_ resolved typeMap b
 resolveOrAlt_ resolved typeMap (ArrTypeP a b) = ArrType
@@ -336,11 +426,21 @@ resolveOrAlt_ resolved typeMap (TypeVariable i) =
     (False, Just nt) -> resolveOrAlt_ (Set.insert i resolved) typeMap nt
     (True, _) -> Left $ RecursiveType i
     _ -> Left $ UnboundType i
+-}
+resolveOrAlt typeMap = cata $ \case
+  (SimpleTypeF x) -> Fix <$> sequence x
+  AnyTypeF -> pure DataOnlyType -- just set any remaining type holes to zero
+  (TypeVariableF i) -> case Map.lookup i typeMap of
+    Just nt -> resolveOrAlt typeMap nt
+    _ -> Left $ UnboundType i
 
+{-
 resolveOrAlt :: Map Int PartialType -> PartialType -> Either TypeCheckError DataType
 resolveOrAlt = resolveOrAlt_ Set.empty
+-}
 
 -- apply mostlyAnnotate recursively to exprPA
+{-
 fullyMostlyAnnotate :: Map Int PartialType -> ExprPA -> (Set Int, ExprPA)
 fullyMostlyAnnotate _ ZeroTA = (Set.empty, ZeroTA)
 fullyMostlyAnnotate tm (PairTA a b) =
@@ -368,11 +468,12 @@ fullyMostlyAnnotate tm (PRightTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, PRightTA x a)
   (Right mra) -> PRightTA <$> fullyMostlyAnnotate tm x <*> pure mra
 fullyMostlyAnnotate tm (TraceTA x) = TraceTA <$> fullyMostlyAnnotate tm x
+-}
 
 tcStart :: (PartialType, Map Int PartialType, Int, Maybe TypeCheckError)
 tcStart = (TypeVariable 0, Map.empty, 1, Nothing)
 
-partiallyAnnotate :: IExpr -> Either TypeCheckError (Map Int PartialType, ExprPA)
+partiallyAnnotate :: Expr -> Either TypeCheckError (Map Int PartialType, ExprPA)
 partiallyAnnotate iexpr =
   let (iexpra, (_, typeMap, _, err)) = runState (annotate iexpr) tcStart
       debugT = if debug then trace (show $ DebugTypeCheck iexpra typeMap 80) else id
@@ -380,26 +481,40 @@ partiallyAnnotate iexpr =
     Nothing -> pure (typeMap, iexpra)
     Just et -> Left et
 
-inferType :: IExpr -> Either TypeCheckError PartialType
-inferType iexpr = partiallyAnnotate iexpr >>= (\(tm, exp) -> mostlyResolve tm $ getPartialAnnotation exp)
+inferType :: Expr -> Either TypeCheckError PartialType
+inferType iexpr = partiallyAnnotate iexpr >>= (\(tm, exp) -> mostlyResolve tm . eanno $ project exp)
 
-debugInferType :: IExpr -> Either TypeCheckError PartialType
-debugInferType iexpr = partiallyAnnotate iexpr >>= (\(tm, exp) -> trace (show $ DebugTypeCheck exp tm 80) . mostlyResolve tm $ getPartialAnnotation exp)
+debugInferType :: Expr -> Either TypeCheckError PartialType
+debugInferType iexpr = partiallyAnnotate iexpr >>=
+  (\(tm, exp) -> trace (show $ DebugTypeCheck exp tm 80) . mostlyResolve tm . eanno $ project exp)
 
-typeCheck :: PartialType -> IExpr -> Maybe TypeCheckError
+typeCheck :: PartialType -> Expr -> Maybe TypeCheckError
 typeCheck t iexpr =
-  let assocAndAnno (tm, exp) =
-        case checkOrAssociate t (getPartialAnnotation exp) Set.empty tm of
-          Right ntm -> resolveOrAlt ntm (getPartialAnnotation exp)
+
+  let assocAndAnno :: (Map Int PartialType, ExprPA) -> Either TypeCheckError DataType
+      assocAndAnno (tm, exp) = -- trace (show $ DebugTypeCheck exp tm 80) $
+        case checkOrAssociate t (eanno $ project exp) Set.empty tm of
+          Right ntm -> resolveOrAlt ntm (eanno $ project exp)
           Left x -> Left x
+        -- error "whatever"
+
   in case partiallyAnnotate iexpr >>= assocAndAnno of
     Left x -> Just x
     _ -> Nothing
 
-showTraceTypes :: IExpr -> String
+showTraceTypes :: Expr -> String
+{-
 showTraceTypes iexpr = showE (partiallyAnnotate iexpr >>= (\(tm, expr) -> pure $ monoidFold (showTrace tm) expr))
   where
   showTrace tm (TraceTA x) = show $ (PrettyPartialType <$> (mostlyResolve tm $ getPartialAnnotation x))
   showTrace _ _ = mempty
   showE l@(Left _) = show l
   showE (Right s) = s
+-}
+showTraceTypes iexpr = showE (partiallyAnnotate iexpr >>= (\(tm, expr) -> pure $ cata (showTrace tm) expr))
+  where
+    showTrace tm = \case
+      (ExprAF a (TraceF s)) -> s <> show (PrettyPartialType <$> mostlyResolve tm a)
+      _ -> mempty
+    showE l@(Left _) = show l
+    showE (Right s) = s

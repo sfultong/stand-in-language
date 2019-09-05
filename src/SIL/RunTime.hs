@@ -89,7 +89,7 @@ nEval (NExprs m) =
     (Just f) -> eval NZero f
     _ -> throwError $ GenericRunTimeError "nEval: no root frag" Zero
 
-iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
+iEval :: MonadError RunTimeError m => (Expr -> Expr -> m Expr) -> Expr -> Expr -> m Expr
 iEval f env g = let f' = f env in case g of
   Zero -> pure Zero
   Pair a b -> Pair <$> f' a <*> f' b
@@ -110,16 +110,16 @@ iEval f env g = let f' = f env in case g of
     _ -> pure Zero
   Trace g -> f' g >>= \g -> pure $ trace (show g) g
 
-toChurch :: Int -> IExpr
+toChurch :: Int -> Expr
 toChurch x =
   let inner 0 = PLeft Env
       inner x = app (PLeft $ PRight Env) (inner (x - 1))
   in lam (lam (inner x))
 
-instance AbstractRunTime IExpr where
-  eval = fix iEval Zero
-  fromSIL = id
-  toSIL = pure
+instance AbstractRunTime Expr' where
+  eval = fmap Expr' . fix iEval Zero . getExpr
+  fromSIL = Expr'
+  toSIL = pure . getExpr
 
 resultIndex = FragIndex (-1)
 instance AbstractRunTime NExprs where
@@ -141,19 +141,21 @@ instance AbstractRunTime NExprs where
           _ -> Nothing
     in Map.lookup resultIndex m >>= fromNExpr
 
-evalAndConvert :: (Show a, AbstractRunTime a) => a -> RunResult IExpr
+evalAndConvert :: (Show a, AbstractRunTime a) => a -> RunResult Expr
 evalAndConvert x = let ar = eval x in (toSIL <$> ar) >>= \r -> case r of
   Nothing -> do
     ar' <- ar
     throwError . ResultConversionError $ show ar'
   Just ir -> pure ir
 
-simpleEval :: IExpr -> IO IExpr
-simpleEval x = runExceptT (eval x) >>= \r -> case r of
+simpleEval :: Expr -> IO Expr
+simpleEval x = runExceptT (eval (fromSIL x :: Expr')) >>= \r -> case r of
   Left e -> fail (show e)
-  Right i -> pure i
+  Right i -> case toSIL i of
+    Just r -> pure r
+    Nothing -> fail "Should be impossible for conversion of Expr' to Expr to fail"
 
-fastInterpretEval :: IExpr -> IO IExpr
+fastInterpretEval :: Expr -> IO Expr
 fastInterpretEval e = do
   let traceShow x = if debug then trace ("toNExpr\n" ++ showNExprs x) x else x
       nExpr :: NExprs
@@ -177,43 +179,43 @@ llvmEval nexpr = do
       fail s
     Right x -> pure x
 
-optimizedEval :: IExpr -> IO IExpr
+optimizedEval :: Expr -> IO Expr
 optimizedEval = fastInterpretEval -- TODO fix
 
-pureEval :: IExpr -> Either RunTimeError IExpr
+pureEval :: Expr -> Either RunTimeError Expr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g
 
 showPass :: (Show a, MonadIO m) => m a -> m a
 showPass a = a >>= (liftIO . print) >> a
 
-tEval :: IExpr -> IO IExpr
+tEval :: Expr -> IO Expr
 tEval x = runExceptT (fix (\f e g -> showPass $ iEval f e g) Zero x) >>= \r -> case r of
   Left e -> fail (show e)
   Right i -> pure i
 
-typedEval :: (IExpr -> DataType -> Bool) -> IExpr -> (IExpr -> IO ()) -> IO ()
-typedEval typeCheck iexpr prettyPrint = if typeCheck iexpr ZeroType
+typedEval :: (Expr -> DataType -> Bool) -> Expr -> (Expr -> IO ()) -> IO ()
+typedEval typeCheck iexpr prettyPrint = if typeCheck iexpr DataOnlyType
   then simpleEval iexpr >>= prettyPrint
   else putStrLn "failed typecheck"
 
-debugEval :: (IExpr -> DataType -> Bool) -> IExpr -> IO ()
-debugEval typeCheck iexpr = if typeCheck iexpr ZeroType
-  then tEval iexpr >>= (print . PrettyIExpr)
+debugEval :: (Expr -> DataType -> Bool) -> Expr -> IO ()
+debugEval typeCheck iexpr = if typeCheck iexpr DataOnlyType
+  then tEval iexpr >>= (print . PrettyExpr)
   else putStrLn "failed typecheck"
 
 fullEval typeCheck i = typedEval typeCheck i print
 
-prettyEval typeCheck i = typedEval typeCheck i (print . PrettyIExpr)
+prettyEval typeCheck i = typedEval typeCheck i (print . PrettyExpr)
 
-verifyEval :: IExpr -> IO (Maybe (Either RunTimeError IExpr, Either RunTimeError IExpr))
+verifyEval :: Expr -> IO (Maybe (Either RunTimeError Expr, Either RunTimeError Expr))
 verifyEval expr =
   let nexpr :: NExprs
       nexpr = fromSIL expr
   in do
-    iResult <- runExceptT $ evalAndConvert expr
+    iResult <- runExceptT $ evalAndConvert (Expr' expr)
     nResult <- runExceptT $ evalAndConvert nexpr
     if iResult == nResult
      then pure Nothing
      else pure $ pure (iResult, nResult)
 
-testNEval = runExceptT . eval . (fromSIL :: IExpr -> NExprs)
+testNEval = runExceptT . eval . (fromSIL :: Expr -> NExprs)
