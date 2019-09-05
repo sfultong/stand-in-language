@@ -7,10 +7,10 @@ license:             Apache-2.0
 license-file:        LICENSE
 author:              Sam Griffin
 maintainer:          sam.griffin@gmail.com
-copyright:           2017 Sam Griffin
-category:            Web
+copyright:           2019 Sam Griffin
+category:            Language
 build-type:          Simple
-extra-source-files:  README.md
+extra-source-files:  CHANGELOG.md, README.md
 cabal-version:       >=1.10
 
 data-files:          bench/MemoryBench/cases
@@ -19,6 +19,13 @@ library
   hs-source-dirs:      src
   include-dirs:        cbits/include
   c-sources:           cbits/SIL.c
+  other-extensions:    GADTs
+                     , EmptyDataDecls
+                     , DeriveFunctor
+                     , FlexibleContexts
+                     , ScopedTypeVariables
+                     , OverloadedStrings
+                     , RecursiveDo
   exposed-modules:     Naturals
                      , PrettyPrint
                      , SIL
