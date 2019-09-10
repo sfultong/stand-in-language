@@ -32,9 +32,21 @@ let
       llvm-hs = super.callHackage "llvm-hs" "6.3.0" { llvm-config = pkgs.llvm_6; };
       llvm-hs-pure = super.callHackage "llvm-hs-pure" "6.2.1" {};
       indents = dontCheck super.indents;
+      cabal-install = super.callHackage "cabal-install" "2.2.0.0" { Cabal = super.Cabal; };
+      hasktags = dontCheck super.hasktags;
     };
   });
+  simpleShell = haskellPkgs.shellFor { packages = p: [p.sil]; };
+  oldhp = pkgs.haskellPackages;
 in
-haskellPkgs.shellFor {
-  packages = p: [p.sil];
-}
+
+simpleShell.overrideAttrs (oldAttrs : rec 
+  { buildInputs = oldAttrs.buildInputs 
+    ++ [ 
+         haskellPkgs.cabal-install 
+         # haskellPkgs.apply-refact 
+         haskellPkgs.hlint
+         haskellPkgs.hasktags 
+         # oldhp.ghc-mod 
+      ]; 
+  })
