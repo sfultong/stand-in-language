@@ -1,5 +1,5 @@
-{-#LANGUAGE PatternSynonyms#-}
-{-#LANGUAGE ViewPatterns#-}
+{-#LANGUAGE PatternSynonyms #-}
+{-#LANGUAGE ViewPatterns #-}
 module SIL where
 
 import Control.DeepSeq
@@ -143,10 +143,16 @@ app :: IExpr -> IExpr -> IExpr
 app c i = setenv (setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env)))))
                           (pair i c)))
 check :: IExpr -> IExpr -> IExpr
+{-
 check c tc = setenv (pair (defer (ite
                                   (app (pleft env) (pright env))
                                   (Abort $ app (pleft env) (pright env))
                                   (pright env)
+                          ))
+                          (pair tc c)
+                    )
+-}
+check c tc = setenv (pair (defer (pright (Abort $ app (pleft env) (pright env))
                           ))
                           (pair tc c)
                     )
@@ -334,8 +340,8 @@ instance Show PrettyIExpr where
 
 g2i :: IExpr -> Int
 g2i Zero = 0
-g2i (Pair a b) = 1 + (g2i a) + (g2i b)
-g2i x = error $ "g2i " ++ (show x)
+g2i (Pair a b) = 1 + g2i a + g2i b
+g2i x = error $ "g2i " ++ show x
 
 i2g :: Int -> IExpr
 i2g 0 = Zero
@@ -362,7 +368,7 @@ isNum (Pair n Zero) = isNum n
 isNum _ = False
 
 nextI :: State EIndex EIndex
-nextI = state $ \(EIndex n) -> ((EIndex n), EIndex (n + 1))
+nextI = state $ \(EIndex n) -> (EIndex n, EIndex (n + 1))
 
 toIndExpr :: IExpr -> State EIndex IndExpr
 toIndExpr Zero = ZeroA <$> nextI

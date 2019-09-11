@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 module SIL.RunTime where
 
 import Data.Functor.Identity
@@ -49,7 +50,7 @@ nEval (NExprs m) =
           _ -> throwError $ GenericRunTimeError ("nEval bad index for function: " ++ show ind) Zero
         (NTrace x) -> (\t -> trace (show t) t) <$> recur x
         (NAbort x) -> recur x >>= \y -> case y of
-          NZero -> pure NZero
+          NZero -> pure env
           z -> case toSIL (NExprs $ Map.insert resultIndex z m) of
             Just z' -> throwError . AbortRunTime $ z'
             Nothing -> throwError $ GenericRunTimeError ("Could not convert abort value of: " <> show z) Zero
@@ -94,18 +95,18 @@ iEval f env g = let f' = f env in case g of
   Zero -> pure Zero
   Pair a b -> Pair <$> f' a <*> f' b
   Env -> pure env
-  Abort x -> f' x >>= \nx -> if nx == Zero then pure Zero else throwError $ AbortRunTime nx
-  SetEnv x -> (f' x >>=) $ \nx -> case nx of
+  Abort x -> f' x >>= \nx -> if nx == Zero then pure env else throwError $ AbortRunTime nx
+  SetEnv x -> (f' x >>=) $ \case
     Pair (Defer c) nenv -> f nenv c
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
   Defer x -> pure $ Defer x
-  Gate x -> f' x >>= \g -> case g of
+  Gate x -> f' x >>= \case
     Zero -> pure $ Defer (PLeft Env)
     _ -> pure $ Defer (PRight Env)
-  PLeft g -> f' g >>= \g -> case g of
+  PLeft g -> f' g >>= \case
     (Pair a _) -> pure a
     _ -> pure Zero
-  PRight g -> f' g >>= \g -> case g of
+  PRight g -> f' g >>= \case
     (Pair _ x) -> pure x
     _ -> pure Zero
   Trace g -> f' g >>= \g -> pure $ trace (show g) g
@@ -168,11 +169,11 @@ llvmEval nexpr = do
   let lmod = LLVM.makeModule nexpr
   when debug $ do
     print $ LLVM.DebugModule lmod
-    putStrLn . concat . take 100 . repeat $ "                                                                     \n"
+    putStrLn . concat . replicate 100 $ "                                                                     \n"
   result <- catch (LLVM.evalJIT LLVM.defaultJITConfig lmod) $ \(e :: SomeException) -> pure . Left $ show e
   case result of
     Left s -> do
-      hPutStrLn stderr . show $ nexpr
+      hPrint stderr nexpr
       hPutStrLn stderr $ "failed llvmEval: " ++ s
       fail s
     Right x -> pure x

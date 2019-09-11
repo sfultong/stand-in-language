@@ -297,11 +297,10 @@ annotate (Defer x) = do
   debugAnnotate (Defer x)
   (_, nx) <- withNewEnv $ annotate x
   pure $ DeferTA nx
--- abort is polymorphic so that it matches any expression
 annotate (Abort x) = do
   nx <- annotate x
-  (it, _) <- withNewEnv $ pure ()
   associateVar ZeroTypeP (getPartialAnnotation nx)
+  it <- (\(e,_,_,_) -> e) <$> get
   pure $ AbortTA nx it
 annotate (Gate x) = do
   debugAnnotate (Gate x)
