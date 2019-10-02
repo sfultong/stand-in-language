@@ -135,10 +135,13 @@ instance Show DebugModule where
             concat ["  ", show n, "\n", concatMap displayInstruction inst, "    ", show term, "\n"]
           displayInstruction i = concat ["    ", show i, "\n"]
 
+-- TODO fix
 resolver :: OJ.CompileLayer l => l -> OJ.SymbolResolver
 resolver compileLayer = OJ.SymbolResolver
   (\s -> OJ.findSymbol compileLayer s True)
+  {-
   (\s -> fmap (\a -> Right $ OJ.JITSymbol a (OJ.defaultJITSymbolFlags { OJ.jitSymbolExported = True })) (Linking.getSymbolAddressInProcess s))
+-}
 
 withTargetMachine :: (Target.TargetMachine -> IO a) -> IO a
 withTargetMachine f = do
@@ -189,39 +192,44 @@ optimizerLevelToWord l =
     Three -> 3
 
 evalJIT :: JITConfig -> AST.Module -> IO (Either String RunResult)
+{-
 evalJIT jitConfig amod = do
   _ <- Linking.loadLibraryPermanently Nothing
   withContext $ \ctx -> do
     t0 <- getTime Monotonic
-    withModuleFromAST ctx amod $ \mod -> do
-      t1 <- getTime Monotonic
-      optimizeModule jitConfig mod
-      t2 <- getTime Monotonic
-      when (debugOutput jitConfig) $ do
-        asm <- moduleLLVMAssembly mod
-        BSC.putStrLn asm
-      withTargetMachine $ \tm ->
-        OJ.withObjectLinkingLayer $ \objectLayer -> do
-          debugLog jitConfig "in objectlinkinglayer"
-          OJ.withIRCompileLayer objectLayer tm $ \compileLayer -> do
-            debugLog jitConfig "in compilelayer"
-            t3 <- getTime Monotonic
-            OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
-              t4 <- getTime Monotonic
-              debugLog jitConfig "in modulelayer"
-              mainSymbol <- OJ.mangleSymbol compileLayer "main"
-              jitSymbolOrError <- OJ.findSymbol compileLayer mainSymbol True
-              case jitSymbolOrError of
-                Left err -> do
-                  debugLog jitConfig ("Could not find main: " <> show err)
-                  pure $ error "Couldn't find main"
-                Right (OJ.JITSymbol mainFn _) -> do
-                  debugLog jitConfig "running main"
-                  t5 <- getTime Monotonic
-                  res <- run jitConfig mainFn
-                  t6 <- getTime Monotonic
-                  when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
-                  pure . Right $ res
+    withExecutionSession $ \sesh ->
+      withModuleKey $ \key ->
+        withModuleFromAST ctx amod $ \mod -> do
+          t1 <- getTime Monotonic
+          optimizeModule jitConfig mod
+          t2 <- getTime Monotonic
+          when (debugOutput jitConfig) $ do
+            asm <- moduleLLVMAssembly mod
+            BSC.putStrLn asm
+          withTargetMachine $ \tm ->
+            OJ.withObjectLinkingLayer $ \objectLayer -> do
+              debugLog jitConfig "in objectlinkinglayer"
+              OJ.withIRCompileLayer objectLayer tm $ \compileLayer -> do
+                debugLog jitConfig "in compilelayer"
+                t3 <- getTime Monotonic
+                OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
+                  t4 <- getTime Monotonic
+                  debugLog jitConfig "in modulelayer"
+                  mainSymbol <- OJ.mangleSymbol compileLayer "main"
+                  jitSymbolOrError <- OJ.findSymbol compileLayer mainSymbol True
+                  case jitSymbolOrError of
+                    Left err -> do
+                      debugLog jitConfig ("Could not find main: " <> show err)
+                      pure $ error "Couldn't find main"
+                    Right (OJ.JITSymbol mainFn _) -> do
+                      debugLog jitConfig "running main"
+                      t5 <- getTime Monotonic
+                      res <- run jitConfig mainFn
+                      t6 <- getTime Monotonic
+                      when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
+                      pure . Right $ res
+-}
+evalJIT _ _ = undefined
 
 printTimings :: TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> IO ()
 printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer beforeAddingModule afterAddingModule beforeRun afterRun = do
@@ -344,7 +352,7 @@ pairOffC = ConstantOperand (C.Int 64 16)
 heapIndexC :: Operand
 heapIndexC = ConstantOperand (C.GlobalReference intPtrT heapIndexN)
 
-gcMallocPair :: MonadIRBuilder m => m Operand
+gcMallocPair :: (MonadModuleBuilder m, MonadIRBuilder m) => m Operand
 gcMallocPair = do
   sizePtr <- IRI.gep (ConstantOperand (C.Null pairPtrT)) [one32]
     `named` "size.ptr"
@@ -354,7 +362,7 @@ gcMallocPair = do
 
 -- | @makePair a b@ allocates a new pair (a,b) at the current heap
 -- index and increments the heap index.
-makePair :: MonadIRBuilder m => Operand -> Operand -> m Operand
+makePair :: (MonadModuleBuilder m, MonadIRBuilder m) => Operand -> Operand -> m Operand
 makePair a b = do
   ptr <- gcMallocPair
   l <- IRI.gep ptr [zero, zero32]

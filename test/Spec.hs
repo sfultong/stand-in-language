@@ -433,7 +433,7 @@ unitTestTypeP iexpr expected = if inferType iexpr == expected
 
 unitTestQC :: Testable p => String -> Int -> p -> IO Bool
 unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p >>= \result -> case result of
-  (Success _ _ _) -> pure True
+  (Success _ _ _ _ _ _) -> pure True
   x -> (putStrLn $ concat [name, " failed: ", show x]) >> pure False
 
 debugMark s = hPutStrLn stderr s >> pure True
@@ -707,5 +707,5 @@ main = do
   result <- pure False
 -}
   hspec $ do
-    unitTests_ parse
+    unitTests parse
     --nexprTests

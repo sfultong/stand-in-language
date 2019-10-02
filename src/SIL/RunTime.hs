@@ -8,7 +8,7 @@ import Debug.Trace
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Fix
-import System.IO (hPutStrLn, stderr)
+import System.IO (hPutStrLn, stderr, hPrint)
 
 import SIL
 import Naturals hiding (debug, debugTrace)
