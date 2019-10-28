@@ -452,6 +452,7 @@ unitTests parse = do
     unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
     unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
     unitTestType "main = 0 0" ZeroTypeP isInconsistentType
+    unitTestType "main = (if 0 then (\\x -> {x,0}) else (\\x -> {x,1})) 0" ZeroTypeP (== Nothing)
     -- I guess this is inconsistently typed now?
     unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
       (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
