@@ -73,9 +73,12 @@ partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 eval' :: IExpr -> Either EvalError IExpr
 eval' expr = case inferType expr of
   Left err -> Left $ TCE err
+  {-
   Right _ -> case partiallyEvaluate (snd $ annotateEnv expr) of
     Left err -> Left $ RTE err
     Right x -> pure x
+-}
+  Right _ -> pure expr
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of
