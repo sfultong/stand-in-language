@@ -8,7 +8,7 @@ with rec {
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
     sha256 = outputSha256;
   };
-  pkgs = import nixpkgs {
+  pkgs_not_used = import nixpkgs {
     overlays = [(self: super: {
       llvm_8 = super.llvm_8.overrideAttrs (oldAttrs: {
           cmakeFlags =
@@ -18,6 +18,7 @@ with rec {
       });
     })];
   };
+  pkgs = import nixpkgs {};
   sil_jumper = pkgs.stdenv.mkDerivation {
     name = "silJumper";
     src = ./cbits;
@@ -34,8 +35,8 @@ with rec {
     overrides = self: super: {
       indents = super.callCabal2nix "indents" indentsGit {};
       sil = super.callCabal2nix "sil" ./. { gc = pkgs.boehmgc; jumper = sil_jumper; };
-      llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
-      llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
+      # llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
+      # llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
     };
   });
   simpleShell = haskellPkgs.shellFor { packages = p: [p.sil]; };

@@ -14,7 +14,7 @@ import SIL
 import Naturals hiding (debug, debugTrace)
 import PrettyPrint
 import qualified Data.Map as Map
-import qualified SIL.Llvm as LLVM
+-- import qualified SIL.Llvm as LLVM
 
 debug :: Bool
 debug = True
@@ -164,6 +164,8 @@ fastInterpretEval e = do
     Left e -> error ("runtime error: " ++ show e)
     Right r -> pure r
 
+{- commenting out until fixed
+
 llvmEval :: NExpr -> IO LLVM.RunResult
 llvmEval nexpr = do
   let lmod = LLVM.makeModule nexpr
@@ -177,9 +179,10 @@ llvmEval nexpr = do
       hPutStrLn stderr $ "failed llvmEval: " ++ s
       fail s
     Right x -> pure x
+-}
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = fastInterpretEval -- TODO fix
+optimizedEval = fastInterpretEval
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g
