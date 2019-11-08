@@ -30,7 +30,7 @@ silSize' Env          acc = acc + 1
 silSize' (SetEnv  e)  acc = silSize' e (acc + 1)
 silSize' (Defer   e)  acc = silSize' e (acc + 1)
 silSize' (Abort   e)  acc = silSize' e (acc + 1)
-silSize' (Gate    e)  acc = silSize' e (acc + 1)
+silSize' Gate         acc = acc + 1
 silSize' (PLeft   e)  acc = silSize' e (acc + 1)
 silSize' (PRight  e)  acc = silSize' e (acc + 1)
 silSize' (Trace   e)  acc = silSize' e (acc + 1)
@@ -45,7 +45,7 @@ serialize_loop ix vec ie@Env        = SM.write vec ix (fromIntegral $ typeId ie)
 serialize_loop ix vec ie@(SetEnv e) = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(Defer e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(Abort e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
-serialize_loop ix vec ie@(Gate e)   = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
+serialize_loop ix vec ie@Gate       = SM.write vec ix (fromIntegral $ typeId ie) >> return ix
 serialize_loop ix vec ie@(PLeft e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(PRight e) = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(Trace e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
@@ -70,34 +70,34 @@ unsafeDeserialize vec = case S.foldl' deserializer_inside (Call1 id) vec of
 data FunStack = Call1 (IExpr -> IExpr)
               | CallN (IExpr -> FunStack)
 
-deserializer_inside cont 0 = case cont of
+deserializer_inside cont i | fromIntegral i == zero_type = case cont of
     Call1 c -> Call1 $ \_ -> c Zero
     CallN c -> c Zero 
-deserializer_inside cont 1 = case cont of
+deserializer_inside cont i | fromIntegral i == pair_type = case cont of
     Call1 c ->  CallN $ \e1 -> Call1 (\e2 -> c (Pair e1 e2))
     CallN c ->  CallN $ \e1 -> CallN (\e2 -> c (Pair e1 e2))
-deserializer_inside cont 2 = case cont of
+deserializer_inside cont i | fromIntegral i == env_type = case cont of
     Call1 c -> Call1 $ \_ -> c Env
     CallN c -> c Env
-deserializer_inside cont 3 = case cont of
+deserializer_inside cont i | fromIntegral i == setenv_type = case cont of
     Call1 c -> Call1 $ \e -> c (SetEnv e) 
     CallN c -> CallN $ \e -> c (SetEnv e)
-deserializer_inside cont 4 = case cont of
+deserializer_inside cont i | fromIntegral i == defer_type = case cont of
     Call1 c -> Call1 $ \e -> c (Defer e) 
     CallN c -> CallN $ \e -> c (Defer e)
-deserializer_inside cont 5 = case cont of
+deserializer_inside cont i | fromIntegral i == abort_type = case cont of
     Call1 c -> Call1 $ \e -> c (Abort e) 
     CallN c -> CallN $ \e -> c (Abort e)
-deserializer_inside cont 6 = case cont of
-    Call1 c -> Call1 $ \e -> c (Gate e) 
-    CallN c -> CallN $ \e -> c (Gate e)
-deserializer_inside cont 7 = case cont of
+deserializer_inside cont i | fromIntegral i == gate_type = case cont of
+    Call1 c -> Call1 $ \_ -> c Gate
+    CallN c -> c Gate
+deserializer_inside cont i | fromIntegral i == pleft_type = case cont of
     Call1 c -> Call1 $ \e -> c (PLeft e) 
     CallN c -> CallN $ \e -> c (PLeft e)
-deserializer_inside cont 8 = case cont of
+deserializer_inside cont i | fromIntegral i == pright_type = case cont of
     Call1 c -> Call1 $ \e -> c (PRight e) 
     CallN c -> CallN $ \e -> c (PRight e)
-deserializer_inside cont 9 = case cont of
+deserializer_inside cont i | fromIntegral i == trace_type = case cont of
     Call1 c -> Call1 $ \e -> c (Trace e) 
     CallN c -> CallN $ \e -> c (Trace e)
 

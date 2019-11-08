@@ -34,9 +34,9 @@ nEval (NExprs m) =
         NZero -> pure NZero
         (NPair a b) -> NPair <$> recur a <*> recur b
         NEnv -> pure env
-        (NGate x) -> recur x >>= \y -> case y of
+        NGate -> case env of
           NZero -> pure $ NLeft NEnv
-          _ ->  pure $ NRight NEnv
+          _ -> pure $ NRight NEnv
         (NLeft x) -> recur x >>= \y -> case y of
           (NPair l _) -> pure l
           NZero -> pure NZero
@@ -100,7 +100,7 @@ iEval f env g = let f' = f env in case g of
     Pair (Defer c) nenv -> f nenv c
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
   Defer x -> pure $ Defer x
-  Gate x -> f' x >>= \case
+  Gate -> case env of
     Zero -> pure $ Defer (PLeft Env)
     _ -> pure $ Defer (PRight Env)
   PLeft g -> f' g >>= \case
@@ -133,7 +133,7 @@ instance AbstractRunTime NExprs where
           NEnv -> pure Env
           (NSetEnv x) -> SetEnv <$> fromNExpr x
           (NAbort x) -> Abort <$> fromNExpr x
-          (NGate x) -> Gate <$> fromNExpr x
+          NGate -> pure Gate
           (NLeft x) -> PLeft <$> fromNExpr x
           (NRight x) -> PRight <$> fromNExpr x
           (NTrace x) -> Trace <$> fromNExpr x

@@ -20,7 +20,7 @@ data ExprTA a
   | PairTA (ExprTA a) (ExprTA a)
   | EnvTA a
   | AbortTA (ExprTA a) a
-  | GateTA (ExprTA a) a
+  | GateTA a
   | PLeftTA (ExprTA a) a
   | PRightTA (ExprTA a) a
   | TraceTA (ExprTA a)
@@ -36,7 +36,7 @@ instance EndoMapper (ExprTA a) where
   endoMap f (PairTA a b) = f $ PairTA (endoMap f a) (endoMap f b)
   endoMap f (EnvTA t) = f $ EnvTA t
   endoMap f (AbortTA x t) = f $ AbortTA (endoMap f x) t
-  endoMap f (GateTA x t) = f $ GateTA (endoMap f x) t
+  endoMap f (GateTA t) = f $ GateTA t
   endoMap f (PLeftTA x t) = f $ PLeftTA (endoMap f x) t
   endoMap f (PRightTA x t) = f $ PRightTA (endoMap f x) t
   endoMap f (TraceTA x) = f $ TraceTA (endoMap f x)
@@ -48,7 +48,7 @@ instance MonoidEndoFolder (ExprTA a) where
   monoidFold f (PairTA a b) = mconcat [f (PairTA a b), monoidFold f a, monoidFold f b]
   monoidFold f (EnvTA t) = f $ EnvTA t
   monoidFold f (AbortTA x t) = mconcat [f (AbortTA x t), monoidFold f x]
-  monoidFold f (GateTA x t) = mconcat [f (GateTA x t), monoidFold f x]
+  monoidFold f (GateTA t) = f $ GateTA t
   monoidFold f (PLeftTA x t) = mconcat [f (PLeftTA x t), monoidFold f x]
   monoidFold f (PRightTA x t) = mconcat [f (PRightTA x t), monoidFold f x]
   monoidFold f (TraceTA x) = mconcat [f (TraceTA x), monoidFold f x]
@@ -70,11 +70,7 @@ showExpra l i (AbortTA x a) =
   in if length lineShow > l
   then concat ["AbortA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
   else lineShow
-showExpra l i (GateTA x a) =
-  let lineShow = concat ["GateA ", show x, "  ", show (PrettyPartialType a)]
-  in if length (lineShow) > l
-  then concat ["GateA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
-  else lineShow
+showExpra l i (GateTA a) = "GateA " <> show (PrettyPartialType a)
 showExpra l i (TraceTA x) = concat ["TraceA ", showExpra l i x]
 showExpra l i (DeferTA x) = concat ["DeferA ", showExpra l i x]
 showExpra l i (PLeftTA x a) =
@@ -118,7 +114,7 @@ getPartialAnnotation (DeferTA x) = case getUnboundType x of
 getPartialAnnotation ZeroTA = ZeroTypeP
 getPartialAnnotation (PairTA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
 getPartialAnnotation (AbortTA _ a) = a
-getPartialAnnotation (GateTA _ a) = a
+getPartialAnnotation (GateTA a) = a
 getPartialAnnotation (PLeftTA _ a) = a
 getPartialAnnotation (PRightTA _ a) = a
 getPartialAnnotation (TraceTA x) = getPartialAnnotation x
@@ -258,7 +254,7 @@ getUnboundType (EnvTA a) = pure a
 getUnboundType (SetEnvTA x _) = getUnboundType x
 getUnboundType (DeferTA _) = Nothing
 getUnboundType (AbortTA x _) = getUnboundType x
-getUnboundType (GateTA x _) = getUnboundType x
+getUnboundType (GateTA _) = Nothing
 getUnboundType (PLeftTA x _) = getUnboundType x
 getUnboundType (PRightTA x _) = getUnboundType x
 getUnboundType (TraceTA x) = getUnboundType x
@@ -302,12 +298,10 @@ annotate (Abort x) = do
   associateVar ZeroTypeP (getPartialAnnotation nx)
   it <- (\(e,_,_,_) -> e) <$> get
   pure $ AbortTA nx it
-annotate (Gate x) = do
-  debugAnnotate (Gate x)
-  nx <- annotate x
-  associateVar ZeroTypeP $ getPartialAnnotation nx
+annotate Gate = do
+  debugAnnotate Gate
   (ra, _) <- withNewEnv $ pure ()
-  pure $ GateTA nx (ArrTypeP (PairTypeP ra ra) ra)
+  pure $ GateTA (ArrTypeP ZeroTypeP (ArrTypeP (PairTypeP ra ra) ra))
 annotate (PLeft x) = do
   debugAnnotate (PLeft x)
   nx <- annotate x
@@ -357,9 +351,9 @@ fullyMostlyAnnotate tm (DeferTA x) = DeferTA <$> fullyMostlyAnnotate tm x
 fullyMostlyAnnotate tm (AbortTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, AbortTA x a)
   (Right mra) -> AbortTA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (GateTA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, GateTA x a)
-  (Right mra) -> GateTA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (GateTA a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, GateTA a)
+  (Right mra) -> (Set.empty, GateTA mra)
 fullyMostlyAnnotate tm (PLeftTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, PLeftTA x a)
   (Right mra) -> PLeftTA <$> fullyMostlyAnnotate tm x <*> pure mra

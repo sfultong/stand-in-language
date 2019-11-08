@@ -16,7 +16,7 @@ showPIExpr _ _ Env = "E"
 showPIExpr l i (Pair a b) =
   concat ["P\n", indent i, showPIExpr l (i + 1) a, "\n", indent i, showPIExpr l (i + 1) b]
 showPIExpr l i (Abort x) = concat ["A ", showPIExpr l i x]
-showPIExpr l i (Gate x) = concat ["G ", showPIExpr l i x]
+showPIExpr _ _ Gate = "G"
 showPIExpr l i (Trace x) = concat ["T ", showPIExpr l i x]
 showPIExpr l i (Defer x) = concat ["D ", showPIExpr l i x]
 showPIExpr l i (PLeft x) = concat ["L ", showPIExpr l i x]
@@ -34,7 +34,7 @@ showTPIExpr typeMap l i expr =
     Env -> "E"
     (Pair a b) -> concat ["P\n", indented a, "\n", indented b]
     Abort x -> concat ["A ", recur x]
-    Gate x -> concat ["G ", recur x]
+    Gate -> "G"
     Trace x -> concat ["T ", recur x]
 
 showNExpr :: Map FragIndex NResult -> Int -> Int -> NExpr -> String
@@ -47,7 +47,7 @@ showNExpr nMap l i expr =
   NEnv -> "E"
   (NPair a b) -> showTwo "P" a b
   (NAbort x) -> concat ["A ", recur x]
-  (NGate x) -> concat ["G ", recur x]
+  NGate -> "G"
   (NTrace x) -> concat ["T ", recur x]
   (NDefer ind) -> case Map.lookup ind nMap of
     (Just n) -> concat ["D ", recur n]
@@ -83,7 +83,7 @@ showOneNExpr l i expr =
       NEnv -> "E"
       (NPair a b) -> showTwo "P" a b
       (NAbort x) -> concat ["A ", recur x]
-      (NGate x) -> concat ["G ", recur x]
+      NGate -> "G"
       (NTrace x) -> concat ["T ", recur x]
       (NDefer (FragIndex ind)) -> concat ["[", show ind, "]"]
       (NLeft x) -> concat ["L ", recur x]

@@ -53,7 +53,7 @@ data ExprFrag
   | FSetEnv ExprFrag
   | FDefer FragIndex
   | FAbort ExprFrag
-  | FGate ExprFrag
+  | FGate
   | FLeft ExprFrag
   | FRight ExprFrag
   | FTrace ExprFrag
@@ -76,7 +76,7 @@ data NExpr
   | NSetEnv NExpr
   | NDefer FragIndex
   | NAbort NExpr
-  | NGate NExpr
+  | NGate
   | NLeft NExpr
   | NRight NExpr
   | NTrace NExpr
@@ -121,7 +121,7 @@ instance Show NExprs where
             Just x -> concat ["NDefer (", showInner x, ")"]
             Nothing -> concat ["ERROR undefined index in showing NExprs: ", show ind]
           (NAbort x) -> concat ["NAbort (", showInner x, ")"]
-          (NGate x) -> concat ["NGate (", showInner x, ")"]
+          NGate -> "NGate"
           (NLeft x) -> concat ["NLeft (", showInner x, ")"]
           (NRight x) -> concat ["NRight (", showInner x, ")"]
           (NTrace x) -> concat ["NTrace (", showInner x, ")"]
@@ -155,7 +155,7 @@ toFrag (Defer x) = do
   State.put (FragIndex (i + 1), td Map.insert ei nx fragMap)
   pure $ FDefer ei
 toFrag (Abort x) = FAbort <$> toFrag x
-toFrag (Gate x) = FGate <$> toFrag x
+toFrag Gate = pure FGate
 toFrag (PLeft x) = FLeft <$> toFrag x
 toFrag (PRight x) = FRight <$> toFrag x
 toFrag (Trace x) = FTrace <$> toFrag x
@@ -170,7 +170,7 @@ fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
     Nothing -> error ("fromFrag bad index " ++ show fi)
     Just subFrag -> Defer $ recur subFrag
   (FAbort x) -> Abort $ recur x
-  (FGate x) -> Gate $ recur x
+  FGate -> Gate
   (FLeft x) -> PLeft $ recur x
   (FRight x) -> PRight $ recur x
   (FTrace x) -> Trace $ recur x
@@ -207,7 +207,7 @@ matchApp (FApp c i) = Just (c, i)
 matchApp _ = Nothing
 
 matchITE :: ExprFrag -> Maybe (ExprFrag, ExprFrag, ExprFrag)
-matchITE (FSetEnv (FPair (FGate i) (FPair e t))) = Just (i, t, e)
+matchITE (FSetEnv (FPair (FSetEnv (FPair FGate i)) (FPair e t))) = Just (i, t, e)
 matchITE _ = Nothing
 
 fragmentExpr :: IExpr -> Map FragIndex ExprFrag
@@ -224,7 +224,7 @@ fragToNExpr fragMap frag =
             FEnv -> NEnv
             (FPair a b) -> NPair (recur a) (recur b)
             (FSetEnv x) -> NSetEnv $ recur x
-            (FGate x) -> NGate $ recur x
+            FGate -> NGate
             (FLeft x) -> NLeft $ recur x
             (FRight x) -> NRight $ recur x
             (FTrace x) -> NTrace $ recur x
