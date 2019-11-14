@@ -62,7 +62,7 @@ instance Arbitrary TestIExpr where
                     , pure2 Gate
                     , lift1Texpr pleft <$> tree (i - 1)
                     , lift1Texpr pright <$> tree (i - 1)
-                    , lift1Texpr Trace <$> tree (i - 1)
+                    , pure2 Trace
                     ]
   shrink (TestIExpr x) = case x of
     Zero -> []
@@ -70,10 +70,10 @@ instance Arbitrary TestIExpr where
     Gate -> []
     (PLeft x) -> TestIExpr x : (map (lift1Texpr pleft) . shrink $ TestIExpr x)
     (PRight x) -> TestIExpr x : (map (lift1Texpr pright) . shrink $ TestIExpr x)
-    (Trace x) -> TestIExpr x : (map (lift1Texpr Trace) . shrink $ TestIExpr x)
+    Trace -> []
     (SetEnv x) -> TestIExpr x : (map (lift1Texpr SetEnv) . shrink $ TestIExpr x)
     (Defer x) -> TestIExpr x : (map (lift1Texpr Defer) . shrink $ TestIExpr x)
-    (Abort x) -> TestIExpr x : (map (lift1Texpr Abort) . shrink $ TestIExpr x)
+    Abort -> []
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 

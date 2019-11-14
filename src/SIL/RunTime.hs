@@ -31,12 +31,8 @@ nEval :: NExprs -> RunResult NExpr
 nEval (NExprs m) =
   let eval :: NExpr -> NExpr -> RunResult NExpr
       eval env frag = let recur = eval env in case frag of
-        NZero -> pure NZero
         (NPair a b) -> NPair <$> recur a <*> recur b
         NEnv -> pure env
-        NGate -> case env of
-          NZero -> pure $ NLeft NEnv
-          _ -> pure $ NRight NEnv
         (NLeft x) -> recur x >>= \y -> case y of
           (NPair l _) -> pure l
           NZero -> pure NZero
@@ -48,14 +44,18 @@ nEval (NExprs m) =
         (NDefer ind) -> case Map.lookup ind m of
           (Just x) -> pure x
           _ -> throwError $ GenericRunTimeError ("nEval bad index for function: " ++ show ind) Zero
-        (NTrace x) -> (\t -> trace (show t) t) <$> recur x
-        (NAbort x) -> recur x >>= \y -> case y of
-          NZero -> pure env
-          z -> case toSIL (NExprs $ Map.insert resultIndex z m) of
-            Just z' -> throwError . AbortRunTime $ z'
-            Nothing -> throwError $ GenericRunTimeError ("Could not convert abort value of: " <> show z) Zero
+        NTrace -> pure $ trace (show env) env
         (NSetEnv x) -> recur x >>= \y -> case y of
-          (NPair c i) -> eval i c
+          (NPair c i) -> case c of
+            NGate -> case i of
+              NZero -> pure . NLeft $ NEnv
+              _ -> pure . NRight $ NEnv
+            NAbort -> case i of
+              NZero -> pure NEnv
+              z -> case toSIL (NExprs $ Map.insert resultIndex z m) of
+                Just z' -> throwError . AbortRunTime $ z'
+                Nothing -> throwError $ GenericRunTimeError ("Could not convert abort value of: " <> show z) Zero
+            _ -> eval i c
           z -> error ("nEval nsetenv - not pair - " ++ show z)
         (NITE i t e) -> process <$> recur i <*> recur t <*> recur e where
           process NZero _ ne = ne
@@ -92,24 +92,30 @@ nEval (NExprs m) =
 
 iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
 iEval f env g = let f' = f env in case g of
-  Zero -> pure Zero
   Pair a b -> Pair <$> f' a <*> f' b
   Env -> pure env
-  Abort x -> f' x >>= \nx -> if nx == Zero then pure env else throwError $ AbortRunTime nx
   SetEnv x -> (f' x >>=) $ \case
-    Pair (Defer c) nenv -> f nenv c
+    Pair cf nenv -> case cf of
+      Defer c -> f nenv c
+      Gate -> case nenv of
+        Zero -> pure $ Defer (PLeft Env)
+        _ -> pure $ Defer (PRight Env)
+      Abort -> case nenv of
+        Zero -> pure $ Defer Env
+        z -> throwError $ AbortRunTime z
+      z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
-  Defer x -> pure $ Defer x
-  Gate -> case env of
-    Zero -> pure $ Defer (PLeft Env)
-    _ -> pure $ Defer (PRight Env)
   PLeft g -> f' g >>= \case
     (Pair a _) -> pure a
     _ -> pure Zero
   PRight g -> f' g >>= \case
     (Pair _ x) -> pure x
     _ -> pure Zero
-  Trace g -> f' g >>= \g -> pure $ trace (show g) g
+  Trace -> pure $ trace (show env) env
+  Zero -> pure Zero
+  Gate -> pure Gate
+  Abort -> pure Abort
+  Defer x -> pure $ Defer x
 
 toChurch :: Int -> IExpr
 toChurch x =
@@ -132,11 +138,11 @@ instance AbstractRunTime NExprs where
           (NPair a b) -> Pair <$> fromNExpr a <*> fromNExpr b
           NEnv -> pure Env
           (NSetEnv x) -> SetEnv <$> fromNExpr x
-          (NAbort x) -> Abort <$> fromNExpr x
+          NAbort -> pure Abort
           NGate -> pure Gate
           (NLeft x) -> PLeft <$> fromNExpr x
           (NRight x) -> PRight <$> fromNExpr x
-          (NTrace x) -> Trace <$> fromNExpr x
+          NTrace -> pure Trace
           (NDefer i) -> Map.lookup i m >>= (fmap Defer . fromNExpr)
           (NOldDefer x) -> Defer <$> fromNExpr x
           _ -> Nothing

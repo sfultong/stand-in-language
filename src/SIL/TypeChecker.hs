@@ -19,11 +19,11 @@ data ExprTA a
   = ZeroTA
   | PairTA (ExprTA a) (ExprTA a)
   | EnvTA a
-  | AbortTA (ExprTA a) a
+  | AbortTA a
   | GateTA a
   | PLeftTA (ExprTA a) a
   | PRightTA (ExprTA a) a
-  | TraceTA (ExprTA a)
+  | TraceTA a
   | SetEnvTA (ExprTA a) a
   | DeferTA (ExprTA a)
   deriving (Eq, Show, Ord, Functor)
@@ -35,11 +35,11 @@ instance EndoMapper (ExprTA a) where
   endoMap f ZeroTA = f ZeroTA
   endoMap f (PairTA a b) = f $ PairTA (endoMap f a) (endoMap f b)
   endoMap f (EnvTA t) = f $ EnvTA t
-  endoMap f (AbortTA x t) = f $ AbortTA (endoMap f x) t
+  endoMap f (AbortTA t) = f $ AbortTA t
   endoMap f (GateTA t) = f $ GateTA t
   endoMap f (PLeftTA x t) = f $ PLeftTA (endoMap f x) t
   endoMap f (PRightTA x t) = f $ PRightTA (endoMap f x) t
-  endoMap f (TraceTA x) = f $ TraceTA (endoMap f x)
+  endoMap f (TraceTA t) = f $ TraceTA t
   endoMap f (SetEnvTA x t) = f $ SetEnvTA (endoMap f x) t
   endoMap f (DeferTA x) = f $ DeferTA (endoMap f x)
 
@@ -47,11 +47,11 @@ instance MonoidEndoFolder (ExprTA a) where
   monoidFold f ZeroTA = f ZeroTA
   monoidFold f (PairTA a b) = mconcat [f (PairTA a b), monoidFold f a, monoidFold f b]
   monoidFold f (EnvTA t) = f $ EnvTA t
-  monoidFold f (AbortTA x t) = mconcat [f (AbortTA x t), monoidFold f x]
+  monoidFold f (AbortTA t) = f $ AbortTA t
   monoidFold f (GateTA t) = f $ GateTA t
   monoidFold f (PLeftTA x t) = mconcat [f (PLeftTA x t), monoidFold f x]
   monoidFold f (PRightTA x t) = mconcat [f (PRightTA x t), monoidFold f x]
-  monoidFold f (TraceTA x) = mconcat [f (TraceTA x), monoidFold f x]
+  monoidFold f (TraceTA t) = f $ TraceTA t
   monoidFold f (SetEnvTA x t) = mconcat [f (SetEnvTA x t), monoidFold f x]
   monoidFold f (DeferTA x) = mconcat [f (DeferTA x), monoidFold f x]
 
@@ -65,13 +65,9 @@ showExpra _ _ (EnvTA a) = "VarA " ++ show (PrettyPartialType a)
 showExpra l i p@(PairTA a b) = if length (show p) > l
   then concat ["PairA\n", indent i, showExpra l (i + 1) a, "\n", indent i, showExpra l (i + 1) b]
   else show p
-showExpra l i (AbortTA x a) =
-  let lineShow = concat ["AbortA ", show x, "  ", show (PrettyPartialType a)]
-  in if length lineShow > l
-  then concat ["AbortA\n", indent i, showExpra l (i + 1) x, "\n", indent i, show (PrettyPartialType a)]
-  else lineShow
+showExpra l i (AbortTA a) = "AbortA " <> show (PrettyPartialType a)
 showExpra l i (GateTA a) = "GateA " <> show (PrettyPartialType a)
-showExpra l i (TraceTA x) = concat ["TraceA ", showExpra l i x]
+showExpra l i (TraceTA a) = "TraceA " <> show (PrettyPartialType a)
 showExpra l i (DeferTA x) = concat ["DeferA ", showExpra l i x]
 showExpra l i (PLeftTA x a) =
   let lineShow = concat ["PLeftA ", show x, "  ", show (PrettyPartialType a)]
@@ -113,11 +109,11 @@ getPartialAnnotation (DeferTA x) = case getUnboundType x of
   Just t -> ArrTypeP t (getPartialAnnotation x)
 getPartialAnnotation ZeroTA = ZeroTypeP
 getPartialAnnotation (PairTA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
-getPartialAnnotation (AbortTA _ a) = a
+getPartialAnnotation (AbortTA a) = a
 getPartialAnnotation (GateTA a) = a
 getPartialAnnotation (PLeftTA _ a) = a
 getPartialAnnotation (PRightTA _ a) = a
-getPartialAnnotation (TraceTA x) = getPartialAnnotation x
+getPartialAnnotation (TraceTA a) = a
 
 data TypeCheckError
   = UnboundType Int
@@ -253,11 +249,11 @@ getUnboundType (PairTA a b) = getUnboundType a <|> getUnboundType b
 getUnboundType (EnvTA a) = pure a
 getUnboundType (SetEnvTA x _) = getUnboundType x
 getUnboundType (DeferTA _) = Nothing
-getUnboundType (AbortTA x _) = getUnboundType x
+getUnboundType (AbortTA _) = Nothing
 getUnboundType (GateTA _) = Nothing
 getUnboundType (PLeftTA x _) = getUnboundType x
 getUnboundType (PRightTA x _) = getUnboundType x
-getUnboundType (TraceTA x) = getUnboundType x
+getUnboundType (TraceTA _) = Nothing
 
 traceFullAnnotation :: PartialType -> AnnotateState ()
 traceFullAnnotation pt = if debug
@@ -293,11 +289,9 @@ annotate (Defer x) = do
   debugAnnotate (Defer x)
   (_, nx) <- withNewEnv $ annotate x
   pure $ DeferTA nx
-annotate (Abort x) = do
-  nx <- annotate x
-  associateVar ZeroTypeP (getPartialAnnotation nx)
-  it <- (\(e,_,_,_) -> e) <$> get
-  pure $ AbortTA nx it
+annotate Abort = do
+  (it, _) <- withNewEnv $ pure ()
+  pure $ AbortTA (ArrTypeP ZeroTypeP (ArrTypeP it it))
 annotate Gate = do
   debugAnnotate Gate
   (ra, _) <- withNewEnv $ pure ()
@@ -314,7 +308,7 @@ annotate (PRight x) = do
   (ra, _) <- withNewEnv $ pure ()
   associateVar (PairTypeP AnyType ra) (getPartialAnnotation nx)
   pure $ PRightTA nx ra
-annotate (Trace x) = debugAnnotate (Trace x) *> (TraceTA <$> annotate x)
+annotate Trace = (debugAnnotate Trace *>) get >>= \(e, _, _, _) -> pure $ TraceTA e
 
 resolveOrAlt_ :: Set Int -> Map Int PartialType -> PartialType
   -> Either TypeCheckError DataType
@@ -348,9 +342,9 @@ fullyMostlyAnnotate tm (SetEnvTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, SetEnvTA x a)
   (Right mra) -> SetEnvTA <$> fullyMostlyAnnotate tm x <*> pure mra
 fullyMostlyAnnotate tm (DeferTA x) = DeferTA <$> fullyMostlyAnnotate tm x
-fullyMostlyAnnotate tm (AbortTA x a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, AbortTA x a)
-  (Right mra) -> AbortTA <$> fullyMostlyAnnotate tm x <*> pure mra
+fullyMostlyAnnotate tm (AbortTA a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, AbortTA a)
+  (Right mra) -> (Set.empty, AbortTA mra)
 fullyMostlyAnnotate tm (GateTA a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, GateTA a)
   (Right mra) -> (Set.empty, GateTA mra)
@@ -360,7 +354,9 @@ fullyMostlyAnnotate tm (PLeftTA x a) = case mostlyResolve tm a of
 fullyMostlyAnnotate tm (PRightTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, PRightTA x a)
   (Right mra) -> PRightTA <$> fullyMostlyAnnotate tm x <*> pure mra
-fullyMostlyAnnotate tm (TraceTA x) = TraceTA <$> fullyMostlyAnnotate tm x
+fullyMostlyAnnotate tm (TraceTA a) = case mostlyResolve tm a of
+  (Left (RecursiveType i)) -> (Set.singleton i, TraceTA a)
+  (Right mra) -> (Set.empty, TraceTA mra)
 
 tcStart :: (PartialType, Map Int PartialType, Int, Maybe TypeCheckError)
 tcStart = (TypeVariable 0, Map.empty, 1, Nothing)
@@ -392,7 +388,7 @@ typeCheck t iexpr =
 showTraceTypes :: IExpr -> String
 showTraceTypes iexpr = showE (partiallyAnnotate iexpr >>= (\(tm, expr) -> pure $ monoidFold (showTrace tm) expr))
   where
-  showTrace tm (TraceTA x) = show $ (PrettyPartialType <$> (mostlyResolve tm $ getPartialAnnotation x))
+  showTrace tm (TraceTA a) = show $ PrettyPartialType <$> mostlyResolve tm a
   showTrace _ _ = mempty
   showE l@(Left _) = show l
   showE (Right s) = s

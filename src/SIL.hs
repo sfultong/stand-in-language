@@ -24,11 +24,11 @@ data IExpr
   | SetEnv !IExpr
   | Defer !IExpr
   -- the rest of these should be no argument constructors, to be treated as functions with setenv
-  | Abort !IExpr
+  | Abort
   | Gate
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
-  | Trace !IExpr             -- trace
+  | Trace
   deriving (Eq, Show, Ord)
 
 data ExprA a
@@ -37,11 +37,11 @@ data ExprA a
   | EnvA a
   | SetEnvA (ExprA a) a
   | DeferA (ExprA a) a
-  | AbortA (ExprA a) a
+  | AbortA a
   | GateA a
   | PLeftA (ExprA a) a
   | PRightA (ExprA a) a
-  | TraceA (ExprA a) a
+  | TraceA a
   deriving (Eq, Ord, Show)
 
 -- there must be a typeclass I can derive that does this
@@ -51,11 +51,11 @@ getA (PairA _ _ a) = a
 getA (EnvA a) = a
 getA (SetEnvA _ a) = a
 getA (DeferA _ a) = a
-getA (AbortA _ a) = a
+getA (AbortA a) = a
 getA (GateA a) = a
 getA (PLeftA _ a) = a
 getA (PRightA _ a) = a
-getA (TraceA _ a) = a
+getA (TraceA a) = a
 
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
@@ -67,11 +67,11 @@ instance EndoMapper IExpr where
   endoMap f Env = f Env
   endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
   endoMap f (Defer x) = f $ Defer (endoMap f x)
-  endoMap f (Abort x) = f $ Abort (endoMap f x)
+  endoMap f Abort = f Abort
   endoMap f Gate = f Gate
   endoMap f (PLeft x) = f $ PLeft (endoMap f x)
   endoMap f (PRight x) = f $ PRight (endoMap f x)
-  endoMap f (Trace x) = f $ Trace (endoMap f x)
+  endoMap f Trace = f Trace
 
 instance EitherEndoMapper IExpr where
   eitherEndoMap f Zero = f Zero
@@ -79,11 +79,11 @@ instance EitherEndoMapper IExpr where
   eitherEndoMap f Env = f Env
   eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (Abort x) = (Abort <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f Abort = f Abort
   eitherEndoMap f Gate = f Gate
   eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (Trace x) = (Trace <$> eitherEndoMap f x) >>= f
+  eitherEndoMap f Trace = f Trace
 
 instance MonoidEndoFolder IExpr where
   monoidFold f Zero = f Zero
@@ -91,11 +91,11 @@ instance MonoidEndoFolder IExpr where
   monoidFold f Env = f Env
   monoidFold f (SetEnv x) = mconcat [f (SetEnv x), monoidFold f x]
   monoidFold f (Defer x) = mconcat [f (Defer x), monoidFold f x]
-  monoidFold f (Abort x) = mconcat [f (Abort x), monoidFold f x]
+  monoidFold f Abort = f Abort
   monoidFold f Gate = f Gate
   monoidFold f (PLeft x) = mconcat [f (PLeft x), monoidFold f x]
   monoidFold f (PRight x) = mconcat [f (PRight x), monoidFold f x]
-  monoidFold f (Trace x) = mconcat [f (Trace x), monoidFold f x]
+  monoidFold f Trace = f Trace
 
 instance NFData IExpr where
   rnf Zero         = ()
@@ -103,11 +103,11 @@ instance NFData IExpr where
   rnf Env          = ()
   rnf (SetEnv  e)  = rnf e
   rnf (Defer   e)  = rnf e
-  rnf (Abort   e)  = rnf e
+  rnf Abort        = ()
   rnf Gate         = ()
   rnf (PLeft   e)  = rnf e
   rnf (PRight  e)  = rnf e
-  rnf (Trace   e)  = rnf e
+  rnf Trace        = ()
 
 data RunTimeError
   = AbortRunTime IExpr
@@ -145,10 +145,17 @@ app :: IExpr -> IExpr -> IExpr
 app c i = setenv (setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env)))))
                           (pair i c)))
 check :: IExpr -> IExpr -> IExpr
-check c tc = setenv (pair (defer (pright (Abort $ app (pleft env) (pright env))
-                          ))
+check c tc = setenv (pair (defer
+                             (setenv (pair
+                                        (setenv (pair Abort (app (pleft env) (pright env))))
+                                        (pright env)
+                                     )
+                             )
+                          )
                           (pair tc c)
                     )
+silTrace :: IExpr -> IExpr
+silTrace x = SetEnv (Pair Trace x)
 gate :: IExpr -> IExpr
 gate x = SetEnv (Pair Gate x)
 pleft :: IExpr -> IExpr
@@ -369,11 +376,11 @@ toIndExpr (Pair a b) = PairA <$> toIndExpr a <*> toIndExpr b <*> nextI
 toIndExpr Env = EnvA <$> nextI
 toIndExpr (SetEnv x) = SetEnvA <$> toIndExpr x <*> nextI
 toIndExpr (Defer x) = DeferA <$> toIndExpr x <*> nextI
-toIndExpr (Abort x) = AbortA <$> toIndExpr x <*> nextI
+toIndExpr Abort = AbortA <$> nextI
 toIndExpr Gate = GateA <$> nextI
 toIndExpr (PLeft x) = PLeftA <$> toIndExpr x <*> nextI
 toIndExpr (PRight x) = PRightA <$> toIndExpr x <*> nextI
-toIndExpr (Trace x) = TraceA <$> toIndExpr x <*> nextI
+toIndExpr Trace = TraceA <$> nextI
 
 toIndExpr' :: IExpr -> IndExpr
 toIndExpr' x = evalState (toIndExpr x) (EIndex 0)

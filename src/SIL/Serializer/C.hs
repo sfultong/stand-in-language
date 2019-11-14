@@ -79,11 +79,11 @@ typeId (Pair  _ _) = pair_type
 typeId  Env        = env_type
 typeId (SetEnv  _) = setenv_type
 typeId (Defer   _) = defer_type
-typeId (Abort   _) = abort_type
+typeId  Abort      = abort_type
 typeId  Gate       = gate_type
 typeId (PLeft   _) = pleft_type
 typeId (PRight  _) = pright_type
-typeId (Trace   _) = trace_type
+typeId  Trace      = trace_type
 
 data CRep 
 
@@ -129,9 +129,7 @@ fromC' type_id ptr = case type_id of
     4    -> do
         (CDefer t v) <- peek $ castPtr ptr
         Defer <$> fromC' t v
-    5    -> do
-        (CAbort t v) <- peek $ castPtr ptr
-        Abort <$> fromC' t v
+    5    -> return Abort
     6    -> return Gate
     7    -> do
         (CPLeft t v) <- peek $ castPtr ptr
@@ -139,9 +137,7 @@ fromC' type_id ptr = case type_id of
     8    -> do
         (CPRight t v) <- peek $ castPtr ptr
         PRight <$> fromC' t v
-    9    -> do
-        (CTrace t v) <- peek $ castPtr ptr
-        Trace <$> fromC' t v
+    9    -> return Trace
     otherwise -> error "SIL.Serializer.fromC': Invalid type id - possibly corrupted data."
     
     
@@ -192,14 +188,7 @@ toC' (Defer e) ptr_type ptr_value = do
     poke ptr_type defer_type
     poke ptr_value $ castPtr value
     toC' e next_type next_value
-toC' (Abort e) ptr_type ptr_value = do
-    value <- malloc :: IO (Ptr CAbort)
-    let align      = alignment (undefined :: CAbort)
-        next_type  = castPtr value
-        next_value = castPtr $ value `plusPtr` align
-    poke ptr_type abort_type
-    poke ptr_value $ castPtr value
-    toC' e next_type next_value
+toC' (Abort) ptr_type ptr_value = poke ptr_type abort_type >> poke ptr_value nullPtr
 toC' (Gate) ptr_type ptr_value = poke ptr_type gate_type >> poke ptr_value nullPtr
 toC' (PLeft e) ptr_type ptr_value = do
     value <- malloc :: IO (Ptr CPLeft)
@@ -217,15 +206,7 @@ toC' (PRight e) ptr_type ptr_value = do
     poke ptr_type pright_type
     poke ptr_value $ castPtr value
     toC' e next_type next_value
-toC' (Trace e) ptr_type ptr_value = do
-    value <- malloc :: IO (Ptr CTrace)
-    let align      = alignment (undefined :: CTrace)
-        next_type  = castPtr value
-        next_value = castPtr $ value `plusPtr` align
-    poke ptr_type trace_type
-    poke ptr_value $ castPtr value
-    toC' e next_type next_value
-
+toC' Trace ptr_type ptr_value = poke ptr_type trace_type >> poke ptr_value nullPtr
 
 -- | Tag for CSerialized structs
 data CSerialized 

@@ -15,9 +15,9 @@ showPIExpr _ _ Zero = "Z"
 showPIExpr _ _ Env = "E"
 showPIExpr l i (Pair a b) =
   concat ["P\n", indent i, showPIExpr l (i + 1) a, "\n", indent i, showPIExpr l (i + 1) b]
-showPIExpr l i (Abort x) = concat ["A ", showPIExpr l i x]
+showPIExpr _ _ Abort  = "A"
 showPIExpr _ _ Gate = "G"
-showPIExpr l i (Trace x) = concat ["T ", showPIExpr l i x]
+showPIExpr _ _ Trace = "T"
 showPIExpr l i (Defer x) = concat ["D ", showPIExpr l i x]
 showPIExpr l i (PLeft x) = concat ["L ", showPIExpr l i x]
 showPIExpr l i (PRight x) = concat ["R ", showPIExpr l i x]
@@ -33,9 +33,9 @@ showTPIExpr typeMap l i expr =
     Zero -> "Z"
     Env -> "E"
     (Pair a b) -> concat ["P\n", indented a, "\n", indented b]
-    Abort x -> concat ["A ", recur x]
+    Abort -> "A"
     Gate -> "G"
-    Trace x -> concat ["T ", recur x]
+    Trace -> "T"
 
 showNExpr :: Map FragIndex NResult -> Int -> Int -> NExpr -> String
 showNExpr nMap l i expr =
@@ -46,9 +46,9 @@ showNExpr nMap l i expr =
   NZero -> "Z"
   NEnv -> "E"
   (NPair a b) -> showTwo "P" a b
-  (NAbort x) -> concat ["A ", recur x]
+  NAbort -> "A"
   NGate -> "G"
-  (NTrace x) -> concat ["T ", recur x]
+  NTrace -> "T"
   (NDefer ind) -> case Map.lookup ind nMap of
     (Just n) -> concat ["D ", recur n]
     _ -> "NDefer error: no function found for " ++ show ind
@@ -82,9 +82,9 @@ showOneNExpr l i expr =
       NZero -> "Z"
       NEnv -> "E"
       (NPair a b) -> showTwo "P" a b
-      (NAbort x) -> concat ["A ", recur x]
+      NAbort -> "A"
       NGate -> "G"
-      (NTrace x) -> concat ["T ", recur x]
+      NTrace -> "T"
       (NDefer (FragIndex ind)) -> concat ["[", show ind, "]"]
       (NLeft x) -> concat ["L ", recur x]
       (NRight x) -> concat ["R ", recur x]

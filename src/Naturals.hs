@@ -52,11 +52,11 @@ data ExprFrag
   | FEnv
   | FSetEnv ExprFrag
   | FDefer FragIndex
-  | FAbort ExprFrag
+  | FAbort
   | FGate
   | FLeft ExprFrag
   | FRight ExprFrag
-  | FTrace ExprFrag
+  | FTrace
   -- complex instructions
   | FITE ExprFrag ExprFrag ExprFrag
   | FApp ExprFrag ExprFrag
@@ -75,11 +75,11 @@ data NExpr
   | NEnv
   | NSetEnv NExpr
   | NDefer FragIndex
-  | NAbort NExpr
+  | NAbort
   | NGate
   | NLeft NExpr
   | NRight NExpr
-  | NTrace NExpr
+  | NTrace
   | NNum Int64
   | NAdd NExpr NExpr
   | NMult NExpr NExpr
@@ -120,11 +120,11 @@ instance Show NExprs where
           (NDefer ind) -> case Map.lookup ind m of
             Just x -> concat ["NDefer (", showInner x, ")"]
             Nothing -> concat ["ERROR undefined index in showing NExprs: ", show ind]
-          (NAbort x) -> concat ["NAbort (", showInner x, ")"]
+          NAbort -> "NAbort"
           NGate -> "NGate"
           (NLeft x) -> concat ["NLeft (", showInner x, ")"]
           (NRight x) -> concat ["NRight (", showInner x, ")"]
-          (NTrace x) -> concat ["NTrace (", showInner x, ")"]
+          NTrace -> "NTrace"
           (NAdd a b) -> concat ["NAdd (", showInner a, " ", showInner b, " )"]
           (NMult a b) -> concat ["NMult (", showInner a, " ", showInner b, " )"]
           (NPow a b) -> concat ["NPow (", showInner a, " ", showInner b, " )"]
@@ -154,11 +154,11 @@ toFrag (Defer x) = do
   let td = id -- trace ("adding defer " ++ show i ++ " - " ++ show nx)
   State.put (FragIndex (i + 1), td Map.insert ei nx fragMap)
   pure $ FDefer ei
-toFrag (Abort x) = FAbort <$> toFrag x
+toFrag Abort = pure FAbort
 toFrag Gate = pure FGate
 toFrag (PLeft x) = FLeft <$> toFrag x
 toFrag (PRight x) = FRight <$> toFrag x
-toFrag (Trace x) = FTrace <$> toFrag x
+toFrag Trace = pure FTrace
 
 fromFrag :: Map FragIndex ExprFrag -> ExprFrag -> IExpr
 fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
@@ -169,11 +169,11 @@ fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
   (FDefer fi) -> case Map.lookup fi fragMap of
     Nothing -> error ("fromFrag bad index " ++ show fi)
     Just subFrag -> Defer $ recur subFrag
-  (FAbort x) -> Abort $ recur x
+  FAbort -> Abort
   FGate -> Gate
   (FLeft x) -> PLeft $ recur x
   (FRight x) -> PRight $ recur x
-  (FTrace x) -> Trace $ recur x
+  FTrace -> Trace
   z -> error ("fromFrag TODO convert " ++ show z)
 
 matchChurchPlus :: Map FragIndex ExprFrag -> ExprFrag -> Maybe (ExprFrag, ExprFrag)
@@ -227,8 +227,8 @@ fragToNExpr fragMap frag =
             FGate -> NGate
             (FLeft x) -> NLeft $ recur x
             (FRight x) -> NRight $ recur x
-            (FTrace x) -> NTrace $ recur x
-            (FAbort x) -> NAbort $ recur x
+            FTrace -> NTrace
+            FAbort -> NAbort
             (FDefer ind) -> NDefer ind
             (FNum x) -> NPair (NOldDefer (NPair (NNum x) NEnv)) NEnv
             FToNum -> NToNum

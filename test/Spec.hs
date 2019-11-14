@@ -368,6 +368,8 @@ unitTests_ parse = do
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "{0,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
 -}
+  unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  {-
   unitTest2 "main = $3 ($2 succ) 0" "6"
   unitTest "3*2" "6" three_times_two
   unitTest2 "main = (if 0 then (\\x -> {x,0}) else (\\x -> {{x,0},0})) 1" "3"
@@ -394,25 +396,7 @@ unitTests_ parse = do
   unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
   unitTest "map" "{2,{3,5}}" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
-  --unitTest2 "main = c2d (factorial 0)" "1"
-  --unitTest2 "main = times (times $2 $1) $3 succ 0" "6"
-  --unitTest2 "main = times (d2c 2) $3 succ 0" "6"
-  --unitTest2 "main = times (d2c 3) (times (d2c 2) $1) succ 0" "6"
-  --unitTest2 "main = c2d (foldr (\\a b -> times (d2c a) b) $1 [])" "1"
-  -- unitTest2 "main = foldr (\\a b -> times (d2c a) b) $1 [] succ 0" "1"
-  -- unitTest2 "main = (\\a b c -> if c then a 0 b else b) (\\a b -> times (d2c a) b) $1 [] succ 0" "1"
-  -- unitTest2 "main = (\\a b -> if 0 then a 0 b else b) (\\a b -> times (d2c a) b) $1 succ 0" "1"
-  --unitTest2 "main = (\\a b -> if 0 then a b else b) (\\b -> times $2 b) $1 succ 0" "1"
-  {-
-  unitTest2
-    ( "main = let layer = \\recur f accum l -> if l then f (left l) (recur f accum (right l)) else accum"
-    ++"       in $3 layer (\\f accum l -> accum) (\\a b -> times (d2c a) b) $1 [2, 3] succ 0"
-    ) "6"
 -}
-  unitTest2 "main = (d2cG $4 3) succ 0" "3"
-  -- unitTestSameResult "main = $2" "main = d2cG $3 2"
-  -- unitTestRuntime "main = d2cG $3 2 succ"
-  --unitTest2 "main = c2d (factorial 0)" "1"
 
 c2dApp = "main = (c2dG $4 3) $2 succ 0"
 
@@ -468,12 +452,23 @@ unitTests parse = do
       (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroTypeP (== Nothing)
     unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
+    unitTestType2
+      (setenv (pair
+               (setenv (pair
+                        (defer (setenv (pair env env)))
+                        (defer env)
+                       )
+               )
+               zero
+              )
+      )
+      ZeroTypeP isRecursiveType
   -- TODO fix
   --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
   describe "unitTest" $ do
     unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
     -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
-    unitTest "notAbort" "2" (pair (pair (Abort zero) zero) zero)
+    unitTest "notAbort" "2" (setenv (pair (setenv (pair Abort zero)) (pair (pair zero zero) zero)))
     unitTest "c2d" "2" c2d_test
     unitTest "c2d2" "2" c2d_test2
     unitTest "c2d3" "1" c2d_test3
@@ -627,6 +622,12 @@ unitTestType' parse s t tef = it s $ case parse s of
                 then pure ()
                 else expectationFailure $
                       concat [s, " failed typecheck, result ", show apt]
+
+unitTestType2 i t tef = it ("type check " <> show i) $
+  let apt = typeCheck t i
+  in if tef apt
+     then pure ()
+     else expectationFailure $ concat [show i, " failed typecheck, result ", show apt]
 
 unitTestRuntime' parse s = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]

@@ -13,11 +13,11 @@ data ExpP
   | VarP
   | SetEnvP ExpP Bool
   | DeferP ExpP
-  | AbortP ExpP
+  | AbortP
   | GateP
   | LeftP ExpP
   | RightP ExpP
-  | TraceP ExpP
+  | TraceP
   deriving (Eq, Show, Ord)
 
 instance EndoMapper ExpP where
@@ -26,11 +26,11 @@ instance EndoMapper ExpP where
   endoMap f VarP = f VarP
   endoMap f (SetEnvP x fe) = f $ SetEnvP (endoMap f x) fe
   endoMap f (DeferP x) = f . DeferP $ endoMap f x
-  endoMap f (AbortP x) = f . AbortP $ endoMap f x
+  endoMap f AbortP = f AbortP
   endoMap f GateP = f GateP
   endoMap f (LeftP x) = f . LeftP $ endoMap f x
   endoMap f (RightP x) = f . RightP $ endoMap f x
-  endoMap f (TraceP x) = f . TraceP $ endoMap f x
+  endoMap f TraceP = f TraceP
 
 data EvalError
   = RTE RunTimeError
@@ -48,11 +48,11 @@ annotateEnv (Pair a b) =
 annotateEnv Env = (False, VarP)
 annotateEnv (SetEnv x) = let (xt, nx) = annotateEnv x in (xt, SetEnvP nx xt)
 annotateEnv (Defer x) = let (_, nx) = annotateEnv x in (True, DeferP nx)
-annotateEnv (Abort x) = AbortP <$> annotateEnv x
+annotateEnv Abort = (True, AbortP)
 annotateEnv Gate = (True, GateP)
 annotateEnv (PLeft x) = LeftP <$> annotateEnv x
 annotateEnv (PRight x) = RightP <$> annotateEnv x
-annotateEnv (Trace x) = TraceP <$> annotateEnv x
+annotateEnv Trace = (False, TraceP)
 
 fromFullEnv :: Applicative a => (ExpP -> a IExpr) -> ExpP -> a IExpr
 fromFullEnv _ ZeroP = pure Zero
@@ -60,11 +60,11 @@ fromFullEnv f (PairP a b) = Pair <$> f a <*> f b
 fromFullEnv _ VarP = pure Env
 fromFullEnv f (SetEnvP x _) = SetEnv <$> f x
 fromFullEnv f (DeferP x) = Defer <$> f x
-fromFullEnv f (AbortP x) = Abort <$> f x
+fromFullEnv _ AbortP = pure Abort
 fromFullEnv _ GateP = pure Gate
 fromFullEnv f (LeftP x) = PLeft <$> f x
 fromFullEnv f (RightP x) = PRight <$> f x
-fromFullEnv f (TraceP x) = Trace <$> f x
+fromFullEnv _ TraceP = pure Trace
 
 partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
 partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))

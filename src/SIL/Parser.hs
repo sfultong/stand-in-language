@@ -7,7 +7,8 @@ import Data.List (elemIndex)
 import Data.Map (Map)
 import Debug.Trace
 import qualified Data.Map as Map
-import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, IExpr(Trace), PrettyPartialType(..))
+import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, silTrace, IExpr
+           , PrettyPartialType(..))
 import SIL.TypeChecker
 import Text.Parsec
 import Text.Parsec.Indent
@@ -89,7 +90,7 @@ convertPT (TCheck c tc) = check (convertPT c) (convertPT tc)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = pleft (convertPT i)
 convertPT (TRight i) = pright (convertPT i)
-convertPT (TTrace i) = Trace (convertPT i)
+convertPT (TTrace i) = silTrace (convertPT i)
 convertPT (TLam c) = lam (convertPT c)
 convertPT (TCompleteLam x) = completeLam (convertPT x)
 convertPT (TNamedLam n _) = error $ "should be no named lambdas at this stage, name " ++ n
