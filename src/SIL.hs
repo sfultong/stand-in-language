@@ -1,5 +1,6 @@
 {-#LANGUAGE PatternSynonyms #-}
 {-#LANGUAGE ViewPatterns #-}
+{-#LANGUAGE LambdaCase #-}
 module SIL where
 
 import Control.DeepSeq
@@ -31,6 +32,7 @@ data IExpr
   | Trace
   deriving (Eq, Show, Ord)
 
+-- probably should get rid of this in favor of ExprT
 data ExprA a
   = ZeroA a
   | PairA (ExprA a) (ExprA a) a
@@ -42,6 +44,21 @@ data ExprA a
   | PLeftA (ExprA a) a
   | PRightA (ExprA a) a
   | TraceA a
+  deriving (Eq, Ord, Show)
+
+-- so we can add annotations at any location in the AST
+data ExprT a
+  = ZeroT
+  | PairT (ExprT a) (ExprT a)
+  | EnvT
+  | SetEnvT (ExprT a)
+  | DeferT (ExprT a)
+  | AbortT
+  | GateT
+  | LeftT (ExprT a)
+  | RightT (ExprT a)
+  | TraceT
+  | TagT (ExprT a) a
   deriving (Eq, Ord, Show)
 
 -- there must be a typeclass I can derive that does this
@@ -124,10 +141,12 @@ instance Show RunTimeError where
 
 type RunResult = ExceptT RunTimeError IO
 
-class AbstractRunTime a where
-  eval :: a -> RunResult a
+class SILLike a where
   fromSIL :: IExpr -> a
   toSIL :: a -> Maybe IExpr
+
+class SILLike a => AbstractRunTime a where
+  eval :: a -> RunResult a
 
 -- TODO get rid of these and use bidirectional pattern matching
 zero :: IExpr
@@ -384,3 +403,36 @@ toIndExpr Trace = TraceA <$> nextI
 
 toIndExpr' :: IExpr -> IndExpr
 toIndExpr' x = evalState (toIndExpr x) (EIndex 0)
+
+instance SILLike (ExprT a) where
+  fromSIL = \case
+    Zero -> ZeroT
+    Pair a b -> PairT (fromSIL a) (fromSIL b)
+    Env -> EnvT
+    SetEnv x -> SetEnvT $ fromSIL x
+    Defer x -> DeferT $ fromSIL x
+    Abort -> AbortT
+    Gate -> GateT
+    PLeft x -> LeftT $ fromSIL x
+    PRight x -> RightT $ fromSIL x
+    Trace -> TraceT
+  toSIL = \case
+    ZeroT -> pure Zero
+    PairT a b -> Pair <$> toSIL a <*> toSIL b
+    EnvT -> pure Env
+    SetEnvT x -> SetEnv <$> toSIL x
+    DeferT x -> Defer <$> toSIL x
+    AbortT -> pure Abort
+    GateT -> pure Gate
+    LeftT x -> PLeft <$> toSIL x
+    RightT x -> PRight <$> toSIL x
+    TraceT -> pure Trace
+    TagT x _ -> toSIL x -- just elide tags
+
+{-
+instance 
+
+toIndexedExpr :: (ExprT a -> Bool) -> IExpr -> State EIndex (ExprT EIndex)
+toIndexedExpr f expr =
+  let 
+-}

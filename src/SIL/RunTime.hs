@@ -3,17 +3,22 @@
 {-# LANGUAGE LambdaCase #-}
 module SIL.RunTime where
 
+import Data.Foldable
 import Data.Functor.Identity
+import Data.Set (Set)
 import Debug.Trace
 import Control.Exception
 import Control.Monad.Except
 import Control.Monad.Fix
+--import GHC.Exts (IsList(..))
+import GHC.Exts (fromList)
 import System.IO (hPutStrLn, stderr, hPrint)
 
 import SIL
 import Naturals hiding (debug, debugTrace)
 import PrettyPrint
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 -- import qualified SIL.Llvm as LLVM
 
 debug :: Bool
@@ -117,20 +122,77 @@ iEval f env g = let f' = f env in case g of
   Abort -> pure Abort
   Defer x -> pure $ Defer x
 
+data PExpr
+  = PPair PExpr PExpr
+  | PDefer PExpr
+  | PSetEnv PExpr
+  | PEnv
+  | PPLeft PExpr
+  | PPRight PExpr
+  | PZero
+  | PGate
+  | PAbort
+  | PAny
+  deriving (Eq, Show, Ord)
+
+newtype PResult = PResult (Set PExpr, Bool)
+
+instance Semigroup PResult where
+  (<>) (PResult (sa, ba)) (PResult (sb, bb)) = PResult (Set.union sa sb, ba || bb)
+instance Monoid PResult where
+  mempty = PResult (Set.empty, False)
+instance Eq PResult where
+  (==) (PResult (sa, ba)) (PResult (sb, bb)) = sa == sb && ba == bb
+instance Ord PResult where
+  compare (PResult (sa, ba)) (PResult (sb, bb)) = let sr = compare sa sb
+                                                  in if sr == EQ then compare ba bb else sr
+
+pEval :: (PExpr -> PExpr -> PResult) -> PExpr -> PExpr -> PResult
+pEval f env g =
+  let f' = f env
+      orB b' (PResult (s,b)) = PResult (s, b || b')
+      sMap g' next = (\(PResult (s, b)) -> orB b . fold $ Set.map next s) $ f env g'
+      singleResult x = PResult (Set.singleton x, False)
+  in case g of
+    PPair a b -> let PResult (sa, ba) = f' a
+                     PResult (sb, bb) = f' b
+                 in PResult (fromList [PPair na nb | na <- toList sa, nb <- toList sb], ba || bb)
+    PEnv -> singleResult env
+    PPLeft x -> sMap x $ \case
+      PPair a _ -> singleResult a
+      PAny -> PResult (fromList [PZero, PPair PAny PAny], False)
+      _ -> singleResult PZero
+    PPRight x -> sMap x $ \case
+      PPair _ b -> singleResult b
+      PAny -> PResult (fromList [PZero, PPair PAny PAny], False)
+      _ -> singleResult PZero
+    PSetEnv x -> sMap x $ \case
+      PPair cf nenv -> case cf of
+        PDefer c -> f nenv c
+        PGate -> case nenv of
+          PZero -> singleResult (PDefer $ PPLeft PEnv)
+          _ -> singleResult (PDefer $ PPRight PEnv)
+        PAbort -> case nenv of
+          PZero -> singleResult $ PDefer PEnv
+          _ -> PResult (mempty, True)
+        _ -> error "should not be here in pEval setenv (bad cf)"
+      _ -> error "should not be here in pEval setenv non pair"
+    x -> singleResult x
+
 toChurch :: Int -> IExpr
 toChurch x =
   let inner 0 = PLeft Env
       inner x = app (PLeft $ PRight Env) (inner (x - 1))
   in lam (lam (inner x))
 
-instance AbstractRunTime IExpr where
-  eval = fix iEval Zero
+instance SILLike IExpr where
   fromSIL = id
   toSIL = pure
+instance AbstractRunTime IExpr where
+  eval = fix iEval Zero
 
 resultIndex = FragIndex (-1)
-instance AbstractRunTime NExprs where
-  eval x@(NExprs m) = (\r -> NExprs $ Map.insert resultIndex r m) <$> nEval x
+instance SILLike NExprs where
   fromSIL = (NExprs . fragsToNExpr) . fragmentExpr
   toSIL (NExprs m) =
     let fromNExpr x = case x of
@@ -147,6 +209,8 @@ instance AbstractRunTime NExprs where
           (NOldDefer x) -> Defer <$> fromNExpr x
           _ -> Nothing
     in Map.lookup resultIndex m >>= fromNExpr
+instance AbstractRunTime NExprs where
+  eval x@(NExprs m) = (\r -> NExprs $ Map.insert resultIndex r m) <$> nEval x
 
 evalAndConvert :: (Show a, AbstractRunTime a) => a -> RunResult IExpr
 evalAndConvert x = let ar = eval x in (toSIL <$> ar) >>= \r -> case r of

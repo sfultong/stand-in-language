@@ -16,7 +16,8 @@ import Text.Parsec.Pos
 import qualified Text.Parsec.Token as Token
 
 type VarList = [String]
-type Term1 = ParserTerm (Either Int String)
+type Term1 = ParserTerm (Either () String) (Either Int String)
+type Term2 = ParserTerm () Int
 type Bindings = Map String Term1
 
 data ParserState = ParserState
@@ -28,40 +29,41 @@ addBound name expr (ParserState bound) = if Map.member name bound
   then Nothing
   else pure $ ParserState (Map.insert name expr bound)
 
-data ParserTerm v
+data LamType t
+  = Open t
+  | Closed t
+  deriving (Eq, Show, Ord)
+
+data ParserTerm l v
   = TZero
-  | TPair (ParserTerm v) (ParserTerm v)
+  | TPair (ParserTerm l v) (ParserTerm l v)
   | TVar v
-  | TApp (ParserTerm v) (ParserTerm v)
-  | TCheck (ParserTerm v) (ParserTerm v)
-  | TITE (ParserTerm v) (ParserTerm v) (ParserTerm v)
-  | TLeft (ParserTerm v)
-  | TRight (ParserTerm v)
-  | TTrace (ParserTerm v)
-  | TLam (ParserTerm v)
-  | TCompleteLam (ParserTerm v)
-  | TNamedLam String (ParserTerm v)
-  | TNamedCompleteLam String (ParserTerm v)
+  | TApp (ParserTerm l v) (ParserTerm l v)
+  | TCheck (ParserTerm l v) (ParserTerm l v)
+  | TITE (ParserTerm l v) (ParserTerm l v) (ParserTerm l v)
+  | TLeft (ParserTerm l v)
+  | TRight (ParserTerm l v)
+  | TTrace (ParserTerm l v)
+  | TLam (LamType l) (ParserTerm l v)
   deriving (Eq, Show, Ord, Functor)
 
-i2t :: Int -> ParserTerm v
+i2t :: Int -> ParserTerm v l
 i2t 0 = TZero
 i2t n = TPair (i2t (n - 1)) TZero
 
-ints2t :: [Int] -> ParserTerm v
+ints2t :: [Int] -> ParserTerm v l
 ints2t = foldr (\i t -> TPair (i2t i) t) TZero
 
-s2t :: String -> ParserTerm v
+s2t :: String -> ParserTerm v l
 s2t = ints2t . map ord
 
 i2c :: Int -> Term1
 i2c x =
   let inner 0 = TVar $ Left 0
       inner x = TApp (TVar $ Left 1) (inner $ x - 1)
-  --TODO change to TCompleteLam and test
-  in TLam (TLam (inner x))
+  in TLam (Open (Left ())) (TLam (Open (Left ())) (inner x))
 
-debruijinize :: Monad m => VarList -> Term1 -> m (ParserTerm Int)
+debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ TZero = pure TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize _ (TVar (Left i)) = pure $ TVar i
@@ -75,12 +77,12 @@ debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i <*> debruijinize vl t
 debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
 debruijinize vl (TRight x) = TRight <$> debruijinize vl x
 debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
-debruijinize vl (TLam x) = TLam <$> debruijinize ("-- dummy" : vl) x
-debruijinize vl (TCompleteLam x) = TCompleteLam <$> debruijinize ("-- dummyC" : vl) x
-debruijinize vl (TNamedLam n l) = TLam <$> debruijinize (n : vl) l
-debruijinize vl (TNamedCompleteLam n l) = TCompleteLam <$> debruijinize (n : vl) l
+debruijinize vl (TLam (Open (Left _)) x) = TLam (Open ()) <$> debruijinize ("-- dummy" : vl) x
+debruijinize vl (TLam (Closed (Left _)) x) = TLam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
+debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n : vl) x
+debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
 
-convertPT :: ParserTerm Int -> IExpr
+convertPT :: Term2 -> IExpr
 convertPT TZero = zero
 convertPT (TPair a b) = pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
@@ -91,10 +93,8 @@ convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = pleft (convertPT i)
 convertPT (TRight i) = pright (convertPT i)
 convertPT (TTrace i) = silTrace (convertPT i)
-convertPT (TLam c) = lam (convertPT c)
-convertPT (TCompleteLam x) = completeLam (convertPT x)
-convertPT (TNamedLam n _) = error $ "should be no named lambdas at this stage, name " ++ n
-convertPT (TNamedCompleteLam n _) = error $ "should be no named complete lambdas in convertPT, name " ++ n
+convertPT (TLam (Open ()) x) = lam (convertPT x)
+convertPT (TLam (Closed ()) x) = completeLam (convertPT x)
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
@@ -126,7 +126,7 @@ commaSep   = Token.commaSep   lexer
 commaSep1  = Token.commaSep1  lexer
 integer    = Token.integer    lexer
 
-parseString :: SILParser (ParserTerm v)
+parseString :: SILParser (ParserTerm l v)
 parseString = s2t <$> Token.stringLiteral lexer
 
 parseVariable :: SILParser Term1
@@ -137,7 +137,7 @@ parseVariable = do
                 Nothing -> fail $ concat ["identifier ", varName, " undeclared"]
                 Just i -> pure i
 
-parseNumber :: SILParser (ParserTerm v)
+parseNumber :: SILParser (ParserTerm l v)
 parseNumber = (i2t . fromInteger) <$> integer
 
 parsePair :: SILParser Term1
@@ -206,7 +206,7 @@ parseLambda = do
   sameOrIndented <* reservedOp "->" <?> "lambda ->"
   -- TODO make sure lambda names don't collide with bound names
   iexpr <- parseLongExpr
-  return $ foldr TNamedLam iexpr variables
+  return $ foldr (\n -> TLam (Open (Right n))) iexpr variables
 
 parseCompleteLambda :: SILParser Term1
 parseCompleteLambda = do
@@ -214,7 +214,7 @@ parseCompleteLambda = do
   variables <- many1 identifier
   sameOrIndented <* reservedOp "->" <?> "lambda ->"
   iexpr <- parseLongExpr
-  return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
+  return . TLam (Closed (Right $ head variables)) $ foldr (\n -> TLam (Open (Right n))) iexpr (tail variables)
 
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (reservedOp "$" *> integer)
