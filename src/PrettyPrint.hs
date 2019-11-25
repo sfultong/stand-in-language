@@ -16,7 +16,8 @@ showPIExpr _ _ Env = "E"
 showPIExpr l i (Pair a b) =
   concat ["P\n", indent i, showPIExpr l (i + 1) a, "\n", indent i, showPIExpr l (i + 1) b]
 showPIExpr _ _ Abort  = "A"
-showPIExpr _ _ Gate = "G"
+showPIExpr l i (Gate a b) = -- "G"
+  "G\n" <> indent i <> showPIExpr l (i + 1) a <> "\n" <> indent i <> showPIExpr l (i + 1) b
 showPIExpr _ _ Trace = "T"
 showPIExpr l i (Defer x) = concat ["D ", showPIExpr l i x]
 showPIExpr l i (PLeft x) = concat ["L ", showPIExpr l i x]
@@ -34,7 +35,7 @@ showTPIExpr typeMap l i expr =
     Env -> "E"
     (Pair a b) -> concat ["P\n", indented a, "\n", indented b]
     Abort -> "A"
-    Gate -> "G"
+    Gate a b -> "G\n" <> indented a <> "\n" <> indented b
     Trace -> "T"
 
 showNExpr :: Map FragIndex NResult -> Int -> Int -> NExpr -> String
@@ -47,7 +48,7 @@ showNExpr nMap l i expr =
   NEnv -> "E"
   (NPair a b) -> showTwo "P" a b
   NAbort -> "A"
-  NGate -> "G"
+  NGate a b -> showTwo "G" a b
   NTrace -> "T"
   (NDefer ind) -> case Map.lookup ind nMap of
     (Just n) -> concat ["D ", recur n]
@@ -58,9 +59,6 @@ showNExpr nMap l i expr =
   (NAdd a b) -> showTwo "+" a b
   (NMult a b) -> showTwo "X" a b
   (NPow a b) -> showTwo "^" a b
-  (NITE f t e) -> concat ["I\n", indent i, showNExpr nMap l (i + 1) f
-                         , "\n", indent i, showNExpr nMap l (i + 1) t
-                         , "\n", indent i, showNExpr nMap l (i + 1) e]
   (NApp c i) -> showTwo "$" c i
   (NNum n) -> show n --concat ["()"]
   (NToChurch c i) -> showTwo "<" c i
@@ -83,7 +81,7 @@ showOneNExpr l i expr =
       NEnv -> "E"
       (NPair a b) -> showTwo "P" a b
       NAbort -> "A"
-      NGate -> "G"
+      NGate a b -> showTwo "G" a b
       NTrace -> "T"
       (NDefer (FragIndex ind)) -> concat ["[", show ind, "]"]
       (NLeft x) -> concat ["L ", recur x]
@@ -92,9 +90,6 @@ showOneNExpr l i expr =
       (NAdd a b) -> showTwo "+" a b
       (NMult a b) -> showTwo "X" a b
       (NPow a b) -> showTwo "^" a b
-      (NITE f n e) -> concat ["I\n", indent i, showOneNExpr l (i + 1) f
-                            , "\n", indent i, showOneNExpr l (i + 1) n
-                            , "\n", indent i, showOneNExpr l (i + 1) e]
       (NApp c i) -> showTwo "$" c i
       (NNum n) -> show n --concat ["()"]
       (NToChurch c i) -> showTwo "<" c i

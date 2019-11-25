@@ -14,7 +14,7 @@ data ExpP
   | SetEnvP ExpP Bool
   | DeferP ExpP
   | AbortP
-  | GateP
+  | GateP ExpP ExpP
   | LeftP ExpP
   | RightP ExpP
   | TraceP
@@ -27,7 +27,7 @@ instance EndoMapper ExpP where
   endoMap f (SetEnvP x fe) = f $ SetEnvP (endoMap f x) fe
   endoMap f (DeferP x) = f . DeferP $ endoMap f x
   endoMap f AbortP = f AbortP
-  endoMap f GateP = f GateP
+  endoMap f (GateP a b) = f $ GateP (endoMap f a) (endoMap f b)
   endoMap f (LeftP x) = f . LeftP $ endoMap f x
   endoMap f (RightP x) = f . RightP $ endoMap f x
   endoMap f TraceP = f TraceP
@@ -49,7 +49,10 @@ annotateEnv Env = (False, VarP)
 annotateEnv (SetEnv x) = let (xt, nx) = annotateEnv x in (xt, SetEnvP nx xt)
 annotateEnv (Defer x) = let (_, nx) = annotateEnv x in (True, DeferP nx)
 annotateEnv Abort = (True, AbortP)
-annotateEnv Gate = (True, GateP)
+annotateEnv (Gate a b) =
+  let (at, na) = annotateEnv a
+      (bt, nb) = annotateEnv b
+  in (at && bt, GateP na nb)
 annotateEnv (PLeft x) = LeftP <$> annotateEnv x
 annotateEnv (PRight x) = RightP <$> annotateEnv x
 annotateEnv Trace = (False, TraceP)
@@ -61,7 +64,7 @@ fromFullEnv _ VarP = pure Env
 fromFullEnv f (SetEnvP x _) = SetEnv <$> f x
 fromFullEnv f (DeferP x) = Defer <$> f x
 fromFullEnv _ AbortP = pure Abort
-fromFullEnv _ GateP = pure Gate
+fromFullEnv f (GateP a b) = Gate <$> f a <*> f b
 fromFullEnv f (LeftP x) = PLeft <$> f x
 fromFullEnv f (RightP x) = PRight <$> f x
 fromFullEnv _ TraceP = pure Trace

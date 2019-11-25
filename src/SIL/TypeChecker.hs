@@ -20,7 +20,7 @@ data ExprTA a
   | PairTA (ExprTA a) (ExprTA a)
   | EnvTA a
   | AbortTA a
-  | GateTA a
+  | GateTA (ExprTA a) (ExprTA a)
   | PLeftTA (ExprTA a) a
   | PRightTA (ExprTA a) a
   | TraceTA a
@@ -36,7 +36,7 @@ instance EndoMapper (ExprTA a) where
   endoMap f (PairTA a b) = f $ PairTA (endoMap f a) (endoMap f b)
   endoMap f (EnvTA t) = f $ EnvTA t
   endoMap f (AbortTA t) = f $ AbortTA t
-  endoMap f (GateTA t) = f $ GateTA t
+  endoMap f (GateTA l r) = f $ GateTA (endoMap f l) (endoMap f r)
   endoMap f (PLeftTA x t) = f $ PLeftTA (endoMap f x) t
   endoMap f (PRightTA x t) = f $ PRightTA (endoMap f x) t
   endoMap f (TraceTA t) = f $ TraceTA t
@@ -48,7 +48,7 @@ instance MonoidEndoFolder (ExprTA a) where
   monoidFold f (PairTA a b) = mconcat [f (PairTA a b), monoidFold f a, monoidFold f b]
   monoidFold f (EnvTA t) = f $ EnvTA t
   monoidFold f (AbortTA t) = f $ AbortTA t
-  monoidFold f (GateTA t) = f $ GateTA t
+  monoidFold f (GateTA l r) = f (GateTA l r) <> monoidFold f l <> monoidFold f r
   monoidFold f (PLeftTA x t) = mconcat [f (PLeftTA x t), monoidFold f x]
   monoidFold f (PRightTA x t) = mconcat [f (PRightTA x t), monoidFold f x]
   monoidFold f (TraceTA t) = f $ TraceTA t
@@ -66,7 +66,9 @@ showExpra l i p@(PairTA a b) = if length (show p) > l
   then concat ["PairA\n", indent i, showExpra l (i + 1) a, "\n", indent i, showExpra l (i + 1) b]
   else show p
 showExpra l i (AbortTA a) = "AbortA " <> show (PrettyPartialType a)
-showExpra l i (GateTA a) = "GateA " <> show (PrettyPartialType a)
+showExpra l i g@(GateTA a b) = if length (show g) > l
+  then "GateA\n" <> indent i <> showExpra l (i + 1) a <> "\n" <> indent i <> showExpra l (i + 1) b
+  else show g
 showExpra l i (TraceTA a) = "TraceA " <> show (PrettyPartialType a)
 showExpra l i (DeferTA x) = concat ["DeferA ", showExpra l i x]
 showExpra l i (PLeftTA x a) =
@@ -110,7 +112,7 @@ getPartialAnnotation (DeferTA x) = case getUnboundType x of
 getPartialAnnotation ZeroTA = ZeroTypeP
 getPartialAnnotation (PairTA a b) = PairTypeP (getPartialAnnotation a) (getPartialAnnotation b)
 getPartialAnnotation (AbortTA a) = a
-getPartialAnnotation (GateTA a) = a
+getPartialAnnotation (GateTA l _) = ArrTypeP ZeroTypeP $ getPartialAnnotation l
 getPartialAnnotation (PLeftTA _ a) = a
 getPartialAnnotation (PRightTA _ a) = a
 getPartialAnnotation (TraceTA a) = a
@@ -250,7 +252,7 @@ getUnboundType (EnvTA a) = pure a
 getUnboundType (SetEnvTA x _) = getUnboundType x
 getUnboundType (DeferTA _) = Nothing
 getUnboundType (AbortTA _) = Nothing
-getUnboundType (GateTA _) = Nothing
+getUnboundType (GateTA _ _) = Nothing
 getUnboundType (PLeftTA x _) = getUnboundType x
 getUnboundType (PRightTA x _) = getUnboundType x
 getUnboundType (TraceTA _) = Nothing
@@ -292,10 +294,12 @@ annotate (Defer x) = do
 annotate Abort = do
   (it, _) <- withNewEnv $ pure ()
   pure $ AbortTA (ArrTypeP ZeroTypeP (ArrTypeP it it))
-annotate Gate = do
-  debugAnnotate Gate
-  (ra, _) <- withNewEnv $ pure ()
-  pure $ GateTA (ArrTypeP ZeroTypeP (ArrTypeP (PairTypeP ra ra) ra))
+annotate (Gate l r) = do
+  debugAnnotate $ Gate l r
+  nl <- annotate l
+  nr <- annotate r
+  associateVar (getPartialAnnotation nl) (getPartialAnnotation nr)
+  pure $ GateTA nl nr
 annotate (PLeft x) = do
   debugAnnotate (PLeft x)
   nx <- annotate x
@@ -345,9 +349,10 @@ fullyMostlyAnnotate tm (DeferTA x) = DeferTA <$> fullyMostlyAnnotate tm x
 fullyMostlyAnnotate tm (AbortTA a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, AbortTA a)
   (Right mra) -> (Set.empty, AbortTA mra)
-fullyMostlyAnnotate tm (GateTA a) = case mostlyResolve tm a of
-  (Left (RecursiveType i)) -> (Set.singleton i, GateTA a)
-  (Right mra) -> (Set.empty, GateTA mra)
+fullyMostlyAnnotate tm (GateTA a b) =
+  let (sa, na) = fullyMostlyAnnotate tm a
+      (sb, nb) = fullyMostlyAnnotate tm b
+  in (Set.union sa sb, GateTA na nb)
 fullyMostlyAnnotate tm (PLeftTA x a) = case mostlyResolve tm a of
   (Left (RecursiveType i)) -> (Set.singleton i, PLeftTA x a)
   (Right mra) -> PLeftTA <$> fullyMostlyAnnotate tm x <*> pure mra

@@ -26,7 +26,7 @@ data IExpr
   | Defer !IExpr
   -- the rest of these should be no argument constructors, to be treated as functions with setenv
   | Abort
-  | Gate
+  | Gate !IExpr !IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace
@@ -40,7 +40,7 @@ data ExprA a
   | SetEnvA (ExprA a) a
   | DeferA (ExprA a) a
   | AbortA a
-  | GateA a
+  | GateA (ExprA a) (ExprA a) a
   | PLeftA (ExprA a) a
   | PRightA (ExprA a) a
   | TraceA a
@@ -54,7 +54,7 @@ data ExprT a
   | SetEnvT (ExprT a)
   | DeferT (ExprT a)
   | AbortT
-  | GateT
+  | GateT (ExprT a) (ExprT a)
   | LeftT (ExprT a)
   | RightT (ExprT a)
   | TraceT
@@ -69,7 +69,7 @@ getA (EnvA a) = a
 getA (SetEnvA _ a) = a
 getA (DeferA _ a) = a
 getA (AbortA a) = a
-getA (GateA a) = a
+getA (GateA _ _ a) = a
 getA (PLeftA _ a) = a
 getA (PRightA _ a) = a
 getA (TraceA a) = a
@@ -85,7 +85,7 @@ instance EndoMapper IExpr where
   endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
   endoMap f (Defer x) = f $ Defer (endoMap f x)
   endoMap f Abort = f Abort
-  endoMap f Gate = f Gate
+  endoMap f (Gate l r) = f $ Gate (endoMap f l) (endoMap f r)
   endoMap f (PLeft x) = f $ PLeft (endoMap f x)
   endoMap f (PRight x) = f $ PRight (endoMap f x)
   endoMap f Trace = f Trace
@@ -97,7 +97,7 @@ instance EitherEndoMapper IExpr where
   eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
   eitherEndoMap f Abort = f Abort
-  eitherEndoMap f Gate = f Gate
+  eitherEndoMap f (Gate l r) = (Gate <$> eitherEndoMap f l <*> eitherEndoMap f r) >>= f
   eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
   eitherEndoMap f Trace = f Trace
@@ -109,7 +109,7 @@ instance MonoidEndoFolder IExpr where
   monoidFold f (SetEnv x) = mconcat [f (SetEnv x), monoidFold f x]
   monoidFold f (Defer x) = mconcat [f (Defer x), monoidFold f x]
   monoidFold f Abort = f Abort
-  monoidFold f Gate = f Gate
+  monoidFold f (Gate l r) = mconcat [f (Gate l r), monoidFold f l, monoidFold f r]
   monoidFold f (PLeft x) = mconcat [f (PLeft x), monoidFold f x]
   monoidFold f (PRight x) = mconcat [f (PRight x), monoidFold f x]
   monoidFold f Trace = f Trace
@@ -121,7 +121,7 @@ instance NFData IExpr where
   rnf (SetEnv  e)  = rnf e
   rnf (Defer   e)  = rnf e
   rnf Abort        = ()
-  rnf Gate         = ()
+  rnf (Gate l r)   = rnf l `seq` rnf r
   rnf (PLeft   e)  = rnf e
   rnf (PRight  e)  = rnf e
   rnf Trace        = ()
@@ -173,10 +173,6 @@ check c tc = setenv (pair (defer
                           )
                           (pair tc c)
                     )
-silTrace :: IExpr -> IExpr
-silTrace x = SetEnv (Pair Trace x)
-gate :: IExpr -> IExpr
-gate x = SetEnv (Pair Gate x)
 pleft :: IExpr -> IExpr
 pleft = PLeft
 pright :: IExpr -> IExpr
@@ -191,28 +187,32 @@ lam x = pair (defer x) env
 completeLam :: IExpr -> IExpr
 completeLam x = pair (defer x) zero
 ite :: IExpr -> IExpr -> IExpr -> IExpr
-ite i t e = setenv (pair (gate i) (pair e t))
+ite i t e = setenv (pair (Gate e t) i)
 varN :: Int -> IExpr
 varN n = pleft (iterate pright env !! n)
+partialFix :: IExpr -> IExpr
+partialFix = PartialFix (s2g "recursion depth limit exceeded")
 
 -- make sure these patterns are in exact correspondence with the shortcut functions above
 pattern FirstArg :: IExpr
-pattern FirstArg <- PLeft Env
+pattern FirstArg = PLeft Env
 pattern SecondArg :: IExpr
-pattern SecondArg <- PLeft (PRight Env)
+pattern SecondArg = PLeft (PRight Env)
 pattern ThirdArg :: IExpr
 pattern ThirdArg <- PLeft (PRight (PRight Env))
 pattern FourthArg :: IExpr
 pattern FourthArg <- PLeft (PRight (PRight (PRight Env)))
 pattern Lam :: IExpr -> IExpr
-pattern Lam x <- Pair (Defer x) Env
+pattern Lam x = Pair (Defer x) Env
 pattern App :: IExpr -> IExpr -> IExpr
-pattern App c i <- SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env)))))
-                          (Pair i c)))
+pattern App c i = SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env)))))
+                         (Pair i c)))
 pattern TwoArgFun :: IExpr -> IExpr
 pattern TwoArgFun c <- Pair (Defer (Pair (Defer c) Env)) Env
 pattern ITE :: IExpr -> IExpr -> IExpr -> IExpr
-pattern ITE i t e = SetEnv (Pair (SetEnv (Pair Gate i)) (Pair e t))
+pattern ITE i t e = SetEnv (Pair (Gate e t) i)
+pattern EasyTrace :: IExpr -> IExpr
+pattern EasyTrace x = SetEnv (Pair (Defer Trace) x)
 
 countApps :: Int -> IExpr -> Maybe Int
 countApps x FirstArg = pure x
@@ -221,6 +221,12 @@ countApps _ _ = Nothing
 
 pattern ChurchNum :: Int -> IExpr
 pattern ChurchNum x <- TwoArgFun (countApps 0 -> Just x)
+pattern PartialFix :: IExpr -> IExpr -> IExpr
+pattern PartialFix m c = Lam (Lam (App
+                                   (App c SecondArg)
+                                   (Lam (App (SetEnv (Pair Abort m)) (App SecondArg FirstArg)))
+                                  )
+                             )
 
 pattern ToChurch :: IExpr
 pattern ToChurch <-
@@ -274,8 +280,6 @@ pattern LamA :: ExprA a -> ExprA a
 pattern LamA x <- PairA (DeferA x _) (EnvA _) _
 pattern TwoArgFunA :: ExprA a -> a -> a -> ExprA a
 pattern TwoArgFunA c ana anb <- PairA (DeferA (PairA (DeferA c ana) (EnvA _) _) anb) (EnvA _) _
-pattern ITEA :: ExprA a -> ExprA a -> ExprA a -> ExprA a
-pattern ITEA i t e <- SetEnvA (PairA (SetEnvA (PairA (GateA _) i _) _) (PairA e t _) _) _
 -- TODO check if these make sense at all. A church type should have two arguments (lamdas), but the inner lambdas
 -- for addition/multiplication should be f, f+x rather than m+n
 -- no, it does not, in \m n f x -> m f (n f x), m and n are FourthArg and ThirdArg respectively
@@ -380,6 +384,12 @@ s2g = ints2g . map ord
 g2s :: IExpr -> String
 g2s = map chr . g2Ints
 
+toChurch :: Int -> IExpr
+toChurch x =
+  let inner 0 = PLeft Env
+      inner x = app (PLeft $ PRight Env) (inner (x - 1))
+  in lam (lam (inner x))
+
 -- convention is numbers are left-nested pairs with zero on right
 isNum :: IExpr -> Bool
 isNum Zero = True
@@ -396,7 +406,7 @@ toIndExpr Env = EnvA <$> nextI
 toIndExpr (SetEnv x) = SetEnvA <$> toIndExpr x <*> nextI
 toIndExpr (Defer x) = DeferA <$> toIndExpr x <*> nextI
 toIndExpr Abort = AbortA <$> nextI
-toIndExpr Gate = GateA <$> nextI
+toIndExpr (Gate l r) = GateA <$> toIndExpr l <*> toIndExpr r <*> nextI
 toIndExpr (PLeft x) = PLeftA <$> toIndExpr x <*> nextI
 toIndExpr (PRight x) = PRightA <$> toIndExpr x <*> nextI
 toIndExpr Trace = TraceA <$> nextI
@@ -412,7 +422,7 @@ instance SILLike (ExprT a) where
     SetEnv x -> SetEnvT $ fromSIL x
     Defer x -> DeferT $ fromSIL x
     Abort -> AbortT
-    Gate -> GateT
+    Gate l r -> GateT (fromSIL l) (fromSIL r)
     PLeft x -> LeftT $ fromSIL x
     PRight x -> RightT $ fromSIL x
     Trace -> TraceT
@@ -423,16 +433,8 @@ instance SILLike (ExprT a) where
     SetEnvT x -> SetEnv <$> toSIL x
     DeferT x -> Defer <$> toSIL x
     AbortT -> pure Abort
-    GateT -> pure Gate
+    GateT l r -> Gate <$> toSIL l <*> toSIL r
     LeftT x -> PLeft <$> toSIL x
     RightT x -> PRight <$> toSIL x
     TraceT -> pure Trace
     TagT x _ -> toSIL x -- just elide tags
-
-{-
-instance 
-
-toIndexedExpr :: (ExprT a -> Bool) -> IExpr -> State EIndex (ExprT EIndex)
-toIndexedExpr f expr =
-  let 
--}

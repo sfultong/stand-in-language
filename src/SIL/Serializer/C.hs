@@ -80,7 +80,7 @@ typeId  Env        = env_type
 typeId (SetEnv  _) = setenv_type
 typeId (Defer   _) = defer_type
 typeId  Abort      = abort_type
-typeId  Gate       = gate_type
+typeId (Gate _ _ ) = gate_type
 typeId (PLeft   _) = pleft_type
 typeId (PRight  _) = pright_type
 typeId  Trace      = trace_type
@@ -99,12 +99,17 @@ data CPair = CPair
     , right_type  :: CTypeId
     , left_value  :: Ptr CRep
     , right_value :: Ptr CRep
-    } deriving(Show, Generic, GStorable) 
+    } deriving(Show, Generic, GStorable)
+data CGate = CGate
+  { leftg_type   :: CTypeId
+  , rightg_type  :: CTypeId
+  , leftg_value  :: Ptr CRep
+  , rightg_value :: Ptr CRep
+  } deriving (Show, Generic, GStorable)
 data CEnv     = CEnv deriving(Show, Generic) 
 data CSetEnv  = CSetEnv  CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 data CDefer   = CDefer   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 data CAbort   = CAbort   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
-data CGate    = CGate    deriving(Show, Generic)
 data CPLeft   = CPLeft   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 data CPRight  = CPRight  CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 data CTrace   = CTrace   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
@@ -130,7 +135,9 @@ fromC' type_id ptr = case type_id of
         (CDefer t v) <- peek $ castPtr ptr
         Defer <$> fromC' t v
     5    -> return Abort
-    6    -> return Gate
+    6    -> do
+        (CGate l_type r_type l_val r_val) <- peek $ castPtr ptr
+        Gate <$> fromC' l_type l_val <*> fromC' r_type r_val
     7    -> do
         (CPLeft t v) <- peek $ castPtr ptr
         PLeft <$> fromC' t v
@@ -189,7 +196,17 @@ toC' (Defer e) ptr_type ptr_value = do
     poke ptr_value $ castPtr value
     toC' e next_type next_value
 toC' (Abort) ptr_type ptr_value = poke ptr_type abort_type >> poke ptr_value nullPtr
-toC' (Gate) ptr_type ptr_value = poke ptr_type gate_type >> poke ptr_value nullPtr
+toC' (Gate e1 e2) ptr_type ptr_value = do
+    value <- malloc :: IO (Ptr CPair)
+    let align = alignment (undefined :: CGate)
+        ptr_left_type   = castPtr value
+        ptr_right_type  = castPtr $ value `plusPtr`        1
+        ptr_left_value  = castPtr $ value `plusPtr`    align
+        ptr_right_value = castPtr $ value `plusPtr` (2*align)
+    poke ptr_type gate_type
+    poke ptr_value $ castPtr value
+    toC' e1 ptr_left_type ptr_left_value
+    toC' e2 ptr_right_type ptr_right_value
 toC' (PLeft e) ptr_type ptr_value = do
     value <- malloc :: IO (Ptr CPLeft)
     let align      = alignment (undefined :: CPLeft)

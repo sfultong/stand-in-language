@@ -7,8 +7,7 @@ import Data.List (elemIndex)
 import Data.Map (Map)
 import Debug.Trace
 import qualified Data.Map as Map
-import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, silTrace, IExpr
-           , PrettyPartialType(..))
+import SIL
 import SIL.TypeChecker
 import Text.Parsec
 import Text.Parsec.Indent
@@ -45,6 +44,7 @@ data ParserTerm l v
   | TRight (ParserTerm l v)
   | TTrace (ParserTerm l v)
   | TLam (LamType l) (ParserTerm l v)
+  | TLimitedRecursion
   deriving (Eq, Show, Ord, Functor)
 
 i2t :: Int -> ParserTerm v l
@@ -81,6 +81,7 @@ debruijinize vl (TLam (Open (Left _)) x) = TLam (Open ()) <$> debruijinize ("-- 
 debruijinize vl (TLam (Closed (Left _)) x) = TLam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
 debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n : vl) x
 debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
+debruijinize _ TLimitedRecursion = pure TLimitedRecursion
 
 convertPT :: Term2 -> IExpr
 convertPT TZero = zero
@@ -92,9 +93,10 @@ convertPT (TCheck c tc) = check (convertPT c) (convertPT tc)
 convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
 convertPT (TLeft i) = pleft (convertPT i)
 convertPT (TRight i) = pright (convertPT i)
-convertPT (TTrace i) = silTrace (convertPT i)
+convertPT (TTrace i) = EasyTrace (convertPT i)
 convertPT (TLam (Open ()) x) = lam (convertPT x)
 convertPT (TLam (Closed ()) x) = completeLam (convertPT x)
+convertPT TLimitedRecursion = partialFix $ toChurch 255 -- TODO calculate actual limit instead of hard-coding
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
@@ -111,7 +113,7 @@ languageDef = Token.LanguageDef
   , Token.identLetter    = alphaNum <|> oneOf "_'"
   , Token.opStart        = Token.opLetter languageDef
   , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
-  , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]
+  , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#", "?"]
   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
   , Token.caseSensitive  = True
   }
@@ -183,6 +185,7 @@ parseSingleExpr = choice [ parseString
                          , parseTrace
                          , parseChurch
                          , parseVariable
+                         , parsePartialFix
                          , parens parseLongExpr
                          ]
 
@@ -218,6 +221,9 @@ parseCompleteLambda = do
 
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (reservedOp "$" *> integer)
+
+parsePartialFix :: SILParser Term1
+parsePartialFix = reservedOp "?" *> pure TLimitedRecursion
 
 parseRefinementCheck :: SILParser (Term1 -> Term1)
 parseRefinementCheck = flip TCheck <$> (reservedOp ":" *> parseLongExpr)

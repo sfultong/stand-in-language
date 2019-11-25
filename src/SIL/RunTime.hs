@@ -22,7 +22,7 @@ import qualified Data.Set as Set
 -- import qualified SIL.Llvm as LLVM
 
 debug :: Bool
-debug = True
+debug = False
 
 debugTrace :: String -> a -> a
 debugTrace s x = if debug then trace s x else x
@@ -52,9 +52,9 @@ nEval (NExprs m) =
         NTrace -> pure $ trace (show env) env
         (NSetEnv x) -> recur x >>= \y -> case y of
           (NPair c i) -> case c of
-            NGate -> case i of
-              NZero -> pure . NLeft $ NEnv
-              _ -> pure . NRight $ NEnv
+            NGate a b -> case i of
+              NZero -> recur a
+              _ -> recur b
             NAbort -> case i of
               NZero -> pure NEnv
               z -> case toSIL (NExprs $ Map.insert resultIndex z m) of
@@ -62,9 +62,6 @@ nEval (NExprs m) =
                 Nothing -> throwError $ GenericRunTimeError ("Could not convert abort value of: " <> show z) Zero
             _ -> eval i c
           z -> error ("nEval nsetenv - not pair - " ++ show z)
-        (NITE i t e) -> process <$> recur i <*> recur t <*> recur e where
-          process NZero _ ne = ne
-          process _ nt _ = nt
         (NApp c i) -> do
           nc <- recur c
           ni <- recur i
@@ -102,9 +99,10 @@ iEval f env g = let f' = f env in case g of
   SetEnv x -> (f' x >>=) $ \case
     Pair cf nenv -> case cf of
       Defer c -> f nenv c
-      Gate -> case nenv of
-        Zero -> pure $ Defer (PLeft Env)
-        _ -> pure $ Defer (PRight Env)
+      -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
+      Gate a b -> case nenv of
+        Zero -> f' a
+        _ -> f' b
       Abort -> case nenv of
         Zero -> pure $ Defer Env
         z -> throwError $ AbortRunTime z
@@ -118,7 +116,7 @@ iEval f env g = let f' = f env in case g of
     _ -> pure Zero
   Trace -> pure $ trace (show env) env
   Zero -> pure Zero
-  Gate -> pure Gate
+  Gate a b -> pure $ Gate a b
   Abort -> pure Abort
   Defer x -> pure $ Defer x
 
@@ -179,12 +177,6 @@ pEval f env g =
       _ -> error "should not be here in pEval setenv non pair"
     x -> singleResult x
 
-toChurch :: Int -> IExpr
-toChurch x =
-  let inner 0 = PLeft Env
-      inner x = app (PLeft $ PRight Env) (inner (x - 1))
-  in lam (lam (inner x))
-
 instance SILLike IExpr where
   fromSIL = id
   toSIL = pure
@@ -201,7 +193,7 @@ instance SILLike NExprs where
           NEnv -> pure Env
           (NSetEnv x) -> SetEnv <$> fromNExpr x
           NAbort -> pure Abort
-          NGate -> pure Gate
+          NGate a b -> Gate <$> fromNExpr a <*> fromNExpr b
           (NLeft x) -> PLeft <$> fromNExpr x
           (NRight x) -> PRight <$> fromNExpr x
           NTrace -> pure Trace
@@ -228,7 +220,7 @@ fastInterpretEval :: IExpr -> IO IExpr
 fastInterpretEval e = do
   let traceShow x = if debug then trace ("toNExpr\n" ++ showNExprs x) x else x
       nExpr :: NExprs
-      nExpr = fromSIL e
+      nExpr = traceShow $ fromSIL e
   result <- runExceptT $ evalAndConvert nExpr
   case result of
     Left e -> error ("runtime error: " ++ show e)
