@@ -27,6 +27,12 @@ addBound name expr (ParserState bound) = if Map.member name bound
   then Nothing
   else pure $ ParserState (Map.insert name expr bound)
 
+{-
+ On the difference between TLam and TCompleteLam:
+ The former should only be used when the inner grammar explicitly references external variables.
+ Eventually these two forms should be merged in the parser's grammar and the determination of which form to use
+ should be automatic.
+-}
 data ParserTerm v
   = TZero
   | TPair (ParserTerm v) (ParserTerm v)
@@ -57,8 +63,7 @@ i2c :: Int -> Term1
 i2c x =
   let inner 0 = TVar $ Left 0
       inner x = TApp (TVar $ Left 1) (inner $ x - 1)
-  --TODO change to TCompleteLam and test
-  in TLam (TLam (inner x))
+  in TCompleteLam (TLam (inner x))
 
 debruijinize :: Monad m => VarList -> Term1 -> m (ParserTerm Int)
 debruijinize _ TZero = pure TZero
