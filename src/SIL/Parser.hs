@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE LambdaCase #-}
 module SIL.Parser where
 
 import Control.Monad.State
@@ -83,7 +84,22 @@ debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n :
 debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ TLimitedRecursion = pure TLimitedRecursion
 
-convertPT :: Term2 -> IExpr
+convertPT :: Int -> Term2 -> IExpr
+convertPT cn = let recur = convertPT cn in \case
+  TZero -> zero
+  TPair a b -> pair (recur a) (recur b)
+  TVar n -> varN n
+  TApp i c -> app (recur i) (recur c)
+  TCheck c tc -> check (recur c) (recur tc)
+  TITE i t e -> ite (recur i) (recur t) (recur e)
+  TLeft x -> pleft $ recur x
+  TRight x -> pright $ recur x
+  TTrace x -> EasyTrace $ recur x
+  TLam (Open ()) x -> lam $ recur x
+  TLam (Closed ()) x -> completeLam $ recur x
+  TLimitedRecursion -> partialFix $ toChurch cn
+
+{-
 convertPT TZero = zero
 convertPT (TPair a b) = pair (convertPT a) (convertPT b)
 convertPT (TVar n) = varN n
@@ -97,6 +113,7 @@ convertPT (TTrace i) = EasyTrace (convertPT i)
 convertPT (TLam (Open ()) x) = lam (convertPT x)
 convertPT (TLam (Closed ()) x) = completeLam (convertPT x)
 convertPT TLimitedRecursion = partialFix $ toChurch 255 -- TODO calculate actual limit instead of hard-coding
+-}
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
@@ -264,22 +281,3 @@ parsePrelude = parseWithPrelude Map.empty
 parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState prelude
                            in runIndentParser parseTopLevel startState "sil"
-
-resolveBinding :: String -> Bindings -> Maybe IExpr
-resolveBinding name bindings = Map.lookup name bindings >>=
-  \b -> convertPT <$> debruijinize [] b
-
-printBindingTypes :: Bindings -> IO ()
-printBindingTypes bindings =
-  let showType (s, iexpr) = putStrLn $ case inferType iexpr of
-        Left pa -> concat [s, ": bad type -- ", show pa]
-        Right ft ->concat [s, ": ", show . PrettyPartialType $ ft]
-      resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
-                                (\b -> pure (s, convertPT b))) $ Map.toList bindings
-  in resolvedBindings >>= mapM_ showType
-
-parseMain :: Bindings -> String -> Either ParseError IExpr
-parseMain prelude s = parseWithPrelude prelude s >>= getMain where
-  getMain bound = case Map.lookup "main" bound of
-    Nothing -> fail "no main method found"
-    Just main -> convertPT <$> debruijinize [] main

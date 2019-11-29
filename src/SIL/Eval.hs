@@ -3,6 +3,7 @@ module SIL.Eval where
 import Control.Monad.Except
 
 import SIL
+import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
 import SIL.Optimizer
@@ -69,6 +70,10 @@ fromFullEnv f (LeftP x) = PLeft <$> f x
 fromFullEnv f (RightP x) = PRight <$> f x
 fromFullEnv _ TraceP = pure Trace
 
+instance SILLike ExpP where
+  fromSIL = snd . annotateEnv
+  toSIL = fix fromFullEnv
+
 partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
 partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
@@ -82,6 +87,35 @@ eval' expr = case inferType expr of
     Right x -> pure x
 -}
   Right _ -> pure expr
+
+findChurchSize :: Term2 -> IExpr
+findChurchSize term =
+  let abortsAt i = snd . fix pEval PZero . fromSIL $ convertPT i term
+      -- evaluating large church numbers is currently impractical, just fail if found
+      (ib, ie) = if abortsAt 255 term then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
+      findC b e | b > e = b
+      findC b e = let midpoint = div (b + e) 2
+                  in if abortsAt midpoint then findC b midpoint else findC (midpoint + 1) e
+  in convertPT (findC ib ie) term
+
+resolveBinding :: String -> Bindings -> Maybe IExpr
+resolveBinding name bindings = Map.lookup name bindings >>=
+  \b -> convertPT <$> debruijinize [] b
+
+printBindingTypes :: Bindings -> IO ()
+printBindingTypes bindings =
+  let showType (s, iexpr) = putStrLn $ case inferType iexpr of
+        Left pa -> concat [s, ": bad type -- ", show pa]
+        Right ft ->concat [s, ": ", show . PrettyPartialType $ ft]
+      resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
+                                (\b -> pure (s, convertPT b))) $ Map.toList bindings
+  in resolvedBindings >>= mapM_ showType
+
+parseMain :: Bindings -> String -> Either ParseError IExpr
+parseMain prelude s = parseWithPrelude prelude s >>= getMain where
+  getMain bound = case Map.lookup "main" bound of
+    Nothing -> fail "no main method found"
+    Just main -> convertPT <$> debruijinize [] main
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of

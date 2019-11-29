@@ -128,10 +128,34 @@ data PExpr
   | PPLeft PExpr
   | PPRight PExpr
   | PZero
-  | PGate
+  | PGate PExpr PExpr
   | PAbort
   | PAny
   deriving (Eq, Show, Ord)
+
+instance SILLike PExpr where
+  fromSIL = \case
+    Zero -> PZero
+    Pair a b -> PPair (fromSIL a) (fromSIL b)
+    Gate l r -> PGate (fromSIL l) (fromSIL r)
+    Defer x -> PDefer $ fromSIL x
+    SetEnv x -> PSetEnv $ fromSIL x
+    Env -> PEnv
+    PLeft x -> PPLeft $ fromSIL x
+    PRight x -> PPRight $ fromSIL x
+    Abort -> PAbort
+    Trace -> PEnv
+  toSIL = \case
+    PZero -> pure Zero
+    PPair a b -> Pair <$> toSIL a <*> toSIL b
+    PGate l r -> Gate <$> toSIL l <*> toSIL r
+    PDefer x -> Defer <$> toSIL x
+    PSetEnv x -> SetEnv <$> toSIL x
+    PEnv -> pure Env
+    PPLeft x -> PLeft <$> toSIL x
+    PPRight x -> PRight <$> toSIL x
+    PAbort -> pure Abort
+    PAny -> Nothing
 
 newtype PResult = PResult (Set PExpr, Bool)
 
@@ -167,9 +191,9 @@ pEval f env g =
     PSetEnv x -> sMap x $ \case
       PPair cf nenv -> case cf of
         PDefer c -> f nenv c
-        PGate -> case nenv of
-          PZero -> singleResult (PDefer $ PPLeft PEnv)
-          _ -> singleResult (PDefer $ PPRight PEnv)
+        PGate l r -> case nenv of
+          PZero -> f' l
+          _ -> f' r
         PAbort -> case nenv of
           PZero -> singleResult $ PDefer PEnv
           _ -> PResult (mempty, True)
