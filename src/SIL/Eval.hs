@@ -1,6 +1,10 @@
+{-# LANGUAGE LambdaCase #-}
 module SIL.Eval where
 
 import Control.Monad.Except
+import Data.Map (Map)
+import Debug.Trace
+import qualified Data.Map as Map
 
 import SIL
 import SIL.Parser
@@ -88,19 +92,46 @@ eval' expr = case inferType expr of
 -}
   Right _ -> pure expr
 
-findChurchSize :: Term2 -> IExpr
+findChurchSize :: Term3 -> IExpr
+{-
 findChurchSize term =
-  let abortsAt i = snd . fix pEval PZero . fromSIL $ convertPT i term
+  let abortsAt i = (\(PResult (_, b)) -> b) . fix pEval PZero . fromSIL $ convertPT i term
       -- evaluating large church numbers is currently impractical, just fail if found
-      (ib, ie) = if abortsAt 255 term then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
+      (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
       findC b e | b > e = b
-      findC b e = let midpoint = div (b + e) 2
-                  in if abortsAt midpoint then findC b midpoint else findC (midpoint + 1) e
+      findC b e = let midpoint = (\n -> trace ("midpoint is now " <> show n) n) $ div (b + e) 2
+                  in if abortsAt midpoint then findC (midpoint + 1) e else findC b midpoint
   in convertPT (findC ib ie) term
+-}
+findChurchSize = convertPT 255
+
+findAllSizes :: Term2 -> (Bool, Term3)
+findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
+                   doChild (_, x) = TTransformedGrammar $ convertPT 0 x
+                   doChildren l = let nl = map findAllSizes l
+                                  in case sum (map (fromEnum . fst) nl) of
+                                       0 -> (False, map snd nl)
+                                       1 -> (True, map snd nl)
+                                       _ -> (False, map doChild nl)
+               in \case
+  TZero -> (False, TZero)
+  TPair a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TPair na nb)
+  TVar n -> (False, TVar n)
+  TApp a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TApp na nb)
+  TCheck a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TCheck na nb)
+  TITE i t e -> let (c, [ni, nt, ne]) = doChildren [i,t,e] in (c, TITE ni nt ne)
+  TLeft x -> TLeft <$> findAllSizes x
+  TRight x -> TRight <$> findAllSizes x
+  TTrace x -> TTrace <$> findAllSizes x
+  TLam lt x -> TLam lt <$> findAllSizes x
+  TLimitedRecursion -> (True, TLimitedRecursion)
+
+sizeTerm :: Term2 -> IExpr
+sizeTerm = findChurchSize . snd . findAllSizes
 
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
-  \b -> convertPT <$> debruijinize [] b
+  \b -> sizeTerm <$> debruijinize [] b
 
 printBindingTypes :: Bindings -> IO ()
 printBindingTypes bindings =
@@ -108,14 +139,8 @@ printBindingTypes bindings =
         Left pa -> concat [s, ": bad type -- ", show pa]
         Right ft ->concat [s, ": ", show . PrettyPartialType $ ft]
       resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
-                                (\b -> pure (s, convertPT b))) $ Map.toList bindings
+                                (\b -> pure (s, sizeTerm b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showType
-
-parseMain :: Bindings -> String -> Either ParseError IExpr
-parseMain prelude s = parseWithPrelude prelude s >>= getMain where
-  getMain bound = case Map.lookup "main" bound of
-    Nothing -> fail "no main method found"
-    Just main -> convertPT <$> debruijinize [] main
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of

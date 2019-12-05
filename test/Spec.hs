@@ -369,6 +369,8 @@ unitTests_ parse = do
     "{0,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
 -}
   unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  unitTest2 "main = c2d (minus $2 $1)" "1"
+  unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0"
   {-
   unitTest2 "main = $3 ($2 succ) 0" "6"
   unitTest "3*2" "6" three_times_two
@@ -653,7 +655,7 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
-    parse = parseMain prelude
+    parse = fmap sizeTerm . parseMain prelude
   {-
     unitTestP s g = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]

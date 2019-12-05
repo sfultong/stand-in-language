@@ -15,9 +15,12 @@ import Text.Parsec.Indent
 import Text.Parsec.Pos
 import qualified Text.Parsec.Token as Token
 
+data Void
+
 type VarList = [String]
-type Term1 = ParserTerm (Either () String) (Either Int String)
-type Term2 = ParserTerm () Int
+type Term1 = ParserTerm (Either () String) Void (Either Int String)
+type Term2 = ParserTerm () Void Int
+type Term3 = ParserTerm () IExpr Int
 type Bindings = Map String Term1
 
 data ParserState = ParserState
@@ -34,28 +37,31 @@ data LamType t
   | Closed t
   deriving (Eq, Show, Ord)
 
-data ParserTerm l v
+data ParserTerm l x v
   = TZero
-  | TPair (ParserTerm l v) (ParserTerm l v)
+  | TPair (ParserTerm l x v) (ParserTerm l x v)
   | TVar v
-  | TApp (ParserTerm l v) (ParserTerm l v)
-  | TCheck (ParserTerm l v) (ParserTerm l v)
-  | TITE (ParserTerm l v) (ParserTerm l v) (ParserTerm l v)
-  | TLeft (ParserTerm l v)
-  | TRight (ParserTerm l v)
-  | TTrace (ParserTerm l v)
-  | TLam (LamType l) (ParserTerm l v)
+  | TApp (ParserTerm l x v) (ParserTerm l x v)
+  | TCheck (ParserTerm l x v) (ParserTerm l x v)
+  | TITE (ParserTerm l x v) (ParserTerm l x v) (ParserTerm l x v)
+  | TLeft (ParserTerm l x v)
+  | TRight (ParserTerm l x v)
+  | TTrace (ParserTerm l x v)
+  | TLam (LamType l) (ParserTerm l x v)
   | TLimitedRecursion
+  | TTransformedGrammar x
   deriving (Eq, Show, Ord, Functor)
 
-i2t :: Int -> ParserTerm v l
+-- data SizedTerm = SizedTerm Term2 Int
+
+i2t :: Int -> ParserTerm l x v
 i2t 0 = TZero
 i2t n = TPair (i2t (n - 1)) TZero
 
-ints2t :: [Int] -> ParserTerm v l
+ints2t :: [Int] -> ParserTerm l x v
 ints2t = foldr (\i t -> TPair (i2t i) t) TZero
 
-s2t :: String -> ParserTerm v l
+s2t :: String -> ParserTerm l x v
 s2t = ints2t . map ord
 
 i2c :: Int -> Term1
@@ -84,7 +90,7 @@ debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n :
 debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ TLimitedRecursion = pure TLimitedRecursion
 
-convertPT :: Int -> Term2 -> IExpr
+convertPT :: Int -> Term3 -> IExpr
 convertPT cn = let recur = convertPT cn in \case
   TZero -> zero
   TPair a b -> pair (recur a) (recur b)
@@ -98,22 +104,7 @@ convertPT cn = let recur = convertPT cn in \case
   TLam (Open ()) x -> lam $ recur x
   TLam (Closed ()) x -> completeLam $ recur x
   TLimitedRecursion -> partialFix $ toChurch cn
-
-{-
-convertPT TZero = zero
-convertPT (TPair a b) = pair (convertPT a) (convertPT b)
-convertPT (TVar n) = varN n
-convertPT (TApp i c) = app (convertPT i) (convertPT c)
--- note preft hack to discard environment from normal lambda format
-convertPT (TCheck c tc) = check (convertPT c) (convertPT tc)
-convertPT (TITE i t e) = ite (convertPT i) (convertPT t) (convertPT e)
-convertPT (TLeft i) = pleft (convertPT i)
-convertPT (TRight i) = pright (convertPT i)
-convertPT (TTrace i) = EasyTrace (convertPT i)
-convertPT (TLam (Open ()) x) = lam (convertPT x)
-convertPT (TLam (Closed ()) x) = completeLam (convertPT x)
-convertPT TLimitedRecursion = partialFix $ toChurch 255 -- TODO calculate actual limit instead of hard-coding
--}
+  TTransformedGrammar x -> x
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
@@ -145,7 +136,7 @@ commaSep   = Token.commaSep   lexer
 commaSep1  = Token.commaSep1  lexer
 integer    = Token.integer    lexer
 
-parseString :: SILParser (ParserTerm l v)
+parseString :: SILParser (ParserTerm l x v)
 parseString = s2t <$> Token.stringLiteral lexer
 
 parseVariable :: SILParser Term1
@@ -156,7 +147,7 @@ parseVariable = do
                 Nothing -> fail $ concat ["identifier ", varName, " undeclared"]
                 Just i -> pure i
 
-parseNumber :: SILParser (ParserTerm l v)
+parseNumber :: SILParser (ParserTerm l x v)
 parseNumber = (i2t . fromInteger) <$> integer
 
 parsePair :: SILParser Term1
@@ -281,3 +272,9 @@ parsePrelude = parseWithPrelude Map.empty
 parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState prelude
                            in runIndentParser parseTopLevel startState "sil"
+
+parseMain :: Bindings -> String -> Either ParseError Term2
+parseMain prelude s = parseWithPrelude prelude s >>= getMain where
+  getMain bound = case Map.lookup "main" bound of
+    Nothing -> fail "no main method found"
+    Just main -> debruijinize [] main
