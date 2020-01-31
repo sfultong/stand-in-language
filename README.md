@@ -10,24 +10,24 @@ This proyect is in active development. Do expect bugs and general trouble, and p
 
 ## Quick Start
 
-0. Clone this repository and change directory to it:
+1. Clone this repository and change directory to it:
    ```
    $ git clone https://github.com/sfultong/stand-in-language.git
    $ cd stand-in-language
    ```
-1. [Install Nix](https://nixos.org/nix/download.html):
+2. [Install Nix](https://nixos.org/nix/download.html):
    ```
    $ curl https://nixos.org/nix/install | sh
    ```
-2. Enter a Nix shell. This will setup an enviroment where all external dependancies are available (such as `cabal` for building):
+3. Enter a Nix shell. This will setup an enviroment where all external dependancies will be available (such as `cabal` for building):
    ```
    $ nix-shell shell.nix
    ```
-3. Build the proyect:
+4. Build the proyect:
    ```
    $ cabal v2-build
    ```
-4. Run the tictactoe example and start playing with a friend:
+5. Run the tictactoe example and start playing with a friend:
    ```
    $ cabal v2-run sil-exe
    ```
@@ -40,6 +40,7 @@ This proyect is in active development. Do expect bugs and general trouble, and p
    ```
 3. Run:
    ```
+   $ cd <your/local/proyect/location>/stand-in-language
    $ nix-shell shell.nix
    $ cabal v2-build
    $ cabal v2-run sil-exe
