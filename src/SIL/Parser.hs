@@ -9,9 +9,9 @@ import Debug.Trace
 import qualified Data.Map as Map
 import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, IExpr(Trace), PrettyPartialType(..))
 import SIL.TypeChecker
-import Text.Parsec
-import Text.Parsec.Indent
-import Text.Parsec.Pos
+import qualified Text.Parsec as RM
+import qualified Text.Parsec.Indent as RM
+import qualified Text.Parsec.Pos as RM
 import qualified Text.Parsec.Token as Token
 
 type VarList = [String]
@@ -105,16 +105,16 @@ resolve name (ParserState bound) = if Map.member name bound
   then Map.lookup name bound
   else Just . TVar . Right $ name
 
-type SILParser a = IndentParser String ParserState a
+type SILParser a = RM.IndentParser String ParserState a
 languageDef = Token.LanguageDef
   { Token.commentStart   = "{-"
   , Token.commentEnd     = "-}"
   , Token.commentLine    = "--"
   , Token.nestedComments = True
-  , Token.identStart     = letter
-  , Token.identLetter    = alphaNum <|> oneOf "_'"
+  , Token.identStart     = RM.letter
+  , Token.identLetter    = RM.alphaNum RM.<|> RM.oneOf "_'"
   , Token.opStart        = Token.opLetter languageDef
-  , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
+  , Token.opLetter       = RM.oneOf ":!#$%&*+./<=>?@\\^|-~"
   , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]
   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
   , Token.caseSensitive  = True
@@ -136,7 +136,7 @@ parseString = s2t <$> Token.stringLiteral lexer
 parseVariable :: SILParser Term1
 parseVariable = do
               varName <- identifier
-              parserState <- getState
+              parserState <- RM.getState
               case resolve varName parserState of
                 Nothing -> fail $ concat ["identifier ", varName, " undeclared"]
                 Just i -> pure i
@@ -145,12 +145,12 @@ parseNumber :: SILParser (ParserTerm v)
 parseNumber = (i2t . fromInteger) <$> integer
 
 parsePair :: SILParser Term1
-parsePair = withPos $ do
-  char '{' <* spaces
+parsePair = RM.withPos $ do
+  RM.char '{' <* RM.spaces
   a <- parseLongExpr
-  sameOrIndented <* char ',' <* spaces <?> "pair: ,"
+  RM.sameOrIndented <* RM.char ',' <* RM.spaces RM.<?> "pair: ,"
   b <- parseLongExpr
-  sameOrIndented <* char '}' <* spaces <?> "pair: }"
+  RM.sameOrIndented <* RM.char '}' <* RM.spaces RM.<?> "pair: }"
   return $ TPair a b
 
 parseList :: SILParser Term1
@@ -159,12 +159,12 @@ parseList = do
   return $ foldr TPair TZero exprs
 
 parseITE :: SILParser Term1
-parseITE = withPos $ do
+parseITE = RM.withPos $ do
   reserved "if"
   cond <- parseLongExpr
-  sameOrIndented <* reserved "then" <?> "ITE: then"
+  RM.sameOrIndented <* reserved "then" RM.<?> "ITE: then"
   thenExpr <- parseLongExpr
-  sameOrIndented <* reserved "else" <?> "ITE: else"
+  RM.sameOrIndented <* reserved "else" RM.<?> "ITE: else"
   elseExpr <- parseLongExpr
   return $ TITE cond thenExpr elseExpr
 
@@ -178,7 +178,7 @@ parseTrace :: SILParser Term1
 parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
 
 parseSingleExpr :: SILParser Term1
-parseSingleExpr = choice [ parseString
+parseSingleExpr = RM.choice [ parseString
                          , parseNumber
                          , parsePair
                          , parseList
@@ -191,12 +191,12 @@ parseSingleExpr = choice [ parseString
                          ]
 
 parseApplied :: SILParser Term1
-parseApplied = withPos $ do
-  (f:args) <- many1 (sameOrIndented *> parseSingleExpr)
+parseApplied = RM.withPos $ do
+  (f:args) <- RM.many1 (RM.sameOrIndented *> parseSingleExpr)
   pure $ foldl TApp f args
 
 parseLongExpr :: SILParser Term1
-parseLongExpr = choice [ parseLet
+parseLongExpr = RM.choice [ parseLet
                        , parseITE
                        , parseLambda
                        , parseCompleteLambda
@@ -206,8 +206,8 @@ parseLongExpr = choice [ parseLet
 parseLambda :: SILParser Term1
 parseLambda = do
   reservedOp "\\"
-  variables <- many1 identifier
-  sameOrIndented <* reservedOp "->" <?> "lambda ->"
+  variables <- RM.many1 identifier
+  RM.sameOrIndented <* reservedOp "->" RM.<?> "lambda ->"
   -- TODO make sure lambda names don't collide with bound names
   iexpr <- parseLongExpr
   return $ foldr TNamedLam iexpr variables
@@ -215,8 +215,8 @@ parseLambda = do
 parseCompleteLambda :: SILParser Term1
 parseCompleteLambda = do
   reservedOp "#"
-  variables <- many1 identifier
-  sameOrIndented <* reservedOp "->" <?> "lambda ->"
+  variables <- RM.many1 identifier
+  RM.sameOrIndented <* reservedOp "->" RM.<?> "lambda ->"
   iexpr <- parseLongExpr
   return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
 
@@ -229,8 +229,8 @@ parseRefinementCheck = flip TCheck <$> (reservedOp ":" *> parseLongExpr)
 parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
-  annotation <- optionMaybe parseRefinementCheck
-  reservedOp "=" <?> "assignment ="
+  annotation <- RM.optionMaybe parseRefinementCheck
+  reservedOp "=" RM.<?> "assignment ="
   expr <- parseLongExpr
   let annoExp = case annotation of
         Just f -> f expr
@@ -238,30 +238,30 @@ parseAssignment = do
       assign ps = case addBound var annoExp ps of
         Just nps -> nps
         _ -> error $ "shadowing of binding not allowed " ++ var
-  modifyState assign
+  RM.modifyState assign
 
 parseLet :: SILParser Term1
-parseLet = withPos $ do
+parseLet = RM.withPos $ do
   reserved "let"
-  initialState <- getState
-  manyTill parseAssignment (reserved "in")
+  initialState <- RM.getState
+  RM.manyTill parseAssignment (reserved "in")
   expr <- parseLongExpr
-  setState initialState
+  RM.setState initialState
   pure expr
 
 parseTopLevel :: SILParser Bindings
 parseTopLevel = do
-  many parseAssignment <* eof
-  (ParserState bound) <- getState
+  RM.many parseAssignment <* RM.eof
+  (ParserState bound) <- RM.getState
   pure bound
 
-debugIndent i = show $ runState i (initialPos "debug")
+debugIndent i = show $ runState i (RM.initialPos "debug")
 
 parsePrelude = parseWithPrelude Map.empty
 
-parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
+parseWithPrelude :: Bindings -> String -> Either RM.ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState prelude
-                           in runIndentParser parseTopLevel startState "sil"
+                           in RM.runIndentParser parseTopLevel startState "sil"
 
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
@@ -276,7 +276,7 @@ printBindingTypes bindings =
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showType
 
-parseMain :: Bindings -> String -> Either ParseError IExpr
+parseMain :: Bindings -> String -> Either RM.ParseError IExpr
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"
