@@ -1,6 +1,8 @@
-resolver: nightly-2018-06-29 #lts-11.14
+# resolver: nightly-2018-06-29
+resolver: lts-11.14
+
 packages:
 
-nix:
-  enable: true
-  shell-file: shell.nix
+# nix:
+#   enable: true
+#   shell-file: shell.nix

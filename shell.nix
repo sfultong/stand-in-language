@@ -35,20 +35,23 @@ with rec {
     overrides = self: super: {
       indents = super.callCabal2nix "indents" indentsGit {};
       sil = super.callCabal2nix "sil" ./. { gc = pkgs.boehmgc; jumper = sil_jumper; };
+      # sil = super.callCabal2nix "sil" ./. { jumper = sil_jumper; };
       # llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
       # llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
     };
   });
   simpleShell = haskellPkgs.shellFor { packages = p: [p.sil]; };
-  oldhp = pkgs.haskellPackages;
+  # oldhp = pkgs.haskellPackages;
 
-}; simpleShell.overrideAttrs (oldAttrs : rec 
-  { buildInputs = oldAttrs.buildInputs 
-    ++ [ 
-         haskellPkgs.cabal-install 
-         haskellPkgs.apply-refact 
+}; simpleShell.overrideAttrs (oldAttrs : rec
+  { buildInputs = oldAttrs.buildInputs
+    ++ [
+         haskellPkgs.cabal-install
+         haskellPkgs.apply-refact
          haskellPkgs.hlint
-         haskellPkgs.hasktags 
-         # oldhp.ghc-mod 
-      ]; 
+         haskellPkgs.hasktags
+         haskellPkgs.haddock
+         # pkgs.boehmgc
+         # oldhp.ghc-mod
+      ];
   })

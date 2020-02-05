@@ -9,6 +9,9 @@ import Debug.Trace
 import qualified Data.Map as Map
 import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, IExpr(Trace), PrettyPartialType(..))
 import SIL.TypeChecker
+
+import Text.Megaparsec
+
 import qualified Text.Parsec as RM
 import qualified Text.Parsec.Indent as RM
 import qualified Text.Parsec.Pos as RM

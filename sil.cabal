@@ -55,11 +55,13 @@ library
                      , llvm-hs
                      , llvm-hs-pure
                      , text
+                     , megaparsec
   extra-libraries:     gc
-                       jumper
+                     , jumper
+  extra-lib-dirs:      lib
 
   default-language:    Haskell2010
-
+  
 executable sil-exe
   hs-source-dirs:      app
   main-is:             Main.hs
