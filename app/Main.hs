@@ -36,7 +36,8 @@ main = do
 -}
 
   -- printBindingTypes prelude
-  Strict.readFile "tictactoe.sil" >>= runMain
+  -- Strict.readFile "tictactoe.sil" >>= runMain
+  Strict.readFile "hello.sil" >>= runMain
   --runMain "main = #x -> 0"
   --runMain "main = #x -> if x then 0 else {\"Test message\", 0}"
   --runMain "main = #x -> if listEqual (left x) \"quit\" then 0 else {\"type quit to exit\", 1}"

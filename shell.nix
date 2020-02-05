@@ -35,7 +35,6 @@ with rec {
     overrides = self: super: {
       indents = super.callCabal2nix "indents" indentsGit {};
       sil = super.callCabal2nix "sil" ./. { gc = pkgs.boehmgc; jumper = sil_jumper; };
-      # sil = super.callCabal2nix "sil" ./. { jumper = sil_jumper; };
       # llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
       # llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
     };
@@ -51,7 +50,5 @@ with rec {
          haskellPkgs.hlint
          haskellPkgs.hasktags
          haskellPkgs.haddock
-         # pkgs.boehmgc
-         # oldhp.ghc-mod
       ];
   })
