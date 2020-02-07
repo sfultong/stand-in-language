@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
-module SIL.Parser where
+module SIL.ParserMegaparsec where
 
 import Control.Monad.State
 import Data.Char
@@ -11,6 +11,10 @@ import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, 
 import SIL.TypeChecker
 
 import Text.Megaparsec
+import Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer as L
+import Data.Void
+
 
 -- import qualified Text.Parsec as RM
 -- import qualified Text.Parsec.Indent as RM
@@ -108,28 +112,73 @@ resolve name (ParserState bound) = if Map.member name bound
   then Map.lookup name bound
   else Just . TVar . Right $ name
 
-
-
-------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------
--- TODO: Pass everything from bellow to above with Megaparsec instead por Parsec
-------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------
-
+-- TODO: Comment is useful to explicitly see what is being refactored
+--       When the refactor is completed, remove comment.
 -- type SILParser a = RM.IndentParser String ParserState a
+
+-- |SILParser :: * -> *
+type SILParser = Parsec Void String
+
+-- TODO: Comment is useful to explicitly see what is being refactored
+--       When the refactor is completed, remove comment.
 -- languageDef = Token.LanguageDef
 --   { Token.commentStart   = "{-"
 --   , Token.commentEnd     = "-}"
 --   , Token.commentLine    = "--"
 --   , Token.nestedComments = True
---   , Token.identStart     = RM.letter
---   , Token.identLetter    = RM.alphaNum RM.<|> RM.oneOf "_'"
---   , Token.opStart        = Token.opLetter languageDef
---   , Token.opLetter       = RM.oneOf ":!#$%&*+./<=>?@\\^|-~"
---   , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]
---   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
---   , Token.caseSensitive  = True
+--   , Token.identStart     = RM.letter                                                         TODO: Still missing
+--   , Token.identLetter    = RM.alphaNum RM.<|> RM.oneOf "_'"                                  TODO: Still missing
+--   , Token.opStart        = Token.opLetter languageDef                                        TODO: Still missing
+--   , Token.opLetter       = RM.oneOf ":!#$%&*+./<=>?@\\^|-~"                                  TODO: Still missing
+--   , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]                                  TODO: Still missing
+--   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]      TODO: Still missing
+--   , Token.caseSensitive  = True                                                              TODO: Still missing
 --   }
+
+-- |Line comments start with "--".
+lineComment :: SILParser ()
+lineComment = L.skipLineComment "--"
+
+-- |A block comment starts with "{-" and ends at "-}".
+blockComment = L.skipBlockCommentNested "{-" "-}"
+
+-- |Space parser that does not consume new-lines.
+sc :: SILParser ()
+sc = L.space
+  space1
+  lineComment
+  blockComment
+
+-- TODO: This is surely wrong. FIX.
+-- |Variable identifiers can start with a letter and end with
+-- an alphanumeric character or underscore (i.e. '_').
+pVariable :: SILParser ParserTerm
+pVariable = TVar <$> lexeme
+  ((:) <$> letterChar <*> many alphaNumChar <?> "variable")
+
+-- pInteger :: Parser Expr
+-- pInteger = Int <$> lexeme L.decimal
+
+-- parens :: Parser a -> Parser a
+-- parens = between (symbol "(") (symbol ")")
+
+-- pTerm :: Parser Expr
+-- pTerm = choice
+--   [ parens pExpr
+--   , pVariable
+--   , pInteger
+--   ]
+
+-- pExpr :: Parser Expr
+-- pExpr = makeExprParser pTerm operatorTable
+
+
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+-- TODO: Pass everything from bellow to above with Parsec refactored to MegaParsec
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+
 -- lexer = Token.makeTokenParser languageDef
 -- identifier = Token.identifier lexer -- parses an identifier
 -- reserved   = Token.reserved   lexer -- parses a reserved name
