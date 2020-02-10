@@ -117,7 +117,7 @@ resolve name (ParserState bound) = if Map.member name bound
 -- type SILParser a = RM.IndentParser String ParserState a
 
 -- |SILParser :: * -> *
-type SILParser = Parsec Void String
+type SILParser = StateT ParserState (Parsec Void String)
 
 -- TODO: Comment is useful to explicitly see what is being refactored
 --       When the refactor is completed, remove comment.
@@ -126,72 +126,102 @@ type SILParser = Parsec Void String
 --   , Token.commentEnd     = "-}"
 --   , Token.commentLine    = "--"
 --   , Token.nestedComments = True
---   , Token.identStart     = RM.letter                                                         TODO: Still missing
---   , Token.identLetter    = RM.alphaNum RM.<|> RM.oneOf "_'"                                  TODO: Still missing
---   , Token.opStart        = Token.opLetter languageDef                                        TODO: Still missing
---   , Token.opLetter       = RM.oneOf ":!#$%&*+./<=>?@\\^|-~"                                  TODO: Still missing
+--   , Token.identStart     = RM.letter
+--   , Token.identLetter    = RM.alphaNum RM.<|> RM.oneOf "_'"
+--   , Token.opStart        = Token.opLetter languageDef
+--   , Token.opLetter       = RM.oneOf ":!#$%&*+./<=>?@\\^|-~"
 --   , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]                                  TODO: Still missing
---   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]      TODO: Still missing
---   , Token.caseSensitive  = True                                                              TODO: Still missing
+--   , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
+--   , Token.caseSensitive  = True
 --   }
+-- lexer = Token.makeTokenParser languageDef -- NOT NEEDED
 
 -- |Line comments start with "--".
 lineComment :: SILParser ()
 lineComment = L.skipLineComment "--"
 
 -- |A block comment starts with "{-" and ends at "-}".
+-- Nested block comments are also supported.
 blockComment = L.skipBlockCommentNested "{-" "-}"
 
--- |Space parser that does not consume new-lines.
+-- |Space Consumer: Whitespace and comment parser that does not consume new-lines.
 sc :: SILParser ()
 sc = L.space
   space1
   lineComment
   blockComment
 
--- TODO: This is surely wrong. FIX.
--- |Variable identifiers can start with a letter and end with
--- an alphanumeric character or underscore (i.e. '_').
-pVariable :: SILParser ParserTerm
-pVariable = TVar <$> lexeme
-  ((:) <$> letterChar <*> many alphaNumChar <?> "variable")
+-- |This is a wrapper for lexemes that picks up all trailing white space
+-- using sc
+lexeme :: SILParser a -> SILParser a
+lexeme = L.lexeme sc
 
--- pInteger :: Parser Expr
--- pInteger = Int <$> lexeme L.decimal
+-- |A parser that matches given text using string internally and then similarly
+-- picks up all trailing white space.
+symbol :: String -> SILParser String
+symbol = L.symbol sc
 
--- parens :: Parser a -> Parser a
--- parens = between (symbol "(") (symbol ")")
-
--- pTerm :: Parser Expr
--- pTerm = choice
---   [ parens pExpr
---   , pVariable
---   , pInteger
---   ]
-
--- pExpr :: Parser Expr
--- pExpr = makeExprParser pTerm operatorTable
-
-
-------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------
--- TODO: Pass everything from bellow to above with Parsec refactored to MegaParsec
-------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------
-
--- lexer = Token.makeTokenParser languageDef
--- identifier = Token.identifier lexer -- parses an identifier
 -- reserved   = Token.reserved   lexer -- parses a reserved name
 -- reservedOp = Token.reservedOp lexer -- parses an operator
+-- QUESTION: Should https://stackoverflow.com/questions/53239098/haskell-megaparsec-reserved-word-parsed-as-identifier
+-- be referenced? I copied rword, rws and modified pVariable with help of the link.
+-- |This is to parse reserved words. 
+rword :: String -> SILParser ()
+rword w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
+
+-- |List of reserved words
+rws :: [String]
+rws = ["let", "in", "right", "left", "trace", "if", "then", "else"]
+
+-- identifier = Token.identifier lexer -- parses an identifier
+-- Maybe this needs `lexeme . try` insted of only `lexeme`
+-- |Variable identifiers can consist of alphanumeric characters, underscore,
+-- and must start with an English alphabet letter
+identifier :: SILParser String
+identifier = lexeme $ p >>= check
+    where
+      p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
+      check x = if x `elem` rws
+                then fail $ "keyword " ++ show x ++ " cannot be an identifier"
+                else return x
+
 -- parens     = Token.parens     lexer -- parses surrounding parenthesis:
 -- brackets   = Token.brackets   lexer
 -- braces     = Token.braces     lexer
+-- |Parser for parenthesis.
+parens :: SILParser a -> SILParser a
+parens = between (symbol "(") (symbol ")")
+
+-- |Parser for brackets.
+brackets :: SILParser a -> SILParser a
+brackets = between (symbol "[") (symbol "]")
+
+-- |Parser for braces.
+braces :: SILParser a -> SILParser a
+braces = between (symbol "{") (symbol "}")
+
 -- commaSep   = Token.commaSep   lexer
--- commaSep1  = Token.commaSep1  lexer
+-- commaSep1  = Token.commaSep1  lexer -- This one isn't used
+-- |Comma sepparated SILParser that will be useful for lists
+commaSep :: SILParser a -> SILParser [a]
+commaSep p = p `sepBy` (symbol ",")
+
 -- integer    = Token.integer    lexer
+-- |Integer SILParser used by `parseNumber` and `parseChurch`
+integer :: SILParser Integer
+integer = toInteger <$> lexeme L.decimal
+
+data Operator m a -- N.B.
+  = InfixN  (m (a -> a -> a)) -- ^ Non-associative infix
+  | InfixL  (m (a -> a -> a)) -- ^ Left-associative infix
+  | InfixR  (m (a -> a -> a)) -- ^ Right-associative infix
+  | Prefix  (m (a -> a))      -- ^ Prefix
+  | Postfix (m (a -> a))      -- ^ Postfix
 
 -- parseString :: SILParser (ParserTerm v)
 -- parseString = s2t <$> Token.stringLiteral lexer
+parseString :: SILParser (ParserTerm v)
+parseString = fmap s2t $ char '\"' *> manyTill L.charLiteral (char '\"')
 
 -- parseVariable :: SILParser Term1
 -- parseVariable = do
@@ -200,9 +230,20 @@ pVariable = TVar <$> lexeme
 --               case resolve varName parserState of
 --                 Nothing -> fail $ concat ["identifier ", varName, " undeclared"]
 --                 Just i -> pure i
+-- |Parse a variable.
+parseVariable :: SILParser Term1
+parseVariable = do
+  varName <- identifier
+  parseState <- get
+  case resolve varName parseState of
+    Nothing -> fail $ concat  ["identifier ", varName, " undeclared"]
+    Just i -> pure i
 
 -- parseNumber :: SILParser (ParserTerm v)
 -- parseNumber = (i2t . fromInteger) <$> integer
+parseNumber :: SILParser (ParserTerm v)
+parseNumber = (i2t . fromInteger) <$> integer
+
 
 -- parsePair :: SILParser Term1
 -- parsePair = RM.withPos $ do
@@ -212,6 +253,14 @@ pVariable = TVar <$> lexeme
 --   b <- parseLongExpr
 --   RM.sameOrIndented <* RM.char '}' <* RM.spaces RM.<?> "pair: }"
 --   return $ TPair a b
+
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+-- TODO: Pass everything from bellow to above with Parsec refactored to MegaParsec
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+
+
 
 -- parseList :: SILParser Term1
 -- parseList = do
