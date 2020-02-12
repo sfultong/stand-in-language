@@ -1,6 +1,2 @@
-
-
 main
  = #input -> {"Hello, World!", 0}
-
-
