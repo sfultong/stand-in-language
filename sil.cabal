@@ -17,7 +17,7 @@ data-files:          bench/MemoryBench/cases
 
 library
   hs-source-dirs:      src
-  include-dirs:        cbits/include
+  -- include-dirs:        cbits/include
   c-sources:           cbits/SIL.c
   other-extensions:    GADTs
                      , EmptyDataDecls

@@ -4,7 +4,7 @@ module SIL.ParserMegaparsec where
 import Control.Monad.State
 import Data.Char
 import Data.List (elemIndex)
-import Data.Map (Map)
+import Data.Map (Map, fromList)
 import Debug.Trace
 import qualified Data.Map as Map
 import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, IExpr(Trace), PrettyPartialType(..))
@@ -27,7 +27,7 @@ type Bindings = Map String Term1
 
 data ParserState = ParserState
   { bound :: Bindings
-  }
+  } deriving Show
 
 addBound :: String -> Term1 -> ParserState -> Maybe ParserState
 addBound name expr (ParserState bound) = if Map.member name bound
@@ -119,6 +119,15 @@ resolve name (ParserState bound) = if Map.member name bound
 -- |SILParser :: * -> *
 type SILParser = StateT ParserState (Parsec Void String)
 
+-- |Helper function to test parsers
+runSILParser :: Show a => SILParser a -> String -> IO ()
+runSILParser parser str = do
+  -- let p            = runStateT parser $ ParserState (fromList [("hola", TZero)])
+  let p            = runStateT parser $ ParserState (Map.empty)
+      Right (a, s) = runParser p "" str
+  putStrLn ("Result:      " ++ show a)
+  putStrLn ("Final state: " ++ show s)
+
 -- TODO: Comment is useful to explicitly see what is being refactored
 --       When the refactor is completed, remove comment.
 -- languageDef = Token.LanguageDef
@@ -147,9 +156,13 @@ blockComment = L.skipBlockCommentNested "{-" "-}"
 -- |Space Consumer: Whitespace and comment parser that does not consume new-lines.
 sc :: SILParser ()
 sc = L.space
-  space1
+  (void $ some (char ' ' <|> char '\t'))
   lineComment
   blockComment
+
+-- |Space Consumer: Whitespace and comment parser that does consume new-lines.
+scn :: SILParser ()
+scn = L.space space1 lineComment blockComment
 
 -- |This is a wrapper for lexemes that picks up all trailing white space
 -- using sc
@@ -211,13 +224,6 @@ commaSep p = p `sepBy` (symbol ",")
 integer :: SILParser Integer
 integer = toInteger <$> lexeme L.decimal
 
-data Operator m a -- N.B.
-  = InfixN  (m (a -> a -> a)) -- ^ Non-associative infix
-  | InfixL  (m (a -> a -> a)) -- ^ Left-associative infix
-  | InfixR  (m (a -> a -> a)) -- ^ Right-associative infix
-  | Prefix  (m (a -> a))      -- ^ Prefix
-  | Postfix (m (a -> a))      -- ^ Postfix
-
 -- parseString :: SILParser (ParserTerm v)
 -- parseString = s2t <$> Token.stringLiteral lexer
 parseString :: SILParser (ParserTerm v)
@@ -244,6 +250,8 @@ parseVariable = do
 parseNumber :: SILParser (ParserTerm v)
 parseNumber = (i2t . fromInteger) <$> integer
 
+parseLongExpr :: SILParser Term1
+parseLongExpr = undefined
 
 -- parsePair :: SILParser Term1
 -- parsePair = RM.withPos $ do
@@ -253,6 +261,14 @@ parseNumber = (i2t . fromInteger) <$> integer
 --   b <- parseLongExpr
 --   RM.sameOrIndented <* RM.char '}' <* RM.spaces RM.<?> "pair: }"
 --   return $ TPair a b
+
+-- parsePair :: SILParser Term1
+-- parsePair = L.indentBlock scn p
+--   where
+--     p = braces $ do
+--       many scn
+--       a <- parseLongExpr
+      
 
 ------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------
