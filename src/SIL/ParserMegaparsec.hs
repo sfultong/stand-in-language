@@ -15,7 +15,7 @@ import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import Data.Void
 
-
+-- Remove after refactor to Megaparsec
 -- import qualified Text.Parsec as RM
 -- import qualified Text.Parsec.Indent as RM
 -- import qualified Text.Parsec.Pos as RM
@@ -262,13 +262,25 @@ parseLongExpr = undefined
 --   RM.sameOrIndented <* RM.char '}' <* RM.spaces RM.<?> "pair: }"
 --   return $ TPair a b
 
--- parsePair :: SILParser Term1
--- parsePair = L.indentBlock scn p
---   where
---     p = braces $ do
---       many scn
---       a <- parseLongExpr
-      
+-- IndentMany (Maybe Pos)
+--            ([b] -> m a)
+--            (m b)
+
+-- Make this prettier (remove nested where clauses)
+-- |Parse a Pair.
+parsePair :: SILParser Term1
+parsePair = braces $ do
+  many scn
+  a <- parseLongExpr
+  L.indentBlock scn (pa <?> "pair: ,")
+  b <- parseLongExpr
+  L.indentBlock scn (pb <?> "pair: }")
+  return $ TPair a b
+    where
+      pa = return $ L.IndentMany Nothing (\x -> return ()) (symbol "," <* many sc)
+      pb = return $ L.IndentMany Nothing (\x -> return ()) (many sc)
+
+
 
 ------------------------------------------------------------------------------------------------------------
 ------------------------------------------------------------------------------------------------------------

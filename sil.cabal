@@ -17,7 +17,7 @@ data-files:          bench/MemoryBench/cases
 
 library
   hs-source-dirs:      src
-  -- include-dirs:        cbits/include
+  include-dirs:        cbits/include
   c-sources:           cbits/SIL.c
   other-extensions:    GADTs
                      , EmptyDataDecls
@@ -58,7 +58,7 @@ library
                      , megaparsec
   extra-libraries:     gc
                      , jumper
-  extra-lib-dirs:      lib
+  extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
 
   default-language:    Haskell2010
   
