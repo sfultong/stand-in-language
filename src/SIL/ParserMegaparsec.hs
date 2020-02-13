@@ -1,4 +1,6 @@
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFunctor       #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module SIL.ParserMegaparsec where
 
 import Control.Monad.State
@@ -13,6 +15,7 @@ import SIL.TypeChecker
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Megaparsec.Pos
 import Data.Void
 
 -- Remove after refactor to Megaparsec
@@ -119,15 +122,6 @@ resolve name (ParserState bound) = if Map.member name bound
 -- |SILParser :: * -> *
 type SILParser = StateT ParserState (Parsec Void String)
 
--- |Helper function to test parsers
-runSILParser :: Show a => SILParser a -> String -> IO ()
-runSILParser parser str = do
-  -- let p            = runStateT parser $ ParserState (fromList [("hola", TZero)])
-  let p            = runStateT parser $ ParserState (Map.empty)
-      Right (a, s) = runParser p "" str
-  putStrLn ("Result:      " ++ show a)
-  putStrLn ("Final state: " ++ show s)
-
 -- TODO: Comment is useful to explicitly see what is being refactored
 --       When the refactor is completed, remove comment.
 -- languageDef = Token.LanguageDef
@@ -179,8 +173,8 @@ symbol = L.symbol sc
 -- QUESTION: Should https://stackoverflow.com/questions/53239098/haskell-megaparsec-reserved-word-parsed-as-identifier
 -- be referenced? I copied rword, rws and modified pVariable with help of the link.
 -- |This is to parse reserved words. 
-rword :: String -> SILParser ()
-rword w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
+reserved :: String -> SILParser ()
+reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
 rws :: [String]
@@ -250,9 +244,6 @@ parseVariable = do
 parseNumber :: SILParser (ParserTerm v)
 parseNumber = (i2t . fromInteger) <$> integer
 
-parseLongExpr :: SILParser Term1
-parseLongExpr = undefined
-
 -- parsePair :: SILParser Term1
 -- parsePair = RM.withPos $ do
 --   RM.char '{' <* RM.spaces
@@ -266,7 +257,6 @@ parseLongExpr = undefined
 --            ([b] -> m a)
 --            (m b)
 
--- Make this prettier (remove nested where clauses)
 -- |Parse a Pair.
 parsePair :: SILParser Term1
 parsePair = braces $ do
@@ -280,20 +270,11 @@ parsePair = braces $ do
       pa = return $ L.IndentMany Nothing (\x -> return ()) (symbol "," <* many sc)
       pb = return $ L.IndentMany Nothing (\x -> return ()) (many sc)
 
-
-
-------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------
--- TODO: Pass everything from bellow to above with Parsec refactored to MegaParsec
-------------------------------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------------------------------
-
-
-
--- parseList :: SILParser Term1
--- parseList = do
---   exprs <- brackets (commaSep parseLongExpr)
---   return $ foldr TPair TZero exprs
+-- |Parse a list.
+parseList :: SILParser Term1
+parseList = do
+  exprs <- brackets (commaSep parseLongExpr)
+  return $ foldr TPair TZero exprs
 
 -- parseITE :: SILParser Term1
 -- parseITE = RM.withPos $ do
@@ -304,41 +285,53 @@ parsePair = braces $ do
 --   RM.sameOrIndented <* reserved "else" RM.<?> "ITE: else"
 --   elseExpr <- parseLongExpr
 --   return $ TITE cond thenExpr elseExpr
+-- |Parse ITE (which stands for "if then else").
+parseITE :: SILParser Term1
+parseITE = do
+  reserved "if"
+  cond <- parseLongExpr
+  L.indentBlock scn (pt <?> "ITE: then")
+  thenExpr <- parseLongExpr
+  L.indentBlock scn (pe <?> "ITE: else")
+  elseExpr <- parseLongExpr
+  return $ TITE cond thenExpr elseExpr
+    where
+      pt = return $ L.IndentMany Nothing (\x -> return ()) (reserved "then" <* many sc)
+      pe = return $ L.IndentMany Nothing (\x -> return ()) (reserved "else" <* many sc)
 
--- parsePLeft :: SILParser Term1
--- parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
+parsePLeft :: SILParser Term1
+parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
 
--- parsePRight :: SILParser Term1
--- parsePRight = TRight <$> (reserved "right" *> parseSingleExpr)
+parsePRight :: SILParser Term1
+parsePRight = TRight <$> (reserved "right" *> parseSingleExpr)
 
--- parseTrace :: SILParser Term1
--- parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
+parseTrace :: SILParser Term1
+parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
 
--- parseSingleExpr :: SILParser Term1
--- parseSingleExpr = RM.choice [ parseString
---                          , parseNumber
---                          , parsePair
---                          , parseList
---                          , parsePLeft
---                          , parsePRight
---                          , parseTrace
---                          , parseChurch
---                          , parseVariable
---                          , parens parseLongExpr
---                          ]
+parseSingleExpr :: SILParser Term1
+parseSingleExpr = choice [ parseString
+                         , parseNumber
+                         , parsePair
+                         , parseList
+                         , parsePLeft
+                         , parsePRight
+                         , parseTrace
+                         , parseChurch
+                         , parseVariable
+                         , parens parseLongExpr
+                         ]
 
 -- parseApplied :: SILParser Term1
 -- parseApplied = RM.withPos $ do
 --   (f:args) <- RM.many1 (RM.sameOrIndented *> parseSingleExpr)
 --   pure $ foldl TApp f args
-
--- parseLongExpr :: SILParser Term1
--- parseLongExpr = RM.choice [ parseLet
---                        , parseITE
---                        , parseLambda
---                        , parseCompleteLambda
---                        , parseApplied
---                        ]
+-- |Parse application of functions.
+parseApplied :: SILParser Term1
+parseApplied = do
+  (f:args) <- L.indentBlock scn p -- removed the `some` and it type-checked. Maybe won't do what's needed.
+  pure $ foldl TApp f args
+    where
+      p = return $ L.IndentMany Nothing (\x -> return x) parseSingleExpr
 
 -- parseLambda :: SILParser Term1
 -- parseLambda = do
@@ -348,6 +341,16 @@ parsePair = braces $ do
 --   -- TODO make sure lambda names don't collide with bound names
 --   iexpr <- parseLongExpr
 --   return $ foldr TNamedLam iexpr variables
+parseLambda :: SILParser Term1
+parseLambda = do
+  reserved "\\"
+  variables <- some identifier
+  L.indentBlock scn (p <?> "lambda ->")
+  -- TODO make sure lambda names don't collide with bound names
+  iexpr <- parseLongExpr
+  return $ foldr TNamedLam iexpr variables
+    where
+      p = return $ L.IndentMany Nothing (\x -> return ()) (reserved "->")
 
 -- parseCompleteLambda :: SILParser Term1
 -- parseCompleteLambda = do
@@ -356,26 +359,15 @@ parsePair = braces $ do
 --   RM.sameOrIndented <* reservedOp "->" RM.<?> "lambda ->"
 --   iexpr <- parseLongExpr
 --   return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
-
--- parseChurch :: SILParser Term1
--- parseChurch = (i2c . fromInteger) <$> (reservedOp "$" *> integer)
-
--- parseRefinementCheck :: SILParser (Term1 -> Term1)
--- parseRefinementCheck = flip TCheck <$> (reservedOp ":" *> parseLongExpr)
-
--- parseAssignment :: SILParser ()
--- parseAssignment = do
---   var <- identifier
---   annotation <- RM.optionMaybe parseRefinementCheck
---   reservedOp "=" RM.<?> "assignment ="
---   expr <- parseLongExpr
---   let annoExp = case annotation of
---         Just f -> f expr
---         _ -> expr
---       assign ps = case addBound var annoExp ps of
---         Just nps -> nps
---         _ -> error $ "shadowing of binding not allowed " ++ var
---   RM.modifyState assign
+parseCompleteLambda :: SILParser Term1
+parseCompleteLambda = do
+  reserved "#"
+  variables <- some identifier
+  L.indentBlock scn (p <?> "lambda ->")
+  iexpr <- parseLongExpr
+  return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
+    where
+      p = return $ L.IndentMany Nothing (\x -> return ()) (reserved "->")
 
 -- parseLet :: SILParser Term1
 -- parseLet = RM.withPos $ do
@@ -385,36 +377,88 @@ parsePair = braces $ do
 --   expr <- parseLongExpr
 --   RM.setState initialState
 --   pure expr
+parseLet :: SILParser Term1
+parseLet = do
+  reserved "let"
+  initialState <- get
+  manyTill parseAssignment (reserved "in")
+  expr <- parseLongExpr
+  put initialState
+  pure expr
 
--- parseTopLevel :: SILParser Bindings
--- parseTopLevel = do
---   RM.many parseAssignment <* RM.eof
---   (ParserState bound) <- RM.getState
---   pure bound
+parseLongExpr :: SILParser Term1
+parseLongExpr = choice [ parseLet
+                       , parseITE
+                       , parseLambda
+                       , parseCompleteLambda
+                       , parseApplied
+                       ]
 
--- debugIndent i = show $ runState i (RM.initialPos "debug")
+parseChurch :: SILParser Term1
+parseChurch = (i2c . fromInteger) <$> (reserved "$" *> integer)
 
--- parsePrelude = parseWithPrelude Map.empty
+parseRefinementCheck :: SILParser (Term1 -> Term1)
+parseRefinementCheck = flip TCheck <$> (reserved ":" *> parseLongExpr)
 
+parseAssignment :: SILParser ()
+parseAssignment = do
+  var <- identifier
+  annotation <- optional parseRefinementCheck
+  reserved "=" <?> "assignment ="
+  expr <- parseLongExpr
+  let annoExp = case annotation of
+        Just f -> f expr
+        _ -> expr
+      assign ps = case addBound var annoExp ps of
+        Just nps -> nps
+        _ -> error $ "shadowing of binding not allowed " ++ var
+  modify assign
+
+parseTopLevel :: SILParser Bindings
+parseTopLevel = do
+  many parseAssignment <* eof
+  (ParserState bound) <- get
+  pure bound
+
+debugIndent i = show $ runState i (initialPos "debug")
+
+-- |Helper function to test parsers
+runSILParser :: Show a => SILParser a -> String -> IO ()
+runSILParser parser str = do
+  let p            = runStateT parser $ ParserState (Map.empty)
+      Right (a, s) = runParser p "" str
+  putStrLn ("Result:      " ++ show a)
+  putStrLn ("Final state: " ++ show s)
+;
 -- parseWithPrelude :: Bindings -> String -> Either RM.ParseError Bindings
 -- parseWithPrelude prelude = let startState = ParserState prelude
 --                            in RM.runIndentParser parseTopLevel startState "sil"
+parseWithPrelude :: Bindings -> String -> Either (ParseErrorBundle String Void) Bindings
+parseWithPrelude prelude str = let startState = ParserState prelude
+                                   p          = runStateT parseTopLevel startState
+                                   eitherEB str = case runParser p "" str of
+                                     Right (a, s) -> Right a
+                                     Left x       -> Left x
+                               in eitherEB str
 
--- resolveBinding :: String -> Bindings -> Maybe IExpr
--- resolveBinding name bindings = Map.lookup name bindings >>=
---   \b -> convertPT <$> debruijinize [] b
+parsePrelude = parseWithPrelude Map.empty
 
--- printBindingTypes :: Bindings -> IO ()
--- printBindingTypes bindings =
---   let showType (s, iexpr) = putStrLn $ case inferType iexpr of
---         Left pa -> concat [s, ": bad type -- ", show pa]
---         Right ft ->concat [s, ": ", show . PrettyPartialType $ ft]
---       resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
---                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
---   in resolvedBindings >>= mapM_ showType
+resolveBinding :: String -> Bindings -> Maybe IExpr
+resolveBinding name bindings = Map.lookup name bindings >>=
+  \b -> convertPT <$> debruijinize [] b
 
--- parseMain :: Bindings -> String -> Either RM.ParseError IExpr
--- parseMain prelude s = parseWithPrelude prelude s >>= getMain where
---   getMain bound = case Map.lookup "main" bound of
---     Nothing -> fail "no main method found"
---     Just main -> convertPT <$> debruijinize [] main
+printBindingTypes :: Bindings -> IO ()
+printBindingTypes bindings =
+  let showType (s, iexpr) = putStrLn $ case inferType iexpr of
+        Left pa -> concat [s, ": bad type -- ", show pa]
+        Right ft ->concat [s, ": ", show . PrettyPartialType $ ft]
+      resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
+                                (\b -> pure (s, convertPT b))) $ Map.toList bindings
+  in resolvedBindings >>= mapM_ showType
+
+parseMain :: Bindings -> String -> Either (ParseErrorBundle String Void) IExpr
+parseMain prelude s = parseWithPrelude prelude s >>= getMain where
+  getMain bound = case Map.lookup "main" bound of
+    Nothing -> fail "no main method found"
+    Just main -> convertPT <$> debruijinize [] main
+
