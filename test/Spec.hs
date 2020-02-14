@@ -276,14 +276,14 @@ testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
           deserialized = unsafeDeserialize serialized
 
 unitTest :: String -> String -> IExpr -> Spec
-unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroTypeP iexpr)
+unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroTypeP (fromSIL iexpr))
   then do
     result <- (show . PrettyIExpr) <$> testEval iexpr
     result `shouldBe` expected
-  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroTypeP iexpr)])
+  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroTypeP (fromSIL iexpr))])
 
 unitTestRefinement :: String -> Bool -> IExpr -> Spec
-unitTestRefinement name shouldSucceed iexpr = it name $ case inferType iexpr of
+unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromSIL iexpr) of
   Right t -> case (pureEval iexpr, shouldSucceed) of
     (Left err, True) -> do
       expectationFailure $ concat [name, ": failed refinement type -- ", show err]
@@ -364,13 +364,40 @@ unitTests_ parse = do
       unitTest2 = unitTest2' parse
       unitTestRuntime = unitTestRuntime' parse
       unitTestSameResult = unitTestSameResult' parse
+  unitTestType "main = \\x -> {x,0}" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+  unitTestType "main = \\x -> {x,0}" ZeroTypeP isInconsistentType
+  unitTestType "main = succ 0" ZeroTypeP (== Nothing)
+  unitTestType "main = succ 0" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
+  unitTestType "main = or 0" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+  unitTestType "main = or 0" ZeroTypeP isInconsistentType
+  unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
+  unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
+  unitTestType "main = 0 0" ZeroTypeP isInconsistentType
+  unitTestType "main = (if 0 then (\\x -> {x,0}) else (\\x -> {x,1})) 0" ZeroTypeP (== Nothing)
+  -- I guess this is inconsistently typed now?
+  unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
+    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  unitTestType "main = (\\f -> f 0) (\\g -> {g,0})" ZeroTypeP (== Nothing)
+  unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
   {-
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "{0,{2,{3,{4,{4,{5,{6,{7,{7,{8,10}}}}}}}}}}"
 -}
+  {-
   unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
   unitTest2 "main = c2d (minus $2 $1)" "1"
   unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0"
+-}
   {-
   unitTest2 "main = $3 ($2 succ) 0" "6"
   unitTest "3*2" "6" three_times_two
@@ -409,11 +436,11 @@ isRecursiveType (Just (RecursiveType _)) = True
 isRecursiveType _ = False
 
 unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
-unitTestTypeP iexpr expected = if inferType iexpr == expected
+unitTestTypeP iexpr expected = if inferType (fromSIL iexpr) == expected
   then pure True
   else do
   putStrLn $ concat ["type inference error ", show iexpr, " expected ", show expected
-                    , " result ", show (inferType iexpr)
+                    , " result ", show (inferType $ fromSIL iexpr)
                     ]
   pure False
 
@@ -619,14 +646,14 @@ unitTest2' parse s r = it s $ case parse s of
 
 unitTestType' parse s t tef = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> let apt = typeCheck t g
+  Right g -> let apt = typeCheck t $ fromSIL g
              in if tef apt
                 then pure ()
                 else expectationFailure $
                       concat [s, " failed typecheck, result ", show apt]
 
 unitTestType2 i t tef = it ("type check " <> show i) $
-  let apt = typeCheck t i
+  let apt = typeCheck t $ fromSIL i
   in if tef apt
      then pure ()
      else expectationFailure $ concat [show i, " failed typecheck, result ", show apt]
@@ -655,7 +682,11 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
-    parse = fmap sizeTerm . parseMain prelude
+    -- parse = fmap findChurchSize . parseMain prelude
+    parse term = case fmap (toSIL . findChurchSize) (parseMain prelude term) of
+      Right (Just term) -> pure term
+      Right Nothing -> Left "grammar conversion error"
+      Left x -> Left $ show x
   {-
     unitTestP s g = case parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]

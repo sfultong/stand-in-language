@@ -78,7 +78,7 @@ instance Arbitrary TestIExpr where
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 
-typeable x = case inferType (getIExpr x) of
+typeable x = case inferType (fromSIL $ getIExpr x) of
   Left _ -> False
   _ -> True
 
@@ -86,13 +86,13 @@ instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
   shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
 
-zeroTyped x = inferType (getIExpr x) == Right ZeroTypeP
+zeroTyped x = inferType (fromSIL $ getIExpr x) == Right ZeroTypeP
 
 instance Arbitrary ZeroTypedTestIExpr where
   arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
   shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
 
-simpleArrowTyped x = inferType (getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
+simpleArrowTyped x = inferType (fromSIL $ getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
 
 instance Arbitrary ArrowTypedTestIExpr where
   arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped

@@ -48,6 +48,7 @@ import qualified LLVM.Relocation as Reloc
 import qualified LLVM.Target as Target
 
 import Naturals
+import SIL (FragIndex)
 
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 

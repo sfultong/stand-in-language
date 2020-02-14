@@ -1,26 +1,22 @@
-{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
 module SIL.Parser where
 
-import Control.Monad.State
 import Data.Char
 import Data.List (elemIndex)
 import Data.Map (Map)
 import Debug.Trace
-import qualified Data.Map as Map
-import SIL
-import SIL.TypeChecker
 import Text.Parsec
 import Text.Parsec.Indent
 import Text.Parsec.Pos
+import qualified Control.Monad.State as State
+import qualified Data.Map as Map
 import qualified Text.Parsec.Token as Token
 
-data Void
+import SIL
+import SIL.TypeChecker
 
 type VarList = [String]
-type Term1 = ParserTerm (Either () String) Void (Either Int String)
-type Term2 = ParserTerm () Void Int
-type Term3 = ParserTerm () IExpr Int
+--type Term3 = ParserTerm () IExpr Int
 type Bindings = Map String Term1
 
 data ParserState = ParserState
@@ -31,28 +27,6 @@ addBound :: String -> Term1 -> ParserState -> Maybe ParserState
 addBound name expr (ParserState bound) = if Map.member name bound
   then Nothing
   else pure $ ParserState (Map.insert name expr bound)
-
-data LamType t
-  = Open t
-  | Closed t
-  deriving (Eq, Show, Ord)
-
-data ParserTerm l x v
-  = TZero
-  | TPair (ParserTerm l x v) (ParserTerm l x v)
-  | TVar v
-  | TApp (ParserTerm l x v) (ParserTerm l x v)
-  | TCheck (ParserTerm l x v) (ParserTerm l x v)
-  | TITE (ParserTerm l x v) (ParserTerm l x v) (ParserTerm l x v)
-  | TLeft (ParserTerm l x v)
-  | TRight (ParserTerm l x v)
-  | TTrace (ParserTerm l x v)
-  | TLam (LamType l) (ParserTerm l x v)
-  | TLimitedRecursion
-  | TTransformedGrammar x
-  deriving (Eq, Show, Ord, Functor)
-
--- data SizedTerm = SizedTerm Term2 Int
 
 i2t :: Int -> ParserTerm l x v
 i2t 0 = TZero
@@ -68,7 +42,7 @@ i2c :: Int -> Term1
 i2c x =
   let inner 0 = TVar $ Left 0
       inner x = TApp (TVar $ Left 1) (inner $ x - 1)
-  in TLam (Open (Left ())) (TLam (Open (Left ())) (inner x))
+  in TLam (Closed (Left ())) (TLam (Open (Left ())) (inner x))
 
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ TZero = pure TZero
@@ -90,6 +64,28 @@ debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n :
 debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ TLimitedRecursion = pure TLimitedRecursion
 
+splitExpr' :: Term2 -> BreakState' BreakExtras
+splitExpr' = \case
+  TZero -> pure ZeroF
+  TPair a b -> PairF <$> splitExpr' a <*> splitExpr' b
+  TVar n -> pure $ varNF n
+  TApp c i -> appF (splitExpr' c) (splitExpr' i)
+  TCheck c tc ->
+    let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
+    in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
+  TITE i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
+  TLeft x -> LeftF <$> splitExpr' x
+  TRight x -> RightF <$> splitExpr' x
+  TTrace x -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
+  TLam (Open ()) x -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
+  TLam (Closed ()) x -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
+  TLimitedRecursion -> pure $ AuxF UnsizedRecursion
+
+splitExpr :: Term2 -> Term3
+splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.empty)
+              in Term3 $ Map.insert (FragIndex 0) bf m
+
+{-
 convertPT :: Int -> Term3 -> IExpr
 convertPT cn = let recur = convertPT cn in \case
   TZero -> zero
@@ -105,6 +101,29 @@ convertPT cn = let recur = convertPT cn in \case
   TLam (Closed ()) x -> completeLam $ recur x
   TLimitedRecursion -> partialFix $ toChurch cn
   TTransformedGrammar x -> x
+-}
+
+convertPT :: Int -> Term3 -> Term4
+convertPT n (Term3 termMap) =
+  let changeTerm = \case
+        AuxF UnsizedRecursion -> partialFixF n
+        ZeroF -> pure ZeroF
+        PairF a b -> PairF <$> changeTerm a <*> changeTerm b
+        EnvF -> pure EnvF
+        SetEnvF x -> SetEnvF <$> changeTerm x
+        DeferF fi -> pure $ DeferF fi
+        AbortF -> pure AbortF
+        GateF l r -> GateF <$> changeTerm l <*> changeTerm r
+        LeftF x -> LeftF <$> changeTerm x
+        RightF x -> RightF <$> changeTerm x
+        TraceF -> pure TraceF
+      mmap = traverse changeTerm termMap
+      startKey = succ . fst $ Map.findMax termMap
+      newMapBuilder = do
+        changedTermMap <- mmap
+        State.modify (\(i,m) -> (i, Map.union changedTermMap m))
+      (_,newMap) = State.execState newMapBuilder (startKey, Map.empty)
+  in Term4 newMap
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
@@ -265,16 +284,17 @@ parseTopLevel = do
   (ParserState bound) <- getState
   pure bound
 
-debugIndent i = show $ runState i (initialPos "debug")
+debugIndent i = show $ State.runState i (initialPos "debug")
 
 parsePrelude = parseWithPrelude Map.empty
+
 
 parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState prelude
                            in runIndentParser parseTopLevel startState "sil"
 
-parseMain :: Bindings -> String -> Either ParseError Term2
+parseMain :: Bindings -> String -> Either ParseError Term3
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"
-    Just main -> debruijinize [] main
+    Just main -> splitExpr <$> debruijinize [] main

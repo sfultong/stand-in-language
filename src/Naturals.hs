@@ -40,7 +40,7 @@ data NaturalType
   | UnknownN
   deriving (Eq, Ord, Show)
 
-newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
+--newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 newtype TypeIndex = TypeIndex { unTypeIndex :: Int } deriving (Eq, Show, Ord, Enum)
 
 instance Binary FragIndex

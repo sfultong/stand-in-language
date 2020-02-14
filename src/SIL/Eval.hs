@@ -82,17 +82,10 @@ partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
 partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 
-eval' :: IExpr -> Either EvalError IExpr
-eval' expr = case inferType expr of
-  Left err -> Left $ TCE err
-  {-
-  Right _ -> case partiallyEvaluate (snd $ annotateEnv expr) of
-    Left err -> Left $ RTE err
-    Right x -> pure x
--}
-  Right _ -> pure expr
+eval' :: IExpr -> Either String IExpr
+eval' = pure
 
-findChurchSize :: Term3 -> IExpr
+findChurchSize :: Term3 -> Term4
 {-
 findChurchSize term =
   let abortsAt i = (\(PResult (_, b)) -> b) . fix pEval PZero . fromSIL $ convertPT i term
@@ -105,6 +98,7 @@ findChurchSize term =
 -}
 findChurchSize = convertPT 255
 
+{-
 findAllSizes :: Term2 -> (Bool, Term3)
 findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
                    doChild (_, x) = TTransformedGrammar $ convertPT 0 x
@@ -125,22 +119,11 @@ findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
   TTrace x -> TTrace <$> findAllSizes x
   TLam lt x -> TLam lt <$> findAllSizes x
   TLimitedRecursion -> (True, TLimitedRecursion)
-
-sizeTerm :: Term2 -> IExpr
-sizeTerm = findChurchSize . snd . findAllSizes
+-}
 
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
-  \b -> sizeTerm <$> debruijinize [] b
-
-printBindingTypes :: Bindings -> IO ()
-printBindingTypes bindings =
-  let showType (s, iexpr) = putStrLn $ case inferType iexpr of
-        Left pa -> concat [s, ": bad type -- ", show pa]
-        Right ft ->concat [s, ": ", show . PrettyPartialType $ ft]
-      resolvedBindings = mapM (\(s, b) -> debruijinize [] b >>=
-                                (\b -> pure (s, sizeTerm b))) $ Map.toList bindings
-  in resolvedBindings >>= mapM_ showType
+  ((>>= toSIL) . fmap (findChurchSize . splitExpr) . debruijinize [])
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of

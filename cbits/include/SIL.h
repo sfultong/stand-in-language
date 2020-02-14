@@ -62,11 +62,13 @@ typedef struct SIL_Defer{
     sil_type type;
     void * value; 
 } SIL_Defer;
-typedef struct SIL_Abort{
-    sil_type type;
-    void * value; 
-} SIL_Abort;
-typedef struct SIL_Gate{} SIL_Gate;
+typedef struct SIL_Abort{} SIL_Abort;
+typedef struct SIL_Gate{
+  sil_type left_type;
+  sil_type right_type;
+  void * left_value;
+  void * right_value;
+} SIL_Gate;
 typedef struct SIL_PLeft{
     sil_type type;
     void * value; 
@@ -75,10 +77,7 @@ typedef struct SIL_PRight{
     sil_type type;
     void * value; 
 } SIL_PRight;
-typedef struct SIL_Trace{
-    sil_type type;
-    void * value; 
-} SIL_Trace;
+typedef struct SIL_Trace{} SIL_Trace;
 
 /**
  * @brief SIL_Stack nodes.

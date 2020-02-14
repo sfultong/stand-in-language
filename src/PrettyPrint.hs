@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module PrettyPrint where
 
 import SIL
@@ -101,3 +102,27 @@ showNExprs :: NExprs -> String
 showNExprs (NExprs m) = concatMap
   (\((FragIndex k),(v)) -> concat [show k, " ", showOneNExpr 80 2 v, "\n"])
   $ Map.toList m
+
+-- termMap, function->type lookup, root frag type
+data TypeDebugInfo = TypeDebugInfo Term3 (FragIndex -> PartialType) PartialType
+
+showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
+  let showFrag (FragIndex i) ty frag = show i <> ": " <> show (PrettyPartialType ty) <> "\n" <> showExpr 80 2 frag
+      showExpr l i =
+        let recur = showExpr l i
+            showTwo c a b =
+              concat [c, "\n", indent i, showExpr l (i + 1) a, "\n", indent i, showExpr l (i + 1) b]
+        in \case
+          ZeroF -> "Z"
+          PairF a b -> showTwo "P" a b
+          EnvF -> "E"
+          SetEnvF x -> "S " <> recur x
+          DeferF (FragIndex ind) -> "[" <> show ind <> "]"
+          AbortF -> "A"
+          GateF l r -> showTwo "G" l r
+          LeftF x -> "L " <> recur x
+          RightF x -> "R " <> recur x
+          TraceF -> "T"
+          AuxF _ -> "?"
+  in showFrag (FragIndex 0) rootType (rootFrag termMap) <> "\n"
+     <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail $ Map.toAscList termMap)

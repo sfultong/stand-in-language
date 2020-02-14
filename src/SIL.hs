@@ -1,12 +1,23 @@
+{-# LANGUAGE DeriveFunctor #-}
+{-#LANGUAGE DeriveGeneric#-}
+{-#LANGUAGE DeriveAnyClass#-}
+{-#LANGUAGE GeneralizedNewtypeDeriving#-}
+{-#LANGUAGE LambdaCase #-}
 {-#LANGUAGE PatternSynonyms #-}
 {-#LANGUAGE ViewPatterns #-}
-{-#LANGUAGE LambdaCase #-}
 module SIL where
 
 import Control.DeepSeq
 import Control.Monad.Except
-import Control.Monad.State.Lazy
+import Control.Monad.State (State)
 import Data.Char
+import Data.Map (Map)
+import GHC.Generics
+
+import qualified Data.Map as Map
+import qualified Control.Monad.State as State
+
+data Void
 
 -- if classes were categories, this would be an EndoFunctor?
 class EndoMapper a where
@@ -74,7 +85,56 @@ getA (PLeftA _ a) = a
 getA (PRightA _ a) = a
 getA (TraceA a) = a
 
+data LamType t
+  = Open t
+  | Closed t
+  deriving (Eq, Show, Ord)
+
+-- we can probably get rid of x
+data ParserTerm l x v
+  = TZero
+  | TPair (ParserTerm l x v) (ParserTerm l x v)
+  | TVar v
+  | TApp (ParserTerm l x v) (ParserTerm l x v)
+  | TCheck (ParserTerm l x v) (ParserTerm l x v)
+  | TITE (ParserTerm l x v) (ParserTerm l x v) (ParserTerm l x v)
+  | TLeft (ParserTerm l x v)
+  | TRight (ParserTerm l x v)
+  | TTrace (ParserTerm l x v)
+  | TLam (LamType l) (ParserTerm l x v)
+  | TLimitedRecursion
+  | TTransformedGrammar x
+  deriving (Eq, Show, Ord, Functor)
+
+newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
+
+data FragExpr a
+  = ZeroF
+  | PairF (FragExpr a) (FragExpr a)
+  | EnvF
+  | SetEnvF (FragExpr a)
+  | DeferF FragIndex
+  | AbortF
+  | GateF (FragExpr a) (FragExpr a)
+  | LeftF (FragExpr a)
+  | RightF (FragExpr a)
+  | TraceF
+  | AuxF a
+  deriving (Eq, Ord, Show)
+
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
+
+data BreakExtras
+  = UnsizedRecursion
+
+type Term1 = ParserTerm (Either () String) Void (Either Int String)
+type Term2 = ParserTerm () Void Int
+newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras))
+newtype Term4 = Term4 (Map FragIndex (FragExpr Void))
+
+type BreakState a = State (FragIndex, Map FragIndex (FragExpr a))
+
+type BreakState' a = BreakState a (FragExpr a)
 
 type IndExpr = ExprA EIndex
 
@@ -148,6 +208,9 @@ class SILLike a where
 class SILLike a => AbstractRunTime a where
   eval :: a -> RunResult a
 
+rootFrag :: Map FragIndex a -> a
+rootFrag = (Map.! FragIndex 0)
+
 -- TODO get rid of these and use bidirectional pattern matching
 zero :: IExpr
 zero = Zero
@@ -192,6 +255,9 @@ varN :: Int -> IExpr
 varN n = pleft (iterate pright env !! n)
 partialFix :: IExpr -> IExpr
 partialFix = PartialFix (s2g "recursion depth limit exceeded")
+
+varNF :: Int -> FragExpr a
+varNF n = LeftF (iterate RightF EnvF !! n)
 
 -- make sure these patterns are in exact correspondence with the shortcut functions above
 pattern FirstArg :: IExpr
@@ -257,6 +323,38 @@ pattern ToChurch <-
       (Lam (Lam (Lam FirstArg)))
     )
 
+deferF :: BreakState' a -> BreakState' a
+deferF x = do
+  bx <- x
+  (fi@(FragIndex i), fragMap) <- State.get
+  State.put (FragIndex (i + 1), Map.insert fi bx fragMap)
+  pure $ DeferF fi
+
+appF :: BreakState' a -> BreakState' a -> BreakState' a
+appF c i =
+  let twiddleF = deferF $ pure (PairF (LeftF (RightF EnvF)) (PairF (LeftF EnvF) (RightF (RightF EnvF))))
+  in (\tf p -> SetEnvF (SetEnvF (PairF tf p))) <$> twiddleF <*> (PairF <$> i <*> c)
+
+lamF :: BreakState' a -> BreakState' a
+lamF x = (\f -> PairF f EnvF) <$> deferF x
+
+clamF :: BreakState' a -> BreakState' a
+clamF x = (\f -> PairF f ZeroF) <$> deferF x
+
+toChurchF :: Int -> BreakState' a
+toChurchF x' =
+  let inner 0 = pure $ LeftF EnvF
+      inner x = appF (pure $ LeftF (RightF EnvF)) (inner (x - 1))
+  in lamF (lamF (inner x'))
+
+partialFixF :: Int -> BreakState' a
+partialFixF i =
+  let firstArgF = pure $ LeftF EnvF
+      secondArgF = pure $ LeftF (RightF EnvF)
+      abortMessage = s2gF "recursion depth limit exceeded ~"
+      abrt = SetEnvF . PairF AbortF <$> abortMessage
+  in clamF (lamF (appF (appF (toChurchF i) secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
+
 pattern FirstArgA :: ExprA a
 pattern FirstArgA <- PLeftA (EnvA _) _
 pattern SecondArgA :: ExprA a
@@ -287,6 +385,12 @@ pattern PlusA :: ExprA a -> ExprA a -> ExprA a
 pattern PlusA m n <- LamA (LamA (AppA (AppA m SecondArgA) (AppA (AppA n SecondArgA) FirstArgA)))
 pattern MultA :: ExprA a -> ExprA a -> ExprA a
 pattern MultA m n <- LamA (AppA m (AppA n FirstArgA))
+
+{-
+pattern AppF :: FragExpr a -> FragExpr a -> FragExpr a
+pattern AppF c i = SetEnvF (SetEnvF (PairF (DeferF (PairF (LeftF (RightF EnvF)) (PairF (LeftF EnvF) (RightF (RightF EnvF)))))
+                                    (PairF i c)))
+-}
 
 data DataType
   = ZeroType
@@ -390,6 +494,16 @@ toChurch x =
       inner x = app (PLeft $ PRight Env) (inner (x - 1))
   in lam (lam (inner x))
 
+i2gF :: Int -> BreakState' a
+i2gF 0 = pure ZeroF
+i2gF n = PairF <$> i2gF (n - 1) <*> pure ZeroF
+
+ints2gF :: [Int] -> BreakState' a
+ints2gF = foldr (\i g -> PairF <$> i2gF i <*> g) (pure ZeroF)
+
+s2gF :: String -> BreakState' a
+s2gF = ints2gF . map ord
+
 -- convention is numbers are left-nested pairs with zero on right
 isNum :: IExpr -> Bool
 isNum Zero = True
@@ -397,7 +511,7 @@ isNum (Pair n Zero) = isNum n
 isNum _ = False
 
 nextI :: State EIndex EIndex
-nextI = state $ \(EIndex n) -> (EIndex n, EIndex (n + 1))
+nextI = State.state $ \(EIndex n) -> (EIndex n, EIndex (n + 1))
 
 toIndExpr :: IExpr -> State EIndex IndExpr
 toIndExpr Zero = ZeroA <$> nextI
@@ -412,7 +526,7 @@ toIndExpr (PRight x) = PRightA <$> toIndExpr x <*> nextI
 toIndExpr Trace = TraceA <$> nextI
 
 toIndExpr' :: IExpr -> IndExpr
-toIndExpr' x = evalState (toIndExpr x) (EIndex 0)
+toIndExpr' x = State.evalState (toIndExpr x) (EIndex 0)
 
 instance SILLike (ExprT a) where
   fromSIL = \case
@@ -438,3 +552,45 @@ instance SILLike (ExprT a) where
     RightT x -> PRight <$> toSIL x
     TraceT -> pure Trace
     TagT x _ -> toSIL x -- just elide tags
+
+silToFragmap :: IExpr -> Map FragIndex (FragExpr a)
+silToFragmap expr = Map.insert (FragIndex 0) bf m where
+    (bf, (_,m)) = State.runState (convert expr) (FragIndex 1, Map.empty)
+    convert = \case
+      Zero -> pure ZeroF
+      Pair a b -> PairF <$> convert a <*> convert b
+      Env -> pure EnvF
+      SetEnv x -> SetEnvF <$> convert x
+      Defer x -> do
+        bx <- convert x
+        (fi@(FragIndex i), fragMap) <- State.get
+        State.put (FragIndex (i + 1), Map.insert fi bx fragMap)
+        pure $ DeferF fi
+      Abort -> pure AbortF
+      Gate l r -> GateF <$> convert l <*> convert r
+      PLeft x -> LeftF <$> convert x
+      PRight x -> RightF <$> convert x
+      Trace -> pure TraceF
+
+fragmapToSIL :: Map FragIndex (FragExpr a) -> Maybe IExpr
+fragmapToSIL fragMap = convert (rootFrag fragMap) where
+    convert = \case
+      ZeroF -> pure Zero
+      PairF a b -> Pair <$> convert a <*> convert b
+      EnvF -> pure Env
+      SetEnvF x -> SetEnv <$> convert x
+      DeferF ind -> Defer <$> (Map.lookup ind fragMap >>= convert)
+      AbortF -> pure Abort
+      GateF l r -> Gate <$> convert l <*> convert r
+      LeftF x -> PLeft <$> convert x
+      RightF x -> PRight <$> convert x
+      TraceF -> pure Trace
+      AuxF _ -> Nothing
+
+instance SILLike Term3 where
+  fromSIL = Term3 . silToFragmap
+  toSIL (Term3 fragMap) = fragmapToSIL fragMap
+
+instance SILLike Term4 where
+  fromSIL = Term4 . silToFragmap
+  toSIL (Term4 fragMap) = fragmapToSIL fragMap
