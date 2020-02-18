@@ -200,11 +200,11 @@ parseApplied = RM.withPos $ do
 
 parseLongExpr :: SILParser Term1
 parseLongExpr = RM.choice [ parseLet
-                       , parseITE
-                       , parseLambda
-                       , parseCompleteLambda
-                       , parseApplied
-                       ]
+                          , parseITE
+                          , parseLambda
+                          , parseCompleteLambda
+                          , parseApplied
+                          ]
 
 parseLambda :: SILParser Term1
 parseLambda = do

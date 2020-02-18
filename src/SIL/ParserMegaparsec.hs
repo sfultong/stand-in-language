@@ -257,18 +257,43 @@ parseNumber = (i2t . fromInteger) <$> integer
 --            ([b] -> m a)
 --            (m b)
 
--- |Parse a Pair.
+-- -- |Parse a Pair.
+-- parsePair :: SILParser Term1
+-- parsePair = braces $ do
+--   -- many scn
+--   a <- parseLongExpr
+--   L.indentBlock scn (pa <?> "pair: ,")
+--   b <- parseLongExpr
+--   L.indentBlock scn (pb <?> "pair: }")
+--   return $ TPair a b
+--     where
+--       pa = return $ L.IndentMany Nothing (\x -> return ()) (symbol "," <* many sc)
+--       pb = return $ L.IndentMany Nothing (\x -> return ()) (many sc)
+
+-- parsePair :: SILParser Term1
+-- parsePair = braces $ do
+--   a <- L.indentBlock scn p
+--   symbol ","
+--   b <- L.indentBlock scn p
+--   return  $ TPair a b
+--     where
+--       p = return $ L.IndentMany Nothing (return . head) parseString
+
 parsePair :: SILParser Term1
 parsePair = braces $ do
-  many scn
+  -- a <- L.indentBlock scn p
+  scn
   a <- parseLongExpr
-  L.indentBlock scn (pa <?> "pair: ,")
+  scn
+  symbol ","
+  scn
+  -- b <- L.indentBlock scn p
   b <- parseLongExpr
-  L.indentBlock scn (pb <?> "pair: }")
+  scn
   return $ TPair a b
-    where
-      pa = return $ L.IndentMany Nothing (\x -> return ()) (symbol "," <* many sc)
-      pb = return $ L.IndentMany Nothing (\x -> return ()) (many sc)
+    -- where
+    --   p = return $ L.IndentMany Nothing (\x -> return . head $ x) parseString
+
 
 -- |Parse a list.
 parseList :: SILParser Term1
@@ -285,19 +310,49 @@ parseList = do
 --   RM.sameOrIndented <* reserved "else" RM.<?> "ITE: else"
 --   elseExpr <- parseLongExpr
 --   return $ TITE cond thenExpr elseExpr
+-- -- |Parse ITE (which stands for "if then else").
+-- parseITE :: SILParser Term1
+-- parseITE = do
+--   reserved "if"
+--   cond <- parseLongExpr
+--   L.indentBlock scn (pt <?> "ITE: then")
+--   thenExpr <- parseLongExpr
+--   L.indentBlock scn (pe <?> "ITE: else")
+--   elseExpr <- parseLongExpr
+--   return $ TITE cond thenExpr elseExpr
+--     where
+--       pt = return $ L.IndentMany Nothing (\x -> return ()) (reserved "then" <* many sc)
+--       pe = return $ L.IndentMany Nothing (\x -> return ()) (reserved "else" <* many sc)
+
+testITE = unlines $
+  [ "if"
+  ,     "\"0\""
+  , "   then \"1\""
+  , "   else \"2\""]
+
+-- parseIf :: Parser Term1
+-- parseIf = L.indentBlock scn $ do
+--   reserved "if"
+--   cond <- parseString
+--   return (L.IndentMany Nothing (return cond))
+
 -- |Parse ITE (which stands for "if then else").
 parseITE :: SILParser Term1
 parseITE = do
-  reserved "if"
-  cond <- parseLongExpr
-  L.indentBlock scn (pt <?> "ITE: then")
-  thenExpr <- parseLongExpr
-  L.indentBlock scn (pe <?> "ITE: else")
-  elseExpr <- parseLongExpr
+  cond <- L.indentBlock scn $ do
+    reserved "if"
+    return $ L.IndentMany Nothing (\x -> return . head $ x) parseString
+  thenExpr <- L.indentBlock scn $ do
+    reserved "then"
+    return $ L.IndentMany Nothing (\x -> return . head $ x) parseString
+  elseExpr <- L.indentBlock scn $ do
+    reserved "else"
+    return $ L.IndentMany Nothing (\x -> return . head $ x) parseString
   return $ TITE cond thenExpr elseExpr
-    where
-      pt = return $ L.IndentMany Nothing (\x -> return ()) (reserved "then" <* many sc)
-      pe = return $ L.IndentMany Nothing (\x -> return ()) (reserved "else" <* many sc)
+    -- where
+    --   pt = return $ L.IndentMany Nothing (\x -> return ()) (reserved "then" <* sc)
+    --   pe = return $ L.IndentMany Nothing (\x -> return ()) (reserved "else" <* sc)
+
 
 parsePLeft :: SILParser Term1
 parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
@@ -426,10 +481,12 @@ debugIndent i = show $ runState i (initialPos "debug")
 runSILParser :: Show a => SILParser a -> String -> IO ()
 runSILParser parser str = do
   let p            = runStateT parser $ ParserState (Map.empty)
-      Right (a, s) = runParser p "" str
-  putStrLn ("Result:      " ++ show a)
-  putStrLn ("Final state: " ++ show s)
-;
+  case runParser p "" str of
+    Right (a, s) -> do
+      putStrLn ("Result:      " ++ show a)
+      putStrLn ("Final state: " ++ show s)
+    Left e -> putStr (errorBundlePretty e)
+  
 -- parseWithPrelude :: Bindings -> String -> Either RM.ParseError Bindings
 -- parseWithPrelude prelude = let startState = ParserState prelude
 --                            in RM.runIndentParser parseTopLevel startState "sil"

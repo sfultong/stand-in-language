@@ -1,2 +1,5 @@
 main
- = #input -> {"Hello, World!", 0}
+ = #input -> {
+               "Hello World!"
+              , 0
+              }
