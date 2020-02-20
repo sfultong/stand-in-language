@@ -32,7 +32,9 @@ library
                      , SIL.Eval
                      , SIL.Llvm
                      , SIL.Optimizer
-                     -- , SIL.ParserMegaparsec
+                     -- rename
+                     , SIL.ParserMegaparsec
+                     -- errase
                      , SIL.Parser
                      , SIL.RunTime
                      , SIL.TypeChecker
@@ -57,6 +59,7 @@ library
                      , llvm-hs-pure
                      , text
                      , megaparsec
+                     , strict
   extra-libraries:     gc
                      , jumper
   extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib

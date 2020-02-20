@@ -185,7 +185,7 @@ rws = ["let", "in", "right", "left", "trace", "if", "then", "else"]
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
 identifier :: SILParser String
-identifier = lexeme $ p >>= check
+identifier = (lexeme . try) $ p >>= check
     where
       p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
       check x = if x `elem` rws
@@ -279,13 +279,6 @@ parseNumber = (i2t . fromInteger) <$> integer
 --     where
 --       p = return $ L.IndentMany Nothing (return . head) parseString
 
-testPair = unlines
-  [ "{"
-  , " \"Hello World!\""
-  , ", \"0\""
-  , "}"
-  ]
-
 parsePair :: SILParser Term1
 parsePair = braces $ do
   scn
@@ -334,25 +327,6 @@ parseList = do
 --   cond <- parseString
 --   return (L.IndentMany Nothing (return cond))
 
-
-
-
--- - 1
---   - a
-
--- - 1
---   - a
---   - b
---   - c
-
-
-testITE = unlines $
-  [ "  if"
-  , "    \"0\""
-  , " then \"1\""
-  , "  else"
-  , "    \"2\""]
-
 -- -- |Parse ITE (which stands for "if then else").
 -- parseITE :: SILParser Term1
 -- parseITE = do
@@ -374,24 +348,23 @@ parseITE = do
   posIf <- L.indentLevel
   reserved "if"
   scn
-  cond <- parseString
+  cond <- parseLongExpr
   scn
   posThen <- L.indentLevel
   reserved "then"
   scn
-  thenExpr <- parseString
+  thenExpr <- parseLongExpr
   scn
   posElse <- L.indentLevel
   reserved "else"
   scn
-  elseExpr <- parseString
+  elseExpr <- parseLongExpr
   scn
   case posIf > posThen of
     True -> L.incorrectIndent GT posIf posThen -- This should be GT or EQ
     False -> case posIf > posElse of
       True -> L.incorrectIndent GT posIf posElse -- This should be GT or EQ
       False -> return $ TITE cond thenExpr elseExpr
-
 
 parsePLeft :: SILParser Term1
 parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
@@ -403,17 +376,17 @@ parseTrace :: SILParser Term1
 parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
 
 parseSingleExpr :: SILParser Term1
-parseSingleExpr = choice [ parseString
-                         , parseNumber
-                         , parsePair
-                         , parseList
-                         , parsePLeft
-                         , parsePRight
-                         , parseTrace
-                         , parseChurch
-                         , parseVariable
-                         , parens parseLongExpr
-                         ]
+parseSingleExpr = choice $ try <$> [ parseString
+                                   , parseNumber
+                                   , parsePair
+                                   , parseList
+                                   , parsePLeft
+                                   , parsePRight
+                                   , parseTrace
+                                   , parseChurch
+                                   , parseVariable
+                                   , parens parseLongExpr
+                                   ]
 
 --   reserved "else"
 --   elseExpr <- L.lineFold scn $ \sc' ->
@@ -448,31 +421,35 @@ parseApplied = do
 --   return $ foldr TNamedLam iexpr variables
 parseLambda :: SILParser Term1
 parseLambda = do
-  reserved "\\"
+  symbol "\\"
+  scn
   variables <- some identifier
-  L.indentBlock scn (p <?> "lambda ->")
+  scn
+  symbol "->"
+  scn
   -- TODO make sure lambda names don't collide with bound names
   iexpr <- parseLongExpr
   return $ foldr TNamedLam iexpr variables
-    where
-      p = return $ L.IndentMany Nothing (\x -> return ()) (reserved "->")
+    -- where
+    --   p = return $ L.IndentMany Nothing (\x -> return ()) (reserved "->")
 
+-- parseCompleteLambda :: SILParser Term1
+-- parseCompleteLambda = do
+--   reservedOp "#"
+--   variables <- RM.many1 identifier
+--   RM.sameOrIndented <* reservedOp "->" RM.<?> "lambda ->"
+--   iexpr <- parseLongExpr
+--   return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
 parseCompleteLambda :: SILParser Term1
 parseCompleteLambda = do
-  reservedOp "#"
-  variables <- RM.many1 identifier
-  RM.sameOrIndented <* reservedOp "->" RM.<?> "lambda ->"
-  iexpr <- parseLongExpr
-  return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
-parseCompleteLambda :: SILParser Term1
-parseCompleteLambda = do
-  reserved "#"
+  symbol "#"
   variables <- some identifier
-  L.indentBlock scn (p <?> "lambda ->")
+  scn
+  symbol "->"
+  scn
   iexpr <- parseLongExpr
+  scn
   return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
-    where
-      p = return $ L.IndentMany Nothing (\x -> return ()) (reserved "->")
 
 -- parseLet :: SILParser Term1
 -- parseLet = RM.withPos $ do
@@ -486,18 +463,21 @@ parseLet :: SILParser Term1
 parseLet = do
   reserved "let"
   initialState <- get
+  scn
   manyTill parseAssignment (reserved "in")
+  scn
   expr <- parseLongExpr
+  scn
   put initialState
   pure expr
 
 parseLongExpr :: SILParser Term1
-parseLongExpr = choice [ parseLet
-                       , parseITE
-                       , parseLambda
-                       , parseCompleteLambda
-                       , parseApplied
-                       ]
+parseLongExpr = choice $ try <$> [ parseLet
+                                 , parseITE
+                                 , parseLambda
+                                 , parseCompleteLambda
+                                 , parseApplied
+                                 ]
 
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (reserved "$" *> integer)
@@ -508,9 +488,11 @@ parseRefinementCheck = flip TCheck <$> (reserved ":" *> parseLongExpr)
 parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
+  scn
   annotation <- optional parseRefinementCheck
   reserved "=" <?> "assignment ="
   expr <- parseLongExpr
+  scn
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr

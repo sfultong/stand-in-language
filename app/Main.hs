@@ -3,8 +3,8 @@ module Main where
 import Data.Char
 import SIL
 --import SIL.Llvm
--- import SIL.ParserMegaparsec
-import SIL.Parser
+import SIL.ParserMegaparsec
+-- import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker (typeCheck, inferType)
 import SIL.Optimizer
