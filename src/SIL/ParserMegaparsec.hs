@@ -279,10 +279,17 @@ parseNumber = (i2t . fromInteger) <$> integer
 --     where
 --       p = return $ L.IndentMany Nothing (return . head) parseString
 
+testPair = unlines
+  [ "{"
+  , " \"Hello World!\""
+  , ", \"0\""
+  , "}"
+  ]
+
 parsePair :: SILParser Term1
 parsePair = braces $ do
-  -- a <- L.indentBlock scn p
   scn
+  -- a <- L.indentBlock scn p
   a <- parseLongExpr
   scn
   symbol ","
@@ -291,9 +298,6 @@ parsePair = braces $ do
   b <- parseLongExpr
   scn
   return $ TPair a b
-    -- where
-    --   p = return $ L.IndentMany Nothing (\x -> return . head $ x) parseString
-
 
 -- |Parse a list.
 parseList :: SILParser Term1
@@ -324,34 +328,69 @@ parseList = do
 --       pt = return $ L.IndentMany Nothing (\x -> return ()) (reserved "then" <* many sc)
 --       pe = return $ L.IndentMany Nothing (\x -> return ()) (reserved "else" <* many sc)
 
-testITE = unlines $
-  [ "if"
-  ,     "\"0\""
-  , "   then \"1\""
-  , "   else \"2\""]
-
 -- parseIf :: Parser Term1
 -- parseIf = L.indentBlock scn $ do
 --   reserved "if"
 --   cond <- parseString
 --   return (L.IndentMany Nothing (return cond))
 
+
+
+
+-- - 1
+--   - a
+
+-- - 1
+--   - a
+--   - b
+--   - c
+
+
+testITE = unlines $
+  [ "  if"
+  , "    \"0\""
+  , " then \"1\""
+  , "  else"
+  , "    \"2\""]
+
+-- -- |Parse ITE (which stands for "if then else").
+-- parseITE :: SILParser Term1
+-- parseITE = do
+--   reserved "if"
+--   cond <- L.lineFold scn $ \sc' ->
+--     parseString `sepBy` try sc' <* scn
+--   reserved "then"
+--   thenExpr <- L.lineFold scn $ \sc' ->
+--     parseString `sepBy` try sc' <* scn
+--   reserved "else"
+--   elseExpr <- L.lineFold scn $ \sc' ->
+--     parseString `sepBy` try sc' <* scn
+--   return $ TITE (head cond) (head thenExpr) (head elseExpr)
+
+-- TODO: make error more descriptive
 -- |Parse ITE (which stands for "if then else").
 parseITE :: SILParser Term1
 parseITE = do
-  cond <- L.indentBlock scn $ do
-    reserved "if"
-    return $ L.IndentMany Nothing (\x -> return . head $ x) parseString
-  thenExpr <- L.indentBlock scn $ do
-    reserved "then"
-    return $ L.IndentMany Nothing (\x -> return . head $ x) parseString
-  elseExpr <- L.indentBlock scn $ do
-    reserved "else"
-    return $ L.IndentMany Nothing (\x -> return . head $ x) parseString
-  return $ TITE cond thenExpr elseExpr
-    -- where
-    --   pt = return $ L.IndentMany Nothing (\x -> return ()) (reserved "then" <* sc)
-    --   pe = return $ L.IndentMany Nothing (\x -> return ()) (reserved "else" <* sc)
+  posIf <- L.indentLevel
+  reserved "if"
+  scn
+  cond <- parseString
+  scn
+  posThen <- L.indentLevel
+  reserved "then"
+  scn
+  thenExpr <- parseString
+  scn
+  posElse <- L.indentLevel
+  reserved "else"
+  scn
+  elseExpr <- parseString
+  scn
+  case posIf > posThen of
+    True -> L.incorrectIndent GT posIf posThen -- This should be GT or EQ
+    False -> case posIf > posElse of
+      True -> L.incorrectIndent GT posIf posElse -- This should be GT or EQ
+      False -> return $ TITE cond thenExpr elseExpr
 
 
 parsePLeft :: SILParser Term1
@@ -376,17 +415,28 @@ parseSingleExpr = choice [ parseString
                          , parens parseLongExpr
                          ]
 
+--   reserved "else"
+--   elseExpr <- L.lineFold scn $ \sc' ->
+--     parseString `sepBy` try sc' <* scn
+--   return $ TITE (head cond) (head thenExpr) (head elseExpr)
+
 -- parseApplied :: SILParser Term1
 -- parseApplied = RM.withPos $ do
 --   (f:args) <- RM.many1 (RM.sameOrIndented *> parseSingleExpr)
 --   pure $ foldl TApp f args
+-- -- |Parse application of functions.
+-- parseApplied :: SILParser Term1
+-- parseApplied = do
+--   (f:args) <- L.indentBlock scn p -- removed the `some` and it type-checked. Maybe won't do what's needed.
+--   pure $ foldl TApp f args
+--     where
+--       p = return $ L.IndentMany Nothing (\x -> return x) parseSingleExpr
 -- |Parse application of functions.
 parseApplied :: SILParser Term1
 parseApplied = do
-  (f:args) <- L.indentBlock scn p -- removed the `some` and it type-checked. Maybe won't do what's needed.
+  (f:args) <- L.lineFold scn $ \sc' ->
+    parseSingleExpr `sepBy` try sc' <* scn
   pure $ foldl TApp f args
-    where
-      p = return $ L.IndentMany Nothing (\x -> return x) parseSingleExpr
 
 -- parseLambda :: SILParser Term1
 -- parseLambda = do
@@ -407,13 +457,13 @@ parseLambda = do
     where
       p = return $ L.IndentMany Nothing (\x -> return ()) (reserved "->")
 
--- parseCompleteLambda :: SILParser Term1
--- parseCompleteLambda = do
---   reservedOp "#"
---   variables <- RM.many1 identifier
---   RM.sameOrIndented <* reservedOp "->" RM.<?> "lambda ->"
---   iexpr <- parseLongExpr
---   return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
+parseCompleteLambda :: SILParser Term1
+parseCompleteLambda = do
+  reservedOp "#"
+  variables <- RM.many1 identifier
+  RM.sameOrIndented <* reservedOp "->" RM.<?> "lambda ->"
+  iexpr <- parseLongExpr
+  return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
 parseCompleteLambda :: SILParser Term1
 parseCompleteLambda = do
   reserved "#"

@@ -1,5 +1,6 @@
 main
- = #input -> {
-               "Hello World!"
-              , 0
-              }
+  = #input
+ -> if 1
+              then
+                 {"Hello, world!", 0}
+                else {"Goodbye, world!", 0}
