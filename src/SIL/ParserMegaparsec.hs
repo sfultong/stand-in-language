@@ -480,7 +480,7 @@ parseLongExpr = choice $ try <$> [ parseLet
                                  ]
 
 parseChurch :: SILParser Term1
-parseChurch = (i2c . fromInteger) <$> (reserved "$" *> integer)
+parseChurch = (i2c . fromInteger) <$> (symbol "$" *> integer)
 
 parseRefinementCheck :: SILParser (Term1 -> Term1)
 parseRefinementCheck = flip TCheck <$> (reserved ":" *> parseLongExpr)

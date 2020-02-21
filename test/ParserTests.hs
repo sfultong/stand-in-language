@@ -85,6 +85,7 @@ runTestParsePrelude = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
+  putStrLn $ show prelude
   putStrLn "Prelude parse successful!"
 
 testParseAssignmentwCLwITEwPair2 = unlines $
