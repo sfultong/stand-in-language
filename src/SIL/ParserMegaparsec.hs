@@ -510,14 +510,24 @@ parseTopLevel = do
 debugIndent i = show $ runState i (initialPos "debug")
 
 -- |Helper function to test parsers
-runSILParser :: Show a => SILParser a -> String -> IO ()
-runSILParser parser str = do
+runSILParser_ :: Show a => SILParser a -> String -> IO ()
+runSILParser_ parser str = do
   let p            = runStateT parser $ ParserState (Map.empty)
   case runParser p "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
       putStrLn ("Final state: " ++ show s)
     Left e -> putStr (errorBundlePretty e)
+
+-- |Helper function to test parsers
+runSILParser :: Show a => SILParser a -> String -> IO String
+runSILParser parser str = do
+  let p            = runStateT parser $ ParserState (Map.empty)
+  case runParser p "" str of
+    Right (a, s) -> do
+      return $ show a
+    Left e -> return $ errorBundlePretty e
+
   
 -- parseWithPrelude :: Bindings -> String -> Either RM.ParseError Bindings
 -- parseWithPrelude prelude = let startState = ParserState prelude

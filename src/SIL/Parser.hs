@@ -266,6 +266,10 @@ parseWithPrelude :: Bindings -> String -> Either RM.ParseError Bindings
 parseWithPrelude prelude = let startState = ParserState prelude
                            in RM.runIndentParser parseTopLevel startState "sil"
 
+runParsecParser :: (SILParser a) -> String -> Either RM.ParseError a
+runParsecParser p = let startState = ParserState Map.empty
+                   in RM.runIndentParser p startState "sil"
+
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
   \b -> convertPT <$> debruijinize [] b

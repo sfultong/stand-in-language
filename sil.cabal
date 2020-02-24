@@ -60,6 +60,8 @@ library
                      , text
                      , megaparsec
                      , strict
+                     , tasty
+                     , tasty-hunit
   extra-libraries:     gc
                      , jumper
   extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
