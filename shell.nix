@@ -40,7 +40,6 @@ with rec {
     };
   });
   simpleShell = haskellPkgs.shellFor { packages = p: [p.sil]; };
-  # oldhp = pkgs.haskellPackages;
 
 }; simpleShell.overrideAttrs (oldAttrs : rec
   { buildInputs = oldAttrs.buildInputs

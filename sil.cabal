@@ -32,9 +32,6 @@ library
                      , SIL.Eval
                      , SIL.Llvm
                      , SIL.Optimizer
-                     -- rename
-                     , SIL.ParserMegaparsec
-                     -- errase
                      , SIL.Parser
                      , SIL.RunTime
                      , SIL.TypeChecker
@@ -64,7 +61,8 @@ library
                      , tasty-hunit
   extra-libraries:     gc
                      , jumper
-  extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
+  -- uncomment this line to get a cabal repl. Use appropiate complete path.
+  -- extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
 
   default-language:    Haskell2010
   
