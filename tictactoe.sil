@@ -1,8 +1,8 @@
 drawPiece
  = #piece alt -> if piece
                     then if left piece
-                             then "O"
-                             else "X"
+                            then "O"
+                            else "X"
                     else alt
 
 drawBoard

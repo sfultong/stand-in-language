@@ -524,20 +524,20 @@ runSILParser :: Show a => SILParser a -> String -> IO String
 runSILParser parser str = do
   let p            = runStateT parser $ ParserState (Map.empty)
   case runParser p "" str of
-    Right (a, s) -> do
-      return $ show a
+    Right (a, s) -> return $ show a
     Left e -> return $ errorBundlePretty e
 
+newtype ErrorString = MkES { getErrorString :: String }
   
 -- parseWithPrelude :: Bindings -> String -> Either RM.ParseError Bindings
 -- parseWithPrelude prelude = let startState = ParserState prelude
 --                            in RM.runIndentParser parseTopLevel startState "sil"
-parseWithPrelude :: Bindings -> String -> Either (ParseErrorBundle String Void) Bindings
+parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
 parseWithPrelude prelude str = let startState = ParserState prelude
                                    p          = runStateT parseTopLevel startState
                                    eitherEB str = case runParser p "" str of
                                      Right (a, s) -> Right a
-                                     Left x       -> Left x
+                                     Left x       -> Left $ MkES $ errorBundlePretty x
                                in eitherEB str
 
 parsePrelude = parseWithPrelude Map.empty
@@ -555,7 +555,7 @@ printBindingTypes bindings =
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showType
 
-parseMain :: Bindings -> String -> Either (ParseErrorBundle String Void) IExpr
+parseMain :: Bindings -> String -> Either ErrorString IExpr
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"

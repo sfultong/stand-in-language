@@ -33,6 +33,8 @@ unitTests = testGroup "Unit tests"
       let Right resParsec' = Parsec.runParsecParser Parsec.parseITE testITE3
           resParsec = show resParsec'
       res `compare` resParsec @?= EQ
+    -- Maybe TODO: Maybe Fix
+    -- Probably thinks "then" is part of an assignment
   , testCase "test ITE 4" $ do
       res <- runTestITE testITE4
       let Right resParsec' = Parsec.runParsecParser Parsec.parseITE testITE4
@@ -77,6 +79,22 @@ unitTests = testGroup "Unit tests"
       let Right resParsec' = Parsec.parseMain Map.empty testMainwCLwITEwPair
           resParsec = show resParsec'
       res `compare` resParsec @?= EQ
+  , testCase "test Megaparsec vs Parsec implementation with tictactoe.sil" $ do
+      preludeFile <- Strict.readFile "Prelude.sil"
+      tictactoe <- Strict.readFile "tictactoe.sil"
+      let megaPrelude = case parsePrelude preludeFile of
+                          Right p -> p
+                          Left pe -> error . getErrorString $ pe
+          parsecPrelude = case Parsec.parsePrelude preludeFile of
+                            Right p -> p
+                            Left pe -> error . show $ pe
+          megaparsecRes = case parseMain megaPrelude $ tictactoe of
+                            Right x -> show x
+                            Left err -> getErrorString err
+          parsecRes = case Parsec.parseMain parsecPrelude $ tictactoe of
+                        Right x -> show x
+                        Left err -> show err
+      megaparsecRes `compare` parsecRes @?= EQ
   ]
 
 runTestPair :: String -> IO String
@@ -152,7 +170,7 @@ runTestParsePrelude = do
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
-      Left pe -> error $ show pe
+      Left pe -> error $ getErrorString pe
   return $ show prelude
 
 testParseAssignmentwCLwITEwPair2 = unlines $
@@ -199,7 +217,6 @@ testParseAssignmentwCLwITEwPair7 = unlines $
   , "             {\"Hello, world!\", 0}"
   , "           else {\"Goodbye, world!\", 0}"
   ]
--- fails
 testParseAssignmentwCLwITEwPair1 = unlines $
   [ "main"
   , "  = #input"
@@ -209,7 +226,6 @@ testParseAssignmentwCLwITEwPair1 = unlines $
   , "     else {\"Goodbye, world!\", 0}"
   ]
 
---fails
 testParseTopLevelwCLwITEwPair = unlines $
   [ "main"
   , "  = #input"
@@ -219,7 +235,6 @@ testParseTopLevelwCLwITEwPair = unlines $
   ,"      else {\"Goodbye, world!\", 0}"
   ]
 
---fails
 testMainwCLwITEwPair = unlines $
   [ "main"
   , "  = #input"
@@ -229,15 +244,29 @@ testMainwCLwITEwPair = unlines $
   ,"      else {\"Goodbye, world!\", 0}"
   ]
 
---fails
 runTestMainwCLwITEwPair = do
   preludeFile <- Strict.readFile "Prelude.sil"
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
-      Left pe -> error $ show pe
-    res = show $ parseMain prelude $ testMainwCLwITEwPair
+      Left pe -> error . getErrorString $ pe
+    res = case parseMain prelude $ testMainwCLwITEwPair of
+      Right x -> show x
+      Left err -> getErrorString err
   return res
+
+testWtictactoe = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  tictactoe <- Strict.readFile "tictactoe.sil"
+  let
+    prelude = case parsePrelude preludeFile of
+      Right p -> p
+      Left pe -> error . getErrorString $ pe
+    res = case parseMain prelude $ tictactoe of
+      Right x -> show x
+      Left err -> getErrorString err
+  return res
+
 
 -- unitTest2' parse s r = it s $ case parse s of
 --   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
