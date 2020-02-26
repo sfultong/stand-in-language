@@ -32,6 +32,13 @@ This proyect is in active development. Do expect bugs and general trouble, and p
    $ cabal v2-run sil-exe
    ```
 
+## Running `cabal new-repl`
+
+There is a known issue (#7) for getting a repl.
+
+To get arround it, you should copy `libgc.so.1` (provided by the `bohem` garbage collector) into your repository (stand-in-language/lib is a good choice) and rename it to `libgc.so`. You will also need to reference it on `sil.cabal` under the `library` stanza. Be sure to use the complete path for `libgc.so` on `sil.cabal` (a commented version on `sil.cabal` is provided as an example).
+
+
 ## Running your own SIL code
 1. Create your own file with the sil code
 2. Modify the last uncommented line to reference your file.
