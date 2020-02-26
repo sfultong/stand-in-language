@@ -10,7 +10,8 @@ import SIL
 import SIL.Eval
 import SIL.Llvm (RunResult(..))
 import Naturals
-import SIL.Parser
+-- import SIL.Parser
+import SIL.ParserMegaparsec
 import SIL.RunTime
 import SIL.TypeChecker
 import SIL.Optimizer

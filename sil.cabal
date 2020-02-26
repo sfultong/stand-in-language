@@ -55,11 +55,17 @@ library
                      , llvm-hs
                      , llvm-hs-pure
                      , text
+                     , megaparsec
+                     , strict
+                     , tasty
+                     , tasty-hunit
   extra-libraries:     gc
-                       jumper
+                     , jumper
+  -- uncomment this line to get a cabal repl. Use appropiate complete path.
+  -- extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
 
   default-language:    Haskell2010
-
+  
 executable sil-exe
   hs-source-dirs:      app
   main-is:             Main.hs
