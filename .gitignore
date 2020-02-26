@@ -4,3 +4,6 @@ dist/
 .ghc.environment.*
 cabal.project.local
 *~
+.dir-locals.el
+.#*
+libgc.so

@@ -1,5 +1,5 @@
 # Stand-in Language
-> The Non-Turing Complete Language that helps you reason about termination time and other metrics
+> A simple but robust virtual machine
 
 [![Join the chat at https://gitter.im/stand-in-language/Lobby](https://badges.gitter.im/stand-in-language/Lobby.svg)](https://gitter.im/stand-in-language/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
@@ -31,6 +31,13 @@ This proyect is in active development. Do expect bugs and general trouble, and p
    ```
    $ cabal v2-run sil-exe
    ```
+
+## Running `cabal new-repl`
+
+There is a known issue (#7) for getting a repl.
+
+To get arround it, you should copy `libgc.so.1` (provided by the `bohem` garbage collector) into your repository (stand-in-language/lib is a good choice) and rename it to `libgc.so`. You will also need to reference it on `sil.cabal` under the `library` stanza. Be sure to use the complete path for `libgc.so` on `sil.cabal` (a commented version on `sil.cabal` is provided as an example).
+
 
 ## Running your own SIL code
 1. Create your own file with the sil code

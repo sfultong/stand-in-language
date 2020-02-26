@@ -1,0 +1,6 @@
+main
+  = #input ->
+ if 1
+    then
+                {"Hello, world!", 0}
+              else {"Goodbye, world!", 0}

@@ -1,33 +1,41 @@
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFunctor       #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module SIL.Parser where
 
 import Control.Monad.State
 import Data.Char
 import Data.List (elemIndex)
-import Data.Map (Map)
+import Data.Map (Map, fromList)
 import Debug.Trace
 import qualified Data.Map as Map
 import SIL (zero, pair, app, check, pleft, pright, varN, ite, lam, completeLam, IExpr(Trace), PrettyPartialType(..))
 import SIL.TypeChecker
-import Text.Parsec
-import Text.Parsec.Indent
-import Text.Parsec.Pos
-import qualified Text.Parsec.Token as Token
+import Text.Megaparsec
+import Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer as L
+import Text.Megaparsec.Pos
+import Data.Void
 
 type VarList = [String]
 type Term1 = ParserTerm (Either Int String)
 type Bindings = Map String Term1
 
+-- |SILParser :: * -> *
+type SILParser = StateT ParserState (Parsec Void String)
+
+newtype ErrorString = MkES { getErrorString :: String }
+
 data ParserState = ParserState
   { bound :: Bindings
-  }
+  } deriving Show
 
 addBound :: String -> Term1 -> ParserState -> Maybe ParserState
 addBound name expr (ParserState bound) = if Map.member name bound
   then Nothing
   else pure $ ParserState (Map.insert name expr bound)
 
-{-
+{- |
  On the difference between TLam and TCompleteLam:
  The former should only be used when the inner grammar explicitly references external variables.
  Eventually these two forms should be merged in the parser's grammar and the determination of which form to use
@@ -102,171 +110,287 @@ convertPT (TNamedCompleteLam n _) = error $ "should be no named complete lambdas
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
-  then Map.lookup name bound
-  else Just . TVar . Right $ name
+                                   then Map.lookup name bound
+                                   else Just . TVar . Right $ name
 
-type SILParser a = IndentParser String ParserState a
-languageDef = Token.LanguageDef
-  { Token.commentStart   = "{-"
-  , Token.commentEnd     = "-}"
-  , Token.commentLine    = "--"
-  , Token.nestedComments = True
-  , Token.identStart     = letter
-  , Token.identLetter    = alphaNum <|> oneOf "_'"
-  , Token.opStart        = Token.opLetter languageDef
-  , Token.opLetter       = oneOf ":!#$%&*+./<=>?@\\^|-~"
-  , Token.reservedOpNames = ["\\","->", ":", "=", "$", "#"]
-  , Token.reservedNames = ["let", "in", "right", "left", "trace", "if", "then", "else"]
-  , Token.caseSensitive  = True
-  }
-lexer = Token.makeTokenParser languageDef
-identifier = Token.identifier lexer -- parses an identifier
-reserved   = Token.reserved   lexer -- parses a reserved name
-reservedOp = Token.reservedOp lexer -- parses an operator
-parens     = Token.parens     lexer -- parses surrounding parenthesis:
-brackets   = Token.brackets   lexer
-braces     = Token.braces     lexer
-commaSep   = Token.commaSep   lexer
-commaSep1  = Token.commaSep1  lexer
-integer    = Token.integer    lexer
+-- |Line comments start with "--".
+lineComment :: SILParser ()
+lineComment = L.skipLineComment "--"
 
+-- |A block comment starts with "{-" and ends at "-}".
+-- Nested block comments are also supported.
+blockComment = L.skipBlockCommentNested "{-" "-}"
+
+-- |Space Consumer: Whitespace and comment parser that does not consume new-lines.
+sc :: SILParser ()
+sc = L.space
+  (void $ some (char ' ' <|> char '\t'))
+  lineComment
+  blockComment
+
+-- |Space Consumer: Whitespace and comment parser that does consume new-lines.
+scn :: SILParser ()
+scn = L.space space1 lineComment blockComment
+
+-- |This is a wrapper for lexemes that picks up all trailing white space
+-- using sc
+lexeme :: SILParser a -> SILParser a
+lexeme = L.lexeme sc
+
+-- |A parser that matches given text using string internally and then similarly
+-- picks up all trailing white space.
+symbol :: String -> SILParser String
+symbol = L.symbol sc
+
+-- |This is to parse reserved words. 
+reserved :: String -> SILParser ()
+reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
+
+-- |List of reserved words
+rws :: [String]
+rws = ["let", "in", "right", "left", "trace", "if", "then", "else"]
+
+-- |Variable identifiers can consist of alphanumeric characters, underscore,
+-- and must start with an English alphabet letter
+identifier :: SILParser String
+identifier = (lexeme . try) $ p >>= check
+    where
+      p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
+      check x = if x `elem` rws
+                then fail $ "keyword " ++ show x ++ " cannot be an identifier"
+                else return x
+
+-- |Parser for parenthesis.
+parens :: SILParser a -> SILParser a
+parens = between (symbol "(") (symbol ")")
+
+-- |Parser for brackets.
+brackets :: SILParser a -> SILParser a
+brackets = between (symbol "[") (symbol "]")
+
+-- |Parser for braces.
+braces :: SILParser a -> SILParser a
+braces = between (symbol "{") (symbol "}")
+
+-- |Comma sepparated SILParser that will be useful for lists
+commaSep :: SILParser a -> SILParser [a]
+commaSep p = p `sepBy` (symbol ",")
+
+-- |Integer SILParser used by `parseNumber` and `parseChurch`
+integer :: SILParser Integer
+integer = toInteger <$> lexeme L.decimal
+
+-- |Parse string literal.
 parseString :: SILParser (ParserTerm v)
-parseString = s2t <$> Token.stringLiteral lexer
+parseString = fmap s2t $ char '\"' *> manyTill L.charLiteral (char '\"')
 
+-- |Parse a variable.
 parseVariable :: SILParser Term1
 parseVariable = do
-              varName <- identifier
-              parserState <- getState
-              case resolve varName parserState of
-                Nothing -> fail $ concat ["identifier ", varName, " undeclared"]
-                Just i -> pure i
+  varName <- identifier
+  parseState <- get
+  case resolve varName parseState of
+    Nothing -> fail $ concat  ["identifier ", varName, " undeclared"]
+    Just i -> pure i
 
+-- |Prarse number (Integer).
 parseNumber :: SILParser (ParserTerm v)
 parseNumber = (i2t . fromInteger) <$> integer
 
+-- |Parse a pair.
 parsePair :: SILParser Term1
-parsePair = withPos $ do
-  char '{' <* spaces
+parsePair = braces $ do
+  scn
   a <- parseLongExpr
-  sameOrIndented <* char ',' <* spaces <?> "pair: ,"
+  scn
+  symbol ","
+  scn
   b <- parseLongExpr
-  sameOrIndented <* char '}' <* spaces <?> "pair: }"
+  scn
   return $ TPair a b
 
+-- |Parse a list.
 parseList :: SILParser Term1
 parseList = do
   exprs <- brackets (commaSep parseLongExpr)
   return $ foldr TPair TZero exprs
 
+-- TODO: make error more descriptive
+-- |Parse ITE (which stands for "if then else").
 parseITE :: SILParser Term1
-parseITE = withPos $ do
+parseITE = do
+  posIf <- L.indentLevel
   reserved "if"
+  scn
   cond <- parseLongExpr
-  sameOrIndented <* reserved "then" <?> "ITE: then"
+  scn
+  posThen <- L.indentLevel
+  reserved "then"
+  scn
   thenExpr <- parseLongExpr
-  sameOrIndented <* reserved "else" <?> "ITE: else"
+  scn
+  posElse <- L.indentLevel
+  reserved "else"
+  scn
   elseExpr <- parseLongExpr
-  return $ TITE cond thenExpr elseExpr
+  scn
+  case posIf > posThen of
+    True -> L.incorrectIndent GT posIf posThen -- This should be GT or EQ
+    False -> case posIf > posElse of
+      True -> L.incorrectIndent GT posIf posElse -- This should be GT or EQ
+      False -> return $ TITE cond thenExpr elseExpr
 
+-- |Parse left.
 parsePLeft :: SILParser Term1
 parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
 
+-- |Parse right.
 parsePRight :: SILParser Term1
 parsePRight = TRight <$> (reserved "right" *> parseSingleExpr)
 
+-- |Parse trace.
 parseTrace :: SILParser Term1
 parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
 
+-- |Parse a single expression.
 parseSingleExpr :: SILParser Term1
-parseSingleExpr = choice [ parseString
-                         , parseNumber
-                         , parsePair
-                         , parseList
-                         , parsePLeft
-                         , parsePRight
-                         , parseTrace
-                         , parseChurch
-                         , parseVariable
-                         , parens parseLongExpr
-                         ]
+parseSingleExpr = choice $ try <$> [ parseString
+                                   , parseNumber
+                                   , parsePair
+                                   , parseList
+                                   , parsePLeft
+                                   , parsePRight
+                                   , parseTrace
+                                   , parseChurch
+                                   , parseVariable
+                                   , parens parseLongExpr
+                                   ]
 
+-- |Parse application of functions.
 parseApplied :: SILParser Term1
-parseApplied = withPos $ do
-  (f:args) <- many1 (sameOrIndented *> parseSingleExpr)
+parseApplied = do
+  (f:args) <- L.lineFold scn $ \sc' ->
+    parseSingleExpr `sepBy` try sc' <* scn
   pure $ foldl TApp f args
 
-parseLongExpr :: SILParser Term1
-parseLongExpr = choice [ parseLet
-                       , parseITE
-                       , parseLambda
-                       , parseCompleteLambda
-                       , parseApplied
-                       ]
-
+-- |Parse lambda expression.
 parseLambda :: SILParser Term1
 parseLambda = do
-  reservedOp "\\"
-  variables <- many1 identifier
-  sameOrIndented <* reservedOp "->" <?> "lambda ->"
+  symbol "\\"
+  scn
+  variables <- some identifier
+  scn
+  symbol "->"
+  scn
   -- TODO make sure lambda names don't collide with bound names
   iexpr <- parseLongExpr
   return $ foldr TNamedLam iexpr variables
 
+-- |Parse complete lambda expression.
 parseCompleteLambda :: SILParser Term1
 parseCompleteLambda = do
-  reservedOp "#"
-  variables <- many1 identifier
-  sameOrIndented <* reservedOp "->" <?> "lambda ->"
+  symbol "#"
+  variables <- some identifier
+  scn
+  symbol "->"
+  scn
   iexpr <- parseLongExpr
+  scn
   return . TNamedCompleteLam (head variables) $ foldr TNamedLam iexpr (tail variables)
 
+-- |Parse let expression.
+parseLet :: SILParser Term1
+parseLet = do
+  reserved "let"
+  initialState <- get
+  scn
+  manyTill parseAssignment (reserved "in")
+  scn
+  expr <- parseLongExpr
+  scn
+  put initialState
+  pure expr
+
+-- |Parse long expression.
+parseLongExpr :: SILParser Term1
+parseLongExpr = choice $ try <$> [ parseLet
+                                 , parseITE
+                                 , parseLambda
+                                 , parseCompleteLambda
+                                 , parseApplied
+                                 ]
+
+-- |Parse church numerals (church numerals are a "$" appended to an integer, without any whitespace sparation).
 parseChurch :: SILParser Term1
-parseChurch = (i2c . fromInteger) <$> (reservedOp "$" *> integer)
+parseChurch = (i2c . fromInteger) <$> (symbol "$" *> integer)
 
+-- |Parse refinement check.
 parseRefinementCheck :: SILParser (Term1 -> Term1)
-parseRefinementCheck = flip TCheck <$> (reservedOp ":" *> parseLongExpr)
+parseRefinementCheck = flip TCheck <$> (reserved ":" *> parseLongExpr)
 
+-- |Parse assignment.
 parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
-  annotation <- optionMaybe parseRefinementCheck
-  reservedOp "=" <?> "assignment ="
+  scn
+  annotation <- optional parseRefinementCheck
+  reserved "=" <?> "assignment ="
   expr <- parseLongExpr
+  scn
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr
       assign ps = case addBound var annoExp ps of
         Just nps -> nps
         _ -> error $ "shadowing of binding not allowed " ++ var
-  modifyState assign
+  modify assign
 
-parseLet :: SILParser Term1
-parseLet = withPos $ do
-  reserved "let"
-  initialState <- getState
-  manyTill parseAssignment (reserved "in")
-  expr <- parseLongExpr
-  setState initialState
-  pure expr
-
+-- |Parse top level expressions.
 parseTopLevel :: SILParser Bindings
 parseTopLevel = do
   many parseAssignment <* eof
-  (ParserState bound) <- getState
+  (ParserState bound) <- get
   pure bound
 
+-- |Debug helper.
 debugIndent i = show $ runState i (initialPos "debug")
 
+-- |Helper function to test parsers without a result.
+runSILParser_ :: Show a => SILParser a -> String -> IO ()
+runSILParser_ parser str = do
+  let p            = runStateT parser $ ParserState (Map.empty)
+  case runParser p "" str of
+    Right (a, s) -> do
+      putStrLn ("Result:      " ++ show a)
+      putStrLn ("Final state: " ++ show s)
+    Left e -> putStr (errorBundlePretty e)
+
+-- |Helper function to test parsers with parsing result.
+runSILParser :: Show a => SILParser a -> String -> IO String
+runSILParser parser str = do
+  let p            = runStateT parser $ ParserState (Map.empty)
+  case runParser p "" str of
+    Right (a, s) -> return $ show a
+    Left e -> return $ errorBundlePretty e
+
+-- |Parse with specified prelude.
+parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
+parseWithPrelude prelude str = let startState = ParserState prelude
+                                   p          = runStateT parseTopLevel startState
+                                   eitherEB str = case runParser p "" str of
+                                     Right (a, s) -> Right a
+                                     Left x       -> Left $ MkES $ errorBundlePretty x
+                               in eitherEB str
+
+-- |Parse prelude.
 parsePrelude = parseWithPrelude Map.empty
 
-parseWithPrelude :: Bindings -> String -> Either ParseError Bindings
-parseWithPrelude prelude = let startState = ParserState prelude
-                           in runIndentParser parseTopLevel startState "sil"
-
+-- |Resolve bindings (useful for Prelude).
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
   \b -> convertPT <$> debruijinize [] b
 
+-- |Helper to print binding types.
 printBindingTypes :: Bindings -> IO ()
 printBindingTypes bindings =
   let showType (s, iexpr) = putStrLn $ case inferType iexpr of
@@ -276,8 +400,10 @@ printBindingTypes bindings =
                                 (\b -> pure (s, convertPT b))) $ Map.toList bindings
   in resolvedBindings >>= mapM_ showType
 
-parseMain :: Bindings -> String -> Either ParseError IExpr
+-- |Parses main as a top level binding.
+parseMain :: Bindings -> String -> Either ErrorString IExpr
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"
     Just main -> convertPT <$> debruijinize [] main
+

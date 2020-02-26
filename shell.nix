@@ -40,15 +40,14 @@ with rec {
     };
   });
   simpleShell = haskellPkgs.shellFor { packages = p: [p.sil]; };
-  oldhp = pkgs.haskellPackages;
 
-}; simpleShell.overrideAttrs (oldAttrs : rec 
-  { buildInputs = oldAttrs.buildInputs 
-    ++ [ 
-         haskellPkgs.cabal-install 
-         haskellPkgs.apply-refact 
+}; simpleShell.overrideAttrs (oldAttrs : rec
+  { buildInputs = oldAttrs.buildInputs
+    ++ [
+         haskellPkgs.cabal-install
+         haskellPkgs.apply-refact
          haskellPkgs.hlint
-         haskellPkgs.hasktags 
-         # oldhp.ghc-mod 
-      ]; 
+         haskellPkgs.hasktags
+         haskellPkgs.haddock
+      ];
   })
