@@ -72,20 +72,15 @@ void sil_traverse(SIL_Root * root, void (*fn)(sil_type, void*), void * state){
                     type  = defer->type;
                     value = defer->value; 
                     break;
-                case SIL_TWIDDLE:;
-                    SIL_Twiddle * twiddle = value;
-                    type  = twiddle->type;
-                    value = twiddle->value; 
-                    break;
-                case SIL_ABORT:;
-                    SIL_Abort * abort = value;
-                    type  = abort->type;
-                    value = abort->value; 
+                case SIL_ABORT:
+                    value = 0;
+                    goto TraverseBranchStop;
                     break;
                 case SIL_GATE:;
                     SIL_Gate *gate = value;
-                    type  = gate->type;
-                    value = gate->value; 
+                    type  = gate->left_type;
+                    value = gate->left_value;
+                    sil_stack_add(&stack, gate->right_type, gate->right_value);
                     break;
                 case SIL_PLEFT:;
                     SIL_PLeft *pleft = value;
@@ -97,10 +92,9 @@ void sil_traverse(SIL_Root * root, void (*fn)(sil_type, void*), void * state){
                     type  = pright->type;
                     value = pright->value; 
                     break;
-                case SIL_TRACE:;
-                    SIL_Trace *trace = value;
-                    type  = trace->type;
-                    value = trace->value; 
+                case SIL_TRACE:
+                    value = 0;
+                    goto TraverseBranchStop;
                     break; 
                 default:
                     fprintf( stderr, "sil_traverse: Received unsupported type %d. Debug me through call stack.\n", type);
@@ -181,32 +175,21 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
                     type2  = defer2->type;
                     value2 = defer2->value; 
                     break;
-                case SIL_TWIDDLE:;
-                    SIL_Twiddle * twiddle1 = value1;
-                    type1  = twiddle1->type;
-                    value1 = twiddle1->value; 
-
-                    SIL_Twiddle * twiddle2 = value2;
-                    type2  = twiddle2->type;
-                    value2 = twiddle2->value; 
-                    break;
                 case SIL_ABORT:;
-                    SIL_Abort * abort1 = value1;
-                    type1  = abort1->type;
-                    value1 = abort1->value; 
-
-                    SIL_Abort * abort2 = value2;
-                    type2  = abort2->type;
-                    value2 = abort2->value; 
+                    value1 = 0;
+                    value2 = 0;
+                    goto EqualBranchStop;
                     break;
                 case SIL_GATE:;
                     SIL_Gate *gate1 = value1;
-                    type1  = gate1->type;
-                    value1 = gate1->value; 
+                    type1  = gate1->left_type;
+                    value1 = gate1->left_value; 
+                    sil_stack_add(&stack1, gate1->right_type, gate1->right_value);
 
                     SIL_Gate *gate2 = value2;
-                    type2  = gate2->type;
-                    value2 = gate2->value; 
+                    type2  = gate2->left_type;
+                    value2 = gate2->left_value; 
+                    sil_stack_add(&stack2, gate2->right_type, gate2->right_value);
                     break;
                 case SIL_PLEFT:;
                     SIL_PLeft *pleft1 = value1;
@@ -226,14 +209,10 @@ unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2){
                     type2  = pright2->type;
                     value2 = pright2->value; 
                     break;
-                case SIL_TRACE:;
-                    SIL_Trace *trace1 = value1;
-                    type1  = trace1->type;
-                    value1 = trace1->value; 
-
-                    SIL_Trace *trace2 = value2;
-                    type2  = trace2->type;
-                    value2 = trace2->value; 
+                case SIL_TRACE:
+                    value1 = 0;
+                    value2 = 0;
+                    goto EqualBranchStop;
                     break; 
             }
         }
@@ -304,22 +283,18 @@ void sil_free(SIL_Root * root){
                     value = defer->value; 
                     free(defer);
                     break;
-                case SIL_TWIDDLE:;
-                    SIL_Twiddle * twiddle = value;
-                    type  = twiddle->type;
-                    value = twiddle->value; 
-                    free(twiddle);
-                    break;
-                case SIL_ABORT:;
-                    SIL_Abort * abort = value;
-                    type  = abort->type;
-                    value = abort->value; 
-                    free(abort);
+                case SIL_ABORT:
+                    if(value != 0){
+                      free(value);
+                    }
+                    value = 0;
+                    goto FreeBranchStop;
                     break;
                 case SIL_GATE:;
                     SIL_Gate *gate = value;
-                    type  = gate->type;
-                    value = gate->value; 
+                    type  = gate->left_type;
+                    value = gate->left_value; 
+                    sil_stack_add(&stack, gate->right_type, gate->right_value);
                     free(gate);
                     break;
                 case SIL_PLEFT:;
@@ -335,10 +310,11 @@ void sil_free(SIL_Root * root){
                     free(pright);
                     break;
                 case SIL_TRACE:;
-                    SIL_Trace *trace = value;
-                    type  = trace->type;
-                    value = trace->value; 
-                    free(trace);
+                    if(value != 0){
+                      free(value);
+                    }
+                    value = 0;
+                    goto FreeBranchStop;
                     break; 
                 default:
                     fprintf( stderr, "free: Received unsupported type %d. Debug me through call stack.\n", type);
@@ -463,26 +439,20 @@ SIL_Root * sil_deserialize(SIL_Serialized * serialized){
                     type  = &(defer->type);
                     value = &(defer->value);
                     break;
-                case SIL_TWIDDLE:;
-                    SIL_Twiddle * twiddle = (SIL_Twiddle*)malloc(sizeof(SIL_Twiddle));
-                    (*type)  = current_type;
-                    (*value) = twiddle;
-                    type  = &(twiddle->type);
-                    value = &(twiddle->value);
-                    break;
                 case SIL_ABORT:;
-                    SIL_Abort * abort = (SIL_Abort*)malloc(sizeof(SIL_Abort));
                     (*type)  = current_type;
-                    (*value) = abort;
-                    type  = &(abort->type);
-                    value = &(abort->value);
+                    (*value) = 0; 
+                    type  = 0;
+                    value = 0;
                     break;
                 case SIL_GATE:;
                     SIL_Gate * gate = (SIL_Gate*)malloc(sizeof(SIL_Gate));
                     (*type)  = current_type;
                     (*value) = gate;
-                    type  = &(gate->type);
-                    value = &(gate->value);
+                    type  = &(gate->left_type);
+                    value = &(gate->left_value);
+                    gate->right_type = 100;
+                    sil_deserialize_stack_add(&stack, &gate->right_type, &gate->right_value);
                     break;
                 case SIL_PLEFT:;
                     SIL_PLeft * pleft = (SIL_PLeft*)malloc(sizeof(SIL_PLeft));
@@ -499,11 +469,10 @@ SIL_Root * sil_deserialize(SIL_Serialized * serialized){
                     value = &(pright->value);
                     break;
                 case SIL_TRACE:;
-                    SIL_Trace * trace = (SIL_Trace*)malloc(sizeof(SIL_Trace));
                     (*type)  = current_type;
-                    (*value) = trace;
-                    type  = &(trace->type);
-                    value = &(trace->value);
+                    (*value) = 0; 
+                    type  = 0;
+                    value = 0;
                     break;
             }
             i++;
@@ -557,20 +526,15 @@ unsigned long sil_count_old(SIL_Root * root){
                     type  = defer->type;
                     value = defer->value; 
                     break;
-                case SIL_TWIDDLE:;
-                    SIL_Twiddle * twiddle = value;
-                    type  = twiddle->type;
-                    value = twiddle->value; 
-                    break;
                 case SIL_ABORT:;
-                    SIL_Abort * abort = value;
-                    type  = abort->type;
-                    value = abort->value; 
+                    value = 0;
+                    goto CountBranchStop;
                     break;
                 case SIL_GATE:;
                     SIL_Gate *gate = value;
-                    type  = gate->type;
-                    value = gate->value; 
+                    type  = gate->left_type;
+                    value = gate->left_value; 
+                    sil_stack_add(&stack, gate->right_type, gate->right_value);
                     break;
                 case SIL_PLEFT:;
                     SIL_PLeft *pleft = value;
@@ -583,9 +547,8 @@ unsigned long sil_count_old(SIL_Root * root){
                     value = pright->value; 
                     break;
                 case SIL_TRACE:;
-                    SIL_Trace *trace = value;
-                    type  = trace->type;
-                    value = trace->value; 
+                    value = 0;
+                    goto CountBranchStop;
                     break; 
             }
         }

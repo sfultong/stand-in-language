@@ -59,25 +59,26 @@ instance Arbitrary TestIExpr where
                     , lift1Texpr SetEnv <$> tree (i - 1)
                     , lift1Texpr Defer <$> tree (i - 1)
                     , lift2Texpr check <$> tree half <*> tree half
-                    , lift1Texpr gate <$> tree (i - 1)
+                    , lift2Texpr Gate <$> tree half <*> tree half
                     , lift1Texpr pleft <$> tree (i - 1)
                     , lift1Texpr pright <$> tree (i - 1)
-                    , lift1Texpr Trace <$> tree (i - 1)
+                    , pure2 Trace
                     ]
   shrink (TestIExpr x) = case x of
     Zero -> []
     Env -> []
-    (Gate x) -> TestIExpr x : (map (lift1Texpr gate) . shrink $ TestIExpr x)
+    Gate a b -> TestIExpr a : TestIExpr b :
+      [lift2Texpr Gate a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
     (PLeft x) -> TestIExpr x : (map (lift1Texpr pleft) . shrink $ TestIExpr x)
     (PRight x) -> TestIExpr x : (map (lift1Texpr pright) . shrink $ TestIExpr x)
-    (Trace x) -> TestIExpr x : (map (lift1Texpr Trace) . shrink $ TestIExpr x)
+    Trace -> []
     (SetEnv x) -> TestIExpr x : (map (lift1Texpr SetEnv) . shrink $ TestIExpr x)
     (Defer x) -> TestIExpr x : (map (lift1Texpr Defer) . shrink $ TestIExpr x)
-    (Abort x) -> TestIExpr x : (map (lift1Texpr Abort) . shrink $ TestIExpr x)
+    Abort -> []
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 
-typeable x = case inferType (getIExpr x) of
+typeable x = case inferType (fromSIL $ getIExpr x) of
   Left _ -> False
   _ -> True
 
@@ -85,13 +86,13 @@ instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
   shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
 
-zeroTyped x = inferType (getIExpr x) == Right ZeroTypeP
+zeroTyped x = inferType (fromSIL $ getIExpr x) == Right ZeroTypeP
 
 instance Arbitrary ZeroTypedTestIExpr where
   arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
   shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
 
-simpleArrowTyped x = inferType (getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
+simpleArrowTyped x = inferType (fromSIL $ getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
 
 instance Arbitrary ArrowTypedTestIExpr where
   arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped

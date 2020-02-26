@@ -36,12 +36,11 @@ data NaturalType
   = ZeroTypeN
   | PairTypeN NaturalType NaturalType
   | ArrTypeN FragIndex
-  | GateTypeN
   | ChurchType
   | UnknownN
   deriving (Eq, Ord, Show)
 
-newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
+--newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 newtype TypeIndex = TypeIndex { unTypeIndex :: Int } deriving (Eq, Show, Ord, Enum)
 
 instance Binary FragIndex
@@ -52,13 +51,12 @@ data ExprFrag
   | FEnv
   | FSetEnv ExprFrag
   | FDefer FragIndex
-  | FAbort ExprFrag
-  | FGate ExprFrag
+  | FAbort
+  | FGate ExprFrag ExprFrag
   | FLeft ExprFrag
   | FRight ExprFrag
-  | FTrace ExprFrag
+  | FTrace
   -- complex instructions
-  | FITE ExprFrag ExprFrag ExprFrag
   | FApp ExprFrag ExprFrag
   | FNum Int64
   | FToNum
@@ -75,11 +73,11 @@ data NExpr
   | NEnv
   | NSetEnv NExpr
   | NDefer FragIndex
-  | NAbort NExpr
-  | NGate NExpr
+  | NAbort
+  | NGate NExpr NExpr
   | NLeft NExpr
   | NRight NExpr
-  | NTrace NExpr
+  | NTrace
   | NNum Int64
   | NAdd NExpr NExpr
   | NMult NExpr NExpr
@@ -88,7 +86,6 @@ data NExpr
   | NForLoop Int64 NExpr -- for runtime, function and number of times to apply it
 -}
   | NApp NExpr NExpr
-  | NITE NExpr NExpr NExpr
   | NOldDefer NExpr -- can probably delete
   | NToChurch NExpr NExpr
   | NTwiddle NExpr
@@ -120,15 +117,14 @@ instance Show NExprs where
           (NDefer ind) -> case Map.lookup ind m of
             Just x -> concat ["NDefer (", showInner x, ")"]
             Nothing -> concat ["ERROR undefined index in showing NExprs: ", show ind]
-          (NAbort x) -> concat ["NAbort (", showInner x, ")"]
-          (NGate x) -> concat ["NGate (", showInner x, ")"]
+          NAbort -> "NAbort"
+          NGate l r -> "NGate (" <> showInner l <> " " <> showInner r <> " )"
           (NLeft x) -> concat ["NLeft (", showInner x, ")"]
           (NRight x) -> concat ["NRight (", showInner x, ")"]
-          (NTrace x) -> concat ["NTrace (", showInner x, ")"]
+          NTrace -> "NTrace"
           (NAdd a b) -> concat ["NAdd (", showInner a, " ", showInner b, " )"]
           (NMult a b) -> concat ["NMult (", showInner a, " ", showInner b, " )"]
           (NPow a b) -> concat ["NPow (", showInner a, " ", showInner b, " )"]
-          (NITE i t e) -> concat ["if (", showInner i, ") then (", showInner t, ") else (", showInner e, ")"]
           (NOldDefer x) -> "NOldDefer (" <> showInner x <> ")"
           x -> show x
     in case Map.minView m of
@@ -140,7 +136,6 @@ type FragState = State (FragIndex, Map FragIndex ExprFrag)
 toFrag :: IExpr -> FragState ExprFrag
 -- complex instructions
 toFrag ToChurch = pure FToNum
-toFrag (ITE i t e) = FITE <$> toFrag i <*> toFrag t <*> toFrag e
 toFrag (ChurchNum x) = pure . FNum $ fromIntegral x
 toFrag (App f x) = FApp <$> toFrag f <*> toFrag x
 -- simple instructions
@@ -154,11 +149,11 @@ toFrag (Defer x) = do
   let td = id -- trace ("adding defer " ++ show i ++ " - " ++ show nx)
   State.put (FragIndex (i + 1), td Map.insert ei nx fragMap)
   pure $ FDefer ei
-toFrag (Abort x) = FAbort <$> toFrag x
-toFrag (Gate x) = FGate <$> toFrag x
+toFrag Abort = pure FAbort
+toFrag (Gate l r) = FGate <$> toFrag l <*> toFrag r
 toFrag (PLeft x) = FLeft <$> toFrag x
 toFrag (PRight x) = FRight <$> toFrag x
-toFrag (Trace x) = FTrace <$> toFrag x
+toFrag Trace = pure FTrace
 
 fromFrag :: Map FragIndex ExprFrag -> ExprFrag -> IExpr
 fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
@@ -169,11 +164,11 @@ fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
   (FDefer fi) -> case Map.lookup fi fragMap of
     Nothing -> error ("fromFrag bad index " ++ show fi)
     Just subFrag -> Defer $ recur subFrag
-  (FAbort x) -> Abort $ recur x
-  (FGate x) -> Gate $ recur x
+  FAbort -> Abort
+  FGate l r -> Gate (recur l) (recur r)
   (FLeft x) -> PLeft $ recur x
   (FRight x) -> PRight $ recur x
-  (FTrace x) -> Trace $ recur x
+  FTrace -> Trace
   z -> error ("fromFrag TODO convert " ++ show z)
 
 matchChurchPlus :: Map FragIndex ExprFrag -> ExprFrag -> Maybe (ExprFrag, ExprFrag)
@@ -206,10 +201,6 @@ matchApp :: ExprFrag -> Maybe (ExprFrag, ExprFrag)
 matchApp (FApp c i) = Just (c, i)
 matchApp _ = Nothing
 
-matchITE :: ExprFrag -> Maybe (ExprFrag, ExprFrag, ExprFrag)
-matchITE (FSetEnv (FPair (FGate i) (FPair e t))) = Just (i, t, e)
-matchITE _ = Nothing
-
 fragmentExpr :: IExpr -> Map FragIndex ExprFrag
 fragmentExpr iexpr = let (expr, (li, m)) = State.runState (toFrag iexpr) ((FragIndex 1), Map.empty)
                          fragMap = Map.insert (FragIndex 0) expr m
@@ -224,15 +215,14 @@ fragToNExpr fragMap frag =
             FEnv -> NEnv
             (FPair a b) -> NPair (recur a) (recur b)
             (FSetEnv x) -> NSetEnv $ recur x
-            (FGate x) -> NGate $ recur x
+            FGate l r -> NGate (recur l) (recur r)
             (FLeft x) -> NLeft $ recur x
             (FRight x) -> NRight $ recur x
-            (FTrace x) -> NTrace $ recur x
-            (FAbort x) -> NAbort $ recur x
+            FTrace -> NTrace
+            FAbort -> NAbort
             (FDefer ind) -> NDefer ind
             (FNum x) -> NPair (NOldDefer (NPair (NNum x) NEnv)) NEnv
             FToNum -> NToNum
-            (FITE i t e) -> NITE (recur i) (recur t) (recur e)
             (FApp c i) -> NApp (recur c) (recur i)
 
 fragsToNExpr :: Map FragIndex ExprFrag -> Map FragIndex NResult

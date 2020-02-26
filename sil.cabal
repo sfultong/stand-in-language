@@ -41,6 +41,7 @@ library
                      , base16-bytestring
                      , binary
                      , cryptohash-sha256
+                     , dlist
                      , recursion-schemes
                      , parsec
                      , indents
