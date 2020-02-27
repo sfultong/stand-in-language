@@ -9,6 +9,7 @@ import Data.Map (Map, fromList)
 import Debug.Trace
 import Text.Megaparsec
 import Text.Megaparsec.Char
+import Text.Megaparsec.Debug
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Pos
 import Data.Void
@@ -225,25 +226,19 @@ parseList = do
 -- |Parse ITE (which stands for "if then else").
 parseITE :: SILParser Term1
 parseITE = do
-  posIf <- L.indentLevel
   reserved "if"
   scn
   cond <- parseLongExpr <|> parseSingleExpr
   scn
-  posThen <- L.indentLevel
   reserved "then"
   scn
   thenExpr <- parseLongExpr <|> parseSingleExpr
   scn
-  posElse <- L.indentLevel
   reserved "else"
   scn
-  elseExpr <- parseLongExpr <|> parseSingleExpr
-  case posIf > posThen of
-    True -> L.incorrectIndent GT posIf posThen -- This should be GT or EQ
-    False -> case posIf > posElse of
-      True -> L.incorrectIndent GT posIf posElse -- This should be GT or EQ
-      False -> return $ TITE cond thenExpr elseExpr
+  elseExpr <- parseLongExpr
+  scn
+  return $ TITE cond thenExpr elseExpr
 
 -- |Parse left.
 parsePLeft :: SILParser Term1
@@ -326,6 +321,7 @@ parseLongExpr = choice $ try <$> [ parseLet
                                  , parseLambda
                                  , parseCompleteLambda
                                  , parseApplied
+                                 , parseSingleExpr
                                  ]
 
 -- |Parse church numerals (church numerals are a "$" appended to an integer, without any whitespace sparation).
@@ -337,7 +333,7 @@ parsePartialFix :: SILParser Term1
 parsePartialFix = symbol "?" *> pure TLimitedRecursion
 
 parseRefinementCheck :: SILParser (Term1 -> Term1)
-parseRefinementCheck = flip TCheck <$> (reserved ":" *> parseLongExpr)
+parseRefinementCheck = flip TCheck <$> (symbol ":" *> parseLongExpr)
 
 -- |Parse assignment.
 parseAssignment :: SILParser ()
@@ -370,6 +366,16 @@ runSILParser_ :: Show a => SILParser a -> String -> IO ()
 runSILParser_ parser str = do
   let p            = State.runStateT parser $ ParserState (Map.empty)
   case runParser p "" str of
+    Right (a, s) -> do
+      putStrLn ("Result:      " ++ show a)
+      putStrLn ("Final state: " ++ show s)
+    Left e -> putStr (errorBundlePretty e)
+
+-- |Helper function to debug parsers without a result.
+runSILParserWDebug_ :: Show a => SILParser a -> String -> IO ()
+runSILParserWDebug_ parser str = do
+  let p            = runStateT parser $ ParserState (Map.empty)
+  case runParser (dbg "debug" p) "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
       putStrLn ("Final state: " ++ show s)

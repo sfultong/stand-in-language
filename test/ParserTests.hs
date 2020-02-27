@@ -48,7 +48,35 @@ unitTests = testGroup "Unit tests"
   , testCase "test parseMain with CL with ITE with Pair" $ do
       res <- runTestMainwCLwITEwPair
       res `compare` runTestMainwCLwITEwPairParsecResult @?= EQ
+  , testCase "testList0" $ do
+      res <- runSILParser parseList testList0
+      res `compare` testListAns @?= EQ
+  , testCase "testList1" $ do
+      res <- runSILParser parseList testList1
+      res `compare` testListAns @?= EQ
+  , testCase "testList2" $ do
+      res <- runSILParser parseList testList2
+      res `compare` testListAns @?= EQ
+  , testCase "testList3" $ do
+      res <- runSILParser parseList testList3
+      res `compare` testListAns @?= EQ
+  , testCase "testList4" $ do
+      res <- runSILParser parseList testList4
+      res `compare` testListAns @?= EQ
+  , testCase "testList5" $ do
+      res <- runSILParser parseList testList5
+      res `compare` testListAns @?= EQ
+  , testCase "test parse Prelude.sil" $ do
+      res <- runTestParsePrelude
+      res `compare` True @?= EQ
+  , testCase "test parse tictactoe.sil" $ do
+      res <- testWtictactoe
+      res `compare` True @?= EQ
+  , testCase "test Main with Type" $ do
+      res <- runTestMainWType
+      res `compare` runTestMainWTypeRes @?= EQ
   ]
+
 
 runTestPair :: String -> IO String
 runTestPair = runSILParser parsePair
@@ -119,11 +147,9 @@ testLambdawITEwPair = unlines $
 
 runTestParsePrelude = do
   preludeFile <- Strict.readFile "Prelude.sil"
-  let
-    prelude = case parsePrelude preludeFile of
-      Right p -> p
-      Left pe -> error $ getErrorString pe
-  return $ show prelude
+  case parsePrelude preludeFile of
+    Right _ -> return True
+    Left _ -> return False
 
 testParseAssignmentwCLwITEwPair2 = unlines $
   [ "main = #input -> if 1"
@@ -183,8 +209,8 @@ testParseTopLevelwCLwITEwPair = unlines $
   , "  = #input"
   , " -> if 1"
   , "     then"
-  ,"        {\"Hello, world!\", 0}"
-  ,"      else {\"Goodbye, world!\", 0}"
+  , "        {\"Hello, world!\", 0}"
+  , "      else {\"Goodbye, world!\", 0}"
   ]
 
 testMainwCLwITEwPair = unlines $
@@ -192,9 +218,20 @@ testMainwCLwITEwPair = unlines $
   , "  = #input"
   , " -> if 1"
   , "     then"
-  ,"        {\"Hello, world!\", 0}"
-  ,"      else {\"Goodbye, world!\", 0}"
+  , "        {\"Hello, world!\", 0}"
+  , "      else {\"Goodbye, world!\", 0}"
   ]
+
+testMain3 = "main = 0"
+
+test4 = "(#x -> if x then \"f\" else 0)"
+test5 = "#x -> if x then \"f\" else 0"
+test6 = "if x then \"1\" else 0"
+test7 = unlines $
+  [ "if x then \"1\""
+  , "else 0"
+  ]
+test8 = "if x then 1 else 0"
 
 runTestMainwCLwITEwPair = do
   preludeFile <- Strict.readFile "Prelude.sil"
@@ -207,6 +244,48 @@ runTestMainwCLwITEwPair = do
       Left err -> getErrorString err
   return res
 
+testMain2 = "main : (#x -> if x then \"fail\" else 0) = 0"
+
+runTestMainWType = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  let
+    prelude = case parsePrelude preludeFile of
+      Right p -> p
+      Left pe -> error . getErrorString $ pe
+  case parseMain prelude $ testMain2 of
+    Right x -> return . show $ x
+    Left err -> return $ getErrorString err
+
+
+testListAns = "TPair TZero (TPair (TPair TZero TZero) (TPair (TPair (TPair TZero TZero) TZero) TZero))"
+
+testList0 = unlines $
+  [ "[ 0"
+  , ", 1"
+  , ", 2"
+  , "]"
+  ]
+
+testList1 = "[0,1,2]"
+
+testList2 = "[ 0 , 1 , 2 ]"
+
+testList3 = unlines $
+  [ "[ 0 , 1"
+  , ", 2 ]"
+  ]
+
+testList4 = unlines $
+  [ "[ 0 , 1"
+  , ",2 ]"
+  ]
+
+testList5 = unlines $
+  [ "[ 0,"
+  , "  1,"
+  , "  2 ]"
+  ]
+
 -- |Usefull to see if tictactoe.sil was correctly parsed
 -- and was usefull to compare with the deprecated SIL.Parser
 -- Parsec implementation
@@ -217,10 +296,11 @@ testWtictactoe = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error . getErrorString $ pe
-    res = case parseMain prelude $ tictactoe of
-      Right x -> show x
-      Left err -> getErrorString err
-  return res
+  case parseMain prelude $ tictactoe of
+    Right _ -> return True
+    Left _ -> return False
+
+runTestMainWTypeRes = "SetEnv (Pair (Defer (PRight (Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env)))))))) (Pair (Pair (Defer (SetEnv (Pair (Gate (PLeft Env)) (Pair Zero (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair Zero Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair Zero Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair Zero Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair Zero Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero)))))))) Zero) Zero))"
 
 testPair0ParsecResult = "TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero)))))))))))) (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair (TPair TZero TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero) TZero)"
 
