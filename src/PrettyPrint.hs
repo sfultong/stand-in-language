@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module PrettyPrint where
 
 import SIL
@@ -15,9 +16,10 @@ showPIExpr _ _ Zero = "Z"
 showPIExpr _ _ Env = "E"
 showPIExpr l i (Pair a b) =
   concat ["P\n", indent i, showPIExpr l (i + 1) a, "\n", indent i, showPIExpr l (i + 1) b]
-showPIExpr l i (Abort x) = concat ["A ", showPIExpr l i x]
-showPIExpr l i (Gate x) = concat ["G ", showPIExpr l i x]
-showPIExpr l i (Trace x) = concat ["T ", showPIExpr l i x]
+showPIExpr _ _ Abort  = "A"
+showPIExpr l i (Gate a b) = -- "G"
+  "G\n" <> indent i <> showPIExpr l (i + 1) a <> "\n" <> indent i <> showPIExpr l (i + 1) b
+showPIExpr _ _ Trace = "T"
 showPIExpr l i (Defer x) = concat ["D ", showPIExpr l i x]
 showPIExpr l i (PLeft x) = concat ["L ", showPIExpr l i x]
 showPIExpr l i (PRight x) = concat ["R ", showPIExpr l i x]
@@ -33,9 +35,9 @@ showTPIExpr typeMap l i expr =
     Zero -> "Z"
     Env -> "E"
     (Pair a b) -> concat ["P\n", indented a, "\n", indented b]
-    Abort x -> concat ["A ", recur x]
-    Gate x -> concat ["G ", recur x]
-    Trace x -> concat ["T ", recur x]
+    Abort -> "A"
+    Gate a b -> "G\n" <> indented a <> "\n" <> indented b
+    Trace -> "T"
 
 showNExpr :: Map FragIndex NResult -> Int -> Int -> NExpr -> String
 showNExpr nMap l i expr =
@@ -46,9 +48,9 @@ showNExpr nMap l i expr =
   NZero -> "Z"
   NEnv -> "E"
   (NPair a b) -> showTwo "P" a b
-  (NAbort x) -> concat ["A ", recur x]
-  (NGate x) -> concat ["G ", recur x]
-  (NTrace x) -> concat ["T ", recur x]
+  NAbort -> "A"
+  NGate a b -> showTwo "G" a b
+  NTrace -> "T"
   (NDefer ind) -> case Map.lookup ind nMap of
     (Just n) -> concat ["D ", recur n]
     _ -> "NDefer error: no function found for " ++ show ind
@@ -58,9 +60,6 @@ showNExpr nMap l i expr =
   (NAdd a b) -> showTwo "+" a b
   (NMult a b) -> showTwo "X" a b
   (NPow a b) -> showTwo "^" a b
-  (NITE f t e) -> concat ["I\n", indent i, showNExpr nMap l (i + 1) f
-                         , "\n", indent i, showNExpr nMap l (i + 1) t
-                         , "\n", indent i, showNExpr nMap l (i + 1) e]
   (NApp c i) -> showTwo "$" c i
   (NNum n) -> show n --concat ["()"]
   (NToChurch c i) -> showTwo "<" c i
@@ -82,9 +81,9 @@ showOneNExpr l i expr =
       NZero -> "Z"
       NEnv -> "E"
       (NPair a b) -> showTwo "P" a b
-      (NAbort x) -> concat ["A ", recur x]
-      (NGate x) -> concat ["G ", recur x]
-      (NTrace x) -> concat ["T ", recur x]
+      NAbort -> "A"
+      NGate a b -> showTwo "G" a b
+      NTrace -> "T"
       (NDefer (FragIndex ind)) -> concat ["[", show ind, "]"]
       (NLeft x) -> concat ["L ", recur x]
       (NRight x) -> concat ["R ", recur x]
@@ -92,9 +91,6 @@ showOneNExpr l i expr =
       (NAdd a b) -> showTwo "+" a b
       (NMult a b) -> showTwo "X" a b
       (NPow a b) -> showTwo "^" a b
-      (NITE f n e) -> concat ["I\n", indent i, showOneNExpr l (i + 1) f
-                            , "\n", indent i, showOneNExpr l (i + 1) n
-                            , "\n", indent i, showOneNExpr l (i + 1) e]
       (NApp c i) -> showTwo "$" c i
       (NNum n) -> show n --concat ["()"]
       (NToChurch c i) -> showTwo "<" c i
@@ -106,3 +102,27 @@ showNExprs :: NExprs -> String
 showNExprs (NExprs m) = concatMap
   (\((FragIndex k),(v)) -> concat [show k, " ", showOneNExpr 80 2 v, "\n"])
   $ Map.toList m
+
+-- termMap, function->type lookup, root frag type
+data TypeDebugInfo = TypeDebugInfo Term3 (FragIndex -> PartialType) PartialType
+
+showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
+  let showFrag (FragIndex i) ty frag = show i <> ": " <> show (PrettyPartialType ty) <> "\n" <> showExpr 80 2 frag
+      showExpr l i =
+        let recur = showExpr l i
+            showTwo c a b =
+              concat [c, "\n", indent i, showExpr l (i + 1) a, "\n", indent i, showExpr l (i + 1) b]
+        in \case
+          ZeroF -> "Z"
+          PairF a b -> showTwo "P" a b
+          EnvF -> "E"
+          SetEnvF x -> "S " <> recur x
+          DeferF (FragIndex ind) -> "[" <> show ind <> "]"
+          AbortF -> "A"
+          GateF l r -> showTwo "G" l r
+          LeftF x -> "L " <> recur x
+          RightF x -> "R " <> recur x
+          TraceF -> "T"
+          AuxF _ -> "?"
+  in showFrag (FragIndex 0) rootType (rootFrag termMap) <> "\n"
+     <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail $ Map.toAscList termMap)

@@ -10,7 +10,7 @@ d2cG = #r -> let layer = \recur i f b -> if i
                                             then f (recur (left i) f b)
                                             else b
              in r layer (#i f b -> b)
-d2c = d2cG $1024
+d2c = d2cG ?
 
 c2d = #c -> c succ 0
 
@@ -27,24 +27,24 @@ minus = #a b -> d2c (b (\x -> left x) (c2d a))
 range = #a b -> let layer = \recur i -> if dMinus b i
                                            then {i, recur {i,0}}
                                            else 0
-                in $1024 layer (#i -> 0) a
+                in ? layer (#i -> 0) a
 
 mapG = #r f -> let layer = \recur l -> if l then {f (left l), recur (right l)} else 0
                    base = #l -> 0
                in r layer base
-map = mapG $255
+map = mapG ?
 
 foldrG = #r f -> let layer = \recur accum l -> if l then f (left l) (recur accum (right l))
                                                     else accum
                      base = #accum l -> accum
                  in r layer base 
-foldr = foldrG $255
+foldr = foldrG ?
 
 foldlG = #r f -> let layer = \recur accum l -> if l then recur (f accum (left l)) (right l)
                                                     else accum
                      base = #accum l -> accum
                  in r layer base 
-foldl = foldlG $255
+foldl = foldlG ?
 
 zipWithG = #r f -> let layer = \recur a b -> if (and a b)
                                                 then {f (left a) (left b)
@@ -53,7 +53,7 @@ zipWithG = #r f -> let layer = \recur a b -> if (and a b)
                                                 else 0
                        base = #a b -> 0
                    in r layer base 
-zipWith = zipWithG $255
+zipWith = zipWithG ?
 
 filter = #f -> foldr (\a b -> if f a then {a, b} else b) 0 
 
@@ -88,4 +88,4 @@ quicksort = let layer = \recur l -> if right l
                                                 p2 = filter (#x -> not (test x)) (right l)
                                             in listPlus (recur p2) {t,(recur p1)}
                                        else l
-            in $255 layer (#l -> 0)
+            in ? layer (#l -> 0)

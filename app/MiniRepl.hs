@@ -12,6 +12,7 @@ import Text.Parsec
 
 import Text.Parsec.Indent
 
+import SIL.Eval
 import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
@@ -84,7 +85,7 @@ replStep eval bindings s = do
             case Map.lookup "_tmp_" new_bindings of
                 Nothing -> outputStrLn "Could not find _tmp_ in bindings"
                 Just e  -> do
-                    let m_iexpr = convertPT <$> debruijinize [] e 
+                    let m_iexpr = ((findChurchSize . splitExpr) <$> debruijinize [] e) >>= toSIL
                     case m_iexpr of
                         Nothing     -> outputStrLn "conversion error"
                         Just iexpr' -> do
@@ -103,6 +104,9 @@ replMultiline buffer = do
         Just ":}" -> return $ concat $ intersperse "\n" $ reverse buffer
         Just s    -> replMultiline (s : buffer) 
 
+resolveBinding' :: String -> Bindings -> Maybe Term3
+resolveBinding' name bindings = Map.lookup name bindings >>=
+  (fmap splitExpr . debruijinize [])
 
 replLoop :: ReplState -> InputT IO ()
 replLoop (ReplState bs eval) = do 
@@ -128,6 +132,7 @@ replLoop (ReplState bs eval) = do
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
+  {-
         Just s | ":tt" `isPrefixOf` s -> do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":tt" s of
                      Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
@@ -135,9 +140,10 @@ replLoop (ReplState bs eval) = do
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
+-}
         Just s | ":t" `isPrefixOf` s -> do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":t" s of
-                     Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
+                     Just (Right (ReplExpr, new_bindings)) -> case resolveBinding' "_tmp_" new_bindings of
                        Just iexpr -> print $ PrettyPartialType <$> inferType iexpr
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"

@@ -17,12 +17,9 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ getErrorString pe
-    testMethod n s = case resolveBinding n <$> parseWithPrelude prelude s of
-      Right (Just iexpr) -> simpleEval iexpr >>= \r -> print (PrettyIExpr r)
-      Left x -> print . getErrorString $ x
-    runMain s = case parseMain prelude s of
+    runMain s = case toSIL . findChurchSize <$> parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", getErrorString $ e]
-      Right g -> evalLoop g
+      Right (Just g) -> evalLoop $ g
     --testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
     --testData = PRight $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
     --testData = SetEnv $ Pair (Defer $ Pair Zero Env) Zero

@@ -17,12 +17,11 @@ extern "C" {
 #define SIL_ENV     (2)
 #define SIL_SETENV  (3)
 #define SIL_DEFER   (4)
-#define SIL_TWIDDLE (5)
-#define SIL_ABORT   (6)
-#define SIL_GATE    (7)
-#define SIL_PLEFT   (8)
-#define SIL_PRIGHT  (9)
-#define SIL_TRACE   (10)
+#define SIL_ABORT   (5)
+#define SIL_GATE    (6)
+#define SIL_PLEFT   (7)
+#define SIL_PRIGHT  (8)
+#define SIL_TRACE   (9)
 
 typedef unsigned char sil_type;
 
@@ -63,17 +62,12 @@ typedef struct SIL_Defer{
     sil_type type;
     void * value; 
 } SIL_Defer;
-typedef struct SIL_Twiddle{
-    sil_type type;
-    void * value; 
-} SIL_Twiddle;
-typedef struct SIL_Abort{
-    sil_type type;
-    void * value; 
-} SIL_Abort;
+typedef struct SIL_Abort{} SIL_Abort;
 typedef struct SIL_Gate{
-    sil_type type;
-    void * value; 
+  sil_type left_type;
+  sil_type right_type;
+  void * left_value;
+  void * right_value;
 } SIL_Gate;
 typedef struct SIL_PLeft{
     sil_type type;
@@ -83,10 +77,7 @@ typedef struct SIL_PRight{
     sil_type type;
     void * value; 
 } SIL_PRight;
-typedef struct SIL_Trace{
-    sil_type type;
-    void * value; 
-} SIL_Trace;
+typedef struct SIL_Trace{} SIL_Trace;
 
 /**
  * @brief SIL_Stack nodes.
