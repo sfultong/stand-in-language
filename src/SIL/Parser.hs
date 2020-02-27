@@ -374,7 +374,7 @@ runSILParser_ parser str = do
 -- |Helper function to debug parsers without a result.
 runSILParserWDebug_ :: Show a => SILParser a -> String -> IO ()
 runSILParserWDebug_ parser str = do
-  let p            = runStateT parser $ ParserState (Map.empty)
+  let p            = State.runStateT parser $ ParserState (Map.empty)
   case runParser (dbg "debug" p) "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)

@@ -24,16 +24,12 @@ with rec {
     src = ./cbits;
     buildInputs = [pkgs.boehmgc];
   };
-  indentsGit = builtins.fetchGit {
-    url = "https://github.com/sfultong/indents.git";
-  };
   haskellPkgs = with pkgs.haskell.lib; pkgs.haskell.packages.ghc865.override(old: {
     all-cabal-hashes = builtins.fetchurl {
       url = "https://github.com/commercialhaskell/all-cabal-hashes/archive/1de0d224fe9c8e8947f217c92a12d9249334c5e4.tar.gz";
       sha256 = "1ycayni4pjmgki8cdhcg25bmw970289f89b62sbdzw5naw15rrb1";
     };
     overrides = self: super: {
-      indents = super.callCabal2nix "indents" indentsGit {};
       sil = super.callCabal2nix "sil" ./. { gc = pkgs.boehmgc; jumper = sil_jumper; };
       # llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
       # llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
