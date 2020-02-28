@@ -219,7 +219,7 @@ parsePair = braces $ do
 -- |Parse a list.
 parseList :: SILParser Term1
 parseList = do
-  exprs <- brackets (commaSep parseLongExpr)
+  exprs <- brackets (commaSep (scn *> parseLongExpr <*scn))
   return $ foldr TPair TZero exprs
 
 -- TODO: make error more descriptive
@@ -372,9 +372,9 @@ runSILParser_ parser str = do
     Left e -> putStr (errorBundlePretty e)
 
 -- |Helper function to debug parsers without a result.
-runSILParserWDebug_ :: Show a => SILParser a -> String -> IO ()
-runSILParserWDebug_ parser str = do
-  let p            = runStateT parser $ ParserState (Map.empty)
+runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
+runSILParserWDebug parser str = do
+  let p = State.runStateT parser $ ParserState (Map.empty)
   case runParser (dbg "debug" p) "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
@@ -384,10 +384,18 @@ runSILParserWDebug_ parser str = do
 -- |Helper function to test parsers with parsing result.
 runSILParser :: Show a => SILParser a -> String -> IO String
 runSILParser parser str = do
-  let p            = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (Map.empty)
   case runParser p "" str of
     Right (a, s) -> return $ show a
     Left e -> return $ errorBundlePretty e
+
+-- |Helper function to test if parser was successful.
+parseSuccessful :: Show a => SILParser a -> String -> IO Bool
+parseSuccessful parser str = do
+  let p = State.runStateT parser $ ParserState (Map.empty)
+  case runParser p "" str of
+    Right _ -> return True
+    Left _ -> return False
 
 -- |Parse with specified prelude.
 parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
