@@ -43,8 +43,6 @@ library
                      , cryptohash-sha256
                      , dlist
                      , recursion-schemes
-                     , parsec
-                     , indents
                      , clock
                      , containers
                      , mtl
@@ -85,8 +83,6 @@ executable sil-mini-repl
                      , containers
                      , sil
                      , haskeline
-                     , parsec
-                     , indents
                      , strict 
                      , optparse-applicative
   default-language:    Haskell2010
