@@ -1,4 +1,4 @@
-module ParserTests where
+module Main where
 
 import SIL.Parser
 import Test.Tasty
