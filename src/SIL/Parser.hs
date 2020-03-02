@@ -264,7 +264,7 @@ parseSingleExpr = choice $ try <$> [ parseString
                                    , parseChurch
                                    , parseVariable
                                    , parsePartialFix
-                                   , parens parseLongExpr
+                                   , parens (scn *> parseLongExpr <* scn)
                                    ]
 
 -- |Parse application of functions.
@@ -340,7 +340,7 @@ parseAssignment :: SILParser ()
 parseAssignment = do
   var <- identifier
   scn
-  annotation <- optional parseRefinementCheck
+  annotation <- optional . try $ parseRefinementCheck
   reserved "=" <?> "assignment ="
   expr <- parseLongExpr
   scn
@@ -352,7 +352,7 @@ parseAssignment = do
         _ -> error $ "shadowing of binding not allowed " ++ var
   State.modify assign
 
--- |Parse top level expressions.
+ -- |Parse top level expressions.
 parseTopLevel :: SILParser Bindings
 parseTopLevel = do
   many parseAssignment <* eof
@@ -407,9 +407,10 @@ parseWithPrelude prelude str = let startState = ParserState prelude
                                in eitherEB str
 
 -- |Parse prelude.
+parsePrelude :: String -> Either ErrorString Bindings
 parsePrelude = parseWithPrelude Map.empty
 
-
+-- |Parse main.
 parseMain :: Bindings -> String -> Either ErrorString Term3
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of

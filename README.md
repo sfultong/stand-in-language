@@ -25,11 +25,11 @@ This proyect is in active development. Do expect bugs and general trouble, and p
    ```
 4. Build the proyect:
    ```
-   $ cabal v2-build
+   $ cabal new-build
    ```
 5. Run the tictactoe example and start playing with a friend:
    ```
-   $ cabal v2-run sil-exe
+   $ cabal new-run sil-exe
    ```
 
 ## Running `cabal new-repl`
@@ -49,8 +49,8 @@ To get arround it, you should copy `libgc.so.1` (provided by the `bohem` garbage
    ```
    $ cd <your/local/proyect/location>/stand-in-language
    $ nix-shell shell.nix
-   $ cabal v2-build
-   $ cabal v2-run sil-exe
+   $ cabal new-build
+   $ cabal new-run sil-exe
    ```
    
 ## Contributing
