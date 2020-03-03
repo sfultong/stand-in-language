@@ -16,6 +16,8 @@ import Data.Void
 import qualified Control.Monad.State as State
 import qualified Data.Map as Map
 
+import Data.Functor.Foldable
+
 import SIL
 import SIL.TypeChecker
 
