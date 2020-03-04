@@ -31,7 +31,7 @@ newtype ErrorString = MkES { getErrorString :: String } deriving Show
 
 data ParserState = ParserState
   { bound :: Bindings
-  } deriving Show
+  }
 
 addBound :: String -> Term1 -> ParserState -> Maybe ParserState
 addBound name expr (ParserState bound) = if Map.member name bound
@@ -39,57 +39,74 @@ addBound name expr (ParserState bound) = if Map.member name bound
   else pure $ ParserState (Map.insert name expr bound)
 
 i2t :: Int -> ParserTerm l x v
-i2t 0 = TZero
-i2t n = TPair (i2t (n - 1)) TZero
+i2t 0 = tzero
+i2t n = tpair (i2t (n - 1)) tzero
 
 ints2t :: [Int] -> ParserTerm l x v
-ints2t = foldr (\i t -> TPair (i2t i) t) TZero
+ints2t = foldr (\i t -> tpair (i2t i) t) tzero
 
 s2t :: String -> ParserTerm l x v
 s2t = ints2t . map ord
 
 i2c :: Int -> Term1
 i2c x =
-  let inner 0 = TVar $ Left 0
-      inner x = TApp (TVar $ Left 1) (inner $ x - 1)
-  in TLam (Closed (Left ())) (TLam (Open (Left ())) (inner x))
+  let inner 0 = tvar $ Left 0
+      inner x = tapp (tvar $ Left 1) (inner $ x - 1)
+  in tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
 
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
-debruijinize _ TZero = pure TZero
-debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
-debruijinize _ (TVar (Left i)) = pure $ TVar i
-debruijinize vl (TVar (Right n)) = case elemIndex n vl of
-  Just i -> pure $ TVar i
+debruijinize _ tzero = pure $ Fix TZero
+debruijinize vl (Fix (TPair a b)) = tpair <$> debruijinize vl a <*> debruijinize vl b
+debruijinize _ (Fix (TVar (Left i))) = pure $ tvar i
+debruijinize vl (Fix (TVar (Right n))) = case elemIndex n vl of
+  Just i -> pure $ tvar i
   Nothing -> fail $ "undefined identifier " ++ n
-debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
-debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
-debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i <*> debruijinize vl t
+debruijinize vl (Fix (TApp i c)) = tapp <$> debruijinize vl i <*> debruijinize vl c
+debruijinize vl (Fix (TCheck c tc)) = tcheck <$> debruijinize vl c <*> debruijinize vl tc
+debruijinize vl (Fix (TITE i t e)) = tite <$> debruijinize vl i <*> debruijinize vl t
   <*> debruijinize vl e
-debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
-debruijinize vl (TRight x) = TRight <$> debruijinize vl x
-debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
-debruijinize vl (TLam (Open (Left _)) x) = TLam (Open ()) <$> debruijinize ("-- dummy" : vl) x
-debruijinize vl (TLam (Closed (Left _)) x) = TLam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
-debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n : vl) x
-debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
-debruijinize _ TLimitedRecursion = pure TLimitedRecursion
+debruijinize vl (Fix (TLeft x)) = tleft <$> debruijinize vl x
+debruijinize vl (Fix (TRight x)) = tright <$> debruijinize vl x
+debruijinize vl (Fix (TTrace x)) = ttrace <$> debruijinize vl x
+debruijinize vl (Fix (TLam (Open (Left _)) x)) = tlam (Open ()) <$> debruijinize ("-- dummy" : vl) x
+debruijinize vl (Fix (TLam (Closed (Left _)) x)) = tlam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
+debruijinize vl (Fix (TLam (Open (Right n)) x)) = tlam (Open ()) <$> debruijinize (n : vl) x
+debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x
+debruijinize _ (Fix (TLimitedRecursion)) = pure tlimitedrecursion
+
+-- splitExpr' :: Term2 -> BreakState' BreakExtras
+-- splitExpr' = \case
+--   tzero -> pure ZeroF
+--   tpair a b -> PairF <$> splitExpr' a <*> splitExpr' b
+--   tvar n -> pure $ varNF n
+--   tapp c i -> appF (splitExpr' c) (splitExpr' i)
+--   tcheck c tc ->
+--     let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
+--     in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
+--   tite i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
+--   tleft x -> LeftF <$> splitExpr' x
+--   tright x -> RightF <$> splitExpr' x
+--   ttrace x -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
+--   tlam (Open ()) x -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
+--   tlam (Closed ()) x -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
+--   tlimitedrecursion -> pure $ AuxF UnsizedRecursion
 
 splitExpr' :: Term2 -> BreakState' BreakExtras
 splitExpr' = \case
-  TZero -> pure ZeroF
-  TPair a b -> PairF <$> splitExpr' a <*> splitExpr' b
-  TVar n -> pure $ varNF n
-  TApp c i -> appF (splitExpr' c) (splitExpr' i)
-  TCheck c tc ->
+  (Fix TZero) -> pure ZeroF
+  Fix (TPair a b) -> PairF <$> splitExpr' a <*> splitExpr' b
+  Fix (TVar n) -> pure $ varNF n
+  Fix (TApp c i) -> appF (splitExpr' c) (splitExpr' i)
+  Fix (TCheck c tc) ->
     let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
     in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
-  TITE i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
-  TLeft x -> LeftF <$> splitExpr' x
-  TRight x -> RightF <$> splitExpr' x
-  TTrace x -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
-  TLam (Open ()) x -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
-  TLam (Closed ()) x -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
-  TLimitedRecursion -> pure $ AuxF UnsizedRecursion
+  Fix (TITE i t e) -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
+  Fix (TLeft x) -> LeftF <$> splitExpr' x
+  Fix (TRight x) -> RightF <$> splitExpr' x
+  Fix (TTrace x) -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
+  Fix (TLam (Open ()) x) -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
+  Fix (TLam (Closed ()) x) -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
+  Fix TLimitedRecursion -> pure $ AuxF UnsizedRecursion
 
 splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.empty)
@@ -120,7 +137,7 @@ convertPT n (Term3 termMap) =
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
                                    then Map.lookup name bound
-                                   else Just . TVar . Right $ name
+                                   else Just . tvar . Right $ name
 
 -- |Line comments start with "--".
 lineComment :: SILParser ()
@@ -216,13 +233,13 @@ parsePair = braces $ do
   scn
   b <- parseLongExpr
   scn
-  return $ TPair a b
+  return $ tpair a b
 
 -- |Parse a list.
 parseList :: SILParser Term1
 parseList = do
   exprs <- brackets (commaSep (scn *> parseLongExpr <*scn))
-  return $ foldr TPair TZero exprs
+  return $ foldr tpair tzero exprs
 
 -- TODO: make error more descriptive
 -- |Parse ITE (which stands for "if then else").
@@ -240,19 +257,19 @@ parseITE = do
   scn
   elseExpr <- parseLongExpr
   scn
-  return $ TITE cond thenExpr elseExpr
+  return $ tite cond thenExpr elseExpr
 
 -- |Parse left.
 parsePLeft :: SILParser Term1
-parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
+parsePLeft = tleft <$> (reserved "left" *> parseSingleExpr)
 
 -- |Parse right.
 parsePRight :: SILParser Term1
-parsePRight = TRight <$> (reserved "right" *> parseSingleExpr)
+parsePRight = tright <$> (reserved "right" *> parseSingleExpr)
 
 -- |Parse trace.
 parseTrace :: SILParser Term1
-parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
+parseTrace = ttrace <$> (reserved "trace" *> parseSingleExpr)
 
 -- |Parse a single expression.
 parseSingleExpr :: SILParser Term1
@@ -275,7 +292,7 @@ parseApplied = do
   fargs <- L.lineFold scn $ \sc' ->
     parseSingleExpr `sepBy` try sc'
   case fargs of
-    (f:args) -> pure $ foldl TApp f args
+    (f:args) -> pure $ foldl tapp f args
     _ -> fail "expected expression"
 
 -- |Parse lambda expression.
@@ -289,7 +306,7 @@ parseLambda = do
   scn
   -- TODO make sure lambda names don't collide with bound names
   iexpr <- parseLongExpr
-  return $ foldr (\n -> TLam (Open (Right n))) iexpr variables
+  return $ foldr (\n -> tlam (Open (Right n))) iexpr variables
 
 -- |Parse complete lambda expression.
 parseCompleteLambda :: SILParser Term1
@@ -301,7 +318,7 @@ parseCompleteLambda = do
   scn
   iexpr <- parseLongExpr
   scn
-  return . TLam (Closed (Right $ head variables)) $ foldr (\n -> TLam (Open (Right n))) iexpr (tail variables)
+  return . tlam (Closed (Right $ head variables)) $ foldr (\n -> tlam (Open (Right n))) iexpr (tail variables)
 
 -- |Parse let expression.
 parseLet :: SILParser Term1
@@ -332,10 +349,10 @@ parseChurch = (i2c . fromInteger) <$> (symbol "$" *> integer)
 
 -- |Parse refinement check.
 parsePartialFix :: SILParser Term1
-parsePartialFix = symbol "?" *> pure TLimitedRecursion
+parsePartialFix = symbol "?" *> pure tlimitedrecursion
 
 parseRefinementCheck :: SILParser (Term1 -> Term1)
-parseRefinementCheck = flip TCheck <$> (symbol ":" *> parseLongExpr)
+parseRefinementCheck = flip tcheck <$> (symbol ":" *> parseLongExpr)
 
 -- |Parse assignment.
 parseAssignment :: SILParser ()
@@ -370,18 +387,18 @@ runSILParser_ parser str = do
   case runParser p "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
-      putStrLn ("Final state: " ++ show s)
+      -- putStrLn ("Final state: " ++ show s)
     Left e -> putStr (errorBundlePretty e)
 
--- |Helper function to debug parsers without a result.
-runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
-runSILParserWDebug parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
-  case runParser (dbg "debug" p) "" str of
-    Right (a, s) -> do
-      putStrLn ("Result:      " ++ show a)
-      putStrLn ("Final state: " ++ show s)
-    Left e -> putStr (errorBundlePretty e)
+-- -- |Helper function to debug parsers without a result.
+-- runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
+-- runSILParserWDebug parser str = do
+--   let p = State.runStateT parser $ ParserState (Map.empty)
+--   case runParser (dbg "debug" p) "" str of
+--     Right (a, s) -> do
+--       putStrLn ("Result:      " ++ show a)
+--       putStrLn ("Final state: " ++ show s)
+--     Left e -> putStr (errorBundlePretty e)
 
 -- |Helper function to test parsers with parsing result.
 runSILParser :: Show a => SILParser a -> String -> IO String

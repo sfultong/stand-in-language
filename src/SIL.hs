@@ -5,6 +5,7 @@
 {-#LANGUAGE LambdaCase #-}
 {-#LANGUAGE PatternSynonyms #-}
 {-#LANGUAGE ViewPatterns #-}
+
 module SIL where
 
 import Control.DeepSeq
@@ -13,8 +14,8 @@ import Control.Monad.State (State)
 import Data.Char
 import Data.Void
 import Data.Map (Map)
+import Data.Functor.Foldable
 import GHC.Generics
-
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
 
@@ -89,21 +90,79 @@ data LamType t
   | Closed t
   deriving (Eq, Show, Ord)
 
+-- -- we can probably get rid of x
+-- data ParserTerm l x v
+--   = TZero
+--   | TPair (ParserTerm l x v) (ParserTerm l x v)
+--   | TVar v
+--   | TApp (ParserTerm l x v) (ParserTerm l x v)
+--   | TCheck (ParserTerm l x v) (ParserTerm l x v)
+--   | TITE (ParserTerm l x v) (ParserTerm l x v) (ParserTerm l x v)
+--   | TLeft (ParserTerm l x v)
+--   | TRight (ParserTerm l x v)
+--   | TTrace (ParserTerm l x v)
+--   | TLam (LamType l) (ParserTerm l x v)
+--   | TLimitedRecursion
+--   | TTransformedGrammar x
+--   deriving (Eq, Show, Ord, Functor)
+
 -- we can probably get rid of x
-data ParserTerm l x v
+-- | Functor to do an F-algebra for recursive schemes.
+data ParserTermF l x v r
   = TZero
-  | TPair (ParserTerm l x v) (ParserTerm l x v)
+  | TPair r r
   | TVar v
-  | TApp (ParserTerm l x v) (ParserTerm l x v)
-  | TCheck (ParserTerm l x v) (ParserTerm l x v)
-  | TITE (ParserTerm l x v) (ParserTerm l x v) (ParserTerm l x v)
-  | TLeft (ParserTerm l x v)
-  | TRight (ParserTerm l x v)
-  | TTrace (ParserTerm l x v)
-  | TLam (LamType l) (ParserTerm l x v)
+  | TApp r r
+  | TCheck r r
+  | TITE r r r
+  | TLeft r
+  | TRight r
+  | TTrace r
+  | TLam (LamType l) r
   | TLimitedRecursion
   | TTransformedGrammar x
   deriving (Eq, Show, Ord, Functor)
+
+type ParserTerm l x v = Fix (ParserTermF l x v)
+
+-- instance Show (ParserTerm l x v) where
+--   show Fix x = show x
+
+tzero :: ParserTerm l x v
+tzero = Fix TZero
+
+tpair :: ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v
+tpair x y = Fix $ TPair x y
+
+tvar :: v -> ParserTerm l x v
+tvar v = Fix $ TVar v
+
+tapp :: ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v
+tapp x y = Fix $ TApp x y
+
+tcheck :: ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v
+tcheck x y = Fix $ TCheck x y
+
+tite :: ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v
+tite x y z = Fix $ TITE x y z
+
+tleft :: ParserTerm l x v -> ParserTerm l x v
+tleft x = Fix $ TLeft x
+
+tright :: ParserTerm l x v -> ParserTerm l x v
+tright x = Fix $ TRight x
+
+ttrace :: ParserTerm l x v -> ParserTerm l x v
+ttrace x = Fix $ TTrace x
+
+tlam :: (LamType l) -> ParserTerm l x v -> ParserTerm l x v
+tlam l x = Fix $ TLam l x
+
+tlimitedrecursion :: ParserTerm l x v
+tlimitedrecursion = Fix TLimitedRecursion
+
+ttransformedgrammar :: x -> ParserTerm l x v
+ttransformedgrammar x = Fix $ TTransformedGrammar x
 
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 
