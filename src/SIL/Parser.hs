@@ -55,7 +55,7 @@ i2c x =
   in tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
 
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
-debruijinize _ tzero = pure $ Fix TZero
+debruijinize _ (Fix (TZero)) = pure $ Fix TZero
 debruijinize vl (Fix (TPair a b)) = tpair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize _ (Fix (TVar (Left i))) = pure $ tvar i
 debruijinize vl (Fix (TVar (Right n))) = case elemIndex n vl of
