@@ -21,17 +21,17 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parsePair >> eof) testPair0
       res `compare` True @?= EQ
   ,testCase "test ITE 1" $ do
-      res <- runTestITE testITE1
-      res `compare` testITEParsecResult @?= EQ
+      res <- parseSuccessful parseITE testITE1
+      res `compare` True @?= EQ
   , testCase "test ITE 2" $ do
-      res <- runTestITE testITE2
-      res `compare` testITEParsecResult @?= EQ
+      res <- parseSuccessful parseITE testITE2
+      res `compare` True @?= EQ
   , testCase "test ITE 3" $ do
-      res <- runTestITE testITE3
-      res `compare` testITEParsecResult @?= EQ
+      res <- parseSuccessful parseITE testITE3
+      res `compare` True @?= EQ
   , testCase "test ITE 4" $ do
-      res <- runTestITE testITE4
-      res `compare` testITEParsecResult @?= EQ
+      res <- parseSuccessful parseITE testITE4
+      res `compare` True @?= EQ
   , testCase "test ITE with Pair" $ do
       res <- parseSuccessful parseITE testITEwPair
       res `compare` True @?= EQ
@@ -51,23 +51,23 @@ unitTests = testGroup "Unit tests"
       res <- runTestMainwCLwITEwPair
       res `compare` True @?= EQ
   , testCase "testList0" $ do
-      res <- runSILParser parseList testList0
-      res `compare` testListAns @?= EQ
+      res <- parseSuccessful parseList testList0
+      res `compare` True @?= EQ
   , testCase "testList1" $ do
-      res <- runSILParser parseList testList1
-      res `compare` testListAns @?= EQ
+      res <- parseSuccessful parseList testList1
+      res `compare` True @?= EQ
   , testCase "testList2" $ do
-      res <- runSILParser parseList testList2
-      res `compare` testListAns @?= EQ
+      res <- parseSuccessful parseList testList2
+      res `compare` True @?= EQ
   , testCase "testList3" $ do
-      res <- runSILParser parseList testList3
-      res `compare` testListAns @?= EQ
+      res <- parseSuccessful parseList testList3
+      res `compare` True @?= EQ
   , testCase "testList4" $ do
-      res <- runSILParser parseList testList4
-      res `compare` testListAns @?= EQ
+      res <- parseSuccessful parseList testList4
+      res `compare` True @?= EQ
   , testCase "testList5" $ do
-      res <- runSILParser parseList testList5
-      res `compare` testListAns @?= EQ
+      res <- parseSuccessful parseList testList5
+      res `compare` True @?= EQ
   , testCase "test parse Prelude.sil" $ do
       res <- runTestParsePrelude
       res `compare` True @?= EQ
@@ -127,9 +127,6 @@ unitTests = testGroup "Unit tests"
       res `compare` True @?= EQ
   ]
 
-runTestPair :: String -> IO String
-runTestPair = runSILParser parsePair
-
 testPair0 = "{\"Hello World!\", \"0\"}"
 
 testPair1 = unlines
@@ -138,9 +135,6 @@ testPair1 = unlines
   , ", \"0\""
   , "}"
   ]
-
-runTestITE :: String -> IO String
-runTestITE = runSILParser parseITE
 
 testITE1 = unlines $
   [ "if"
@@ -184,13 +178,6 @@ testCompleteLambdawITEwPair = unlines $
   , "   else"
   , "    {\"Goodbye, world!\", 1}"
   ]
-
-testIfParseSuccessful p str = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  case p str of
-    Right _ -> return True
-    Left _ -> return False
-
 
 testLambdawITEwPair = unlines $
   [ "\\input ->"
@@ -310,9 +297,6 @@ runTestMainWType = do
   case parseMain prelude $ testMain2 of
     Right x -> return True
     Left err -> return False
-
-
-testListAns = "TPair TZero (TPair (TPair TZero TZero) (TPair (TPair (TPair TZero TZero) TZero) TZero))"
 
 testList0 = unlines $
   [ "[ 0"

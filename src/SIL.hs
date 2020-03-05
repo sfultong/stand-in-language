@@ -15,6 +15,7 @@ import Data.Char
 import Data.Void
 import Data.Map (Map)
 import Data.Functor.Foldable
+import Data.Functor.Classes
 import GHC.Generics
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
@@ -122,6 +123,23 @@ data ParserTermF l x v r
   | TLimitedRecursion
   | TTransformedGrammar x
   deriving (Eq, Show, Ord, Functor)
+
+instance (Show x, Show v, Show l) => Show1 (ParserTermF l x v) where
+  -- liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
+  liftShowsPrec showsPrec showList i = let recur = showsPrec i in \case
+    TZero -> showString "TZero"
+    TPair a b -> showParen True $ shows "PairF " . recur a . shows " " . recur b
+    TVar v -> showString $ "TVar " ++ show v
+    TApp a b -> showParen True $ shows "TApp " . recur a . shows " " . recur b
+    TCheck a b -> showParen True $ shows "TCheck " . recur a . shows " " . recur b
+    TITE a b c -> showParen True $ shows "TITE " . recur a . shows " " . recur b . shows " " . recur c
+    TLeft a -> showParen True $ shows "TLeft " . recur a
+    TRight a -> showParen True $ shows "TRight " . recur a
+    TTrace a -> showParen True $ shows "TTrace " . recur a
+    TLam l a ->
+      showParen True $ shows "TLam " . (showParen True $ shows "LamType " . (showString $ show l)) . shows " " . recur a
+    TLimitedRecursion -> showString "TLimitedRecursion"
+    TTransformedGrammar x -> showParen True $ shows "TTransformedGrammar " . (showString $ show x)
 
 type ParserTerm l x v = Fix (ParserTermF l x v)
 

@@ -31,7 +31,7 @@ newtype ErrorString = MkES { getErrorString :: String } deriving Show
 
 data ParserState = ParserState
   { bound :: Bindings
-  }
+  } deriving Show
 
 addBound :: String -> Term1 -> ParserState -> Maybe ParserState
 addBound name expr (ParserState bound) = if Map.member name bound
@@ -387,18 +387,18 @@ runSILParser_ parser str = do
   case runParser p "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
-      -- putStrLn ("Final state: " ++ show s)
+      putStrLn ("Final state: " ++ show s)
     Left e -> putStr (errorBundlePretty e)
 
--- -- |Helper function to debug parsers without a result.
--- runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
--- runSILParserWDebug parser str = do
---   let p = State.runStateT parser $ ParserState (Map.empty)
---   case runParser (dbg "debug" p) "" str of
---     Right (a, s) -> do
---       putStrLn ("Result:      " ++ show a)
---       putStrLn ("Final state: " ++ show s)
---     Left e -> putStr (errorBundlePretty e)
+-- |Helper function to debug parsers without a result.
+runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
+runSILParserWDebug parser str = do
+  let p = State.runStateT parser $ ParserState (Map.empty)
+  case runParser (dbg "debug" p) "" str of
+    Right (a, s) -> do
+      putStrLn ("Result:      " ++ show a)
+      putStrLn ("Final state: " ++ show s)
+    Left e -> putStr (errorBundlePretty e)
 
 -- |Helper function to test parsers with parsing result.
 runSILParser :: Show a => SILParser a -> String -> IO String
