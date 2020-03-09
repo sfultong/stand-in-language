@@ -7,10 +7,9 @@ import           Options.Applicative hiding (ParseError, (<|>))
 import qualified Options.Applicative as O
 import System.Console.Haskeline
 
-import Text.Parsec.Error (ParseError)
-import Text.Parsec 
-
-import Text.Parsec.Indent
+import qualified Text.Parsec.Error as PE (ParseError)
+import qualified Text.Parsec as  P
+import qualified Text.Parsec.Indent as PI
 
 import SIL.Eval
 import SIL.Parser
