@@ -17,7 +17,6 @@ data-files:          bench/MemoryBench/cases
 
 library
   hs-source-dirs:      src
-                     , test
   include-dirs:        cbits/include
   c-sources:           cbits/SIL.c
   other-extensions:    GADTs
@@ -27,7 +26,6 @@ library
                      , ScopedTypeVariables
                      , OverloadedStrings
                      , RecursiveDo
-  other-modules:       Common
   exposed-modules:     Naturals
                      , PrettyPrint
                      , SIL
@@ -60,8 +58,6 @@ library
                      , strict
                      , tasty
                      , tasty-hunit
-                     , hspec
-                     , QuickCheck
   extra-libraries:     gc
                      , jumper
   -- uncomment this line to get a cabal repl. Use appropiate complete path.

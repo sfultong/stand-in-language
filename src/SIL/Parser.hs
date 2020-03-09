@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+
 module SIL.Parser where
 
 import Control.Monad
@@ -38,21 +39,30 @@ addBound name expr (ParserState bound) = if Map.member name bound
   then Nothing
   else pure $ ParserState (Map.insert name expr bound)
 
+-- |Int to ParserTerm
 i2t :: Int -> ParserTerm l x v
-i2t 0 = tzero
-i2t n = tpair (i2t (n - 1)) tzero
+i2t = ana coalg where
+  coalg :: Int -> ParserTermF l x v Int
+  coalg 0 = TZero
+  coalg n = TPair (n-1) 0
 
+-- This foldr is a cata over ListF and not ParserTermF. Any other viable morphisms?
+-- |List of Int's to ParserTerm
 ints2t :: [Int] -> ParserTerm l x v
 ints2t = foldr (\i t -> tpair (i2t i) t) tzero
 
+-- |String to ParserTerm
 s2t :: String -> ParserTerm l x v
 s2t = ints2t . map ord
 
+-- |Int to Church encoding
 i2c :: Int -> Term1
-i2c x =
-  let inner 0 = tvar $ Left 0
-      inner x = tapp (tvar $ Left 1) (inner $ x - 1)
-  in tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
+i2c x = tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
+  where inner :: Int -> Term1
+        inner = apo coalg
+        coalg :: Int -> Term1F (Either Term1 Int)
+        coalg 0 = TVar (Left 0)
+        coalg n = TApp (Left . Fix . TVar $ Left 1) (Right $ n - 1)
 
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (Fix (TZero)) = pure $ Fix TZero

@@ -128,7 +128,7 @@ instance (Show x, Show v, Show l) => Show1 (ParserTermF l x v) where
   -- liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
   liftShowsPrec showsPrec showList i = let recur = showsPrec i in \case
     TZero -> showString "TZero"
-    TPair a b -> showParen True $ shows "PairF " . recur a . shows " " . recur b
+    TPair a b -> showParen True $ shows "TPair " . recur a . shows " " . recur b
     TVar v -> showString $ "TVar " ++ show v
     TApp a b -> showParen True $ shows "TApp " . recur a . shows " " . recur b
     TCheck a b -> showParen True $ shows "TCheck " . recur a . shows " " . recur b
@@ -137,9 +137,9 @@ instance (Show x, Show v, Show l) => Show1 (ParserTermF l x v) where
     TRight a -> showParen True $ shows "TRight " . recur a
     TTrace a -> showParen True $ shows "TTrace " . recur a
     TLam l a ->
-      showParen True $ shows "TLam " . (showParen True $ shows "LamType " . (showString $ show l)) . shows " " . recur a
+      showParen True $ shows "TLam " . (showParen True $ shows "LamType " . (shows l)) . shows " " . recur a
     TLimitedRecursion -> showString "TLimitedRecursion"
-    TTransformedGrammar x -> showParen True $ shows "TTransformedGrammar " . (showString $ show x)
+    TTransformedGrammar x -> showParen True $ shows "TTransformedGrammar " . (shows x)
 
 type ParserTerm l x v = Fix (ParserTermF l x v)
 
@@ -203,6 +203,8 @@ newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 data BreakExtras
   = UnsizedRecursion
   deriving Show
+
+type Term1F a = ParserTermF (Either () String) Void (Either Int String) a
 
 type Term1 = ParserTerm (Either () String) Void (Either Int String)
 type Term2 = ParserTerm () Void Int
