@@ -437,12 +437,12 @@ parseSuccessful parser str = do
 
 -- |Parse with specified prelude.
 parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
-parseWithPrelude prelude str = let startState = ParserState prelude
-                                   p          = State.runStateT parseTopLevel startState
-                                   eitherEB str = case runParser p "" str of
-                                     Right (a, s) -> Right a
-                                     Left x       -> Left $ MkES $ errorBundlePretty x
-                               in eitherEB str
+parseWithPrelude prelude str = do
+  let startState = ParserState prelude
+      p          = State.runStateT parseTopLevel startState
+  case runParser p "" str of
+    Right (a, s) -> Right a
+    Left x       -> Left $ MkES $ errorBundlePretty x
 
 -- |Parse prelude.
 parsePrelude :: String -> Either ErrorString Bindings
