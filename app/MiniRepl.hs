@@ -6,10 +6,8 @@ module Main where
 import           Options.Applicative hiding (ParseError, (<|>))
 import qualified Options.Applicative as O
 import System.Console.Haskeline
-
-import qualified Text.Parsec.Error as PE (ParseError)
-import qualified Text.Parsec as  P
-import qualified Text.Parsec.Indent as PI
+import Text.Megaparsec
+import Text.Megaparsec.Char
 
 import SIL.Eval
 import SIL.Parser
@@ -19,6 +17,7 @@ import SIL
 import Naturals
 import PrettyPrint
 
+import qualified Control.Monad.State as State
 import Control.Monad.IO.Class
 import Data.List
 
@@ -34,37 +33,40 @@ foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: 
 addReplBound :: String -> Term1 -> ParserState -> ParserState
 addReplBound name expr (ParserState bound) = ParserState (Map.insert name expr bound)
 
+-- |Parse assignment in REPL.
 parseReplAssignment :: SILParser ()
 parseReplAssignment = do
   var <- identifier
-  annotation <- optionMaybe parseRefinementCheck
-  reservedOp "=" <?> "assignment ="
+  annotation <- optional . try $ parseRefinementCheck
+  reserved "=" <?> "assignment ="
   expr <- parseLongExpr
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr
       assign ps = addReplBound var annoExp ps 
-  modifyState assign
+  State.modify assign
 
 parseReplExpr :: SILParser ()
 parseReplExpr = do
   expr <- parseLongExpr
-  let assign ps = addReplBound "_tmp_" expr ps 
-  modifyState assign
+  let assign ps = addReplBound "_tmp_" expr ps
+  State.modify assign
 
 data ReplStep = ReplAssignment
               | ReplExpr
 
 parseReplStep :: SILParser (ReplStep, Bindings)
-parseReplStep =  step >>= (\x -> (x,) <$> (bound <$> getState)) 
+parseReplStep =  step >>= (\x -> (x,) <$> (bound <$> State.get)) 
     where step = try (parseReplAssignment *> return ReplAssignment)
-               <|>   (parseReplExpr       *> return ReplExpr)
+               <|> (parseReplExpr *> return ReplExpr)
 
-runReplParser :: Bindings -> String -> Either ParseError (ReplStep, Bindings)
-runReplParser prelude = let startState = ParserState prelude
-                        in runIndentParser parseReplStep startState "sil"
-
-
+runReplParser :: Bindings -> String -> Either ErrorString (ReplStep, Bindings)
+runReplParser prelude str = do
+  let startState = ParserState prelude
+      p          = State.runStateT parseReplStep startState
+  case runParser p "" str of
+    Right (a, s) -> Right a
+    Left x       -> Left $ MkES $ errorBundlePretty x
 
 -- Repl loop
 
