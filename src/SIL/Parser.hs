@@ -68,13 +68,15 @@ debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (Fix (TZero)) = pure $ Fix TZero
 debruijinize vl (Fix (TPair a b)) = tpair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize _ (Fix (TVar (Left i))) = pure $ tvar i
-debruijinize vl (Fix (TVar (Right n))) = case elemIndex n vl of
-  Just i -> pure $ tvar i
-  Nothing -> fail $ "undefined identifier " ++ n
+debruijinize vl (Fix (TVar (Right n))) =
+  case elemIndex n vl of
+    Just i -> pure $ tvar i
+    Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (Fix (TApp i c)) = tapp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (Fix (TCheck c tc)) = tcheck <$> debruijinize vl c <*> debruijinize vl tc
-debruijinize vl (Fix (TITE i t e)) = tite <$> debruijinize vl i <*> debruijinize vl t
-  <*> debruijinize vl e
+debruijinize vl (Fix (TITE i t e)) = tite <$> debruijinize vl i
+                                          <*> debruijinize vl t
+                                          <*> debruijinize vl e
 debruijinize vl (Fix (TLeft x)) = tleft <$> debruijinize vl x
 debruijinize vl (Fix (TRight x)) = tright <$> debruijinize vl x
 debruijinize vl (Fix (TTrace x)) = ttrace <$> debruijinize vl x
@@ -83,6 +85,13 @@ debruijinize vl (Fix (TLam (Closed (Left _)) x)) = tlam (Closed ()) <$> debruiji
 debruijinize vl (Fix (TLam (Open (Right n)) x)) = tlam (Open ()) <$> debruijinize (n : vl) x
 debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ (Fix (TLimitedRecursion)) = pure tlimitedrecursion
+
+debruijinizeExplore :: Term1 -> m Term2
+debruijinizeExplore t = undefined
+
+aux :: Bindings -> String -> Maybe Term1
+aux prelude s = parseWithPrelude prelude s >>= getMain where
+  getMain bound = Map.lookup "main" bound
 
 -- splitExpr' :: Term2 -> BreakState' BreakExtras
 -- splitExpr' = \case
