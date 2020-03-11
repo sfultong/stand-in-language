@@ -205,6 +205,7 @@ data BreakExtras
   deriving Show
 
 type Term1F a = ParserTermF (Either () String) Void (Either Int String) a
+type Term2F a = ParserTermF () Void Int a
 
 type Term1 = ParserTerm (Either () String) Void (Either Int String)
 type Term2 = ParserTerm () Void Int

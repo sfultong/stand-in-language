@@ -5,19 +5,19 @@ module SIL.Parser where
 
 import Control.Monad
 import Data.Char
+import Data.Functor.Foldable
 import Data.List (elemIndex)
 import Data.Map (Map, fromList)
+import Data.Void
 import Debug.Trace
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Debug
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Pos
-import Data.Void
 import qualified Control.Monad.State as State
 import qualified Data.Map as Map
-
-import Data.Functor.Foldable
+import qualified System.IO.Strict as Strict
 
 import SIL
 import SIL.TypeChecker
@@ -64,14 +64,35 @@ i2c x = tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
         coalg 0 = TVar (Left 0)
         coalg n = TApp (Left . Fix . TVar $ Left 1) (Right $ n - 1)
 
+-- debruijinize' :: Monad m => VarList -> Term1 -> m Term2
+debruijinize' :: VarList -> Term1 -> Term2
+debruijinize' vl t = hoist nat t
+  where nat :: Term1F a -> Term2F a
+        nat (TVar (Right str)) = case elemIndex str vl of
+                                        Just i -> TVar i
+                                        Nothing -> fail $ "undefined identifier " ++ str
+        nat (TLam (Open (Right str)) x) = TLam (Open ()) (str : vl)
+        nat (TLam (Closed (Right str)) x) = TLam (Closed ()) (str : vl)
+        nat (TLam (Open (Left ())) x) = TLam (Open ()) ("-- dummy" : vl)
+        nat (TLam (Closed (Left ())) x) = TLam (Closed ()) ("-- dummyC" : vl)
+        nat TZero = TZero
+        nat (TPair a b) = TPair a b
+        nat (TVar (Left i)) = TVar (Left i)
+        nat (TApp i c) = TApp i c
+        nat (TCheck c tc) = TCheck c tc
+        nat (TITE i t e) = TITE i t e
+        nat (TLeft x) = TLeft x
+        nat (TRight x) = TRight x
+        nat (TTrace x) = TTrace x
+        nat TLimitedRecursion = TLimitedRecursion
+
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (Fix (TZero)) = pure $ Fix TZero
 debruijinize vl (Fix (TPair a b)) = tpair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize _ (Fix (TVar (Left i))) = pure $ tvar i
-debruijinize vl (Fix (TVar (Right n))) =
-  case elemIndex n vl of
-    Just i -> pure $ tvar i
-    Nothing -> fail $ "undefined identifier " ++ n
+debruijinize vl (Fix (TVar (Right n))) = case elemIndex n vl of
+                                           Just i -> pure $ tvar i
+                                           Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (Fix (TApp i c)) = tapp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (Fix (TCheck c tc)) = tcheck <$> debruijinize vl c <*> debruijinize vl tc
 debruijinize vl (Fix (TITE i t e)) = tite <$> debruijinize vl i
@@ -83,15 +104,22 @@ debruijinize vl (Fix (TTrace x)) = ttrace <$> debruijinize vl x
 debruijinize vl (Fix (TLam (Open (Left _)) x)) = tlam (Open ()) <$> debruijinize ("-- dummy" : vl) x
 debruijinize vl (Fix (TLam (Closed (Left _)) x)) = tlam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
 debruijinize vl (Fix (TLam (Open (Right n)) x)) = tlam (Open ()) <$> debruijinize (n : vl) x
-debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x
+debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x          
 debruijinize _ (Fix (TLimitedRecursion)) = pure tlimitedrecursion
 
-debruijinizeExplore :: Term1 -> m Term2
-debruijinizeExplore t = undefined
+debruijinizedTerm :: SILParser Term1 -> String -> IO Term2
+debruijinizedTerm parser str = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  let prelude = case parsePrelude preludeFile of
+                  Right p -> p
+                  Left pe -> error . getErrorString $ pe
+      startState = ParserState prelude
+      p = State.runStateT parser startState
+      t1 = case runParser p "" str of
+             Right (a, s) -> a
+             Left e -> error . errorBundlePretty $ e
+  debruijinize [] t1
 
-aux :: Bindings -> String -> Maybe Term1
-aux prelude s = parseWithPrelude prelude s >>= getMain where
-  getMain bound = Map.lookup "main" bound
 
 -- splitExpr' :: Term2 -> BreakState' BreakExtras
 -- splitExpr' = \case
