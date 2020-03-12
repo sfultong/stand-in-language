@@ -155,7 +155,7 @@ reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
 rws :: [String]
-rws = ["let", "in", "right", "left", "trace", "if", "then", "else"]
+rws = ["let", "in", "right", "left", "trace", "if", "then", "else", "pair"]
 
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
@@ -214,7 +214,18 @@ parsePair = braces $ do
   scn
   b <- parseLongExpr
   scn
-  return $ TPair a b
+  pure $ TPair a b
+
+-- |Parse trace as a function.
+parsePairAsFunction :: SILParser Term1
+parsePairAsFunction = do
+  reserved "pair"
+  scn
+  a <- parseLongExpr
+  scn
+  b <- parseLongExpr
+  scn
+  pure $ TPair a b
 
 -- |Parse a list.
 parseList :: SILParser Term1
@@ -244,23 +255,45 @@ parseITE = do
 parsePLeft :: SILParser Term1
 parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
 
+-- |Parse left as a function.
+parseLeftAsFunction :: SILParser Term1
+parseLeftAsFunction = do
+  reserved "left"
+  pure . TLam (Open (Right "x")) . TLeft . TVar . Right $ "x"
+
 -- |Parse right.
 parsePRight :: SILParser Term1
 parsePRight = TRight <$> (reserved "right" *> parseSingleExpr)
 
+-- |Parse right as a function.
+parseRightAsFunction :: SILParser Term1
+parseRightAsFunction = do
+  reserved "right"
+  pure . TLam (Open (Right "x")) . TRight . TVar . Right $ "x"
+
 -- |Parse trace.
 parseTrace :: SILParser Term1
 parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
+
+-- |Parse trace as a function.
+parseTraceAsFunction :: SILParser Term1
+parseTraceAsFunction = do
+  reserved "trace"
+  pure . TLam (Open (Right "x")) . TTrace . TVar . Right $ "x"
 
 -- |Parse a single expression.
 parseSingleExpr :: SILParser Term1
 parseSingleExpr = choice $ try <$> [ parseString
                                    , parseNumber
                                    , parsePair
+                                   , parsePairAsFunction
                                    , parseList
                                    , parsePLeft
+                                   , parseLeftAsFunction
                                    , parsePRight
+                                   , parseRightAsFunction
                                    , parseTrace
+                                   , parseTraceAsFunction
                                    , parseChurch
                                    , parseVariable
                                    , parsePartialFix
@@ -275,6 +308,12 @@ parseApplied = do
   case fargs of
     (f:args) -> pure $ foldl TApp f args
     _ -> fail "expected expression"
+
+-- -- |Parse app as a function.
+-- parseAppAsFunction :: SILParser Term1
+-- parseAppAsFunction = do
+--   reserved "trace"
+--   pure . TLam (Open (Right "x")) . TTrace . TVar . Right $ "x"
 
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
