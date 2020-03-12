@@ -91,7 +91,6 @@ data LamType t
   | Closed t
   deriving (Eq, Show, Ord)
 
--- -- we can probably get rid of x
 -- data ParserTerm l x v
 --   = TZero
 --   | TPair (ParserTerm l x v) (ParserTerm l x v)
@@ -107,9 +106,8 @@ data LamType t
 --   | TTransformedGrammar x
 --   deriving (Eq, Show, Ord, Functor)
 
--- we can probably get rid of x
 -- | Functor to do an F-algebra for recursive schemes.
-data ParserTermF l x v r
+data ParserTermF l v r
   = TZero
   | TPair r r
   | TVar v
@@ -121,10 +119,9 @@ data ParserTermF l x v r
   | TTrace r
   | TLam (LamType l) r
   | TLimitedRecursion
-  | TTransformedGrammar x
   deriving (Eq, Show, Ord, Functor)
 
-instance (Show x, Show v, Show l) => Show1 (ParserTermF l x v) where
+instance (Show v, Show l) => Show1 (ParserTermF l v) where
   -- liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
   liftShowsPrec showsPrec showList i = let recur = showsPrec i in \case
     TZero -> showString "TZero"
@@ -139,48 +136,44 @@ instance (Show x, Show v, Show l) => Show1 (ParserTermF l x v) where
     TLam l a ->
       showParen True $ shows "TLam " . (showParen True $ shows "LamType " . (shows l)) . shows " " . recur a
     TLimitedRecursion -> showString "TLimitedRecursion"
-    TTransformedGrammar x -> showParen True $ shows "TTransformedGrammar " . (shows x)
 
-type ParserTerm l x v = Fix (ParserTermF l x v)
+type ParserTerm l v = Fix (ParserTermF l v)
 
--- instance Show (ParserTerm l x v) where
+-- instance Show (ParserTerm l v) where
 --   show Fix x = show x
 
-tzero :: ParserTerm l x v
+tzero :: ParserTerm l v
 tzero = Fix TZero
 
-tpair :: ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v
+tpair :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
 tpair x y = Fix $ TPair x y
 
-tvar :: v -> ParserTerm l x v
+tvar :: v -> ParserTerm l v
 tvar v = Fix $ TVar v
 
-tapp :: ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v
+tapp :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
 tapp x y = Fix $ TApp x y
 
-tcheck :: ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v
+tcheck :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
 tcheck x y = Fix $ TCheck x y
 
-tite :: ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v -> ParserTerm l x v
+tite :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v -> ParserTerm l v
 tite x y z = Fix $ TITE x y z
 
-tleft :: ParserTerm l x v -> ParserTerm l x v
+tleft :: ParserTerm l v -> ParserTerm l v
 tleft x = Fix $ TLeft x
 
-tright :: ParserTerm l x v -> ParserTerm l x v
+tright :: ParserTerm l v -> ParserTerm l v
 tright x = Fix $ TRight x
 
-ttrace :: ParserTerm l x v -> ParserTerm l x v
+ttrace :: ParserTerm l v -> ParserTerm l v
 ttrace x = Fix $ TTrace x
 
-tlam :: (LamType l) -> ParserTerm l x v -> ParserTerm l x v
+tlam :: (LamType l) -> ParserTerm l v -> ParserTerm l v
 tlam l x = Fix $ TLam l x
 
-tlimitedrecursion :: ParserTerm l x v
+tlimitedrecursion :: ParserTerm l v
 tlimitedrecursion = Fix TLimitedRecursion
-
-ttransformedgrammar :: x -> ParserTerm l x v
-ttransformedgrammar x = Fix $ TTransformedGrammar x
 
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 
@@ -204,11 +197,11 @@ data BreakExtras
   = UnsizedRecursion
   deriving Show
 
-type Term1F a = ParserTermF (Either () String) Void (Either Int String) a
-type Term2F a = ParserTermF () Void Int a
+type Term1F a = ParserTermF (Either () String) (Either Int String) a
+type Term2F a = ParserTermF () Int a
 
-type Term1 = ParserTerm (Either () String) Void (Either Int String)
-type Term2 = ParserTerm () Void Int
+type Term1 = ParserTerm (Either () String) (Either Int String)
+type Term2 = ParserTerm () Int
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving Show
 

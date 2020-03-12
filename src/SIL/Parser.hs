@@ -40,19 +40,19 @@ addBound name expr (ParserState bound) = if Map.member name bound
   else pure $ ParserState (Map.insert name expr bound)
 
 -- |Int to ParserTerm
-i2t :: Int -> ParserTerm l x v
+i2t :: Int -> ParserTerm l v
 i2t = ana coalg where
-  coalg :: Int -> ParserTermF l x v Int
+  coalg :: Int -> ParserTermF l v Int
   coalg 0 = TZero
   coalg n = TPair (n-1) 0
 
 -- This foldr is a cata over ListF and not ParserTermF. Any other viable morphisms?
 -- |List of Int's to ParserTerm
-ints2t :: [Int] -> ParserTerm l x v
+ints2t :: [Int] -> ParserTerm l v
 ints2t = foldr (\i t -> tpair (i2t i) t) tzero
 
 -- |String to ParserTerm
-s2t :: String -> ParserTerm l x v
+s2t :: String -> ParserTerm l v
 s2t = ints2t . map ord
 
 -- |Int to Church encoding
@@ -65,26 +65,29 @@ i2c x = tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
         coalg n = TApp (Left . Fix . TVar $ Left 1) (Right $ n - 1)
 
 -- debruijinize' :: Monad m => VarList -> Term1 -> m Term2
-debruijinize' :: VarList -> Term1 -> Term2
-debruijinize' vl t = hoist nat t
-  where nat :: Term1F a -> Term2F a
-        nat (TVar (Right str)) = case elemIndex str vl of
-                                        Just i -> TVar i
-                                        Nothing -> fail $ "undefined identifier " ++ str
-        nat (TLam (Open (Right str)) x) = TLam (Open ()) (str : vl)
-        nat (TLam (Closed (Right str)) x) = TLam (Closed ()) (str : vl)
-        nat (TLam (Open (Left ())) x) = TLam (Open ()) ("-- dummy" : vl)
-        nat (TLam (Closed (Left ())) x) = TLam (Closed ()) ("-- dummyC" : vl)
-        nat TZero = TZero
-        nat (TPair a b) = TPair a b
-        nat (TVar (Left i)) = TVar (Left i)
-        nat (TApp i c) = TApp i c
-        nat (TCheck c tc) = TCheck c tc
-        nat (TITE i t e) = TITE i t e
-        nat (TLeft x) = TLeft x
-        nat (TRight x) = TRight x
-        nat (TTrace x) = TTrace x
-        nat TLimitedRecursion = TLimitedRecursion
+-- debruijinize' :: VarList -> Term1 -> Term2
+-- debruijinize' vl t = hoist nat t
+--   where nat :: Term1F a -> Term2F a
+--         nat (TVar (Right str)) = case elemIndex str vl of
+--                                         Just i -> TVar i
+--                                         Nothing -> fail $ "undefined identifier " ++ str
+--         nat (TLam (Open (Right str)) x) = TLam (Open ()) (str : vl)
+--         nat (TLam (Closed (Right str)) x) = TLam (Closed ()) (str : vl)
+--         nat (TLam (Open (Left ())) x) = TLam (Open ()) ("-- dummy" : vl)
+--         nat (TLam (Closed (Left ())) x) = TLam (Closed ()) ("-- dummyC" : vl)
+--         nat TZero = TZero
+--         nat (TPair a b) = TPair a b
+--         nat (TVar (Left i)) = TVar (Left i)
+--         nat (TApp i c) = TApp i c
+--         nat (TCheck c tc) = TCheck c tc
+--         nat (TITE i t e) = TITE i t e
+--         nat (TLeft x) = TLeft x
+--         nat (TRight x) = TRight x
+--         nat (TTrace x) = TTrace x
+
+-- -- |Jeremy Gibbons' metamorphism
+-- meta :: (b -> Base f b) -> (a -> b) -> (Base g a -> a) -> FixF g -> FixF f
+-- meta f e g = ana f . e . cata g
 
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (Fix (TZero)) = pure $ Fix TZero
@@ -107,6 +110,7 @@ debruijinize vl (Fix (TLam (Open (Right n)) x)) = tlam (Open ()) <$> debruijiniz
 debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x          
 debruijinize _ (Fix (TLimitedRecursion)) = pure tlimitedrecursion
 
+-- |Helper function to get Term2
 debruijinizedTerm :: SILParser Term1 -> String -> IO Term2
 debruijinizedTerm parser str = do
   preludeFile <- Strict.readFile "Prelude.sil"
@@ -254,7 +258,7 @@ integer :: SILParser Integer
 integer = toInteger <$> lexeme L.decimal
 
 -- |Parse string literal.
-parseString :: SILParser (ParserTerm l x v)
+parseString :: SILParser (ParserTerm l v)
 parseString = fmap s2t $ char '\"' *> manyTill L.charLiteral (char '\"')
 
 -- |Parse a variable.
@@ -267,7 +271,7 @@ parseVariable = do
     Just i -> pure i
 
 -- |Prarse number (Integer).
-parseNumber :: SILParser (ParserTerm l x v)
+parseNumber :: SILParser (ParserTerm l v)
 parseNumber = (i2t . fromInteger) <$> integer
 
 -- |Parse a pair.
