@@ -155,7 +155,8 @@ reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
 rws :: [String]
-rws = ["let", "in", "right", "left", "trace", "if", "then", "else", "pair"]
+-- rws = ["let", "in", "right", "left", "trace", "if", "then", "else", "pair"]
+rws = ["let", "in", "right", "trace", "if", "then", "else", "pair"]
 
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
@@ -251,16 +252,6 @@ parseITE = do
   scn
   return $ TITE cond thenExpr elseExpr
 
--- |Parse left.
-parsePLeft :: SILParser Term1
-parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
-
--- |Parse left as a function.
-parseLeftAsFunction :: SILParser Term1
-parseLeftAsFunction = do
-  reserved "left"
-  pure . TLam (Open (Right "x")) . TLeft . TVar . Right $ "x"
-
 -- |Parse right.
 parsePRight :: SILParser Term1
 parsePRight = TRight <$> (reserved "right" *> parseSingleExpr)
@@ -288,8 +279,8 @@ parseSingleExpr = choice $ try <$> [ parseString
                                    , parsePair
                                    , parsePairAsFunction
                                    , parseList
-                                   , parsePLeft
-                                   , parseLeftAsFunction
+                                   -- , parsePLeft
+                                   -- , parseLeftAsFunction
                                    , parsePRight
                                    , parseRightAsFunction
                                    , parseTrace
@@ -300,13 +291,39 @@ parseSingleExpr = choice $ try <$> [ parseString
                                    , parens (scn *> parseLongExpr <* scn)
                                    ]
 
+-- -- |Parse application of functions.
+-- parseApplied :: SILParser Term1
+-- parseApplied = do
+--   fargs <- L.lineFold scn $ \sc' ->
+--     parseSingleExpr `sepBy` try sc'
+--   case fargs of
+--     (f:args) -> pure $ foldl TApp f args
+--     _ -> fail "expected expression"
+
+-- |Parse left.
+parsePLeft :: SILParser Term1
+parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
+-- |Parse left as a function.
+parseLeftAsFunction :: SILParser Term1
+parseLeftAsFunction = do
+  reserved "left"
+  pure . TLam (Open (Right "x")) . TLeft . TVar . Right $ "x"
+
+leftIdentifier = TVar (Right "left")
+
 -- |Parse application of functions.
 parseApplied :: SILParser Term1
 parseApplied = do
   fargs <- L.lineFold scn $ \sc' ->
     parseSingleExpr `sepBy` try sc'
   case fargs of
-    (f:args) -> pure $ foldl TApp f args
+    (f:args) -> do
+      case f of
+        TVar (Right "left") -> case args of
+          [t] -> pure . TLeft $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse left. Too many arguments applied to left."
+        _ -> pure $ foldl TApp f args
     _ -> fail "expected expression"
 
 -- -- |Parse app as a function.
@@ -400,10 +417,13 @@ parseTopLevel = do
 
 debugIndent i = show $ State.runState i (initialPos "debug")
 
+initialMap = fromList [ ("left", TLam (Open (Right "x")) . TLeft . TVar . Right $ "x")
+                      ]
+
 -- |Helper function to test parsers without a result.
 runSILParser_ :: Show a => SILParser a -> String -> IO ()
 runSILParser_ parser str = do
-  let p            = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser p "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
@@ -413,7 +433,7 @@ runSILParser_ parser str = do
 -- |Helper function to debug parsers without a result.
 runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
 runSILParserWDebug parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser (dbg "debug" p) "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
@@ -423,7 +443,7 @@ runSILParserWDebug parser str = do
 -- |Helper function to test parsers with parsing result.
 runSILParser :: Show a => SILParser a -> String -> IO String
 runSILParser parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser p "" str of
     Right (a, s) -> return $ show a
     Left e -> return $ errorBundlePretty e
@@ -431,7 +451,7 @@ runSILParser parser str = do
 -- |Helper function to test if parser was successful.
 parseSuccessful :: Show a => SILParser a -> String -> IO Bool
 parseSuccessful parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser p "" str of
     Right _ -> return True
     Left _ -> return False
@@ -447,7 +467,7 @@ parseWithPrelude prelude str = do
 
 -- |Parse prelude.
 parsePrelude :: String -> Either ErrorString Bindings
-parsePrelude = parseWithPrelude Map.empty
+parsePrelude = parseWithPrelude initialMap
 
 -- |Parse main.
 parseMain :: Bindings -> String -> Either ErrorString Term3
