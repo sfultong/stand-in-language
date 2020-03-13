@@ -4,5 +4,3 @@ main
     then
                 {"Hello, world!", 0}
               else {"Goodbye, world!", 0}
-
-left = {0,0}

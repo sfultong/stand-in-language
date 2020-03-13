@@ -155,8 +155,7 @@ reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
 rws :: [String]
--- rws = ["let", "in", "right", "left", "trace", "if", "then", "else", "pair"]
-rws = ["let", "in", "right", "trace", "if", "then", "else", "pair"]
+rws = ["let", "in", "if", "then", "else"]
 
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
@@ -217,17 +216,6 @@ parsePair = braces $ do
   scn
   pure $ TPair a b
 
--- |Parse trace as a function.
-parsePairAsFunction :: SILParser Term1
-parsePairAsFunction = do
-  reserved "pair"
-  scn
-  a <- parseLongExpr
-  scn
-  b <- parseLongExpr
-  scn
-  pure $ TPair a b
-
 -- |Parse a list.
 parseList :: SILParser Term1
 parseList = do
@@ -252,64 +240,17 @@ parseITE = do
   scn
   return $ TITE cond thenExpr elseExpr
 
--- |Parse right.
-parsePRight :: SILParser Term1
-parsePRight = TRight <$> (reserved "right" *> parseSingleExpr)
-
--- |Parse right as a function.
-parseRightAsFunction :: SILParser Term1
-parseRightAsFunction = do
-  reserved "right"
-  pure . TLam (Open (Right "x")) . TRight . TVar . Right $ "x"
-
--- |Parse trace.
-parseTrace :: SILParser Term1
-parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
-
--- |Parse trace as a function.
-parseTraceAsFunction :: SILParser Term1
-parseTraceAsFunction = do
-  reserved "trace"
-  pure . TLam (Open (Right "x")) . TTrace . TVar . Right $ "x"
-
 -- |Parse a single expression.
 parseSingleExpr :: SILParser Term1
 parseSingleExpr = choice $ try <$> [ parseString
                                    , parseNumber
                                    , parsePair
-                                   , parsePairAsFunction
                                    , parseList
-                                   -- , parsePLeft
-                                   -- , parseLeftAsFunction
-                                   , parsePRight
-                                   , parseRightAsFunction
-                                   , parseTrace
-                                   , parseTraceAsFunction
                                    , parseChurch
                                    , parseVariable
                                    , parsePartialFix
                                    , parens (scn *> parseLongExpr <* scn)
                                    ]
-
--- -- |Parse application of functions.
--- parseApplied :: SILParser Term1
--- parseApplied = do
---   fargs <- L.lineFold scn $ \sc' ->
---     parseSingleExpr `sepBy` try sc'
---   case fargs of
---     (f:args) -> pure $ foldl TApp f args
---     _ -> fail "expected expression"
-
--- |Parse left.
-parsePLeft :: SILParser Term1
-parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
--- |Parse left as a function.
-parseLeftAsFunction :: SILParser Term1
-parseLeftAsFunction = do
-  reserved "left"
-  pure . TLam (Open (Right "x")) . TLeft . TVar . Right $ "x"
-
-leftIdentifier = TVar (Right "left")
 
 -- |Parse application of functions.
 parseApplied :: SILParser Term1
@@ -323,14 +264,31 @@ parseApplied = do
           [t] -> pure . TLeft $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse left. Too many arguments applied to left."
+        TVar (Right "right") -> case args of
+          [t] -> pure . TRight $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse right. Too many arguments applied to right."
+        TVar (Right "trace") -> case args of
+          [t] -> pure . TTrace $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse trace. Too many arguments applied to trace."
+        TVar (Right "pair") -> case args of
+          [a, b] -> pure $ TPair a b
+          [a] -> pure $ TLam (Open (Right "x")) . TPair a . TVar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse pair. Too many arguments applied to pair."
+        TVar (Right "app") -> case args of
+          [a, b] -> pure $ TApp a b
+          [a] -> pure $ TLam (Open (Right "x")) . TApp a . TVar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse app. Too many arguments applied to app."
+        TVar (Right "check") -> case args of
+          [a, b] -> pure $ TCheck a b
+          [a] -> pure $ TLam (Open (Right "x")) . TCheck a . TVar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse check. Too many arguments applied to check."
         _ -> pure $ foldl TApp f args
     _ -> fail "expected expression"
-
--- -- |Parse app as a function.
--- parseAppAsFunction :: SILParser Term1
--- parseAppAsFunction = do
---   reserved "trace"
---   pure . TLam (Open (Right "x")) . TTrace . TVar . Right $ "x"
 
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
@@ -417,8 +375,15 @@ parseTopLevel = do
 
 debugIndent i = show $ State.runState i (initialPos "debug")
 
-initialMap = fromList [ ("left", TLam (Open (Right "x")) . TLeft . TVar . Right $ "x")
-                      ]
+initialMap = fromList
+  [ ("zero", TZero)
+  , ("left", TLam (Open (Right "x")) . TLeft . TVar . Right $ "x")
+  , ("right", TLam (Open (Right "x")) . TRight . TVar . Right $ "x")
+  , ("trace", TLam (Open (Right "x")) . TTrace . TVar . Right $ "x")
+  , ("pair", TLam (Open (Right "x")) (TLam (Open (Right "y")) (TPair (TVar (Right "x")) (TVar (Right "y")))))
+  , ("app", TLam (Open (Right "x")) (TLam (Open (Right "y")) (TApp (TVar (Right "x")) (TVar (Right "y")))))
+  , ("check", TLam (Open (Right "x")) (TLam (Open (Right "y")) (TCheck (TVar (Right "x")) (TVar (Right "y")))))
+  ]
 
 -- |Helper function to test parsers without a result.
 runSILParser_ :: Show a => SILParser a -> String -> IO ()
