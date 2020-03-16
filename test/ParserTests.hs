@@ -140,7 +140,35 @@ unitTests = testGroup "Unit tests"
   , testCase "app with a lot of arguments" $ do
       res <- parseSuccessful (parseApplied >> scn >> eof) "app (\\x y z -> x) 0 1 2"
       res `compare` True @?= EQ
+  , testCase "testLetIndentation" $ do
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetIndentation
+      res `compare` True @?= EQ
+  , testCase "testLetIncorrectIndentation1" $ do
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation1
+      res `compare` False @?= EQ
+  , testCase "testLetIncorrectIndentation2" $ do
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
+      res `compare` False @?= EQ
   ]
+
+testLetIndentation = unlines
+  [ "let x = 0"
+  , "    y = 1"
+  , "in x"
+  ]
+
+testLetIncorrectIndentation1 = unlines
+  [ "let x = 0"
+  , "  y = 1"
+  , "in x + y"
+  ]
+
+testLetIncorrectIndentation2 = unlines
+  [ "let x = 0"
+  , "      y = 1"
+  , "in x + y"
+  ]
+
 
 runTestPair :: String -> IO String
 runTestPair = runSILParser parsePair

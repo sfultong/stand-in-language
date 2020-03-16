@@ -1,9 +1,9 @@
-drawPiece
- = #piece alt -> if piece
-                    then if left piece
-                            then "O"
-                            else "X"
-                    else alt
+
+drawPiece = #piece alt -> if piece
+                             then if left piece
+                                     then "O"
+                                     else "X"
+                             else alt
 
 drawBoard
  = #pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
@@ -104,5 +104,6 @@ main
                                 then {nextPlayer,newBoard}
                                 else 0
              in {output, nextState}
+
 
 
