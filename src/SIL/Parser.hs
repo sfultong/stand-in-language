@@ -315,13 +315,21 @@ parseCompleteLambda = do
   scn
   return . TLam (Closed (Right $ head variables)) $ foldr (\n -> TLam (Open (Right n))) iexpr (tail variables)
 
+parseSameLvl :: Pos -> SILParser a -> SILParser a
+parseSameLvl pos parser = do
+  lvl <- L.indentLevel
+  case pos == lvl of
+    True -> parser
+    False -> fail "Expected same indentation"
+
 -- |Parse let expression.
 parseLet :: SILParser Term1
 parseLet = do
   reserved "let"
   initialState <- State.get
   scn
-  manyTill parseAssignment (reserved "in")
+  lvl <- L.indentLevel
+  manyTill (parseSameLvl lvl parseAssignment) (reserved "in")
   scn
   expr <- parseLongExpr
   scn

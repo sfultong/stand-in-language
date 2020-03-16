@@ -612,7 +612,7 @@ fiveApp = concat
 
 nestedNamedFunctionsIssue = concat
   [ "main = let bindTest = \\tlb -> let f1 = \\f -> f tlb\n"
-  , "                                   f2 = \\f -> succ (f1 f)\n"
+  , "                                  f2 = \\f -> succ (f1 f)\n"
   , "                               in f2 succ\n"
   , "       in bindTest 0"
   ]
