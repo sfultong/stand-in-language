@@ -369,7 +369,7 @@ parseAssignment = do
  -- |Parse top level expressions.
 parseTopLevel :: SILParser Bindings
 parseTopLevel = do
-  many parseAssignment <* eof
+  scn *> many parseAssignment <* eof
   (ParserState bound) <- State.get
   pure bound
 
