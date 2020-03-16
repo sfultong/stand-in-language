@@ -125,6 +125,21 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetShowBoard9" $ do
       res <- parseSuccessful (parseApplied >> scn >> eof) testLetShowBoard9
       res `compare` True @?= EQ
+  , testCase "AST terms as functions" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "app left (pair zero zero)"
+      res `compare` True @?= EQ
+  , testCase "left with a lot of arguments" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "left {\\x y z -> [x, y, z, 0], 0} 1 2 3"
+      res `compare` True @?= EQ
+  , testCase "right with a lot of arguments" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "right {\\x y z -> [x, y, z, 0], 0} 1 2 3"
+      res `compare` True @?= EQ
+  , testCase "trace with a lot of arguments" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "trace (\\x -> (\\y -> {x,y})) 0 0"
+      res `compare` True @?= EQ
+  , testCase "app with a lot of arguments" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "app (\\x y z -> x) 0 1 2"
+      res `compare` True @?= EQ
   ]
 
 runTestPair :: String -> IO String

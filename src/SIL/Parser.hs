@@ -263,11 +263,11 @@ parseApplied = do
         TVar (Right "left") -> case args of
           [t] -> pure . TLeft $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          _ -> fail "Failed to parse left. Too many arguments applied to left."
+          (x:xs) -> pure $ foldl TApp (TLeft x) xs
         TVar (Right "right") -> case args of
           [t] -> pure . TRight $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          _ -> fail "Failed to parse right. Too many arguments applied to right."
+          (x:xs) -> pure $ foldl TApp (TRight x) xs
         TVar (Right "trace") -> case args of
           [t] -> pure . TTrace $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
@@ -445,7 +445,7 @@ runSILParserWDebug parser str = do
 -- |Helper function to test parsers with parsing result.
 runSILParser :: Show a => SILParser a -> String -> IO String
 runSILParser parser str = do
-  let p = State.runStateT parser $ ParserState (initialMap)
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right (a, s) -> return $ show a
     Left e -> return $ errorBundlePretty e
@@ -453,7 +453,7 @@ runSILParser parser str = do
 -- |Helper function to test if parser was successful.
 parseSuccessful :: Show a => SILParser a -> String -> IO Bool
 parseSuccessful parser str = do
-  let p = State.runStateT parser $ ParserState (initialMap)
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right _ -> return True
     Left _ -> return False
@@ -461,7 +461,8 @@ parseSuccessful parser str = do
 -- |Parse with specified prelude.
 parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
 parseWithPrelude prelude str = do
-  let startState = ParserState prelude
+  -- TODO: check what happens with overlaping definitions with initialMap
+  let startState = ParserState (prelude <> initialMap)
       p          = State.runStateT parseTopLevel startState
   case runParser p "" str of
     Right (a, s) -> Right a
