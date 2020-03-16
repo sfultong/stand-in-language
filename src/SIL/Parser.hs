@@ -155,7 +155,7 @@ reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
 rws :: [String]
-rws = ["let", "in", "right", "left", "trace", "if", "then", "else"]
+rws = ["let", "in", "if", "then", "else"]
 
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
@@ -214,7 +214,7 @@ parsePair = braces $ do
   scn
   b <- parseLongExpr
   scn
-  return $ TPair a b
+  pure $ TPair a b
 
 -- |Parse a list.
 parseList :: SILParser Term1
@@ -240,27 +240,12 @@ parseITE = do
   scn
   return $ TITE cond thenExpr elseExpr
 
--- |Parse left.
-parsePLeft :: SILParser Term1
-parsePLeft = TLeft <$> (reserved "left" *> parseSingleExpr)
-
--- |Parse right.
-parsePRight :: SILParser Term1
-parsePRight = TRight <$> (reserved "right" *> parseSingleExpr)
-
--- |Parse trace.
-parseTrace :: SILParser Term1
-parseTrace = TTrace <$> (reserved "trace" *> parseSingleExpr)
-
 -- |Parse a single expression.
 parseSingleExpr :: SILParser Term1
 parseSingleExpr = choice $ try <$> [ parseString
                                    , parseNumber
                                    , parsePair
                                    , parseList
-                                   , parsePLeft
-                                   , parsePRight
-                                   , parseTrace
                                    , parseChurch
                                    , parseVariable
                                    , parsePartialFix
@@ -273,7 +258,36 @@ parseApplied = do
   fargs <- L.lineFold scn $ \sc' ->
     parseSingleExpr `sepBy` try sc'
   case fargs of
-    (f:args) -> pure $ foldl TApp f args
+    (f:args) -> do
+      case f of
+        TVar (Right "left") -> case args of
+          [t] -> pure . TLeft $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          (x:xs) -> pure $ foldl TApp (TLeft x) xs
+        TVar (Right "right") -> case args of
+          [t] -> pure . TRight $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          (x:xs) -> pure $ foldl TApp (TRight x) xs
+        TVar (Right "trace") -> case args of
+          [t] -> pure . TTrace $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse trace. Too many arguments applied to trace."
+        TVar (Right "pair") -> case args of
+          [a, b] -> pure $ TPair a b
+          [a] -> pure $ TLam (Open (Right "x")) . TPair a . TVar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse pair. Too many arguments applied to pair."
+        TVar (Right "app") -> case args of
+          [a, b] -> pure $ TApp a b
+          [a] -> pure $ TLam (Open (Right "x")) . TApp a . TVar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse app. Too many arguments applied to app."
+        TVar (Right "check") -> case args of
+          [a, b] -> pure $ TCheck a b
+          [a] -> pure $ TLam (Open (Right "x")) . TCheck a . TVar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse check. Too many arguments applied to check."
+        _ -> pure $ foldl TApp f args
     _ -> fail "expected expression"
 
 -- |Parse lambda expression.
@@ -359,12 +373,59 @@ parseTopLevel = do
   (ParserState bound) <- State.get
   pure bound
 
+-- |Helper to debug indentation.
 debugIndent i = show $ State.runState i (initialPos "debug")
+
+-- |This allows parsing of AST instructions as functions (complete lambdas).
+initialMap = fromList
+  [ ("zero", TZero)
+  , ("left", TLam (Closed (Right "x"))
+             (TApp
+               (TLam (Open (Right "x")) (TLeft (TVar (Right "x"))))
+               (TVar (Right "x"))))
+  , ("right", TLam (Closed (Right "x"))
+              (TApp
+                (TLam (Open (Right "x")) (TRight (TVar (Right "x"))))
+                (TVar (Right "x"))))
+  , ("trace", TLam (Closed (Right "x"))
+              (TApp
+                (TLam (Open (Right "x")) (TTrace (TVar (Right "x"))))
+                (TVar (Right "x"))))
+  , ("pair", TLam (Closed (Right "x"))
+             (TLam (Open (Right "y"))
+               (TApp
+                 (TApp (TLam (Open (Right "x"))
+                             (TLam (Open (Right "y"))
+                               (TPair
+                                 (TVar (Right "x")) (TVar (Right "y")))))
+                       (TVar (Right "x")))
+                 (TVar (Right "y")))))
+  , ("app", TLam (Closed (Right "x"))
+            (TLam (Open (Right "y"))
+              (TApp
+                (TApp
+                  (TLam (Open (Right "x"))
+                    (TLam (Open (Right "y"))
+                      (TApp (TVar (Right "x")) (TVar (Right "y")))))
+                  (TVar (Right "x")))
+                (TVar (Right "y")))))
+  , ("check", TLam (Closed (Right "x"))
+              (TLam (Open (Right "y"))
+                (TApp
+                  (TApp
+                    (TLam (Open (Right "x"))
+                      (TLam (Open (Right "y"))
+                        (TCheck
+                          (TVar (Right "x"))
+                          (TVar (Right "y")))))
+                    (TVar (Right "x")))
+                  (TVar (Right "y")))))
+  ]
 
 -- |Helper function to test parsers without a result.
 runSILParser_ :: Show a => SILParser a -> String -> IO ()
 runSILParser_ parser str = do
-  let p            = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser p "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
@@ -374,7 +435,7 @@ runSILParser_ parser str = do
 -- |Helper function to debug parsers without a result.
 runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
 runSILParserWDebug parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser (dbg "debug" p) "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
@@ -384,7 +445,7 @@ runSILParserWDebug parser str = do
 -- |Helper function to test parsers with parsing result.
 runSILParser :: Show a => SILParser a -> String -> IO String
 runSILParser parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right (a, s) -> return $ show a
     Left e -> return $ errorBundlePretty e
@@ -392,7 +453,7 @@ runSILParser parser str = do
 -- |Helper function to test if parser was successful.
 parseSuccessful :: Show a => SILParser a -> String -> IO Bool
 parseSuccessful parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right _ -> return True
     Left _ -> return False
@@ -400,7 +461,8 @@ parseSuccessful parser str = do
 -- |Parse with specified prelude.
 parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
 parseWithPrelude prelude str = do
-  let startState = ParserState prelude
+  -- TODO: check what happens with overlaping definitions with initialMap
+  let startState = ParserState (prelude <> initialMap)
       p          = State.runStateT parseTopLevel startState
   case runParser p "" str of
     Right (a, s) -> Right a
@@ -408,7 +470,7 @@ parseWithPrelude prelude str = do
 
 -- |Parse prelude.
 parsePrelude :: String -> Either ErrorString Bindings
-parsePrelude = parseWithPrelude Map.empty
+parsePrelude = parseWithPrelude initialMap
 
 -- |Parse main.
 parseMain :: Bindings -> String -> Either ErrorString Term3
