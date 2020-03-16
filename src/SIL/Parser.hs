@@ -373,16 +373,53 @@ parseTopLevel = do
   (ParserState bound) <- State.get
   pure bound
 
+-- |Helper to debug indentation.
 debugIndent i = show $ State.runState i (initialPos "debug")
 
+-- |This allows parsing of AST instructions as functions (complete lambdas).
 initialMap = fromList
   [ ("zero", TZero)
-  , ("left", TLam (Open (Right "x")) . TLeft . TVar . Right $ "x")
-  , ("right", TLam (Open (Right "x")) . TRight . TVar . Right $ "x")
-  , ("trace", TLam (Open (Right "x")) . TTrace . TVar . Right $ "x")
-  , ("pair", TLam (Open (Right "x")) (TLam (Open (Right "y")) (TPair (TVar (Right "x")) (TVar (Right "y")))))
-  , ("app", TLam (Open (Right "x")) (TLam (Open (Right "y")) (TApp (TVar (Right "x")) (TVar (Right "y")))))
-  , ("check", TLam (Open (Right "x")) (TLam (Open (Right "y")) (TCheck (TVar (Right "x")) (TVar (Right "y")))))
+  , ("left", TLam (Closed (Right "x"))
+             (TApp
+               (TLam (Open (Right "x")) (TLeft (TVar (Right "x"))))
+               (TVar (Right "x"))))
+  , ("right", TLam (Closed (Right "x"))
+              (TApp
+                (TLam (Open (Right "x")) (TRight (TVar (Right "x"))))
+                (TVar (Right "x"))))
+  , ("trace", TLam (Closed (Right "x"))
+              (TApp
+                (TLam (Open (Right "x")) (TTrace (TVar (Right "x"))))
+                (TVar (Right "x"))))
+  , ("pair", TLam (Closed (Right "x"))
+             (TLam (Open (Right "y"))
+               (TApp
+                 (TApp (TLam (Open (Right "x"))
+                             (TLam (Open (Right "y"))
+                               (TPair
+                                 (TVar (Right "x")) (TVar (Right "y")))))
+                       (TVar (Right "x")))
+                 (TVar (Right "y")))))
+  , ("app", TLam (Closed (Right "x"))
+            (TLam (Open (Right "y"))
+              (TApp
+                (TApp
+                  (TLam (Open (Right "x"))
+                    (TLam (Open (Right "y"))
+                      (TApp (TVar (Right "x")) (TVar (Right "y")))))
+                  (TVar (Right "x")))
+                (TVar (Right "y")))))
+  , ("check", TLam (Closed (Right "x"))
+              (TLam (Open (Right "y"))
+                (TApp
+                  (TApp
+                    (TLam (Open (Right "x"))
+                      (TLam (Open (Right "y"))
+                        (TCheck
+                          (TVar (Right "x"))
+                          (TVar (Right "y")))))
+                    (TVar (Right "x")))
+                  (TVar (Right "y")))))
   ]
 
 -- |Helper function to test parsers without a result.
