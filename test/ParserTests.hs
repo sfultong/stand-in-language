@@ -125,15 +125,61 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetShowBoard9" $ do
       res <- parseSuccessful (parseApplied >> scn >> eof) testLetShowBoard9
       res `compare` True @?= EQ
+  , testCase "AST terms as functions" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "app left (pair zero zero)"
+      res `compare` True @?= EQ
+  , testCase "left with a lot of arguments" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "left (\\x y z -> [x, y, z, 0], 0) 1 2 3"
+      res `compare` True @?= EQ
+  , testCase "right with a lot of arguments" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "right (\\x y z -> [x, y, z, 0], 0) 1 2 3"
+      res `compare` True @?= EQ
+  , testCase "trace with a lot of arguments" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "trace (\\x -> (\\y -> (x,y))) 0 0"
+      res `compare` True @?= EQ
+  , testCase "app with a lot of arguments" $ do
+      res <- parseSuccessful (parseApplied >> scn >> eof) "app (\\x y z -> x) 0 1 2"
+      res `compare` True @?= EQ
+  , testCase "testLetIndentation" $ do
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetIndentation
+      res `compare` True @?= EQ
+  , testCase "testLetIncorrectIndentation1" $ do
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation1
+      res `compare` False @?= EQ
+  , testCase "testLetIncorrectIndentation2" $ do
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
+      res `compare` False @?= EQ
   ]
 
-testPair0 = "{\"Hello World!\", \"0\"}"
+testLetIndentation = unlines
+  [ "let x = 0"
+  , "    y = 1"
+  , "in x"
+  ]
+
+testLetIncorrectIndentation1 = unlines
+  [ "let x = 0"
+  , "  y = 1"
+  , "in x + y"
+  ]
+
+testLetIncorrectIndentation2 = unlines
+  [ "let x = 0"
+  , "      y = 1"
+  , "in x + y"
+  ]
+
+
+runTestPair :: String -> IO String
+runTestPair = runSILParser parsePair
+
+testPair0 = "(\"Hello World!\", \"0\")"
 
 testPair1 = unlines
-  [ "{"
+  [ "("
   , " \"Hello World!\""
   , ", \"0\""
-  , "}"
+  , ")"
   ]
 
 testITE1 = unlines $
@@ -165,27 +211,27 @@ testITE4 = unlines $
 testITEwPair = unlines $
   [ "if"
   , "    1"
-  , "  then {\"Hello, world!\", 0}"
+  , "  then (\"Hello, world!\", 0)"
   , "  else"
-  , "    {\"Goodbye, world!\", 1}"
+  , "    (\"Goodbye, world!\", 1)"
   ]
 
 testCompleteLambdawITEwPair = unlines $
   [ "#input ->"
   , "  if"
   , "    1"
-  , "   then {\"Hello, world!\", 0}"
+  , "   then (\"Hello, world!\", 0)"
   , "   else"
-  , "    {\"Goodbye, world!\", 1}"
+  , "    (\"Goodbye, world!\", 1)"
   ]
 
 testLambdawITEwPair = unlines $
   [ "\\input ->"
   , "  if"
   , "    1"
-  , "   then {\"Hello, world!\", 0}"
+  , "   then (\"Hello, world!\", 0)"
   , "   else"
-  , "    {\"Goodbye, world!\", 1}"
+  , "    (\"Goodbye, world!\", 1)"
   ]
 
 runTestParsePrelude = do
@@ -197,54 +243,54 @@ runTestParsePrelude = do
 testParseAssignmentwCLwITEwPair2 = unlines $
   [ "main = #input -> if 1"
   , "                  then"
-  , "                   {\"Hello, world!\", 0}"
-  , "                  else {\"Goodbye, world!\", 0}"
+  , "                   (\"Hello, world!\", 0)"
+  , "                  else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair3 = unlines $
   [ "main = #input ->"
   , "  if 1"
   , "   then"
-  , "     {\"Hello, world!\", 0}"
-  , "   else {\"Goodbye, world!\", 0}"
+  , "     (\"Hello, world!\", 0)"
+  , "   else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair4 = unlines $
   [ "main = #input"
   , "-> if 1"
   , "    then"
-  , "       {\"Hello, world!\", 0}"
-  , "      else {\"Goodbye, world!\", 0}"
+  , "       (\"Hello, world!\", 0)"
+  , "      else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair5 = unlines $
   [ "main"
   , "  = #input"
   , "-> if 1"
   , "    then"
-  , "       {\"Hello, world!\", 0}"
-  , "      else {\"Goodbye, world!\", 0}"
+  , "       (\"Hello, world!\", 0)"
+  , "      else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair6 = unlines $
   [ "main"
   , "  = #input"
   , " -> if 1"
   , "    then"
-  , "       {\"Hello, world!\", 0}"
-  , "      else {\"Goodbye, world!\", 0}"
+  , "       (\"Hello, world!\", 0)"
+  , "      else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair7 = unlines $
   [ "main"
   , "  = #input"
   , " -> if 1"
   , "       then"
-  , "             {\"Hello, world!\", 0}"
-  , "           else {\"Goodbye, world!\", 0}"
+  , "             (\"Hello, world!\", 0)"
+  , "           else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair1 = unlines $
   [ "main"
   , "  = #input"
   , " -> if 1"
   , "     then"
-  , "       {\"Hello, world!\", 0}"
-  , "     else {\"Goodbye, world!\", 0}"
+  , "       (\"Hello, world!\", 0)"
+  , "     else (\"Goodbye, world!\", 0)"
   ]
 
 testParseTopLevelwCLwITEwPair = unlines $
@@ -252,8 +298,8 @@ testParseTopLevelwCLwITEwPair = unlines $
   , "  = #input"
   , " -> if 1"
   , "     then"
-  , "        {\"Hello, world!\", 0}"
-  , "      else {\"Goodbye, world!\", 0}"
+  , "        (\"Hello, world!\", 0)"
+  , "      else (\"Goodbye, world!\", 0)"
   ]
 
 testMainwCLwITEwPair = unlines $
@@ -261,8 +307,8 @@ testMainwCLwITEwPair = unlines $
   , "  = #input"
   , " -> if 1"
   , "     then"
-  , "        {\"Hello, world!\", 0}"
-  , "      else {\"Goodbye, world!\", 0}"
+  , "        (\"Hello, world!\", 0)"
+  , "      else (\"Goodbye, world!\", 0)"
   ]
 
 testMain3 = "main = 0"

@@ -80,7 +80,7 @@ replStep eval bindings s = do
     let e_new_bindings = runReplParser bindings s
     case e_new_bindings of
         Left err -> do 
-            outputStrLn $ "Parse error: " ++ show err
+            outputStrLn $ "Parse error: " ++ getErrorString err
             return bindings
         Right (ReplExpr,new_bindings) -> do  
             case Map.lookup "_tmp_" new_bindings of

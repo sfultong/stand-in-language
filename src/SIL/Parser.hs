@@ -225,7 +225,7 @@ reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
 rws :: [String]
-rws = ["let", "in", "right", "left", "trace", "if", "then", "else"]
+rws = ["let", "in", "if", "then", "else"]
 
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
@@ -244,10 +244,6 @@ parens = between (symbol "(") (symbol ")")
 -- |Parser for brackets.
 brackets :: SILParser a -> SILParser a
 brackets = between (symbol "[") (symbol "]")
-
--- |Parser for braces.
-braces :: SILParser a -> SILParser a
-braces = between (symbol "{") (symbol "}")
 
 -- |Comma sepparated SILParser that will be useful for lists
 commaSep :: SILParser a -> SILParser [a]
@@ -276,7 +272,7 @@ parseNumber = (i2t . fromInteger) <$> integer
 
 -- |Parse a pair.
 parsePair :: SILParser Term1
-parsePair = braces $ do
+parsePair = parens $ do
   scn
   a <- parseLongExpr
   scn
@@ -284,7 +280,7 @@ parsePair = braces $ do
   scn
   b <- parseLongExpr
   scn
-  return $ tpair a b
+  pure $ tpair a b
 
 -- |Parse a list.
 parseList :: SILParser Term1
@@ -310,27 +306,12 @@ parseITE = do
   scn
   return $ tite cond thenExpr elseExpr
 
--- |Parse left.
-parsePLeft :: SILParser Term1
-parsePLeft = tleft <$> (reserved "left" *> parseSingleExpr)
-
--- |Parse right.
-parsePRight :: SILParser Term1
-parsePRight = tright <$> (reserved "right" *> parseSingleExpr)
-
--- |Parse trace.
-parseTrace :: SILParser Term1
-parseTrace = ttrace <$> (reserved "trace" *> parseSingleExpr)
-
 -- |Parse a single expression.
 parseSingleExpr :: SILParser Term1
 parseSingleExpr = choice $ try <$> [ parseString
                                    , parseNumber
                                    , parsePair
                                    , parseList
-                                   , parsePLeft
-                                   , parsePRight
-                                   , parseTrace
                                    , parseChurch
                                    , parseVariable
                                    , parsePartialFix
@@ -343,7 +324,39 @@ parseApplied = do
   fargs <- L.lineFold scn $ \sc' ->
     parseSingleExpr `sepBy` try sc'
   case fargs of
-    (f:args) -> pure $ foldl tapp f args
+-- <<<<<<< HEAD
+--     (f:args) -> pure $ foldl tapp f args
+-- =======
+    (f:args) -> do
+      case f of
+        Fix (TVar (Right "left")) -> case args of
+          [t] -> pure . tleft $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          (x:xs) -> pure $ foldl tapp (tleft x) xs
+        Fix (TVar (Right "right")) -> case args of
+          [t] -> pure . tright $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          (x:xs) -> pure $ foldl tapp (tright x) xs
+        Fix (TVar (Right "trace")) -> case args of
+          [t] -> pure . ttrace $ t
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse trace. Too many arguments applied to trace."
+        Fix (TVar (Right "pair")) -> case args of
+          [a, b] -> pure $ tpair a b
+          [a] -> pure $ tlam (Open (Right "x")) . tpair a . tvar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse pair. Too many arguments applied to pair."
+        Fix (TVar (Right "app")) -> case args of
+          [a, b] -> pure $ tapp a b
+          [a] -> pure $ tlam (Open (Right "x")) . tapp a . tvar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse app. Too many arguments applied to app."
+        Fix (TVar (Right "check")) -> case args of
+          [a, b] -> pure $ tcheck a b
+          [a] -> pure $ tlam (Open (Right "x")) . tcheck a . tvar . Right $ "x"
+          [] -> fail "This should be imposible. I'm being called fro parseApplied."
+          _ -> fail "Failed to parse check. Too many arguments applied to check."
+        _ -> pure $ foldl tapp f args
     _ -> fail "expected expression"
 
 -- |Parse lambda expression.
@@ -371,13 +384,21 @@ parseCompleteLambda = do
   scn
   return . tlam (Closed (Right $ head variables)) $ foldr (\n -> tlam (Open (Right n))) iexpr (tail variables)
 
+parseSameLvl :: Pos -> SILParser a -> SILParser a
+parseSameLvl pos parser = do
+  lvl <- L.indentLevel
+  case pos == lvl of
+    True -> parser
+    False -> fail "Expected same indentation"
+
 -- |Parse let expression.
 parseLet :: SILParser Term1
 parseLet = do
   reserved "let"
   initialState <- State.get
   scn
-  manyTill parseAssignment (reserved "in")
+  lvl <- L.indentLevel
+  manyTill (parseSameLvl lvl parseAssignment) (reserved "in")
   scn
   expr <- parseLongExpr
   scn
@@ -425,16 +446,29 @@ parseAssignment = do
  -- |Parse top level expressions.
 parseTopLevel :: SILParser Bindings
 parseTopLevel = do
-  many parseAssignment <* eof
+  scn *> many parseAssignment <* eof
   (ParserState bound) <- State.get
   pure bound
 
+-- |Helper to debug indentation.
 debugIndent i = show $ State.runState i (initialPos "debug")
+
+-- |This allows parsing of AST instructions as functions (complete lambdas).
+initialMap = fromList
+  [ ("zero", Fix TZero)
+  , ("left", Fix (TLam (Closed (Right "x"))
+                   (Fix (TLeft (Fix (TVar (Right "x")))))))
+  , ("right", Fix (TLam (Closed (Right "x")) (Fix (TRight (Fix (TVar (Right "x")))))))
+  , ("trace", Fix (TLam (Closed (Right "x")) (Fix (TTrace (Fix (TVar (Right "x")))))))
+  , ("pair", Fix (TLam (Closed (Right "x")) (Fix (TLam (Open (Right "y")) (Fix (TPair (Fix (TVar (Right "x"))) (Fix (TVar (Right "y")))))))))
+  , ("app", Fix (TLam (Closed (Right "x")) (Fix (TLam (Open (Right "y")) (Fix (TApp (Fix (TVar (Right "x"))) (Fix (TVar (Right "y")))))))))
+  , ("check", Fix (TLam (Closed (Right "x")) (Fix (TLam (Open (Right "y")) (Fix (TCheck (Fix (TVar (Right "x"))) (Fix (TVar (Right "y")))))))))
+  ]
 
 -- |Helper function to test parsers without a result.
 runSILParser_ :: Show a => SILParser a -> String -> IO ()
 runSILParser_ parser str = do
-  let p            = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser p "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
@@ -444,7 +478,7 @@ runSILParser_ parser str = do
 -- |Helper function to debug parsers without a result.
 runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
 runSILParserWDebug parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser (dbg "debug" p) "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
@@ -454,7 +488,7 @@ runSILParserWDebug parser str = do
 -- |Helper function to test parsers with parsing result.
 runSILParser :: Show a => SILParser a -> String -> IO String
 runSILParser parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right (a, s) -> return $ show a
     Left e -> return $ errorBundlePretty e
@@ -462,7 +496,7 @@ runSILParser parser str = do
 -- |Helper function to test if parser was successful.
 parseSuccessful :: Show a => SILParser a -> String -> IO Bool
 parseSuccessful parser str = do
-  let p = State.runStateT parser $ ParserState (Map.empty)
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right _ -> return True
     Left _ -> return False
@@ -470,7 +504,8 @@ parseSuccessful parser str = do
 -- |Parse with specified prelude.
 parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
 parseWithPrelude prelude str = do
-  let startState = ParserState prelude
+  -- TODO: check what happens with overlaping definitions with initialMap
+  let startState = ParserState (prelude <> initialMap)
       p          = State.runStateT parseTopLevel startState
   case runParser p "" str of
     Right (a, s) -> Right a
@@ -478,7 +513,7 @@ parseWithPrelude prelude str = do
 
 -- |Parse prelude.
 parsePrelude :: String -> Either ErrorString Bindings
-parsePrelude = parseWithPrelude Map.empty
+parsePrelude = parseWithPrelude initialMap
 
 -- |Parse main.
 parseMain :: Bindings -> String -> Either ErrorString Term3
