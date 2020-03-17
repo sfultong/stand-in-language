@@ -175,11 +175,6 @@ parens = between (symbol "(") (symbol ")")
 brackets :: SILParser a -> SILParser a
 brackets = between (symbol "[") (symbol "]")
 
--- TODO: Delete
--- -- |Parser for braces.
--- braces :: SILParser a -> SILParser a
--- braces = between (symbol "{") (symbol "}")
-
 -- |Comma sepparated SILParser that will be useful for lists
 commaSep :: SILParser a -> SILParser [a]
 commaSep p = p `sepBy` (symbol ",")
