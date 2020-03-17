@@ -29,9 +29,9 @@ data IExprV
 
 {- TODO something to convert all closures that don't return zerotype to ones that do
 
-  \a b -> {a,b} : D -> (D -> D)
+  \a b -> (a,b) : D -> (D -> D)
 
-  (\f x -> f x) ((\a b -> {a,b}) 0) 1
+  (\f x -> f x) ((\a b -> (a,b)) 0) 1
 
 -}
 

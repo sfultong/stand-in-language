@@ -175,10 +175,6 @@ parens = between (symbol "(") (symbol ")")
 brackets :: SILParser a -> SILParser a
 brackets = between (symbol "[") (symbol "]")
 
--- |Parser for braces.
-braces :: SILParser a -> SILParser a
-braces = between (symbol "{") (symbol "}")
-
 -- |Comma sepparated SILParser that will be useful for lists
 commaSep :: SILParser a -> SILParser [a]
 commaSep p = p `sepBy` (symbol ",")
@@ -206,7 +202,7 @@ parseNumber = (i2t . fromInteger) <$> integer
 
 -- |Parse a pair.
 parsePair :: SILParser Term1
-parsePair = braces $ do
+parsePair = parens $ do
   scn
   a <- parseLongExpr
   scn

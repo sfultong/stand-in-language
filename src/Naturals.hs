@@ -111,7 +111,7 @@ instance Show NExprs where
   show (NExprs m) =
     let showInner frag = case frag of
           NZero -> "NZero"
-          (NPair a b) -> concat ["{ ", showInner a, ", ", showInner b, " }"]
+          (NPair a b) -> concat ["( ", showInner a, ", ", showInner b, " )"]
           NEnv -> "NEnv"
           (NSetEnv x) -> concat ["NSetEnv (", showInner x, ")"]
           (NDefer ind) -> case Map.lookup ind m of

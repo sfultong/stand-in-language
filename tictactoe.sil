@@ -7,7 +7,7 @@ drawPiece = #piece alt -> if piece
 
 drawBoard
  = #pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
-                  alt = {n succ (left "1"), 0}
+                  alt = (n succ (left "1"), 0)
                   dp = \n -> drawPiece (getPiece n) alt
                   blankRow = "-+-+-\n"
                   row5 = concat [dp $6, "|", dp $7, "|", dp $8, "\n"]
@@ -20,7 +20,7 @@ drawBoard
 setPiece
  = #player pos board -> let before = take pos board
                             after = right (drop pos board)
-                        in concat [before, {player,0}, after]
+                        in concat [before, (player,0), after]
 
 getSquare
  = #pos board -> left (drop pos board)
@@ -78,7 +78,7 @@ main
                                 )
                                 (not boardIn)
                  doEnd = if winner then concat [ "Player "
-                                               , {d2c winner succ (left "0"), 0}
+                                               , (d2c winner succ (left "0"), 0)
                                                , " wins!"
                                                ]
                                    else "the game is a tie"
@@ -86,7 +86,7 @@ main
                  output = if showBoard
                              then concat [ (drawBoard newBoard)
                                          , "Player "
-                                         , {d2c nextPlayer succ (left "1"), 0}
+                                         , (d2c nextPlayer succ (left "1"), 0)
                                          , "'s turn\n"
                                          , "please input number of square: "
                                          ]
@@ -101,9 +101,9 @@ main
                                     (and (not filledBoard)
                                          (not winner)
                                     )
-                                then {nextPlayer,newBoard}
+                                then (nextPlayer,newBoard)
                                 else 0
-             in {output, nextState}
+             in (output, nextState)
 
 
 

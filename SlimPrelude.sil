@@ -4,7 +4,7 @@ or = #a b -> if a then 1 else b
 
 not = #x -> if x then 0 else 1
 
-succ = #x -> {x,0}
+succ = #x -> (x,0)
 
 d2c = let layer = \recur i f b -> if i
                                      then f (recur (left i) f b)
