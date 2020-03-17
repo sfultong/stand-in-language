@@ -30,7 +30,7 @@ class MonoidEndoFolder a where
 
 data IExpr
   = Zero                     -- no special syntax necessary
-  | Pair !IExpr !IExpr       -- {,}
+  | Pair !IExpr !IExpr       -- (,)
   | Env                      -- identifier
   | SetEnv !IExpr
   | Defer !IExpr
@@ -408,7 +408,7 @@ instance Show PrettyDataType where
     ZeroType -> "D"
     (ArrType a b) -> concat [showInternal a, " -> ", showInternal b]
     (PairType a b) ->
-      concat ["{", show $ PrettyDataType a, ",", show $ PrettyDataType b, "}"]
+      concat ["(", show $ PrettyDataType a, ",", show $ PrettyDataType b, ")"]
 
 data PartialType
   = ZeroTypeP
@@ -429,7 +429,7 @@ instance Show PrettyPartialType where
     AnyType -> "A"
     (ArrTypeP a b) -> concat [showInternalP a, " -> ", showInternalP b]
     (PairTypeP a b) ->
-      concat ["{", show $ PrettyPartialType a, ",", show $ PrettyPartialType b, "}"]
+      concat ["(", show $ PrettyPartialType a, ",", show $ PrettyPartialType b, ")"]
     (TypeVariable (-1)) -> "badType"
     (TypeVariable x) -> 'v' : show x
 
@@ -461,7 +461,7 @@ instance Show PrettyIExpr where
   show (PrettyIExpr iexpr) = case iexpr of
     p@(Pair a b) -> if isNum p
       then show $ g2i p
-      else concat ["{", show (PrettyIExpr a), ",", show (PrettyIExpr b), "}"]
+      else concat ["(", show (PrettyIExpr a), ",", show (PrettyIExpr b), ")"]
     Zero -> "0"
     x -> show x
 
