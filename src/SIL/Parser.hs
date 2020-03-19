@@ -124,24 +124,6 @@ debruijinizedTerm parser str = do
              Left e -> error . errorBundlePretty $ e
   debruijinize [] t1
 
-
--- splitExpr' :: Term2 -> BreakState' BreakExtras
--- splitExpr' = \case
---   tzero -> pure ZeroF
---   tpair a b -> PairF <$> splitExpr' a <*> splitExpr' b
---   tvar n -> pure $ varNF n
---   tapp c i -> appF (splitExpr' c) (splitExpr' i)
---   tcheck c tc ->
---     let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
---     in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
---   tite i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
---   tleft x -> LeftF <$> splitExpr' x
---   tright x -> RightF <$> splitExpr' x
---   ttrace x -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
---   tlam (Open ()) x -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
---   tlam (Closed ()) x -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
---   tlimitedrecursion -> pure $ AuxF UnsizedRecursion
-
 splitExpr' :: Term2 -> BreakState' BreakExtras
 splitExpr' = \case
   (Fix TZero) -> pure ZeroF
@@ -384,12 +366,13 @@ parseCompleteLambda = do
   scn
   return . tlam (Closed (Right $ head variables)) $ foldr (\n -> tlam (Open (Right n))) iexpr (tail variables)
 
+-- |Parser that fails if indent level is not `pos`.
 parseSameLvl :: Pos -> SILParser a -> SILParser a
 parseSameLvl pos parser = do
   lvl <- L.indentLevel
   case pos == lvl of
     True -> parser
-    False -> fail "Expected same indentation"
+    False -> fail "Expected same indentation."
 
 -- |Parse let expression.
 parseLet :: SILParser Term1
@@ -458,11 +441,25 @@ initialMap = fromList
   [ ("zero", Fix TZero)
   , ("left", Fix (TLam (Closed (Right "x"))
                    (Fix (TLeft (Fix (TVar (Right "x")))))))
-  , ("right", Fix (TLam (Closed (Right "x")) (Fix (TRight (Fix (TVar (Right "x")))))))
-  , ("trace", Fix (TLam (Closed (Right "x")) (Fix (TTrace (Fix (TVar (Right "x")))))))
-  , ("pair", Fix (TLam (Closed (Right "x")) (Fix (TLam (Open (Right "y")) (Fix (TPair (Fix (TVar (Right "x"))) (Fix (TVar (Right "y")))))))))
-  , ("app", Fix (TLam (Closed (Right "x")) (Fix (TLam (Open (Right "y")) (Fix (TApp (Fix (TVar (Right "x"))) (Fix (TVar (Right "y")))))))))
-  , ("check", Fix (TLam (Closed (Right "x")) (Fix (TLam (Open (Right "y")) (Fix (TCheck (Fix (TVar (Right "x"))) (Fix (TVar (Right "y")))))))))
+  , ("right", Fix (TLam (Closed (Right "x"))
+                    (Fix (TRight (Fix (TVar (Right "x")))))))
+  , ("trace", Fix (TLam (Closed (Right "x"))
+                    (Fix (TTrace (Fix (TVar (Right "x")))))))
+  , ("pair", Fix (TLam (Closed (Right "x"))
+                   (Fix (TLam (Open (Right "y"))
+                          (Fix (TPair
+                                 (Fix (TVar (Right "x")))
+                                 (Fix (TVar (Right "y")))))))))
+  , ("app", Fix (TLam (Closed (Right "x"))
+                  (Fix (TLam (Open (Right "y"))
+                         (Fix (TApp
+                                (Fix (TVar (Right "x")))
+                                (Fix (TVar (Right "y")))))))))
+  , ("check", Fix (TLam (Closed (Right "x"))
+                    (Fix (TLam (Open (Right "y"))
+                           (Fix (TCheck
+                                  (Fix (TVar (Right "x")))
+                                  (Fix (TVar (Right "y")))))))))
   ]
 
 -- |Helper function to test parsers without a result.

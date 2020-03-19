@@ -154,19 +154,19 @@ unitTests = testGroup "Unit tests"
 testLetIndentation = unlines
   [ "let x = 0"
   , "    y = 1"
-  , "in x"
+  , "in (x,y)"
   ]
 
 testLetIncorrectIndentation1 = unlines
   [ "let x = 0"
   , "  y = 1"
-  , "in x + y"
+  , "in (x,y)"
   ]
 
 testLetIncorrectIndentation2 = unlines
   [ "let x = 0"
   , "      y = 1"
-  , "in x + y"
+  , "in (x,y)"
   ]
 
 
