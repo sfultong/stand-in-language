@@ -289,14 +289,13 @@ parseApplied = do
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
 parseLambda = do
-  symbol "\\"
-  scn
-  variables <- some identifier
-  scn
-  symbol "->"
-  scn
+  symbol "\\" <* scn
+  variables <- some identifier <* scn
+  symbol "->" <*scn
   -- TODO make sure lambda names don't collide with bound names
-  iexpr <- parseLongExpr
+  iexpr <- parseLongExpr -- <* scn -- TODO: add when branch is testable
+  bindings <- State.get
+  
   return $ foldr (\n -> TLam (Open (Right n))) iexpr variables
 
 -- |Parse complete lambda expression.
