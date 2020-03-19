@@ -91,21 +91,6 @@ data LamType t
   | Closed t
   deriving (Eq, Show, Ord)
 
--- data ParserTerm l x v
---   = TZero
---   | TPair (ParserTerm l x v) (ParserTerm l x v)
---   | TVar v
---   | TApp (ParserTerm l x v) (ParserTerm l x v)
---   | TCheck (ParserTerm l x v) (ParserTerm l x v)
---   | TITE (ParserTerm l x v) (ParserTerm l x v) (ParserTerm l x v)
---   | TLeft (ParserTerm l x v)
---   | TRight (ParserTerm l x v)
---   | TTrace (ParserTerm l x v)
---   | TLam (LamType l) (ParserTerm l x v)
---   | TLimitedRecursion
---   | TTransformedGrammar x
---   deriving (Eq, Show, Ord, Functor)
-
 -- | Functor to do an F-algebra for recursive schemes.
 data ParserTermF l v r
   = TZero
@@ -138,9 +123,6 @@ instance (Show v, Show l) => Show1 (ParserTermF l v) where
     TLimitedRecursion -> showString "TLimitedRecursion"
 
 type ParserTerm l v = Fix (ParserTermF l v)
-
--- instance Show (ParserTerm l v) where
---   show Fix x = show x
 
 tzero :: ParserTerm l v
 tzero = Fix TZero

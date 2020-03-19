@@ -64,31 +64,6 @@ i2c x = tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
         coalg 0 = TVar (Left 0)
         coalg n = TApp (Left . Fix . TVar $ Left 1) (Right $ n - 1)
 
--- debruijinize' :: Monad m => VarList -> Term1 -> m Term2
--- debruijinize' :: VarList -> Term1 -> Term2
--- debruijinize' vl t = hoist nat t
---   where nat :: Term1F a -> Term2F a
---         nat (TVar (Right str)) = case elemIndex str vl of
---                                         Just i -> TVar i
---                                         Nothing -> fail $ "undefined identifier " ++ str
---         nat (TLam (Open (Right str)) x) = TLam (Open ()) (str : vl)
---         nat (TLam (Closed (Right str)) x) = TLam (Closed ()) (str : vl)
---         nat (TLam (Open (Left ())) x) = TLam (Open ()) ("-- dummy" : vl)
---         nat (TLam (Closed (Left ())) x) = TLam (Closed ()) ("-- dummyC" : vl)
---         nat TZero = TZero
---         nat (TPair a b) = TPair a b
---         nat (TVar (Left i)) = TVar (Left i)
---         nat (TApp i c) = TApp i c
---         nat (TCheck c tc) = TCheck c tc
---         nat (TITE i t e) = TITE i t e
---         nat (TLeft x) = TLeft x
---         nat (TRight x) = TRight x
---         nat (TTrace x) = TTrace x
-
--- -- |Jeremy Gibbons' metamorphism
--- meta :: (b -> Base f b) -> (a -> b) -> (Base g a -> a) -> FixF g -> FixF f
--- meta f e g = ana f . e . cata g
-
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (Fix (TZero)) = pure $ Fix TZero
 debruijinize vl (Fix (TPair a b)) = tpair <$> debruijinize vl a <*> debruijinize vl b
@@ -306,9 +281,6 @@ parseApplied = do
   fargs <- L.lineFold scn $ \sc' ->
     parseSingleExpr `sepBy` try sc'
   case fargs of
--- <<<<<<< HEAD
---     (f:args) -> pure $ foldl tapp f args
--- =======
     (f:args) -> do
       case f of
         Fix (TVar (Right "left")) -> case args of
