@@ -40,6 +40,8 @@ To get arround it, you should copy `libgc.so.1` (provided by the `bohem` garbage
 
 
 ## Running your own SIL code
+
+### Your own SIL file
 1. Create your own file with the sil code
 2. Modify the last uncommented line to reference your file.
    ```haskell
@@ -52,6 +54,16 @@ To get arround it, you should copy `libgc.so.1` (provided by the `bohem` garbage
    $ cabal new-build
    $ cabal new-run sil-exe
    ```
+4. Profit!
+### REPL
+1. Run:
+   ```
+   $ cd <your/local/proyect/location>/stand-in-language
+   $ nix-shell shell.nix
+   $ cabal new-build
+   $ cabal new-run sil-mini-repl -- --haskell
+   ```
+2. Profit!
    
 ## Contributing
 If you'd like to contribute, please fork the repository and use a feature branch. Pull requests are warmly welcome.
