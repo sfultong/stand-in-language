@@ -5,6 +5,7 @@
 {-#LANGUAGE LambdaCase #-}
 {-#LANGUAGE PatternSynonyms #-}
 {-#LANGUAGE ViewPatterns #-}
+
 module SIL where
 
 import Control.DeepSeq
@@ -13,8 +14,9 @@ import Control.Monad.State (State)
 import Data.Char
 import Data.Void
 import Data.Map (Map)
+import Data.Functor.Foldable
+import Data.Functor.Classes
 import GHC.Generics
-
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
 
@@ -89,21 +91,71 @@ data LamType t
   | Closed t
   deriving (Eq, Show, Ord)
 
--- we can probably get rid of x
-data ParserTerm l x v
+-- | Functor to do an F-algebra for recursive schemes.
+data ParserTermF l v r
   = TZero
-  | TPair (ParserTerm l x v) (ParserTerm l x v)
+  | TPair r r
   | TVar v
-  | TApp (ParserTerm l x v) (ParserTerm l x v)
-  | TCheck (ParserTerm l x v) (ParserTerm l x v)
-  | TITE (ParserTerm l x v) (ParserTerm l x v) (ParserTerm l x v)
-  | TLeft (ParserTerm l x v)
-  | TRight (ParserTerm l x v)
-  | TTrace (ParserTerm l x v)
-  | TLam (LamType l) (ParserTerm l x v)
+  | TApp r r
+  | TCheck r r
+  | TITE r r r
+  | TLeft r
+  | TRight r
+  | TTrace r
+  | TLam (LamType l) r
   | TLimitedRecursion
-  | TTransformedGrammar x
   deriving (Eq, Show, Ord, Functor)
+
+instance (Show v, Show l) => Show1 (ParserTermF l v) where
+  -- liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
+  liftShowsPrec showsPrec showList i = let recur = showsPrec i in \case
+    TZero -> showString "TZero"
+    TPair a b -> showParen True $ shows "TPair " . recur a . shows " " . recur b
+    TVar v -> showString $ "TVar " ++ show v
+    TApp a b -> showParen True $ shows "TApp " . recur a . shows " " . recur b
+    TCheck a b -> showParen True $ shows "TCheck " . recur a . shows " " . recur b
+    TITE a b c -> showParen True $ shows "TITE " . recur a . shows " " . recur b . shows " " . recur c
+    TLeft a -> showParen True $ shows "TLeft " . recur a
+    TRight a -> showParen True $ shows "TRight " . recur a
+    TTrace a -> showParen True $ shows "TTrace " . recur a
+    TLam l a ->
+      showParen True $ shows "TLam " . (showParen True $ shows "LamType " . (shows l)) . shows " " . recur a
+    TLimitedRecursion -> showString "TLimitedRecursion"
+
+type ParserTerm l v = Fix (ParserTermF l v)
+
+tzero :: ParserTerm l v
+tzero = Fix TZero
+
+tpair :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
+tpair x y = Fix $ TPair x y
+
+tvar :: v -> ParserTerm l v
+tvar v = Fix $ TVar v
+
+tapp :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
+tapp x y = Fix $ TApp x y
+
+tcheck :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
+tcheck x y = Fix $ TCheck x y
+
+tite :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v -> ParserTerm l v
+tite x y z = Fix $ TITE x y z
+
+tleft :: ParserTerm l v -> ParserTerm l v
+tleft x = Fix $ TLeft x
+
+tright :: ParserTerm l v -> ParserTerm l v
+tright x = Fix $ TRight x
+
+ttrace :: ParserTerm l v -> ParserTerm l v
+ttrace x = Fix $ TTrace x
+
+tlam :: (LamType l) -> ParserTerm l v -> ParserTerm l v
+tlam l x = Fix $ TLam l x
+
+tlimitedrecursion :: ParserTerm l v
+tlimitedrecursion = Fix TLimitedRecursion
 
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 
@@ -127,8 +179,11 @@ data BreakExtras
   = UnsizedRecursion
   deriving Show
 
-type Term1 = ParserTerm (Either () String) Void (Either Int String)
-type Term2 = ParserTerm () Void Int
+type Term1F a = ParserTermF (Either () String) (Either Int String) a
+type Term2F a = ParserTermF () Int a
+
+type Term1 = ParserTerm (Either () String) (Either Int String)
+type Term2 = ParserTerm () Int
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving Show
 

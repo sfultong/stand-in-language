@@ -1,20 +1,23 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE LambdaCase #-}
+
 module SIL.Parser where
 
 import Control.Monad
 import Data.Char
+import Data.Functor.Foldable
 import Data.List (elemIndex)
 import Data.Map (Map, fromList)
+import Data.Void
 import Debug.Trace
 import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Debug
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Pos
-import Data.Void
 import qualified Control.Monad.State as State
 import qualified Data.Map as Map
+import qualified System.IO.Strict as Strict
 
 import SIL
 import SIL.TypeChecker
@@ -36,58 +39,82 @@ addBound name expr (ParserState bound) = if Map.member name bound
   then Nothing
   else pure $ ParserState (Map.insert name expr bound)
 
-i2t :: Int -> ParserTerm l x v
-i2t 0 = TZero
-i2t n = TPair (i2t (n - 1)) TZero
+-- |Int to ParserTerm
+i2t :: Int -> ParserTerm l v
+i2t = ana coalg where
+  coalg :: Int -> ParserTermF l v Int
+  coalg 0 = TZero
+  coalg n = TPair (n-1) 0
 
-ints2t :: [Int] -> ParserTerm l x v
-ints2t = foldr (\i t -> TPair (i2t i) t) TZero
+-- This foldr is a cata over ListF and not ParserTermF. Any other viable morphisms?
+-- |List of Int's to ParserTerm
+ints2t :: [Int] -> ParserTerm l v
+ints2t = foldr (\i t -> tpair (i2t i) t) tzero
 
-s2t :: String -> ParserTerm l x v
+-- |String to ParserTerm
+s2t :: String -> ParserTerm l v
 s2t = ints2t . map ord
 
+-- |Int to Church encoding
 i2c :: Int -> Term1
-i2c x =
-  let inner 0 = TVar $ Left 0
-      inner x = TApp (TVar $ Left 1) (inner $ x - 1)
-  in TLam (Closed (Left ())) (TLam (Open (Left ())) (inner x))
+i2c x = tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
+  where inner :: Int -> Term1
+        inner = apo coalg
+        coalg :: Int -> Term1F (Either Term1 Int)
+        coalg 0 = TVar (Left 0)
+        coalg n = TApp (Left . Fix . TVar $ Left 1) (Right $ n - 1)
 
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
-debruijinize _ TZero = pure TZero
-debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
-debruijinize _ (TVar (Left i)) = pure $ TVar i
-debruijinize vl (TVar (Right n)) = case elemIndex n vl of
-  Just i -> pure $ TVar i
-  Nothing -> fail $ "undefined identifier " ++ n
-debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
-debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
-debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i <*> debruijinize vl t
-  <*> debruijinize vl e
-debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
-debruijinize vl (TRight x) = TRight <$> debruijinize vl x
-debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
-debruijinize vl (TLam (Open (Left _)) x) = TLam (Open ()) <$> debruijinize ("-- dummy" : vl) x
-debruijinize vl (TLam (Closed (Left _)) x) = TLam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
-debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n : vl) x
-debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
-debruijinize _ TLimitedRecursion = pure TLimitedRecursion
+debruijinize _ (Fix (TZero)) = pure $ Fix TZero
+debruijinize vl (Fix (TPair a b)) = tpair <$> debruijinize vl a <*> debruijinize vl b
+debruijinize _ (Fix (TVar (Left i))) = pure $ tvar i
+debruijinize vl (Fix (TVar (Right n))) = case elemIndex n vl of
+                                           Just i -> pure $ tvar i
+                                           Nothing -> fail $ "undefined identifier " ++ n
+debruijinize vl (Fix (TApp i c)) = tapp <$> debruijinize vl i <*> debruijinize vl c
+debruijinize vl (Fix (TCheck c tc)) = tcheck <$> debruijinize vl c <*> debruijinize vl tc
+debruijinize vl (Fix (TITE i t e)) = tite <$> debruijinize vl i
+                                          <*> debruijinize vl t
+                                          <*> debruijinize vl e
+debruijinize vl (Fix (TLeft x)) = tleft <$> debruijinize vl x
+debruijinize vl (Fix (TRight x)) = tright <$> debruijinize vl x
+debruijinize vl (Fix (TTrace x)) = ttrace <$> debruijinize vl x
+debruijinize vl (Fix (TLam (Open (Left _)) x)) = tlam (Open ()) <$> debruijinize ("-- dummy" : vl) x
+debruijinize vl (Fix (TLam (Closed (Left _)) x)) = tlam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
+debruijinize vl (Fix (TLam (Open (Right n)) x)) = tlam (Open ()) <$> debruijinize (n : vl) x
+debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x          
+debruijinize _ (Fix (TLimitedRecursion)) = pure tlimitedrecursion
+
+-- |Helper function to get Term2
+debruijinizedTerm :: SILParser Term1 -> String -> IO Term2
+debruijinizedTerm parser str = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  let prelude = case parsePrelude preludeFile of
+                  Right p -> p
+                  Left pe -> error . getErrorString $ pe
+      startState = ParserState prelude
+      p = State.runStateT parser startState
+      t1 = case runParser p "" str of
+             Right (a, s) -> a
+             Left e -> error . errorBundlePretty $ e
+  debruijinize [] t1
 
 splitExpr' :: Term2 -> BreakState' BreakExtras
 splitExpr' = \case
-  TZero -> pure ZeroF
-  TPair a b -> PairF <$> splitExpr' a <*> splitExpr' b
-  TVar n -> pure $ varNF n
-  TApp c i -> appF (splitExpr' c) (splitExpr' i)
-  TCheck c tc ->
+  (Fix TZero) -> pure ZeroF
+  Fix (TPair a b) -> PairF <$> splitExpr' a <*> splitExpr' b
+  Fix (TVar n) -> pure $ varNF n
+  Fix (TApp c i) -> appF (splitExpr' c) (splitExpr' i)
+  Fix (TCheck c tc) ->
     let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
     in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
-  TITE i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
-  TLeft x -> LeftF <$> splitExpr' x
-  TRight x -> RightF <$> splitExpr' x
-  TTrace x -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
-  TLam (Open ()) x -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
-  TLam (Closed ()) x -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
-  TLimitedRecursion -> pure $ AuxF UnsizedRecursion
+  Fix (TITE i t e) -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
+  Fix (TLeft x) -> LeftF <$> splitExpr' x
+  Fix (TRight x) -> RightF <$> splitExpr' x
+  Fix (TTrace x) -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
+  Fix (TLam (Open ()) x) -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
+  Fix (TLam (Closed ()) x) -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
+  Fix TLimitedRecursion -> pure $ AuxF UnsizedRecursion
 
 splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.empty)
@@ -118,7 +145,7 @@ convertPT n (Term3 termMap) =
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
                                    then Map.lookup name bound
-                                   else Just . TVar . Right $ name
+                                   else Just . tvar . Right $ name
 
 -- |Line comments start with "--".
 lineComment :: SILParser ()
@@ -184,7 +211,7 @@ integer :: SILParser Integer
 integer = toInteger <$> lexeme L.decimal
 
 -- |Parse string literal.
-parseString :: SILParser (ParserTerm l x v)
+parseString :: SILParser (ParserTerm l v)
 parseString = fmap s2t $ char '\"' *> manyTill L.charLiteral (char '\"')
 
 -- |Parse a variable.
@@ -197,7 +224,7 @@ parseVariable = do
     Just i -> pure i
 
 -- |Prarse number (Integer).
-parseNumber :: SILParser (ParserTerm l x v)
+parseNumber :: SILParser (ParserTerm l v)
 parseNumber = (i2t . fromInteger) <$> integer
 
 -- |Parse a pair.
@@ -210,13 +237,13 @@ parsePair = parens $ do
   scn
   b <- parseLongExpr
   scn
-  pure $ TPair a b
+  pure $ tpair a b
 
 -- |Parse a list.
 parseList :: SILParser Term1
 parseList = do
   exprs <- brackets (commaSep (scn *> parseLongExpr <*scn))
-  return $ foldr TPair TZero exprs
+  return $ foldr tpair tzero exprs
 
 -- TODO: make error more descriptive
 -- |Parse ITE (which stands for "if then else").
@@ -234,7 +261,7 @@ parseITE = do
   scn
   elseExpr <- parseLongExpr
   scn
-  return $ TITE cond thenExpr elseExpr
+  return $ tite cond thenExpr elseExpr
 
 -- |Parse a single expression.
 parseSingleExpr :: SILParser Term1
@@ -256,34 +283,34 @@ parseApplied = do
   case fargs of
     (f:args) -> do
       case f of
-        TVar (Right "left") -> case args of
-          [t] -> pure . TLeft $ t
+        Fix (TVar (Right "left")) -> case args of
+          [t] -> pure . tleft $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          (x:xs) -> pure $ foldl TApp (TLeft x) xs
-        TVar (Right "right") -> case args of
-          [t] -> pure . TRight $ t
+          (x:xs) -> pure $ foldl tapp (tleft x) xs
+        Fix (TVar (Right "right")) -> case args of
+          [t] -> pure . tright $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          (x:xs) -> pure $ foldl TApp (TRight x) xs
-        TVar (Right "trace") -> case args of
-          [t] -> pure . TTrace $ t
+          (x:xs) -> pure $ foldl tapp (tright x) xs
+        Fix (TVar (Right "trace")) -> case args of
+          [t] -> pure . ttrace $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse trace. Too many arguments applied to trace."
-        TVar (Right "pair") -> case args of
-          [a, b] -> pure $ TPair a b
-          [a] -> pure $ TLam (Open (Right "x")) . TPair a . TVar . Right $ "x"
+        Fix (TVar (Right "pair")) -> case args of
+          [a, b] -> pure $ tpair a b
+          [a] -> pure $ tlam (Open (Right "x")) . tpair a . tvar . Right $ "x"
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse pair. Too many arguments applied to pair."
-        TVar (Right "app") -> case args of
-          [a, b] -> pure $ TApp a b
-          [a] -> pure $ TLam (Open (Right "x")) . TApp a . TVar . Right $ "x"
+        Fix (TVar (Right "app")) -> case args of
+          [a, b] -> pure $ tapp a b
+          [a] -> pure $ tlam (Open (Right "x")) . tapp a . tvar . Right $ "x"
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse app. Too many arguments applied to app."
-        TVar (Right "check") -> case args of
-          [a, b] -> pure $ TCheck a b
-          [a] -> pure $ TLam (Open (Right "x")) . TCheck a . TVar . Right $ "x"
+        Fix (TVar (Right "check")) -> case args of
+          [a, b] -> pure $ tcheck a b
+          [a] -> pure $ tlam (Open (Right "x")) . tcheck a . tvar . Right $ "x"
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse check. Too many arguments applied to check."
-        _ -> pure $ foldl TApp f args
+        _ -> pure $ foldl tapp f args
     _ -> fail "expected expression"
 
 -- |Parse lambda expression.
@@ -293,10 +320,8 @@ parseLambda = do
   variables <- some identifier <* scn
   symbol "->" <*scn
   -- TODO make sure lambda names don't collide with bound names
-  iexpr <- parseLongExpr -- <* scn -- TODO: add when branch is testable
-  bindings <- State.get
-  
-  return $ foldr (\n -> TLam (Open (Right n))) iexpr variables
+  iexpr <- parseLongExpr
+  return $ foldr (\n -> tlam (Open (Right n))) iexpr variables
 
 -- |Parse complete lambda expression.
 parseCompleteLambda :: SILParser Term1
@@ -308,14 +333,15 @@ parseCompleteLambda = do
   scn
   iexpr <- parseLongExpr
   scn
-  return . TLam (Closed (Right $ head variables)) $ foldr (\n -> TLam (Open (Right n))) iexpr (tail variables)
+  return . tlam (Closed (Right $ head variables)) $ foldr (\n -> tlam (Open (Right n))) iexpr (tail variables)
 
+-- |Parser that fails if indent level is not `pos`.
 parseSameLvl :: Pos -> SILParser a -> SILParser a
 parseSameLvl pos parser = do
   lvl <- L.indentLevel
   case pos == lvl of
     True -> parser
-    False -> fail "Expected same indentation"
+    False -> fail "Expected same indentation."
 
 -- |Parse let expression.
 parseLet :: SILParser Term1
@@ -347,10 +373,10 @@ parseChurch = (i2c . fromInteger) <$> (symbol "$" *> integer)
 
 -- |Parse refinement check.
 parsePartialFix :: SILParser Term1
-parsePartialFix = symbol "?" *> pure TLimitedRecursion
+parsePartialFix = symbol "?" *> pure tlimitedrecursion
 
 parseRefinementCheck :: SILParser (Term1 -> Term1)
-parseRefinementCheck = flip TCheck <$> (symbol ":" *> parseLongExpr)
+parseRefinementCheck = flip tcheck <$> (symbol ":" *> parseLongExpr)
 
 -- |Parse assignment.
 parseAssignment :: SILParser ()
@@ -381,48 +407,28 @@ debugIndent i = show $ State.runState i (initialPos "debug")
 
 -- |This allows parsing of AST instructions as functions (complete lambdas).
 initialMap = fromList
-  [ ("zero", TZero)
-  , ("left", TLam (Closed (Right "x"))
-             (TApp
-               (TLam (Open (Right "x")) (TLeft (TVar (Right "x"))))
-               (TVar (Right "x"))))
-  , ("right", TLam (Closed (Right "x"))
-              (TApp
-                (TLam (Open (Right "x")) (TRight (TVar (Right "x"))))
-                (TVar (Right "x"))))
-  , ("trace", TLam (Closed (Right "x"))
-              (TApp
-                (TLam (Open (Right "x")) (TTrace (TVar (Right "x"))))
-                (TVar (Right "x"))))
-  , ("pair", TLam (Closed (Right "x"))
-             (TLam (Open (Right "y"))
-               (TApp
-                 (TApp (TLam (Open (Right "x"))
-                             (TLam (Open (Right "y"))
-                               (TPair
-                                 (TVar (Right "x")) (TVar (Right "y")))))
-                       (TVar (Right "x")))
-                 (TVar (Right "y")))))
-  , ("app", TLam (Closed (Right "x"))
-            (TLam (Open (Right "y"))
-              (TApp
-                (TApp
-                  (TLam (Open (Right "x"))
-                    (TLam (Open (Right "y"))
-                      (TApp (TVar (Right "x")) (TVar (Right "y")))))
-                  (TVar (Right "x")))
-                (TVar (Right "y")))))
-  , ("check", TLam (Closed (Right "x"))
-              (TLam (Open (Right "y"))
-                (TApp
-                  (TApp
-                    (TLam (Open (Right "x"))
-                      (TLam (Open (Right "y"))
-                        (TCheck
-                          (TVar (Right "x"))
-                          (TVar (Right "y")))))
-                    (TVar (Right "x")))
-                  (TVar (Right "y")))))
+  [ ("zero", Fix TZero)
+  , ("left", Fix (TLam (Closed (Right "x"))
+                   (Fix (TLeft (Fix (TVar (Right "x")))))))
+  , ("right", Fix (TLam (Closed (Right "x"))
+                    (Fix (TRight (Fix (TVar (Right "x")))))))
+  , ("trace", Fix (TLam (Closed (Right "x"))
+                    (Fix (TTrace (Fix (TVar (Right "x")))))))
+  , ("pair", Fix (TLam (Closed (Right "x"))
+                   (Fix (TLam (Open (Right "y"))
+                          (Fix (TPair
+                                 (Fix (TVar (Right "x")))
+                                 (Fix (TVar (Right "y")))))))))
+  , ("app", Fix (TLam (Closed (Right "x"))
+                  (Fix (TLam (Open (Right "y"))
+                         (Fix (TApp
+                                (Fix (TVar (Right "x")))
+                                (Fix (TVar (Right "y")))))))))
+  , ("check", Fix (TLam (Closed (Right "x"))
+                    (Fix (TLam (Open (Right "y"))
+                           (Fix (TCheck
+                                  (Fix (TVar (Right "x")))
+                                  (Fix (TVar (Right "y")))))))))
   ]
 
 -- |Helper function to test parsers without a result.
