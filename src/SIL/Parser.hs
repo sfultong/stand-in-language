@@ -6,6 +6,7 @@ module SIL.Parser where
 import Control.Monad
 import Data.Char
 import Data.Functor.Foldable
+import qualified Data.Foldable as F
 import Data.List (elemIndex)
 import Data.Map (Map, fromList)
 import Data.Void
@@ -313,6 +314,12 @@ parseApplied = do
         _ -> pure $ foldl tapp f args
     _ -> fail "expected expression"
 
+freeVars :: Term1 -> [String]
+freeVars = cata alg where
+  alg :: Term1F [String] -> [String]
+  alg (TVar (Right n)) = [n]
+  alg e = F.fold e
+
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
 parseLambda = do
@@ -320,8 +327,8 @@ parseLambda = do
   variables <- some identifier <* scn
   symbol "->" <*scn
   -- TODO make sure lambda names don't collide with bound names
-  iexpr <- parseLongExpr
-  return $ foldr (\n -> tlam (Open (Right n))) iexpr variables
+  term1expr <- parseLongExpr
+  return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
 
 -- |Parse complete lambda expression.
 parseCompleteLambda :: SILParser Term1

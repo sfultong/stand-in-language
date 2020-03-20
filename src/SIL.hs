@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveFoldable #-} 
 {-#LANGUAGE DeriveFunctor #-}
 {-#LANGUAGE DeriveGeneric#-}
 {-#LANGUAGE DeriveAnyClass#-}
@@ -104,7 +105,7 @@ data ParserTermF l v r
   | TTrace r
   | TLam (LamType l) r
   | TLimitedRecursion
-  deriving (Eq, Show, Ord, Functor)
+  deriving (Eq, Show, Ord, Functor, Foldable)
 
 instance (Show v, Show l) => Show1 (ParserTermF l v) where
   -- liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
@@ -121,8 +122,6 @@ instance (Show v, Show l) => Show1 (ParserTermF l v) where
     TLam l a ->
       showParen True $ shows "TLam " . (showParen True $ shows "LamType " . (shows l)) . shows " " . recur a
     TLimitedRecursion -> showString "TLimitedRecursion"
-
-type ParserTerm l v = Fix (ParserTermF l v)
 
 tzero :: ParserTerm l v
 tzero = Fix TZero
@@ -179,11 +178,14 @@ data BreakExtras
   = UnsizedRecursion
   deriving Show
 
+type ParserTerm l v = Fix (ParserTermF l v)
+
 type Term1F a = ParserTermF (Either () String) (Either Int String) a
 type Term2F a = ParserTermF () Int a
 
-type Term1 = ParserTerm (Either () String) (Either Int String)
-type Term2 = ParserTerm () Int
+type Term1 = Fix (ParserTermF (Either () String) (Either Int String))
+type Term2 = Fix (ParserTermF () Int)
+
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving Show
 
