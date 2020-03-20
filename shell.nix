@@ -1,5 +1,5 @@
-{ rev ? "78d05675a4186c3b7b2de214f3c3b245ba0d2fa5",
-  outputSha256 ? "0aam50m1w1kqfdhwnazzi6jdq422d3ib3ilvb1m5lcr5jn7nhf1f",
+{ rev ? "c47830563954d4ab4e593a9db6275ce828497f52",
+  outputSha256 ? "1xqcwzyzimay2kh8nqabi5b0ly3lc50c0w6asqjl0g97nckr2fj0",
   enableLLVMAssertions ? true
 }:
 
@@ -24,10 +24,10 @@ with rec {
     src = ./cbits;
     buildInputs = [pkgs.boehmgc];
   };
-  haskellPkgs = with pkgs.haskell.lib; pkgs.haskell.packages.ghc865.override(old: {
+  haskellPkgs = with pkgs.haskell.lib; pkgs.haskell.packages.ghc882.override(old: {
     all-cabal-hashes = builtins.fetchurl {
-      url = "https://github.com/commercialhaskell/all-cabal-hashes/archive/1de0d224fe9c8e8947f217c92a12d9249334c5e4.tar.gz";
-      sha256 = "1ycayni4pjmgki8cdhcg25bmw970289f89b62sbdzw5naw15rrb1";
+      url = "https://github.com/commercialhaskell/all-cabal-hashes/archive/d076b90184525b100d3a61480fe63788290eab2e.tar.gz";
+      sha256 = "1nyq64mx65chf7chw7nq72vmxjabviaxc9va7sfk0dr6szzdz91p";
     };
     overrides = self: super: {
       sil = super.callCabal2nix "sil" ./. { gc = pkgs.boehmgc; jumper = sil_jumper; };
@@ -44,6 +44,6 @@ with rec {
          haskellPkgs.apply-refact
          haskellPkgs.hlint
          haskellPkgs.hasktags
-         haskellPkgs.haddock
+         # haskellPkgs.haddock
       ];
   })

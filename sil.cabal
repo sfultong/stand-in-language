@@ -49,10 +49,8 @@ library
                      , vector
                      , deepseq
                      , derive-storable
-                     , derive-storable-plugin
                      , bytestring
-                     , llvm-hs
-                     , llvm-hs-pure
+                     , sbv
                      , text
                      , megaparsec
                      , strict
