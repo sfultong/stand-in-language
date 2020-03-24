@@ -3,6 +3,8 @@ module SIL.Eval where
 
 import Control.Monad.Except
 import Data.Map (Map)
+import Data.SBV
+import Data.SBV.Control
 import Debug.Trace
 import qualified Data.Map as Map
 
@@ -10,7 +12,7 @@ import SIL
 import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
-import SIL.Optimizer
+import qualified SIL.Optimizer as O
 
 data ExpP
   = ZeroP
@@ -79,7 +81,7 @@ instance SILLike ExpP where
   toSIL = fix fromFullEnv
 
 partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
-partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
+partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . O.optimize))
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 
 eval' :: IExpr -> Either String IExpr
@@ -121,9 +123,25 @@ findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
   TLimitedRecursion -> (True, TLimitedRecursion)
 -}
 
+testSBV :: Symbolic Word8
+testSBV = do
+  a <- sWord8 "a"
+  constrain $ a + 5 .< 10
+  constrain $ a .> 2
+  query $ checkSat >>= \case
+      Unk   -> undefined -- error "Solver returned unknown!"
+      Unsat -> undefined -- error "Solver couldn't generate the fibonacci sequence!"
+      Sat   -> getValue a
+
+testSBV' :: IO Int
+testSBV' = fromIntegral <$> runSMT testSBV
+
 resolveBinding :: String -> Bindings -> Maybe IExpr
-resolveBinding name bindings = Map.lookup name bindings >>=
-  ((>>= toSIL) . fmap (findChurchSize . splitExpr) . debruijinize [])
+resolveBinding name bindings = case Map.lookup name bindings of
+  Nothing -> Nothing
+  Just b -> case fmap (findChurchSize . splitExpr) (debruijinize [] b) of
+    Left _ -> Nothing
+    Right expr -> toSIL expr
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of

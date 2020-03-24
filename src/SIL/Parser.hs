@@ -8,6 +8,7 @@ import Data.Char
 import Data.Functor.Foldable
 import Data.List (elemIndex)
 import Data.Map (Map, fromList)
+import Data.String (fromString)
 import Data.Void
 import Debug.Trace
 import Text.Megaparsec
@@ -64,13 +65,13 @@ i2c x = tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
         coalg 0 = TVar (Left 0)
         coalg n = TApp (Left . Fix . TVar $ Left 1) (Right $ n - 1)
 
-debruijinize :: Monad m => VarList -> Term1 -> m Term2
+debruijinize :: VarList -> Term1 -> Either String Term2
 debruijinize _ (Fix (TZero)) = pure $ Fix TZero
 debruijinize vl (Fix (TPair a b)) = tpair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize _ (Fix (TVar (Left i))) = pure $ tvar i
 debruijinize vl (Fix (TVar (Right n))) = case elemIndex n vl of
                                            Just i -> pure $ tvar i
-                                           Nothing -> fail $ "undefined identifier " ++ n
+                                           Nothing -> Left $ "undefined identifier " ++ n
 debruijinize vl (Fix (TApp i c)) = tapp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (Fix (TCheck c tc)) = tcheck <$> debruijinize vl c <*> debruijinize vl tc
 debruijinize vl (Fix (TITE i t e)) = tite <$> debruijinize vl i
@@ -82,7 +83,7 @@ debruijinize vl (Fix (TTrace x)) = ttrace <$> debruijinize vl x
 debruijinize vl (Fix (TLam (Open (Left _)) x)) = tlam (Open ()) <$> debruijinize ("-- dummy" : vl) x
 debruijinize vl (Fix (TLam (Closed (Left _)) x)) = tlam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
 debruijinize vl (Fix (TLam (Open (Right n)) x)) = tlam (Open ()) <$> debruijinize (n : vl) x
-debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x          
+debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ (Fix (TLimitedRecursion)) = pure tlimitedrecursion
 
 -- |Helper function to get Term2
@@ -97,7 +98,9 @@ debruijinizedTerm parser str = do
       t1 = case runParser p "" str of
              Right (a, s) -> a
              Left e -> error . errorBundlePretty $ e
-  debruijinize [] t1
+  case debruijinize [] t1 of
+    Right t -> pure t
+    Left e -> error e
 
 splitExpr' :: Term2 -> BreakState' BreakExtras
 splitExpr' = \case
@@ -485,8 +488,10 @@ parsePrelude :: String -> Either ErrorString Bindings
 parsePrelude = parseWithPrelude initialMap
 
 -- |Parse main.
-parseMain :: Bindings -> String -> Either ErrorString Term3
-parseMain prelude s = parseWithPrelude prelude s >>= getMain where
-  getMain bound = case Map.lookup "main" bound of
-    Nothing -> fail "no main method found"
+parseMain :: Bindings -> String -> Either String Term3
+parseMain prelude s = case parseWithPrelude prelude s of
+  Left e -> Left $ show e
+  Right bound -> case Map.lookup "main" bound of
+    Nothing -> Left "no main method found"
     Just main -> splitExpr <$> debruijinize [] main
+

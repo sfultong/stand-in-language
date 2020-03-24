@@ -410,7 +410,7 @@ runTictactoe = do
       Left pe -> error . getErrorString $ pe
   case parseMain prelude $ tictactoe of
     Right x -> putStrLn $ show x
-    Left err -> putStrLn . getErrorString $ err
+    Left err -> putStrLn err
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 
