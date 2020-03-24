@@ -1,5 +1,6 @@
 module Main where
 
+import SIL
 import SIL.Parser
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -7,6 +8,8 @@ import Text.Megaparsec.Error
 import Text.Megaparsec
 import Text.Megaparsec.Debug
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import Data.Functor.Foldable
 import qualified SIL.Parser as Parsec
 import qualified System.IO.Strict as Strict
 import qualified Control.Monad.State as State
@@ -149,7 +152,24 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetIncorrectIndentation2" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
+  , testCase "collect vars" $ do
+      let fv = vars expr
+      fv `compare` (Set.fromList [Right "x", Right "y"]) @?= EQ
+  , testCase "test automatic open close lambda" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
+      res `compare` closedLambdaPair @?= EQ
+  , testCase "test automatic open close lambda 2" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
+      res `compare` closedLambdaPair @?= EQ
   ]
+
+closedLambdaPair = "Fix (TLam (Closed (Right \"x\")) (Fix (TLam (Open (Right \"y\")) (Fix (TPair (Fix (TVar (Right \"x\"))) (Fix (TVar (Right \"y\"))))))))"
+
+expr = Fix (TLam (Closed (Right "x"))
+                   (Fix (TLam (Open (Right "y"))
+                          (Fix (TPair
+                                 (Fix (TVar (Right "x")))
+                                 (Fix (TVar (Right "y"))))))))
 
 testLetIndentation = unlines
   [ "let x = 0"

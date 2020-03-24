@@ -9,6 +9,9 @@ import Data.Functor.Foldable
 import qualified Data.Foldable as F
 import Data.List (elemIndex)
 import Data.Map (Map, fromList)
+import qualified Data.Map as Map
+import Data.Set (Set, (\\))
+import qualified Data.Set as Set
 import Data.Void
 import Debug.Trace
 import Text.Megaparsec
@@ -17,7 +20,6 @@ import Text.Megaparsec.Debug
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Pos
 import qualified Control.Monad.State as State
-import qualified Data.Map as Map
 import qualified System.IO.Strict as Strict
 
 import SIL
@@ -83,7 +85,7 @@ debruijinize vl (Fix (TTrace x)) = ttrace <$> debruijinize vl x
 debruijinize vl (Fix (TLam (Open (Left _)) x)) = tlam (Open ()) <$> debruijinize ("-- dummy" : vl) x
 debruijinize vl (Fix (TLam (Closed (Left _)) x)) = tlam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
 debruijinize vl (Fix (TLam (Open (Right n)) x)) = tlam (Open ()) <$> debruijinize (n : vl) x
-debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x          
+debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ (Fix (TLimitedRecursion)) = pure tlimitedrecursion
 
 -- |Helper function to get Term2
@@ -314,11 +316,38 @@ parseApplied = do
         _ -> pure $ foldl tapp f args
     _ -> fail "expected expression"
 
-freeVars :: Term1 -> [String]
-freeVars = cata alg where
-  alg :: Term1F [String] -> [String]
-  alg (TVar (Right n)) = [n]
+-- |Collect all variable names in a `Term1` expresion.
+vars :: Term1 -> Set (Either Int String)
+vars = cata alg where
+  alg :: Term1F (Set (Either Int String)) -> Set (Either Int String)
+  alg (TVar (Right n)) = Set.singleton $ Right n
+  alg (TVar (Left n)) = Set.singleton $ Left n
   alg e = F.fold e
+
+-- -- |Collect all lambda arguments' names in a `Term1` expresion.
+-- lambdaVars :: Term1 -> [String]
+-- lambdaVars = cata alg where
+--   alg :: Term1F [String] -> [String]
+--   alg (TLam (Open (Right n)) expr) = [n]
+--   alg (TLam (Closed (Right n)) expr) = [n]
+--   alg e = F.fold e
+
+-- |Collect all lambda arguments' names in a `Term1` expresion.
+lambdaVars :: Term1 -> Set String
+lambdaVars (Fix (TZero)) = Set.empty
+lambdaVars (Fix (TPair a b)) = Set.union (lambdaVars a) (lambdaVars b)
+lambdaVars (Fix (TVar _)) = Set.empty
+lambdaVars (Fix (TApp i c)) = Set.union (lambdaVars i) (lambdaVars c)
+lambdaVars (Fix (TCheck c tc)) = Set.union (lambdaVars c) (lambdaVars tc)
+lambdaVars (Fix (TITE i t e)) = Set.unions [lambdaVars i, lambdaVars t, lambdaVars e]
+lambdaVars (Fix (TLeft x)) = lambdaVars x
+lambdaVars (Fix (TRight x)) = lambdaVars x
+lambdaVars (Fix (TTrace x)) = lambdaVars x
+lambdaVars (Fix (TLam (Open (Left _)) x)) = Set.empty --FIX
+lambdaVars (Fix (TLam (Closed (Left _)) x)) = Set.empty --FIX
+lambdaVars (Fix (TLam (Open (Right n)) x)) = Set.union (Set.singleton n) (lambdaVars x)
+lambdaVars (Fix (TLam (Closed (Right n)) x)) = Set.union (Set.singleton n) (lambdaVars x)
+lambdaVars (Fix (TLimitedRecursion)) = Set.empty
 
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
@@ -327,8 +356,17 @@ parseLambda = do
   variables <- some identifier <* scn
   symbol "->" <*scn
   -- TODO make sure lambda names don't collide with bound names
-  term1expr <- parseLongExpr
-  return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
+  term1expr <- parseLongExpr <* scn
+  parserState <- State.get
+  let v = vars term1expr
+      bindingsNames = Set.map Right (Map.keysSet . bound $ parserState)
+      lv = Set.map Right $ lambdaVars term1expr
+      variablesSet = Set.map Right (Set.fromList variables)
+      -- TODO: Maybe use Set or another container instead of List for a better `\\` performance
+      unbound = ((v \\ bindingsNames) \\ variablesSet) \\ lv
+  case unbound == Set.empty of
+    True -> return . tlam (Closed (Right $ head variables)) $ foldr (\n -> tlam (Open (Right n))) term1expr (tail variables)
+    _ -> return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
 
 -- |Parse complete lambda expression.
 parseCompleteLambda :: SILParser Term1
@@ -374,7 +412,7 @@ parseLongExpr = choice $ try <$> [ parseLet
                                  , parseSingleExpr
                                  ]
 
--- |Parse church numerals (church numerals are a "$" appended to an integer, without any whitespace sparation).
+-- |Parse church numerals (church numerals are a "$" appended to an integer, without any whitespace separation).
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (symbol "$" *> integer)
 
@@ -415,27 +453,27 @@ debugIndent i = show $ State.runState i (initialPos "debug")
 -- |This allows parsing of AST instructions as functions (complete lambdas).
 initialMap = fromList
   [ ("zero", Fix TZero)
-  , ("left", Fix (TLam (Closed (Right "x"))
-                   (Fix (TLeft (Fix (TVar (Right "x")))))))
-  , ("right", Fix (TLam (Closed (Right "x"))
-                    (Fix (TRight (Fix (TVar (Right "x")))))))
-  , ("trace", Fix (TLam (Closed (Right "x"))
-                    (Fix (TTrace (Fix (TVar (Right "x")))))))
-  , ("pair", Fix (TLam (Closed (Right "x"))
-                   (Fix (TLam (Open (Right "y"))
+  , ("left", Fix (TLam (Closed (Right "qwerty"))
+                   (Fix (TLeft (Fix (TVar (Right "qwerty")))))))
+  , ("right", Fix (TLam (Closed (Right "qwerty"))
+                    (Fix (TRight (Fix (TVar (Right "qwerty")))))))
+  , ("trace", Fix (TLam (Closed (Right "qwerty"))
+                    (Fix (TTrace (Fix (TVar (Right "qwerty")))))))
+  , ("pair", Fix (TLam (Closed (Right "qwerty"))
+                   (Fix (TLam (Open (Right "asdfgh"))
                           (Fix (TPair
-                                 (Fix (TVar (Right "x")))
-                                 (Fix (TVar (Right "y")))))))))
-  , ("app", Fix (TLam (Closed (Right "x"))
-                  (Fix (TLam (Open (Right "y"))
+                                 (Fix (TVar (Right "qwerty")))
+                                 (Fix (TVar (Right "asdfgh")))))))))
+  , ("app", Fix (TLam (Closed (Right "qwerty"))
+                  (Fix (TLam (Open (Right "asdfgh"))
                          (Fix (TApp
-                                (Fix (TVar (Right "x")))
-                                (Fix (TVar (Right "y")))))))))
-  , ("check", Fix (TLam (Closed (Right "x"))
-                    (Fix (TLam (Open (Right "y"))
+                                (Fix (TVar (Right "qwerty")))
+                                (Fix (TVar (Right "asdfgh")))))))))
+  , ("check", Fix (TLam (Closed (Right "qwerty"))
+                    (Fix (TLam (Open (Right "asdfgh"))
                            (Fix (TCheck
-                                  (Fix (TVar (Right "x")))
-                                  (Fix (TVar (Right "y")))))))))
+                                  (Fix (TVar (Right "qwerty")))
+                                  (Fix (TVar (Right "asdfgh")))))))))
   ]
 
 -- |Helper function to test parsers without a result.

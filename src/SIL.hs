@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFoldable #-} 
 {-#LANGUAGE DeriveFunctor #-}
 {-#LANGUAGE DeriveGeneric#-}
@@ -18,6 +19,7 @@ import Data.Map (Map)
 import Data.Functor.Foldable
 import Data.Functor.Classes
 import GHC.Generics
+import Text.Show.Deriving
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
 
@@ -87,9 +89,9 @@ getA (PLeftA _ a) = a
 getA (PRightA _ a) = a
 getA (TraceA a) = a
 
-data LamType t
-  = Open t
-  | Closed t
+data LamType l
+  = Open l
+  | Closed l
   deriving (Eq, Show, Ord)
 
 -- | Functor to do an F-algebra for recursive schemes.
@@ -106,22 +108,7 @@ data ParserTermF l v r
   | TLam (LamType l) r
   | TLimitedRecursion
   deriving (Eq, Show, Ord, Functor, Foldable)
-
-instance (Show v, Show l) => Show1 (ParserTermF l v) where
-  -- liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
-  liftShowsPrec showsPrec showList i = let recur = showsPrec i in \case
-    TZero -> showString "TZero"
-    TPair a b -> showParen True $ shows "TPair " . recur a . shows " " . recur b
-    TVar v -> showString $ "TVar " ++ show v
-    TApp a b -> showParen True $ shows "TApp " . recur a . shows " " . recur b
-    TCheck a b -> showParen True $ shows "TCheck " . recur a . shows " " . recur b
-    TITE a b c -> showParen True $ shows "TITE " . recur a . shows " " . recur b . shows " " . recur c
-    TLeft a -> showParen True $ shows "TLeft " . recur a
-    TRight a -> showParen True $ shows "TRight " . recur a
-    TTrace a -> showParen True $ shows "TTrace " . recur a
-    TLam l a ->
-      showParen True $ shows "TLam " . (showParen True $ shows "LamType " . (shows l)) . shows " " . recur a
-    TLimitedRecursion -> showString "TLimitedRecursion"
+deriveShow1 ''ParserTermF
 
 tzero :: ParserTerm l v
 tzero = Fix TZero
