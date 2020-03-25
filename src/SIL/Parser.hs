@@ -8,7 +8,7 @@ import Data.Char
 import Data.Functor.Foldable
 import qualified Data.Foldable as F
 import Data.List (elemIndex)
-import Data.Map (Map, fromList)
+import Data.Map (Map, fromList, toList)
 import qualified Data.Map as Map
 import Data.Set (Set, (\\))
 import qualified Data.Set as Set
@@ -343,8 +343,8 @@ lambdaVars (Fix (TITE i t e)) = Set.unions [lambdaVars i, lambdaVars t, lambdaVa
 lambdaVars (Fix (TLeft x)) = lambdaVars x
 lambdaVars (Fix (TRight x)) = lambdaVars x
 lambdaVars (Fix (TTrace x)) = lambdaVars x
-lambdaVars (Fix (TLam (Open (Left _)) x)) = Set.empty --FIX
-lambdaVars (Fix (TLam (Closed (Left _)) x)) = Set.empty --FIX
+lambdaVars (Fix (TLam (Open (Left _)) x)) = Set.empty -- Maybe FIX
+lambdaVars (Fix (TLam (Closed (Left _)) x)) = Set.empty -- Maby FIX
 lambdaVars (Fix (TLam (Open (Right n)) x)) = Set.union (Set.singleton n) (lambdaVars x)
 lambdaVars (Fix (TLam (Closed (Right n)) x)) = Set.union (Set.singleton n) (lambdaVars x)
 lambdaVars (Fix (TLimitedRecursion)) = Set.empty
@@ -356,17 +356,27 @@ parseLambda = do
   variables <- some identifier <* scn
   symbol "->" <*scn
   -- TODO make sure lambda names don't collide with bound names
-  term1expr <- parseLongExpr <* scn
-  parserState <- State.get
-  let v = vars term1expr
-      bindingsNames = Set.map Right (Map.keysSet . bound $ parserState)
-      lv = Set.map Right $ lambdaVars term1expr
-      variablesSet = Set.map Right (Set.fromList variables)
-      -- TODO: Maybe use Set or another container instead of List for a better `\\` performance
-      unbound = ((v \\ bindingsNames) \\ variablesSet) \\ lv
-  case unbound == Set.empty of
-    True -> return . tlam (Closed (Right $ head variables)) $ foldr (\n -> tlam (Open (Right n))) term1expr (tail variables)
-    _ -> return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
+  term1expr <- parseLongExpr
+  return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
+
+-- -- |Parse lambda expression.
+-- parseLambda :: SILParser Term1
+-- parseLambda = do
+--   symbol "\\" <* scn
+--   variables <- some identifier <* scn
+--   symbol "->" <*scn
+--   -- TODO make sure lambda names don't collide with bound names
+--   term1expr <- parseLongExpr <* scn
+--   parserState <- State.get
+--   let v = vars term1expr
+--       bindingsNames = Set.map Right (Map.keysSet . bound $ parserState)
+--       lv = Set.map Right $ lambdaVars term1expr
+--       variablesSet = Set.map Right (Set.fromList variables)
+--       -- TODO: Maybe use Set or another container instead of List for a better `\\` performance
+--       unbound = ((v \\ bindingsNames) \\ variablesSet) \\ lv
+--   case unbound == Set.empty of
+--     True -> return . tlam (Closed (Right $ head variables)) $ foldr (\n -> tlam (Open (Right n))) term1expr (tail variables)
+--     _ -> return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
 
 -- |Parse complete lambda expression.
 parseCompleteLambda :: SILParser Term1
@@ -426,12 +436,10 @@ parseRefinementCheck = flip tcheck <$> (symbol ":" *> parseLongExpr)
 -- |Parse assignment.
 parseAssignment :: SILParser ()
 parseAssignment = do
-  var <- identifier
-  scn
+  var <- identifier <* scn
   annotation <- optional . try $ parseRefinementCheck
   reserved "=" <?> "assignment ="
-  expr <- parseLongExpr
-  scn
+  expr <- parseLongExpr <* scn
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr
@@ -482,8 +490,14 @@ runSILParser_ parser str = do
   let p = State.runStateT parser $ ParserState (initialMap)
   case runParser p "" str of
     Right (a, s) -> do
+      let bindings = toList . bound $ s
       putStrLn ("Result:      " ++ show a)
-      putStrLn ("Final state: " ++ show s)
+      putStrLn "Final state:"
+      forM_ bindings $ \b -> do
+        putStr "  "
+        putStr . show . fst $ b
+        putStr " = "
+        putStrLn $ show . snd $ b
     Left e -> putStr (errorBundlePretty e)
 
 -- |Helper function to debug parsers without a result.

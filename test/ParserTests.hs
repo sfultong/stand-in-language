@@ -163,6 +163,17 @@ unitTests = testGroup "Unit tests"
       res `compare` closedLambdaPair @?= EQ
   ]
 
+
+
+range = unlines
+  [ "range = #a b -> let layer = \\recur i -> if dMinus b i"
+  , "                                           then (i, recur (i,0))"
+  , "                                           else 0"
+  , "                in ? layer (#i -> 0) a"
+  , "r = range 2 5"
+  ]
+
+
 closedLambdaPair = "Fix (TLam (Closed (Right \"x\")) (Fix (TLam (Open (Right \"y\")) (Fix (TPair (Fix (TVar (Right \"x\"))) (Fix (TVar (Right \"y\"))))))))"
 
 expr = Fix (TLam (Closed (Right "x"))
