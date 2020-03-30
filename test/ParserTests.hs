@@ -39,7 +39,7 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful parseITE testITEwPair
       res `compare` True @?= EQ
   , testCase "test if Complete Lambda with ITE Pair parses successfuly" $ do
-      res <- parseSuccessful (parseCompleteLambda <* eof) testCompleteLambdawITEwPair
+      res <- parseSuccessful (parseLambda <* eof) testCompleteLambdawITEwPair
       res `compare` True @?= EQ
   , testCase "test if Lambda with ITE Pair parses successfuly" $ do
       res <- parseSuccessful (parseLambda <* eof) testLambdawITEwPair
@@ -238,10 +238,10 @@ expr = Fix (TLam (Closed (Right "x"))
                                  (Fix (TVar (Right "y"))))))))
 
 range = unlines
-  [ "range = #a b -> let layer = \\recur i -> if dMinus b i"
+  [ "range = \\a b -> let layer = \\recur i -> if dMinus b i"
   , "                                           then (i, recur (i,0))"
   , "                                           else 0"
-  , "                in ? layer (#i -> 0) a"
+  , "                in ? layer (\\i -> 0) a"
   , "r = range 2 5"
   ]
 
@@ -313,7 +313,7 @@ testITEwPair = unlines $
   ]
 
 testCompleteLambdawITEwPair = unlines $
-  [ "#input ->"
+  [ "\\input ->"
   , "  if"
   , "    1"
   , "   then (\"Hello, world!\", 0)"
@@ -337,20 +337,20 @@ runTestParsePrelude = do
     Left _ -> return False
 
 testParseAssignmentwCLwITEwPair2 = unlines $
-  [ "main = #input -> if 1"
+  [ "main = \\input -> if 1"
   , "                  then"
   , "                   (\"Hello, world!\", 0)"
   , "                  else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair3 = unlines $
-  [ "main = #input ->"
+  [ "main = \\input ->"
   , "  if 1"
   , "   then"
   , "     (\"Hello, world!\", 0)"
   , "   else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair4 = unlines $
-  [ "main = #input"
+  [ "main = \\input"
   , "-> if 1"
   , "    then"
   , "       (\"Hello, world!\", 0)"
@@ -358,7 +358,7 @@ testParseAssignmentwCLwITEwPair4 = unlines $
   ]
 testParseAssignmentwCLwITEwPair5 = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , "-> if 1"
   , "    then"
   , "       (\"Hello, world!\", 0)"
@@ -366,7 +366,7 @@ testParseAssignmentwCLwITEwPair5 = unlines $
   ]
 testParseAssignmentwCLwITEwPair6 = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "    then"
   , "       (\"Hello, world!\", 0)"
@@ -374,7 +374,7 @@ testParseAssignmentwCLwITEwPair6 = unlines $
   ]
 testParseAssignmentwCLwITEwPair7 = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "       then"
   , "             (\"Hello, world!\", 0)"
@@ -382,7 +382,7 @@ testParseAssignmentwCLwITEwPair7 = unlines $
   ]
 testParseAssignmentwCLwITEwPair1 = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "     then"
   , "       (\"Hello, world!\", 0)"
@@ -391,7 +391,7 @@ testParseAssignmentwCLwITEwPair1 = unlines $
 
 testParseTopLevelwCLwITEwPair = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "     then"
   , "        (\"Hello, world!\", 0)"
@@ -400,7 +400,7 @@ testParseTopLevelwCLwITEwPair = unlines $
 
 testMainwCLwITEwPair = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "     then"
   , "        (\"Hello, world!\", 0)"
@@ -409,8 +409,8 @@ testMainwCLwITEwPair = unlines $
 
 testMain3 = "main = 0"
 
-test4 = "(#x -> if x then \"f\" else 0)"
-test5 = "#x -> if x then \"f\" else 0"
+test4 = "(\\x -> if x then \"f\" else 0)"
+test5 = "\\x -> if x then \"f\" else 0"
 test6 = "if x then \"1\" else 0"
 test7 = unlines $
   [ "if x then \"1\""
@@ -428,7 +428,7 @@ runTestMainwCLwITEwPair = do
     Right x -> return True
     Left err -> return False
 
-testMain2 = "main : (#x -> if x then \"fail\" else 0) = 0"
+testMain2 = "main : (\\x -> if x then \"fail\" else 0) = 0"
 
 runTestMainWType = do
   preludeFile <- Strict.readFile "Prelude.sil"

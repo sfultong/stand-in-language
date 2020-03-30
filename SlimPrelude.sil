@@ -1,10 +1,10 @@
-and = #a b -> if a then b else 0
+and = \a b -> if a then b else 0
 
-or = #a b -> if a then 1 else b
+or = \a b -> if a then 1 else b
 
-not = #x -> if x then 0 else 1
+not = \x -> if x then 0 else 1
 
-succ = #x -> (x,0)
+succ = \x -> (x,0)
 
 d2c = let layer = \recur i f b -> if i
                                      then f (recur (left i) f b)
@@ -12,7 +12,7 @@ d2c = let layer = \recur i f b -> if i
           fixer = $1024
       in fixer layer (\i f b -> 0)
 
-c2d = #c -> c succ 0
+c2d = \c -> c succ 0
 
-plus = #m n f x -> m f (n f x)
+plus = \m n f x -> m f (n f x)
 

@@ -340,18 +340,6 @@ parseLambda = do
               foldr (\n -> tlam (Open (Right n))) term1expr (tail variables)
     _ -> return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
 
--- |Parse complete lambda expression.
-parseCompleteLambda :: SILParser Term1
-parseCompleteLambda = do
-  symbol "#"
-  variables <- some identifier
-  scn
-  symbol "->"
-  scn
-  iexpr <- parseLongExpr
-  scn
-  return . tlam (Closed (Right $ head variables)) $ foldr (\n -> tlam (Open (Right n))) iexpr (tail variables)
-
 -- |Parser that fails if indent level is not `pos`.
 parseSameLvl :: Pos -> SILParser a -> SILParser a
 parseSameLvl pos parser = do
@@ -376,7 +364,6 @@ parseLongExpr :: SILParser Term1
 parseLongExpr = choice $ try <$> [ parseLet
                                  , parseITE
                                  , parseLambda
-                                 , parseCompleteLambda
                                  , parseApplied
                                  , parseSingleExpr
                                  ]
