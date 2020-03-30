@@ -12,7 +12,6 @@ import Data.Map (Map, fromList, toList)
 import qualified Data.Map as Map
 import Data.Set (Set, (\\))
 import qualified Data.Set as Set
-import Data.Traversable (for)
 import Data.Void
 import Debug.Trace
 import Text.Read (readMaybe)
@@ -407,27 +406,27 @@ debugIndent i = show $ State.runState i (initialPos "debug")
 -- |This allows parsing of AST instructions as functions (complete lambdas).
 initialMap = fromList
   [ ("zero", Fix TZero)
-  , ("left", Fix (TLam (Closed (Right "qwerty"))
-                   (Fix (TLeft (Fix (TVar (Right "qwerty")))))))
-  , ("right", Fix (TLam (Closed (Right "qwerty"))
-                    (Fix (TRight (Fix (TVar (Right "qwerty")))))))
-  , ("trace", Fix (TLam (Closed (Right "qwerty"))
-                    (Fix (TTrace (Fix (TVar (Right "qwerty")))))))
-  , ("pair", Fix (TLam (Closed (Right "qwerty"))
-                   (Fix (TLam (Open (Right "asdfgh"))
+  , ("left", Fix (TLam (Closed (Right "x"))
+                   (Fix (TLeft (Fix (TVar (Right "x")))))))
+  , ("right", Fix (TLam (Closed (Right "x"))
+                    (Fix (TRight (Fix (TVar (Right "x")))))))
+  , ("trace", Fix (TLam (Closed (Right "x"))
+                    (Fix (TTrace (Fix (TVar (Right "x")))))))
+  , ("pair", Fix (TLam (Closed (Right "x"))
+                   (Fix (TLam (Open (Right "y"))
                           (Fix (TPair
-                                 (Fix (TVar (Right "qwerty")))
-                                 (Fix (TVar (Right "asdfgh")))))))))
-  , ("app", Fix (TLam (Closed (Right "qwerty"))
-                  (Fix (TLam (Open (Right "asdfgh"))
+                                 (Fix (TVar (Right "x")))
+                                 (Fix (TVar (Right "y")))))))))
+  , ("app", Fix (TLam (Closed (Right "x"))
+                  (Fix (TLam (Open (Right "y"))
                          (Fix (TApp
-                                (Fix (TVar (Right "qwerty")))
-                                (Fix (TVar (Right "asdfgh")))))))))
-  , ("check", Fix (TLam (Closed (Right "qwerty"))
-                    (Fix (TLam (Open (Right "asdfgh"))
+                                (Fix (TVar (Right "x")))
+                                (Fix (TVar (Right "y")))))))))
+  , ("check", Fix (TLam (Closed (Right "x"))
+                    (Fix (TLam (Open (Right "y"))
                            (Fix (TCheck
-                                  (Fix (TVar (Right "qwerty")))
-                                  (Fix (TVar (Right "asdfgh")))))))))
+                                  (Fix (TVar (Right "x")))
+                                  (Fix (TVar (Right "y")))))))))
   ]
 
 -- |Helper function to test parsers without a result.
