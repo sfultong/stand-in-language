@@ -36,15 +36,14 @@ type SILParser = State.StateT ParserState (Parsec Void String)
 newtype ErrorString = MkES { getErrorString :: String } deriving Show
 
 data ParserState = ParserState
-  { bound :: Bindings
-  , lambdaArgs :: VarList
+  { bound :: Bindings -- *Bindings collected by parseAssignment
   } deriving Show
 
 addBound :: String -> Term1 -> ParserState -> Maybe ParserState
-addBound name expr (ParserState bound ublvars) =
+addBound name expr (ParserState bound) =
   if Map.member name bound
   then Nothing
-  else pure $ ParserState (Map.insert name expr bound) ublvars
+  else pure . ParserState $ Map.insert name expr bound
 
 -- |Int to ParserTerm
 i2t :: Int -> ParserTerm l v
@@ -53,7 +52,6 @@ i2t = ana coalg where
   coalg 0 = TZero
   coalg n = TPair (n-1) 0
 
--- This foldr is a cata over ListF and not ParserTermF. Any other viable morphisms?
 -- |List of Int's to ParserTerm
 ints2t :: [Int] -> ParserTerm l v
 ints2t = foldr (\i t -> tpair (i2t i) t) tzero
@@ -99,7 +97,7 @@ debruijinizedTerm parser str = do
   let prelude = case parsePrelude preludeFile of
                   Right p -> p
                   Left pe -> error . getErrorString $ pe
-      startState = ParserState prelude [] -- Is and empty ublargs correct here. TODO: check.
+      startState = ParserState prelude
       p = State.runStateT parser startState
       t1 = case runParser p "" str of
              Right (a, s) -> a
@@ -150,7 +148,7 @@ convertPT n (Term3 termMap) =
   in Term4 newMap
 
 resolve :: String -> ParserState -> Maybe Term1
-resolve name (ParserState bound _) = if Map.member name bound
+resolve name (ParserState bound) = if Map.member name bound
                                      then Map.lookup name bound
                                      else Just . tvar . Right $ name
 
@@ -310,85 +308,19 @@ parseApplied = do
         _ -> pure $ foldl tapp f args
     _ -> fail "expected expression"
 
--- -- |Collect all variable names in a `Term1` expresion.
--- vars :: Term1 -> Set (Either Int String)
--- vars = cata alg where
---   alg :: Term1F (Set (Either Int String)) -> Set (Either Int String)
---   alg (TVar (Right n)) = Set.singleton $ Right n
---   alg (TVar (Left n)) = Set.singleton $ Left n
---   alg e = F.fold e
-
--- |Collect all variable names in a `Term1` expresion.
+-- |Collect all variable names in a `Term1` expresion excluding terms binded
+--  to lambda args
 vars :: Term1 -> Set String
 vars = cata alg where
   alg :: Term1F (Set String) -> Set String
   alg (TVar (Right n)) = Set.singleton n
+  alg (TLam (Open (Right n)) x) = case Set.member n x of
+                                    False -> x
+                                    True -> Set.delete n x
+  alg (TLam (Closed (Right n)) x) = case Set.member n x of
+                                      False -> x
+                                      True -> Set.delete n x
   alg e = F.fold e
-
-
--- |Collect all lambda arguments' names in a `Term1` expresion.
-lambdaVars :: Term1 -> Set String
-lambdaVars = cata alg where
-  alg :: Term1F (Set String) -> (Set String)
-  alg (TLam (Open (Right n)) expr) = (Set.singleton n) `Set.union` expr
-  alg (TLam (Closed (Right n)) expr) = (Set.singleton n) `Set.union` expr
-  alg e = F.fold e
-
--- -- |Parse lambda expression.
--- parseLambda :: SILParser Term1
--- parseLambda = do
---   symbol "\\" <* scn
---   variables <- some identifier <* scn
---   symbol "->" <*scn
---   -- TODO make sure lambda names don't collide with bound names
---   term1expr <- parseLongExpr
---   return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
-
--- \x y a -> (a, (\a -> (a,0)))
-
--- data ParserState = ParserState
---   { bound :: Bindings
---   , lambdaArgs :: VarList
---   } deriving Show
-
-  -- let assign ps = case addBound var annoExp ps of
-  --       Just nps -> nps
-  --       _ -> error $ "shadowing of binding not allowed " ++ var
-  -- State.modify assign
-
--- until :: (String -> Bool) -> (String -> String) -> String -> String
-
--- |Tags a var with a number at the end. When there is already a number.
-tagVar :: String -> String
-tagVar str = name ++ (show $ n + 1)
-  where
-    (name,n) = getVarTag str
-
--- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
-dropUntil :: (a -> Bool) -> [a] -> [a]
-dropUntil _ [] = []
-dropUntil p x@(x1:_) =
-  case p x1 of
-    False -> dropUntil p (drop 1 x)
-    True -> x
-
--- |True when char argument is not an Int.
-notInt :: Char -> Bool
-notInt s = case (readMaybe [s]) :: Maybe Int of
-             Just _ -> False
-             Nothing -> True
-
--- |Separates name and Int tag.
---  Case of no tag, assigned tag is `-1` which will become `0` in `tagVar`
-getVarTag :: String -> (String, Int)
-getVarTag str = case name == str of
-                  True -> (name, -1)
-                  False -> (name, read $ drop nameLength str)
-  where
-    str' = reverse str
-    str'' = dropUntil notInt str'
-    nameLength = length str''
-    name = take nameLength str
 
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
@@ -396,27 +328,17 @@ parseLambda = do
   parserState <- State.get
   symbol "\\" <* scn
   variables <- some identifier <* scn
-  
   symbol "->" <* scn
   -- TODO make sure lambda names don't collide with bound names
   term1expr <- parseLongExpr <* scn
   let v = vars term1expr
       bindingsNames = Map.keysSet . bound $ parserState
-      lv = lambdaVars term1expr
       variableSet = Set.fromList variables
-      overlapingVars = lv `Set.intersection` variableSet
-      variables' =
-        case Set.null overlapingVars of
-          True -> variableSet
-          _ -> let v = Set.map tagVar overlapingVars
-               in v `Set.union` (Set.filter (\str -> Set.member str overlapingVars) variableSet)
-      unbound = ((v \\ bindingsNames) \\ variables')-- \\ lv
-      variables'' = Set.toList $ variables'
+      unbound = ((v \\ bindingsNames) \\ variableSet)-- \\ lv
   case unbound == Set.empty of
-    True ->
-      return . tlam (Closed (Right $ head variables'')) $ foldr (\n -> tlam (Open (Right n))) term1expr (tail variables'')
-    _ ->
-      return $ foldr (\n -> tlam (Open (Right n))) term1expr variables''
+    True -> return . tlam (Closed (Right $ head variables)) $
+              foldr (\n -> tlam (Open (Right n))) term1expr (tail variables)
+    _ -> return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
 
 -- |Parse complete lambda expression.
 parseCompleteLambda :: SILParser Term1
@@ -441,8 +363,8 @@ parseSameLvl pos parser = do
 -- |Parse let expression.
 parseLet :: SILParser Term1
 parseLet = do
-  reserved "let"
-  initialState <- State.get <* scn
+  reserved "let" <* scn
+  initialState <- State.get
   lvl <- L.indentLevel
   manyTill (parseSameLvl lvl parseAssignment) (reserved "in") <* scn
   expr <- parseLongExpr <*scn
@@ -489,7 +411,7 @@ parseAssignment = do
 parseTopLevel :: SILParser Bindings
 parseTopLevel = do
   scn *> many parseAssignment <* eof
-  (ParserState bound ublargs) <- State.get
+  ParserState bound <- State.get
   pure bound
 
 -- |Helper to debug indentation.
@@ -524,7 +446,7 @@ initialMap = fromList
 -- |Helper function to test parsers without a result.
 runSILParser_ :: Show a => SILParser a -> String -> IO ()
 runSILParser_ parser str = do
-  let p = State.runStateT parser $ ParserState (initialMap) []
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right (a, s) -> do
       let bindings = toList . bound $ s
@@ -540,25 +462,33 @@ runSILParser_ parser str = do
 -- |Helper function to debug parsers without a result.
 runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
 runSILParserWDebug parser str = do
-  let p = State.runStateT parser $ ParserState (initialMap) []
+  let p = State.runStateT parser $ ParserState (initialMap)
   case runParser (dbg "debug" p) "" str of
     Right (a, s) -> do
       putStrLn ("Result:      " ++ show a)
       putStrLn ("Final state: " ++ show s)
     Left e -> putStr (errorBundlePretty e)
 
--- |Helper function to test parsers with parsing result.
+-- |Helper function to test parsers with result as String.
 runSILParser :: Show a => SILParser a -> String -> IO String
 runSILParser parser str = do
-  let p = State.runStateT parser $ ParserState initialMap []
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right (a, s) -> return $ show a
     Left e -> return $ errorBundlePretty e
 
+-- |Helper function to test parsers with `Term1` result.
+runSILParserTerm1 :: SILParser Term1 -> String -> IO Term1
+runSILParserTerm1 parser str = do
+  let p = State.runStateT parser $ ParserState initialMap
+  case runParser p "" str of
+    Right (a, s) -> return a
+    Left e -> error $ errorBundlePretty e
+
 -- |Helper function to test if parser was successful.
 parseSuccessful :: Show a => SILParser a -> String -> IO Bool
 parseSuccessful parser str = do
-  let p = State.runStateT parser $ ParserState initialMap []
+  let p = State.runStateT parser $ ParserState initialMap
   case runParser p "" str of
     Right _ -> return True
     Left _ -> return False
@@ -567,7 +497,7 @@ parseSuccessful parser str = do
 parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
 parseWithPrelude prelude str = do
   -- TODO: check what happens with overlaping definitions with initialMap
-  let startState = ParserState (prelude <> initialMap) []
+  let startState = ParserState $ prelude <> initialMap
       p          = State.runStateT parseTopLevel startState
   case runParser p "" str of
     Right (a, s) -> Right a

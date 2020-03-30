@@ -19,7 +19,9 @@ import Data.Map (Map)
 import Data.Functor.Foldable
 import Data.Functor.Classes
 import GHC.Generics
-import Text.Show.Deriving
+import Text.Show.Deriving (deriveShow1)
+import Data.Ord.Deriving (deriveOrd1)
+import Data.Eq.Deriving (deriveEq1)
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
 
@@ -109,6 +111,8 @@ data ParserTermF l v r
   | TLimitedRecursion
   deriving (Eq, Show, Ord, Functor, Foldable)
 deriveShow1 ''ParserTermF
+deriveEq1 ''ParserTermF
+deriveOrd1 ''ParserTermF
 
 tzero :: ParserTerm l v
 tzero = Fix TZero

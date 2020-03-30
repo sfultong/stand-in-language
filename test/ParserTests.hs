@@ -154,29 +154,44 @@ unitTests = testGroup "Unit tests"
       res `compare` False @?= EQ
   , testCase "collect vars" $ do
       let fv = vars expr
-      fv `compare` (Set.fromList ["x", "y"]) @?= EQ
+      fv `compare` (Set.empty) @?= EQ
   , testCase "collect vars many x's" $ do
       let fv = vars expr1
-      fv `compare` (Set.fromList ["x"]) @?= EQ
-  , testCase "collect lambda args" $ do
-      let fv = lambdaVars expr3
-      fv `compare` (Set.fromList ["x", "y", "z"]) @?= EQ
-  , testCase "tag vars" $ do
-      let tvs = tagVar <$> ["x", "x0", "hola", "hola100", "x10x10"]
-      tvs `compare` ["x0", "x1", "hola0", "hola101", "x10x11"] @?= EQ
-
-  
-  -- , testCase "collect lambda args 2" $ do
-  --     let fv = lambdaVars expr4
-  --     fv `compare` (Set.fromList ["x", "x1", "x2"]) @?= EQ
-
+      fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
       res `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
       res `compare` closedLambdaPair @?= EQ
+  , testCase "test automatic open close lambda 3" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
+      res `compare` expr6 @?= EQ
+  , testCase "test automatic open close lambda 4" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> (x, x)"
+      res `compare` expr5 @?= EQ
+  , testCase "test automatic open close lambda 4" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
+      res `compare` expr4 @?= EQ
+  , testCase "test automatic open close lambda 4" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
+      res `compare` expr3 @?= EQ
+  , testCase "test automatic open close lambda 4" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
+      res `compare` expr2 @?= EQ
   ]
+
+-- | SIL Parser AST representation of: \x -> \y -> \z -> z
+expr6 = Fix (TLam (Closed (Right "x"))
+              (Fix (TLam (Closed (Right "y"))
+                     (Fix (TLam (Closed (Right "z"))
+                            (Fix (TVar (Right "z"))))))))
+
+-- | SIL Parser AST representation of: \x -> (x, x)
+expr5 = Fix (TLam (Closed (Right "x"))
+              (Fix (TPair
+                     (Fix (TVar (Right "x")))
+                     (Fix (TVar (Right "x"))))))
 
 -- | SIL Parser AST representation of: \x -> \x -> \x -> x
 expr4 = Fix (TLam (Closed (Right "x"))
@@ -216,6 +231,12 @@ expr1 = Fix (TLam (Closed (Right "x"))
                                   (Fix (TVar (Right "x")))
                                   (Fix TZero))))))))
 
+expr = Fix (TLam (Closed (Right "x"))
+                   (Fix (TLam (Open (Right "y"))
+                          (Fix (TPair
+                                 (Fix (TVar (Right "x")))
+                                 (Fix (TVar (Right "y"))))))))
+
 range = unlines
   [ "range = #a b -> let layer = \\recur i -> if dMinus b i"
   , "                                           then (i, recur (i,0))"
@@ -224,14 +245,7 @@ range = unlines
   , "r = range 2 5"
   ]
 
-
 closedLambdaPair = "Fix (TLam (Closed (Right \"x\")) (Fix (TLam (Open (Right \"y\")) (Fix (TPair (Fix (TVar (Right \"x\"))) (Fix (TVar (Right \"y\"))))))))"
-
-expr = Fix (TLam (Closed (Right "x"))
-                   (Fix (TLam (Open (Right "y"))
-                          (Fix (TPair
-                                 (Fix (TVar (Right "x")))
-                                 (Fix (TVar (Right "y"))))))))
 
 testLetIndentation = unlines
   [ "let x = 0"
