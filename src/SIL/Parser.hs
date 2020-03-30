@@ -149,8 +149,8 @@ convertPT n (Term3 termMap) =
 
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
-                                     then Map.lookup name bound
-                                     else Just . tvar . Right $ name
+                                   then Map.lookup name bound
+                                   else Just . tvar . Right $ name
 
 -- |Line comments start with "--".
 lineComment :: SILParser ()
@@ -334,7 +334,7 @@ parseLambda = do
   let v = vars term1expr
       bindingsNames = Map.keysSet . bound $ parserState
       variableSet = Set.fromList variables
-      unbound = ((v \\ bindingsNames) \\ variableSet)-- \\ lv
+      unbound = ((v \\ bindingsNames) \\ variableSet)
   case unbound == Set.empty of
     True -> return . tlam (Closed (Right $ head variables)) $
               foldr (\n -> tlam (Open (Right n))) term1expr (tail variables)
