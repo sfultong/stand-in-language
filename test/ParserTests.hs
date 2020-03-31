@@ -1,5 +1,6 @@
 module Main where
 
+import SIL
 import SIL.Parser
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -7,6 +8,8 @@ import Text.Megaparsec.Error
 import Text.Megaparsec
 import Text.Megaparsec.Debug
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import Data.Functor.Foldable
 import qualified SIL.Parser as Parsec
 import qualified System.IO.Strict as Strict
 import qualified Control.Monad.State as State
@@ -36,16 +39,16 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful parseITE testITEwPair
       res `compare` True @?= EQ
   , testCase "test if Complete Lambda with ITE Pair parses successfuly" $ do
-      res <- parseSuccessful (parseCompleteLambda >> eof) testCompleteLambdawITEwPair
+      res <- parseSuccessful (parseLambda <* eof) testCompleteLambdawITEwPair
       res `compare` True @?= EQ
   , testCase "test if Lambda with ITE Pair parses successfuly" $ do
-      res <- parseSuccessful (parseLambda >> eof) testLambdawITEwPair
+      res <- parseSuccessful (parseLambda <* eof) testLambdawITEwPair
       res `compare` True @?= EQ
   , testCase "test parse assignment with Complete Lambda with ITE with Pair" $ do
-      res <- parseSuccessful (parseAssignment >> eof) testParseAssignmentwCLwITEwPair1
+      res <- parseSuccessful (parseAssignment <* eof) testParseAssignmentwCLwITEwPair1
       res `compare` True @?= EQ
   , testCase "test if testParseTopLevelwCLwITEwPair parses successfuly" $ do
-      res <- parseSuccessful (parseTopLevel >> eof) testParseTopLevelwCLwITEwPair
+      res <- parseSuccessful (parseTopLevel <* eof) testParseTopLevelwCLwITEwPair
       res `compare` True @?= EQ
   , testCase "test parseMain with CL with ITE with Pair parses" $ do
       res <- runTestMainwCLwITEwPair
@@ -78,67 +81,67 @@ unitTests = testGroup "Unit tests"
       res <- runTestMainWType
       res `compare` True @?= EQ
   , testCase "testShowBoard0" $ do
-      res <- parseSuccessful (parseAssignment >> scn >> eof) testShowBoard0
+      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard0
       res `compare` True @?= EQ
   , testCase "testShowBoard1" $ do
-      res <- parseSuccessful (parseAssignment >> scn >> eof) testShowBoard1
+      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard1
       res `compare` True @?= EQ
   , testCase "testShowBoard2" $ do
-      res <- parseSuccessful (parseAssignment >> scn >> eof) testShowBoard2
+      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard2
       res `compare` True @?= EQ
   , testCase "testShowBoard3" $ do
-      res <- parseSuccessful (parseAssignment >> scn >> eof) testShowBoard3
+      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard3
       res `compare` True @?= EQ
   , testCase "testShowBoard4" $ do
-      res <- parseSuccessful (parseAssignment >> scn >> eof) testShowBoard4
+      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard4
       res `compare` True @?= EQ
   , testCase "testShowBoard5" $ do
-      res <- parseSuccessful (parseAssignment >> scn >> eof) testShowBoard5
+      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard5
       res `compare` True @?= EQ
   , testCase "testShowBoard6" $ do
       res <- parseSuccessful (parseApplied) testShowBoard6
       res `compare` True @?= EQ
   , testCase "testLetShowBoard0" $ do
-      res <- parseSuccessful (parseLet >> scn >> eof) testLetShowBoard0
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard0
       res `compare` True @?= EQ
   , testCase "testLetShowBoard1" $ do
-      res <- parseSuccessful (parseLet >> scn >> eof) testLetShowBoard1
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard1
       res `compare` True @?= EQ
   , testCase "testLetShowBoard2" $ do
-      res <- parseSuccessful (parseLet >> scn >> eof) testLetShowBoard2
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard2
       res `compare` True @?= EQ
   , testCase "testLetShowBoard3" $ do
-      res <- parseSuccessful (parseApplied >> scn >> eof) testLetShowBoard3
+      res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard3
       res `compare` True @?= EQ
   , testCase "testLetShowBoard4" $ do
-      res <- parseSuccessful (parseAssignment >> scn >> eof) testLetShowBoard4
+      res <- parseSuccessful (parseAssignment <* scn <* eof) testLetShowBoard4
       res `compare` True @?= EQ
   , testCase "testLetShowBoard5" $ do
-      res <- parseSuccessful (parseLet >> scn >> eof) testLetShowBoard5
+      res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard5
       res `compare` True @?= EQ
   , testCase "testLetShowBoard7" $ do
-      res <- parseSuccessful (parseAssignment >> scn >> parseNumber >> scn >> eof) testLetShowBoard7
+      res <- parseSuccessful (parseAssignment <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
       res `compare` True @?= EQ
   , testCase "testLetShowBoard8" $ do
-      res <- parseSuccessful (parseApplied >> scn >> eof) testLetShowBoard8
+      res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard8
       res `compare` True @?= EQ
   , testCase "testLetShowBoard9" $ do
-      res <- parseSuccessful (parseApplied >> scn >> eof) testLetShowBoard9
+      res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard9
       res `compare` True @?= EQ
   , testCase "AST terms as functions" $ do
-      res <- parseSuccessful (parseApplied >> scn >> eof) "app left (pair zero zero)"
+      res <- parseSuccessful (parseApplied <* scn <* eof) "app left (pair zero zero)"
       res `compare` True @?= EQ
   , testCase "left with a lot of arguments" $ do
-      res <- parseSuccessful (parseApplied >> scn >> eof) "left (\\x y z -> [x, y, z, 0], 0) 1 2 3"
+      res <- parseSuccessful (parseApplied <* scn <* eof) "left (\\x y z -> [x, y, z, 0], 0) 1 2 3"
       res `compare` True @?= EQ
   , testCase "right with a lot of arguments" $ do
-      res <- parseSuccessful (parseApplied >> scn >> eof) "right (\\x y z -> [x, y, z, 0], 0) 1 2 3"
+      res <- parseSuccessful (parseApplied <* scn <* eof) "right (\\x y z -> [x, y, z, 0], 0) 1 2 3"
       res `compare` True @?= EQ
   , testCase "trace with a lot of arguments" $ do
-      res <- parseSuccessful (parseApplied >> scn >> eof) "trace (\\x -> (\\y -> (x,y))) 0 0"
+      res <- parseSuccessful (parseApplied <* scn <* eof) "trace (\\x -> (\\y -> (x,y))) 0 0"
       res `compare` True @?= EQ
   , testCase "app with a lot of arguments" $ do
-      res <- parseSuccessful (parseApplied >> scn >> eof) "app (\\x y z -> x) 0 1 2"
+      res <- parseSuccessful (parseApplied <* scn <* eof) "app (\\x y z -> x) 0 1 2"
       res `compare` True @?= EQ
   , testCase "testLetIndentation" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIndentation
@@ -149,7 +152,100 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetIncorrectIndentation2" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
+  , testCase "collect vars" $ do
+      let fv = vars expr
+      fv `compare` (Set.empty) @?= EQ
+  , testCase "collect vars many x's" $ do
+      let fv = vars expr1
+      fv `compare` (Set.empty) @?= EQ
+  , testCase "test automatic open close lambda" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
+      res `compare` closedLambdaPair @?= EQ
+  , testCase "test automatic open close lambda 2" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
+      res `compare` closedLambdaPair @?= EQ
+  , testCase "test automatic open close lambda 3" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
+      res `compare` expr6 @?= EQ
+  , testCase "test automatic open close lambda 4" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> (x, x)"
+      res `compare` expr5 @?= EQ
+  , testCase "test automatic open close lambda 4" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
+      res `compare` expr4 @?= EQ
+  , testCase "test automatic open close lambda 4" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
+      res `compare` expr3 @?= EQ
+  , testCase "test automatic open close lambda 4" $ do
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
+      res `compare` expr2 @?= EQ
   ]
+
+-- | SIL Parser AST representation of: \x -> \y -> \z -> z
+expr6 = Fix (TLam (Closed (Right "x"))
+              (Fix (TLam (Closed (Right "y"))
+                     (Fix (TLam (Closed (Right "z"))
+                            (Fix (TVar (Right "z"))))))))
+
+-- | SIL Parser AST representation of: \x -> (x, x)
+expr5 = Fix (TLam (Closed (Right "x"))
+              (Fix (TPair
+                     (Fix (TVar (Right "x")))
+                     (Fix (TVar (Right "x"))))))
+
+-- | SIL Parser AST representation of: \x -> \x -> \x -> x
+expr4 = Fix (TLam (Closed (Right "x"))
+              (Fix (TLam (Closed (Right "x"))
+                     (Fix (TLam (Closed (Right "x"))
+                            (Fix (TVar (Right "x"))))))))
+
+-- | SIL Parser AST representation of: \x -> \y -> \z -> [x,y,z]
+expr3 = Fix (TLam (Closed (Right "x"))
+              (Fix (TLam (Open (Right "y"))
+                     (Fix (TLam (Open (Right "z"))
+                            (Fix (TPair
+                                   (Fix (TVar (Right "x")))
+                                   (Fix (TPair
+                                          (Fix (TVar (Right "y")))
+                                          (Fix (TPair
+                                                 (Fix (TVar (Right "z")))
+                                                 (Fix TZero))))))))))))
+
+-- | SIL Parser AST representation of: \a -> (a, (\a -> (a,0)))
+expr2 = Fix (TLam (Closed (Right "a"))
+              (Fix (TPair
+                     (Fix (TVar (Right "a")))
+                     (Fix (TLam (Closed (Right "a"))
+                            (Fix (TPair
+                                   (Fix (TVar (Right "a")))
+                                   (Fix TZero))))))))
+
+
+-- | SIL Parser AST representation of: \x -> [x, x, x]
+expr1 = Fix (TLam (Closed (Right "x"))
+             (Fix (TPair
+                    (Fix (TVar (Right "x")))
+                    (Fix (TPair
+                           (Fix (TVar (Right "x")))
+                           (Fix (TPair
+                                  (Fix (TVar (Right "x")))
+                                  (Fix TZero))))))))
+
+expr = Fix (TLam (Closed (Right "x"))
+                   (Fix (TLam (Open (Right "y"))
+                          (Fix (TPair
+                                 (Fix (TVar (Right "x")))
+                                 (Fix (TVar (Right "y"))))))))
+
+range = unlines
+  [ "range = \\a b -> let layer = \\recur i -> if dMinus b i"
+  , "                                           then (i, recur (i,0))"
+  , "                                           else 0"
+  , "                in ? layer (\\i -> 0) a"
+  , "r = range 2 5"
+  ]
+
+closedLambdaPair = "Fix (TLam (Closed (Right \"x\")) (Fix (TLam (Open (Right \"y\")) (Fix (TPair (Fix (TVar (Right \"x\"))) (Fix (TVar (Right \"y\"))))))))"
 
 testLetIndentation = unlines
   [ "let x = 0"
@@ -217,7 +313,7 @@ testITEwPair = unlines $
   ]
 
 testCompleteLambdawITEwPair = unlines $
-  [ "#input ->"
+  [ "\\input ->"
   , "  if"
   , "    1"
   , "   then (\"Hello, world!\", 0)"
@@ -241,20 +337,20 @@ runTestParsePrelude = do
     Left _ -> return False
 
 testParseAssignmentwCLwITEwPair2 = unlines $
-  [ "main = #input -> if 1"
+  [ "main = \\input -> if 1"
   , "                  then"
   , "                   (\"Hello, world!\", 0)"
   , "                  else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair3 = unlines $
-  [ "main = #input ->"
+  [ "main = \\input ->"
   , "  if 1"
   , "   then"
   , "     (\"Hello, world!\", 0)"
   , "   else (\"Goodbye, world!\", 0)"
   ]
 testParseAssignmentwCLwITEwPair4 = unlines $
-  [ "main = #input"
+  [ "main = \\input"
   , "-> if 1"
   , "    then"
   , "       (\"Hello, world!\", 0)"
@@ -262,7 +358,7 @@ testParseAssignmentwCLwITEwPair4 = unlines $
   ]
 testParseAssignmentwCLwITEwPair5 = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , "-> if 1"
   , "    then"
   , "       (\"Hello, world!\", 0)"
@@ -270,7 +366,7 @@ testParseAssignmentwCLwITEwPair5 = unlines $
   ]
 testParseAssignmentwCLwITEwPair6 = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "    then"
   , "       (\"Hello, world!\", 0)"
@@ -278,7 +374,7 @@ testParseAssignmentwCLwITEwPair6 = unlines $
   ]
 testParseAssignmentwCLwITEwPair7 = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "       then"
   , "             (\"Hello, world!\", 0)"
@@ -286,7 +382,7 @@ testParseAssignmentwCLwITEwPair7 = unlines $
   ]
 testParseAssignmentwCLwITEwPair1 = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "     then"
   , "       (\"Hello, world!\", 0)"
@@ -295,7 +391,7 @@ testParseAssignmentwCLwITEwPair1 = unlines $
 
 testParseTopLevelwCLwITEwPair = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "     then"
   , "        (\"Hello, world!\", 0)"
@@ -304,7 +400,7 @@ testParseTopLevelwCLwITEwPair = unlines $
 
 testMainwCLwITEwPair = unlines $
   [ "main"
-  , "  = #input"
+  , "  = \\input"
   , " -> if 1"
   , "     then"
   , "        (\"Hello, world!\", 0)"
@@ -313,8 +409,8 @@ testMainwCLwITEwPair = unlines $
 
 testMain3 = "main = 0"
 
-test4 = "(#x -> if x then \"f\" else 0)"
-test5 = "#x -> if x then \"f\" else 0"
+test4 = "(\\x -> if x then \"f\" else 0)"
+test5 = "\\x -> if x then \"f\" else 0"
 test6 = "if x then \"1\" else 0"
 test7 = unlines $
   [ "if x then \"1\""
@@ -332,7 +428,7 @@ runTestMainwCLwITEwPair = do
     Right x -> return True
     Left err -> return False
 
-testMain2 = "main : (#x -> if x then \"fail\" else 0) = 0"
+testMain2 = "main : (\\x -> if x then \"fail\" else 0) = 0"
 
 runTestMainWType = do
   preludeFile <- Strict.readFile "Prelude.sil"

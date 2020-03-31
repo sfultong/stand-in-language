@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveFoldable #-} 
 {-#LANGUAGE DeriveFunctor #-}
 {-#LANGUAGE DeriveGeneric#-}
 {-#LANGUAGE DeriveAnyClass#-}
@@ -17,6 +19,9 @@ import Data.Map (Map)
 import Data.Functor.Foldable
 import Data.Functor.Classes
 import GHC.Generics
+import Text.Show.Deriving (deriveShow1)
+import Data.Ord.Deriving (deriveOrd1)
+import Data.Eq.Deriving (deriveEq1)
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
 
@@ -86,9 +91,9 @@ getA (PLeftA _ a) = a
 getA (PRightA _ a) = a
 getA (TraceA a) = a
 
-data LamType t
-  = Open t
-  | Closed t
+data LamType l
+  = Open l
+  | Closed l
   deriving (Eq, Show, Ord)
 
 -- | Functor to do an F-algebra for recursive schemes.
@@ -104,25 +109,10 @@ data ParserTermF l v r
   | TTrace r
   | TLam (LamType l) r
   | TLimitedRecursion
-  deriving (Eq, Show, Ord, Functor)
-
-instance (Show v, Show l) => Show1 (ParserTermF l v) where
-  -- liftShowsPrec :: (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
-  liftShowsPrec showsPrec showList i = let recur = showsPrec i in \case
-    TZero -> showString "TZero"
-    TPair a b -> showParen True $ shows "TPair " . recur a . shows " " . recur b
-    TVar v -> showString $ "TVar " ++ show v
-    TApp a b -> showParen True $ shows "TApp " . recur a . shows " " . recur b
-    TCheck a b -> showParen True $ shows "TCheck " . recur a . shows " " . recur b
-    TITE a b c -> showParen True $ shows "TITE " . recur a . shows " " . recur b . shows " " . recur c
-    TLeft a -> showParen True $ shows "TLeft " . recur a
-    TRight a -> showParen True $ shows "TRight " . recur a
-    TTrace a -> showParen True $ shows "TTrace " . recur a
-    TLam l a ->
-      showParen True $ shows "TLam " . (showParen True $ shows "LamType " . (shows l)) . shows " " . recur a
-    TLimitedRecursion -> showString "TLimitedRecursion"
-
-type ParserTerm l v = Fix (ParserTermF l v)
+  deriving (Eq, Show, Ord, Functor, Foldable)
+deriveShow1 ''ParserTermF
+deriveEq1 ''ParserTermF
+deriveOrd1 ''ParserTermF
 
 tzero :: ParserTerm l v
 tzero = Fix TZero
@@ -179,11 +169,14 @@ data BreakExtras
   = UnsizedRecursion
   deriving Show
 
+type ParserTerm l v = Fix (ParserTermF l v)
+
 type Term1F a = ParserTermF (Either () String) (Either Int String) a
 type Term2F a = ParserTermF () Int a
 
-type Term1 = ParserTerm (Either () String) (Either Int String)
-type Term2 = ParserTerm () Int
+type Term1 = Fix (ParserTermF (Either () String) (Either Int String))
+type Term2 = Fix (ParserTermF () Int)
+
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving Show
 

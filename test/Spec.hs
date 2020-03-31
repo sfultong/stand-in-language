@@ -388,7 +388,7 @@ unitTests_ parse = do
   unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
     (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
   unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" ZeroTypeP (== Nothing)
-  unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
+  unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
   {-
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "(0,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
@@ -480,7 +480,7 @@ unitTests parse = do
     unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
       (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" ZeroTypeP (== Nothing)
-    unitTestType "main : (#x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
+    unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
     unitTestType2
       (setenv (pair
                (setenv (pair
