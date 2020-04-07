@@ -2,11 +2,16 @@
 module SIL.Eval where
 
 import Control.Monad.Except
+import Control.Monad.State (State)
 import Data.Map (Map)
+import Data.Set (Set)
+
 import Data.SBV
 import Data.SBV.Control
 import Debug.Trace
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import qualified Control.Monad.State as State
 
 import SIL
 import SIL.Parser
@@ -122,7 +127,33 @@ findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
   TLam lt x -> TLam lt <$> findAllSizes x
   TLimitedRecursion -> (True, TLimitedRecursion)
 -}
+{-
+type Goal = Symbolic () 
+query :: Query a -> Symbolic a 
+prove :: Provable a => a -> IO ThmResult
+optimize :: Provable a => OptimizeStyle -> a -> IO OptimizeResult
+getValue :: SMTValue a => SBV a -> Query a 
 
+makeSat :: ExprASBool -> ExprASBool -> Symbolic ExprASBool
+
+Zero s = constrain $ sNot s
+(Pair a b) s = do
+      sa <- makeSat a
+
+makeSat enva expra =
+  let expr = getExpr expra
+      s = getS expra
+  in case expr of
+     Zero -> constrain $ sNot s
+     Pair a b -> do
+          makeSat a
+          makeSat b
+          constrain $ s .=> a
+          constrain $ s .=> b
+     Env -> pure ()
+
+-}
+{-
 testSBV :: Symbolic Word8
 testSBV = do
   a <- sWord8 "a"
@@ -132,9 +163,84 @@ testSBV = do
       Unk   -> undefined -- error "Solver returned unknown!"
       Unsat -> undefined -- error "Solver couldn't generate the fibonacci sequence!"
       Sat   -> getValue a
+-}
+testSBV :: IO OptimizeResult
+testSBV = optimize (Pareto (Just 5)) $ do -- figure out pareto optimization better
+  a <- sWord8 "a"
+  constrain $ a + 5 .< 10
+  constrain $ a .> 2
+  constrain $ a .< 250
+  --minimize "a-min" a
+  maximize "a-max" a
 
-testSBV' :: IO Int
-testSBV' = fromIntegral <$> runSMT testSBV
+testSBV' :: IO Word8
+--testSBV' = fromIntegral <$> runSMT testSBV
+testSBV' = do
+  result <- testSBV
+  case result of
+    ParetoResult (wasLimited, resultList) -> case resultList of
+      [m] -> case getModelValue "a" m of
+        Just v -> pure v
+
+
+{-
+  old rules for PGate were incomplete! They lacked nenv case of PAny which should create superposition
+  of both branches.
+
+  pEval :: (PExpr -> PExpr -> )
+-}
+data PExpr
+  = PPair PExpr PExpr
+  | PDefer PExpr
+  | PSetEnv PExpr
+  | PEnv
+  | PPLeft PExpr
+  | PPRight PExpr
+  | PZero
+  | PGate PExpr PExpr
+  | PAbort
+  | PAny
+  | PChurchNum
+  deriving (Eq, Show, Ord)
+
+instance SILLike PExpr where
+  fromSIL = \case
+    Zero -> PZero
+    Pair a b -> PPair (fromSIL a) (fromSIL b)
+    Gate l r -> PGate (fromSIL l) (fromSIL r)
+    Defer x -> PDefer $ fromSIL x
+    SetEnv x -> PSetEnv $ fromSIL x
+    Env -> PEnv
+    PLeft x -> PPLeft $ fromSIL x
+    PRight x -> PPRight $ fromSIL x
+    Abort -> PAbort
+    Trace -> PEnv
+  toSIL = \case
+    PZero -> pure Zero
+    PPair a b -> Pair <$> toSIL a <*> toSIL b
+    PGate l r -> Gate <$> toSIL l <*> toSIL r
+    PDefer x -> Defer <$> toSIL x
+    PSetEnv x -> SetEnv <$> toSIL x
+    PEnv -> pure Env
+    PPLeft x -> PLeft <$> toSIL x
+    PPRight x -> PRight <$> toSIL x
+    PAbort -> pure Abort
+    PAny -> Nothing
+    PChurchNum -> Nothing
+
+newtype PResult = PResult (Set PExpr, Bool)
+
+instance Semigroup PResult where
+  (<>) (PResult (sa, ba)) (PResult (sb, bb)) = PResult (Set.union sa sb, ba || bb)
+instance Monoid PResult where
+  mempty = PResult (Set.empty, False)
+instance Eq PResult where
+  (==) (PResult (sa, ba)) (PResult (sb, bb)) = sa == sb && ba == bb
+instance Ord PResult where
+  compare (PResult (sa, ba)) (PResult (sb, bb)) = let sr = compare sa sb
+                                                  in if sr == EQ then compare ba bb else sr
+
+--pEval :: (PExpr -> PExpr -> Symbolic PResult) -> PExpr -> PExpr -> Symbolic PResult
 
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = case Map.lookup name bindings of

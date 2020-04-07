@@ -120,6 +120,7 @@ iEval f env g = let f' = f env in case g of
   Abort -> pure Abort
   Defer x -> pure $ Defer x
 
+{-
 data PExpr
   = PPair PExpr PExpr
   | PDefer PExpr
@@ -200,6 +201,7 @@ pEval f env g =
         _ -> error "should not be here in pEval setenv (bad cf)"
       _ -> error "should not be here in pEval setenv non pair"
     x -> singleResult x
+-}
 
 instance SILLike IExpr where
   fromSIL = id

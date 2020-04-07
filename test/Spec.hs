@@ -8,7 +8,6 @@ import Data.List (partition)
 import Data.Monoid
 import SIL
 import SIL.Eval
-import SIL.Llvm (RunResult(..))
 import Naturals
 import SIL.Parser
 import SIL.RunTime
@@ -743,6 +742,10 @@ main = do
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}
+  sbvResult <- testSBV'
   hspec $ do
     unitTests parse
+    describe "sbvTest" . it "thing" $ if sbvResult == 4
+      then pure ()
+      else expectationFailure $ "sbv got " <> show sbvResult
     --nexprTests
