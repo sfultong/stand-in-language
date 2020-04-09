@@ -10,10 +10,12 @@
 
 module SIL where
 
+import Control.Applicative
 import Control.DeepSeq
 import Control.Monad.Except
 import Control.Monad.State (State)
 import Data.Char
+import Data.DList (DList)
 import Data.Void
 import Data.Map (Map)
 import Data.Functor.Foldable
@@ -22,6 +24,7 @@ import GHC.Generics
 import Text.Show.Deriving (deriveShow1)
 import Data.Ord.Deriving (deriveOrd1)
 import Data.Eq.Deriving (deriveEq1)
+import qualified Data.DList as DList
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
 
@@ -465,6 +468,22 @@ data PartialType
   | ArrTypeP PartialType PartialType
   | PairTypeP PartialType PartialType
   deriving (Show, Eq, Ord)
+
+class VariableTyped t where
+  typeVariable :: Int -> t
+  getVariableIndex :: t -> Maybe Int
+  getChildVariableIndices :: t -> DList Int
+
+instance VariableTyped PartialType where
+  typeVariable = TypeVariable
+  getVariableIndex = \case
+    TypeVariable i -> pure i
+    _ -> empty
+  getChildVariableIndices = \case
+    TypeVariable i -> DList.singleton i
+    ArrTypeP a b -> getChildVariableIndices a <> getChildVariableIndices b
+    PairTypeP a b -> getChildVariableIndices a <> getChildVariableIndices b
+    _ -> mempty
 
 newtype PrettyPartialType = PrettyPartialType PartialType
 
