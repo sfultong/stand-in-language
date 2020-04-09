@@ -3,11 +3,13 @@
 
 module SIL.Parser where
 
+import Control.Lens.Combinators
+import Control.Lens.Operators
 import Control.Monad
 import Data.Char
 import Data.Functor.Foldable
 import qualified Data.Foldable as F
-import Data.List (elemIndex)
+import Data.List (elemIndex, delete, elem)
 import Data.Map (Map, fromList, toList)
 import qualified Data.Map as Map
 import Data.Set (Set, (\\))
@@ -23,8 +25,10 @@ import Text.Megaparsec.Pos
 import qualified Control.Monad.State as State
 import qualified System.IO.Strict as Strict
 
+
 import SIL
 import SIL.TypeChecker
+import SIL.Prisms
 
 type VarList = [String]
 type Bindings = Map String Term1
@@ -37,12 +41,6 @@ newtype ErrorString = MkES { getErrorString :: String } deriving Show
 data ParserState = ParserState
   { bound :: Bindings -- *Bindings collected by parseAssignment
   } deriving Show
-
-addBound :: String -> Term1 -> ParserState -> Maybe ParserState
-addBound name expr (ParserState bound) =
-  if Map.member name bound
-  then Nothing
-  else pure . ParserState $ Map.insert name expr bound
 
 -- |Int to ParserTerm
 i2t :: Int -> ParserTerm l v
@@ -224,7 +222,7 @@ parseVariable = do
   varName <- identifier
   parseState <- State.get
   case resolve varName parseState of
-    Nothing -> fail $ concat  ["identifier ", varName, " undeclared"]
+    Nothing -> fail $ concat  ["identifier ", varName, " undeclared"] -- unreachable
     Just i -> pure i
 
 -- |Prarse number (Integer).
@@ -313,13 +311,14 @@ vars :: Term1 -> Set String
 vars = cata alg where
   alg :: Term1F (Set String) -> Set String
   alg (TVar (Right n)) = Set.singleton n
-  alg (TLam (Open (Right n)) x) = case Set.member n x of
-                                    False -> x
-                                    True -> Set.delete n x
-  alg (TLam (Closed (Right n)) x) = case Set.member n x of
-                                      False -> x
-                                      True -> Set.delete n x
+  alg (TLam (Open (Right n)) x) = del n x
+  alg (TLam (Closed (Right n)) x) = del n x
   alg e = F.fold e
+  
+  del :: String -> Set String -> Set String
+  del n x = case Set.member n x of
+              False -> x
+              True -> Set.delete n x
 
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
@@ -331,9 +330,9 @@ parseLambda = do
   -- TODO make sure lambda names don't collide with bound names
   term1expr <- parseLongExpr <* scn
   let v = vars term1expr
-      bindingsNames = Map.keysSet . bound $ parserState
+      bindingNames = Map.keysSet . bound $ parserState
       variableSet = Set.fromList variables
-      unbound = ((v \\ bindingsNames) \\ variableSet)
+      unbound = ((v \\ bindingNames) \\ variableSet)
   case unbound == Set.empty of
     True -> return . tlam (Closed (Right $ head variables)) $
               foldr (\n -> tlam (Open (Right n))) term1expr (tail variables)
@@ -371,20 +370,58 @@ parseLongExpr = choice $ try <$> [ parseLet
 parseChurch :: SILParser Term1
 parseChurch = (i2c . fromInteger) <$> (symbol "$" *> integer)
 
--- |Parse refinement check.
 parsePartialFix :: SILParser Term1
 parsePartialFix = symbol "?" *> pure tlimitedrecursion
 
+-- |Parse refinement check.
 parseRefinementCheck :: SILParser (Term1 -> Term1)
 parseRefinementCheck = flip tcheck <$> (symbol ":" *> parseLongExpr)
+
+-- |Collect all variable names with repetition in a `Term1` expresion excluding terms binded
+--  to lambda arguments.
+varsAll :: Term1 -> [String]
+varsAll = cata alg where
+  alg :: Term1F [String] -> [String]
+  alg (TVar (Right n)) = [n]
+  alg (TLam (Open (Right n)) x) = del n x
+  alg (TLam (Closed (Right n)) x) = del n x
+  alg e = F.fold e
+  
+  del :: String -> [String] -> [String]
+  del n x = case elem n x of
+              True -> del n (delete n x)
+              False -> x
+
+-- |Adds bound to `ParserState` if there's no shadowing conflict.
+addBound :: String -> Term1 -> ParserState -> Maybe ParserState
+addBound name expr (ParserState bound) =
+  if Map.member name bound
+  then Nothing
+  else pure . ParserState $ Map.insert name expr bound
+
+
+myDebug = do
+  term1 <- runSILParserTerm1 (parseLambda <* eof) "\\x -> [x,x,x]"
+  putStrLn . show $ term1 ^? element 2
+  -- putStrLn . show $ term1 (traversed) ^? _TVar
+  -- putStrLn . show $ term1 & partsOf (traversed . _TVar) .~ [Right "y", Right "y", Right "y"]
+
 
 -- |Parse assignment.
 parseAssignment :: SILParser ()
 parseAssignment = do
+  
+  parserState <- State.get
+  
   var <- identifier <* scn
   annotation <- optional . try $ parseRefinementCheck
   reserved "=" <?> "assignment ="
   expr <- parseLongExpr <* scn
+  
+  let v = varsAll expr
+      bindingNames = Map.keys . bound $ parserState
+      -- intersection = v `Set.intersection` bindingNames
+  
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr

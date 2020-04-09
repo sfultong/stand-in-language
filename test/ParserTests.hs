@@ -181,6 +181,24 @@ unitTests = testGroup "Unit tests"
       res `compare` expr2 @?= EQ
   ]
 
+-- | SIL Parser AST representation of: "\z -> [x,x,y,x,z,y,z]"
+expr7 = Fix (TLam (Open (Right "z"))
+              (Fix (TPair
+                     (Fix (TVar (Right "x")))
+                     (Fix (TPair
+                            (Fix (TVar (Right "x")))
+                            (Fix (TPair
+                                   (Fix (TVar (Right "y")))
+                                   (Fix (TPair
+                                          (Fix (TVar (Right "x")))
+                                          (Fix (TPair
+                                                 (Fix (TVar (Right "z")))
+                                                 (Fix (TPair
+                                                        (Fix (TVar (Right "y")))
+                                                        (Fix (TPair
+                                                               (Fix (TVar (Right "z")))
+                                                               (Fix TZero))))))))))))))))
+
 -- | SIL Parser AST representation of: \x -> \y -> \z -> z
 expr6 = Fix (TLam (Closed (Right "x"))
               (Fix (TLam (Closed (Right "y"))

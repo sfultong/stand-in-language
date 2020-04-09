@@ -59,13 +59,15 @@ library
                      , tasty
                      , tasty-hunit
                      , deriving-compat
+                     , lens
   extra-libraries:     gc
                      , jumper
   -- uncomment this line to get a cabal repl. Use appropiate complete path.
-  -- extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
+  extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
 
   default-language:    Haskell2010
-  
+  ghc-options:         -ddump-to-file -ddump-splices
+
 executable sil-exe
   hs-source-dirs:      app
   main-is:             Main.hs

@@ -1,12 +1,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFoldable #-} 
-{-#LANGUAGE DeriveFunctor #-}
-{-#LANGUAGE DeriveGeneric#-}
-{-#LANGUAGE DeriveAnyClass#-}
-{-#LANGUAGE GeneralizedNewtypeDeriving#-}
-{-#LANGUAGE LambdaCase #-}
-{-#LANGUAGE PatternSynonyms #-}
-{-#LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric#-}
+{-# LANGUAGE DeriveAnyClass#-}
+{-# LANGUAGE GeneralizedNewtypeDeriving#-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module SIL where
 
@@ -22,6 +23,7 @@ import GHC.Generics
 import Text.Show.Deriving (deriveShow1)
 import Data.Ord.Deriving (deriveOrd1)
 import Data.Eq.Deriving (deriveEq1)
+import Data.Traversable.Deriving (deriveTraversable)
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
 
@@ -91,6 +93,8 @@ getA (PLeftA _ a) = a
 getA (PRightA _ a) = a
 getA (TraceA a) = a
 
+-- | Lambdas can be closed if it's expresion does not depend on any
+--   outer binding.
 data LamType l
   = Open l
   | Closed l
@@ -113,6 +117,10 @@ data ParserTermF l v r
 deriveShow1 ''ParserTermF
 deriveEq1 ''ParserTermF
 deriveOrd1 ''ParserTermF
+deriveTraversable ''ParserTermF
+
+-- Maybe this isn't necesary.
+type instance Base (ParserTerm l v) = ParserTermF l v
 
 tzero :: ParserTerm l v
 tzero = Fix TZero
