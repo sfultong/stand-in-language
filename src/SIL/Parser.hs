@@ -3,8 +3,8 @@
 
 module SIL.Parser where
 
-import Control.Lens.Combinators
-import Control.Lens.Operators
+-- import Control.Lens.Combinators
+-- import Control.Lens.Operators
 import Control.Monad
 import Data.Char
 import Data.Functor.Foldable
@@ -392,6 +392,49 @@ varsAll = cata alg where
               True -> del n (delete n x)
               False -> x
 
+-- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
+dropUntil :: (a -> Bool) -> [a] -> [a]
+dropUntil _ [] = []
+dropUntil p x@(x1:_) =
+  case p x1 of
+    False -> dropUntil p (drop 1 x)
+    True -> x
+
+-- |True when char argument is not an Int.
+notInt :: Char -> Bool
+notInt s = case (readMaybe [s]) :: Maybe Int of
+             Just _ -> False
+             Nothing -> True
+
+-- |Separates name and Int tag.
+--  Case of no tag, assigned tag is `-1` which will become `0` in `tagVar`
+getVarTag :: String -> (String, Int)
+getVarTag str = case name == str of
+                  True -> (name, -1)
+                  False -> (name, read $ drop (length str') str)
+  where
+    str' = dropUntil notInt $ reverse str
+    name = take (length str') str
+
+-- |Tags a var with a number at the end. When there is already a number.
+tagVar :: String -> String
+tagVar str = name ++ (show $ n + 1)
+  where
+    (name,n) = getVarTag str
+
+
+-- |Optimize reference of top-level bindings variable rename
+rename :: Varlist -> VarList -> Term1 -> Term1
+rename toSubstitute replacements = para alg where
+  alg :: Term1F (Term1, Term1) -> Term1
+  alg (TVar (Right n)) = case n `elem` toSubstitute of
+                           True  -> Fix . TVar . Right . tagVar $ n
+                           False -> Fix . TVar . Right $ n
+
+  alg (TLam (Open (Right n)) (x,y)) = undefined
+  alg _ = undefined
+
+
 -- |Adds bound to `ParserState` if there's no shadowing conflict.
 addBound :: String -> Term1 -> ParserState -> Maybe ParserState
 addBound name expr (ParserState bound) =
@@ -400,11 +443,13 @@ addBound name expr (ParserState bound) =
   else pure . ParserState $ Map.insert name expr bound
 
 
-myDebug = do
-  term1 <- runSILParserTerm1 (parseLambda <* eof) "\\x -> [x,x,x]"
-  putStrLn . show $ term1 ^? element 2
+-- myDebug = do
+--   term1 <- runSILParserTerm1 (parseLambda <* eof) "\\x -> [x,x,x]"
+--   putStrLn . show $ term1 ^? ix 2
+  -- putStrLn . show $ term1 ^? element 2
   -- putStrLn . show $ term1 (traversed) ^? _TVar
   -- putStrLn . show $ term1 & partsOf (traversed . _TVar) .~ [Right "y", Right "y", Right "y"]
+
 
 
 -- |Parse assignment.
