@@ -17,12 +17,13 @@ import qualified Data.Set as Set
 import Data.Void
 import Debug.Trace
 import Text.Read (readMaybe)
-import Text.Megaparsec
+import Text.Megaparsec hiding (State)
 import Text.Megaparsec.Char
 import Text.Megaparsec.Debug
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Pos
 import qualified Control.Monad.State as State
+import Control.Monad.State (State)
 import qualified System.IO.Strict as Strict
 
 
@@ -422,15 +423,24 @@ tagVar str = name ++ (show $ n + 1)
   where
     (name,n) = getVarTag str
 
+-- -- |Tags a var with a number at the end. When there is already a number.
+-- tagVar :: String -> String
+-- tagVar str = name ++ (show $ n + 1)
+--   where
+--     (name,n) = getVarTag str
+
+-- -- |SILParser :: * -> *
+-- type SILParser = State.StateT ParserState (Parsec Void String)
+
+-- type TagI x = State.State Int
 
 -- |Optimize reference of top-level bindings variable rename
-rename :: Varlist -> VarList -> Term1 -> Term1
+rename :: VarList -> VarList -> State Int Term1 -> State Int Term1
 rename toSubstitute replacements = para alg where
   alg :: Term1F (Term1, Term1) -> Term1
   alg (TVar (Right n)) = case n `elem` toSubstitute of
                            True  -> Fix . TVar . Right . tagVar $ n
                            False -> Fix . TVar . Right $ n
-
   alg (TLam (Open (Right n)) (x,y)) = undefined
   alg _ = undefined
 
