@@ -3,8 +3,8 @@
 
 module SIL.Parser where
 
--- import Control.Lens.Combinators
--- import Control.Lens.Operators
+import Control.Lens.Combinators
+import Control.Lens.Operators
 import Control.Monad
 import Data.Char
 import Data.Functor.Foldable
@@ -435,14 +435,15 @@ tagVar str = name ++ (show $ n + 1)
 -- type TagI x = State.State Int
 
 -- |Optimize reference of top-level bindings variable rename
-rename :: VarList -> VarList -> State Int Term1 -> State Int Term1
-rename toSubstitute replacements = para alg where
-  alg :: Term1F (Term1, Term1) -> Term1
-  alg (TVar (Right n)) = case n `elem` toSubstitute of
-                           True  -> Fix . TVar . Right . tagVar $ n
-                           False -> Fix . TVar . Right $ n
-  alg (TLam (Open (Right n)) (x,y)) = undefined
-  alg _ = undefined
+-- rename :: VarList -> VarList -> State Int Term1 -> State Int Term1
+-- rename toSubstitute replacements = para alg where
+--   alg :: Term1F (Term1, State Int Term1) -> State Int Term1
+--   -- alg :: Term1F (Term1, Term1) -> Term1
+--   alg (TVar (Right n)) = case n `elem` toSubstitute of
+--                            True  -> Fix . TVar . Right . tagVar $ n
+--                            False -> Fix . TVar . Right $ n
+--   alg (TLam (Open (Right n)) (x,y)) = undefined
+--   alg _ = undefined
 
 
 -- |Adds bound to `ParserState` if there's no shadowing conflict.
@@ -453,10 +454,11 @@ addBound name expr (ParserState bound) =
   else pure . ParserState $ Map.insert name expr bound
 
 
--- myDebug = do
---   term1 <- runSILParserTerm1 (parseLambda <* eof) "\\x -> [x,x,x]"
+myDebug = do
+  term1 :: Term1 <- runSILParserTerm1 (parseLambda <* eof) "\\x -> [x,x,x]"
 --   putStrLn . show $ term1 ^? ix 2
   -- putStrLn . show $ term1 ^? element 2
+  putStrLn . show $ term1 & partsOf (traversed) .~ [Right "y", Right "y"]
   -- putStrLn . show $ term1 (traversed) ^? _TVar
   -- putStrLn . show $ term1 & partsOf (traversed . _TVar) .~ [Right "y", Right "y", Right "y"]
 
