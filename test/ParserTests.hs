@@ -181,6 +181,34 @@ unitTests = testGroup "Unit tests"
       res `compare` expr2 @?= EQ
   ]
 
+
+
+-- | SIL Parser AST representation of: \x -> \y -> \z -> [x,yy0, yy0 ,z]
+term1 = TLam (Closed (Right "x"))
+          (TLam (Open (Right "y"))
+            (TLam (Open (Right "z"))
+              (TPair
+                (TVar (Right "zz"))
+                (TPair
+                  (TVar (Right "yy0"))
+                  (TPair
+                    (TVar (Right "yy0"))
+                    (TPair
+                      (TVar (Right "z"))
+                      (TPair
+                        (TVar (Right "zz"))
+                        TZero)))))))
+
+myDebug = do
+  putStrLn . show $ rename
+                      (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap )) -- artificially add a top level binding
+                      term1                                              -- \x -> \y -> \z -> [x,yy0, yy0 ,z]
+
+
+
+
+
+
 -- | SIL Parser AST representation of: "\z -> [x,x,y,x,z,y,z]"
 expr7 = TLam (Open (Right "z"))
           (TPair

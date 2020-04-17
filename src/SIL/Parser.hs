@@ -43,6 +43,10 @@ data ParserState = ParserState
   { bound :: Bindings -- *Bindings collected by parseAssignment
   } deriving Show
 
+-- |Helper to retrieve all top level function names as a Set.
+bindingNames :: ParserState -> Set String
+bindingNames = Map.keysSet . bound
+
 -- |Int to ParserTerm
 i2t :: Int -> ParserTerm l v
 i2t = ana coalg where
@@ -322,6 +326,18 @@ vars = cata alg where
               False -> x
               True -> Set.delete n x
 
+-- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
+-- Automatic recognition of Close or Open type of `TLam`.
+makeLambda :: ParserState -> VarList -> Term1 -> Term1
+makeLambda parserState variables term1expr =
+  case unbound == Set.empty of
+    True -> TLam (Closed (Right $ head variables)) $
+              foldr (\n -> TLam (Open (Right n))) term1expr (tail variables)
+    _ -> foldr (\n -> TLam (Open (Right n))) term1expr variables
+  where v = vars term1expr
+        variableSet = Set.fromList variables
+        unbound = ((v \\ bindingNames parserState) \\ variableSet)
+
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
 parseLambda = do
@@ -331,14 +347,7 @@ parseLambda = do
   symbol "->" <* scn
   -- TODO make sure lambda names don't collide with bound names
   term1expr <- parseLongExpr <* scn
-  let v = vars term1expr
-      bindingNames = Map.keysSet . bound $ parserState
-      variableSet = Set.fromList variables
-      unbound = ((v \\ bindingNames) \\ variableSet)
-  case unbound == Set.empty of
-    True -> return . TLam (Closed (Right $ head variables)) $
-              foldr (\n -> TLam (Open (Right n))) term1expr (tail variables)
-    _ -> return $ foldr (\n -> TLam (Open (Right n))) term1expr variables
+  pure $ makeLambda parserState variables term1expr
 
 -- |Parser that fails if indent level is not `pos`.
 parseSameLvl :: Pos -> SILParser a -> SILParser a
@@ -379,21 +388,6 @@ parsePartialFix = symbol "?" *> pure TLimitedRecursion
 parseRefinementCheck :: SILParser (Term1 -> Term1)
 parseRefinementCheck = flip TCheck <$> (symbol ":" *> parseLongExpr)
 
--- |Collect all variable names with repetition in a `Term1` expresion excluding terms binded
---  to lambda arguments.
-varsAll :: Term1 -> [String]
-varsAll = cata alg where
-  alg :: Base Term1 [String] -> [String]
-  alg (TVarF (Right n)) = [n]
-  alg (TLamF (Open (Right n)) x) = del n x
-  alg (TLamF (Closed (Right n)) x) = del n x
-  alg e = F.fold e
-  
-  del :: String -> [String] -> [String]
-  del n x = case elem n x of
-              True -> del n (delete n x)
-              False -> x
-
 -- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
 dropUntil :: (a -> Bool) -> [a] -> [a]
 dropUntil _ [] = []
@@ -410,96 +404,55 @@ notInt s = case (readMaybe [s]) :: Maybe Int of
 
 -- |Separates name and Int tag.
 --  Case of no tag, assigned tag is `-1` which will become `0` in `tagVar`
-geTVarTag :: String -> (String, Int)
-geTVarTag str = case name == str of
+getTag :: String -> (String, Int)
+getTag str = case name == str of
                   True -> (name, -1)
                   False -> (name, read $ drop (length str') str)
   where
     str' = dropUntil notInt $ reverse str
     name = take (length str') str
 
--- |Tags a var with a number at the end. When there is already a number,
--- it increases the count.
-tagVar :: String -> Int -> String
-tagVar str i = name ++ (show $ n + i)
+-- |Tags a var with number `i` if it doesn't already contain a number tag, or `i`
+-- plus the already present number tag, and corrects for name collisions.
+-- Also returns `Int` tag.
+tagVar :: ParserState -> String -> Int -> (String, Int)
+tagVar ps str i = case candidate `Set.member` bindingNames ps of
+                    True -> (fst $ tagVar ps str (i + 1), n + i + 1)
+                    False -> (candidate, n + i)
   where
-    (name,n) = geTVarTag str
+    (name,n) = getTag str
+    candidate = name ++ (show $ n + i)
 
--- tagVar :: String -> Int -> String
--- tagVar str i = str ++ (show $ i)
+-- |Sateful (Int count) string tagging and keeping track of new names and old names with name collision
+-- avoidance.
+stag :: ParserState -> String -> State (Int, VarList, VarList) String
+stag ps str = do
+  (i0, new0, old0) <- State.get
+  let (new1, tag1) = tagVar ps str i0
+  State.modify (\(_, new, old) -> (tag1 + 1, new ++ [new1], old ++ [str]))
+  pure new1
 
-
-
--- -- |Tags a var with a number at the end. When there is already a number.
--- tagVar :: String -> String
--- tagVar str = name ++ (show $ n + 1)
---   where
---     (name,n) = geTVarTag str
-
--- -- |SILParser :: * -> *
--- type SILParser = State.StateT ParserState (Parsec Void String)
-
--- type TagI x = State.State Int
-
-
-
-
--- |Optimize reference of top-level bindings variable rename
-rename :: ParserState -> Term1 -> Term1
-rename parserState term1 = State.evalState res 0
+-- |Renames top level bindings references found on a `Term1` by tagging them with consecutive `Int`s
+-- and keeps track of new names and substituted names.
+-- i.e. Let `f` and `g2` be two top level bindings
+-- then `\g -> [g,f,g2]` would be renamend to `\g -> [g,f1,g3]` in `Term1` representation.
+-- ["f1","g3"] would be the second part of the triplet (new names), and ["f", "g2"] the third part of
+-- the triplet (substituted names)
+rename :: ParserState -> Term1 -> (Term1, VarList, VarList)
+rename ps term1 = (res, newf, oldf)
   where
-    bindingNames = Map.keysSet . bound $ parserState
-    toReplace = Set.toList $ (vars term1) `Set.intersection` bindingNames
-    filter :: Either Int String -> Bool
-    filter (Right str) = elem str toReplace
-    filter (Left _) = False
-    tag :: Either Int String -> State Int (Either Int String)
-    tag (Right n) = do
-      State.modify (+1)
-      i :: Int <- State.get
-      pure . Right $ tagVar n i
-    tag l = pure l
-    res = traverseOf (traversed . filtered filter) tag term1
-
--- | SIL Parser AST representation of: \x -> \y -> \z -> [x,yy0, yy0 ,z]
-term1 = TLam (Closed (Right "x"))
-          (TLam (Open (Right "y"))
-            (TLam (Open (Right "z"))
-              (TPair
-                (TVar (Right "x"))
-                (TPair
-                  (TVar (Right "yy0"))
-                  (TPair
-                    (TVar (Right "yy0"))
-                    (TPair
-                      (TVar (Right "z"))
-                      TZero))))))
-
-myDebug = do
-  putStrLn . show $ rename
-                      (ParserState (Map.insert "yy0" TZero initialMap )) -- artificially add a top level binding
-                      term1                                              -- \x -> \y -> \z -> [x,yy0, yy0 ,z]
-
-
--- rename :: VarList -> VarList -> State Int Term1 -> State Int Term1
--- rename toSubstitute replacements = para alg where
---   alg :: Term1F (Term1, State Int Term1) -> State Int Term1
---   -- alg :: Term1F (Term1, Term1) -> Term1
---   alg (TVar (Right n)) = case n `elem` toSubstitute of
---                            True  -> TVar . Right . tagVar $ n
---                            False -> TVar . Right $ n
---   alg (TLam (Open (Right n)) (x,y)) = undefined
---   alg _ = undefined
-
+    toReplace = (vars term1) `Set.intersection` bindingNames ps
+    sres = traverseOf (traversed . _Right . filtered (`Set.member` toReplace)) (stag ps) term1
+    (res, (_, newf, oldf)) = State.runState sres (1,[],[])
 
 -- |Adds bound to `ParserState` if there's no shadowing conflict.
 addBound :: String -> Term1 -> ParserState -> Maybe ParserState
 addBound name expr (ParserState bound) =
   if Map.member name bound
   then Nothing
-  else pure . ParserState $ Map.insert name expr bound
+  else Just . ParserState $ Map.insert name expr bound
 
--- |Parse assignment.
+-- |Parse assignment add adding binding to ParserState.
 parseAssignment :: SILParser ()
 parseAssignment = do
   
@@ -510,14 +463,16 @@ parseAssignment = do
   reserved "=" <?> "assignment ="
   expr <- parseLongExpr <* scn
   
-  let v = varsAll expr
-      bindingNames = Map.keys . bound $ parserState
-      -- intersection = v `Set.intersection` bindingNames
   
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr
-      assign ps = case addBound var annoExp ps of
+      (t1, new, old) = rename parserState annoExp
+      -- _ -> pure $ foldl TApp f args
+      
+      appLambdaAnnoExp = foldl TApp (makeLambda parserState new t1) (TVar . Right <$> old)
+      -- assign ps = case addBound var annoExp ps of
+      assign ps = case addBound var appLambdaAnnoExp ps of
         Just nps -> nps
         _ -> error $ "shadowing of binding not allowed " ++ var
   State.modify assign
