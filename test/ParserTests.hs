@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Main where
 
 import SIL
@@ -179,12 +181,70 @@ unitTests = testGroup "Unit tests"
   , testCase "test automatic open close lambda 4" $ do
       res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
       res `compare` expr2 @?= EQ
+  , testCase "rename" $ do
+      let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ))
+                              expr8
+      t1 `compare` expr9 @?= EQ
+  , testCase "rename 2" $ do
+      preludeFile <- Strict.readFile "Prelude.sil"
+      let prelude = case parsePrelude preludeFile of
+                      Right p -> p
+                      Left pe -> error . getErrorString $ pe
+      case parseWithPrelude prelude mainWithTopLevelBindings of
+        Right x -> do
+          expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) f g f"
+          (x Map.! "h") `compare` expected @?= EQ
+        Left err -> assertFailure . show $ err
   ]
 
+-- myDebug2 = do
+--   let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ))
+--                               expr8
+--   putStrLn . show $ x Map.! "h"
 
 
--- | SIL Parser AST representation of: \x -> \y -> \z -> [x,yy0, yy0 ,z]
-term1 = TLam (Closed (Right "x"))
+myDebug = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  let
+    prelude = case parsePrelude preludeFile of
+      Right p -> p
+      Left pe -> error . getErrorString $ pe
+  let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ))
+                              expr8
+  -- putStrLn . show $ t1
+  -- putStrLn . show $ (expr9 :: Term1)
+
+  case parseWithPrelude prelude mainWithTopLevelBindings of
+    Right x -> do
+      -- expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
+      putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ 
+    Left err -> error . show $ err
+
+
+mainWithTopLevelBindings = unlines $
+  [ "f = (zero,zero)"
+  , "g = (zero,zero)"
+  , "h = [f,g,f]"
+  ]
+
+-- | SIL Parser AST representation of: \x -> \y -> \z -> [zz1, yy3, yy4, z, zz6]
+expr9 = TLam (Closed (Right "x"))
+          (TLam (Open (Right "y"))
+            (TLam (Open (Right "z"))
+              (TPair
+                (TVar (Right "zz1"))
+                (TPair
+                  (TVar (Right "yy3"))
+                  (TPair
+                    (TVar (Right "yy5"))
+                    (TPair
+                      (TVar (Right "z"))
+                      (TPair
+                        (TVar (Right "zz6"))
+                        TZero)))))))
+
+-- | SIL Parser AST representation of: \x -> \y -> \z -> [zz, yy0, yy0, z, zz]
+expr8 = TLam (Closed (Right "x"))
           (TLam (Open (Right "y"))
             (TLam (Open (Right "z"))
               (TPair
@@ -198,16 +258,6 @@ term1 = TLam (Closed (Right "x"))
                       (TPair
                         (TVar (Right "zz"))
                         TZero)))))))
-
-myDebug = do
-  putStrLn . show $ rename
-                      (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap )) -- artificially add a top level binding
-                      term1                                              -- \x -> \y -> \z -> [x,yy0, yy0 ,z]
-
-
-
-
-
 
 -- | SIL Parser AST representation of: "\z -> [x,x,y,x,z,y,z]"
 expr7 = TLam (Open (Right "z"))
@@ -543,6 +593,18 @@ testWtictactoe = do
 --       putStrLn ("Final state: " ++ show s)
 --     Left err -> putStr (errorBundlePretty err)
 
+-- runTictactoe = do
+--   preludeFile <- Strict.readFile "Prelude.sil"
+--   tictactoe <- Strict.readFile "tictactoe.sil"
+--   let
+--     prelude = case parsePrelude preludeFile of
+--       Right p -> p
+--       Left pe -> error $ "woot2!!!" ++ getErrorString pe
+--   putStrLn "Not broken till here."
+--   case parseMain' prelude $ tictactoe of
+--     Right x -> putStrLn . show $ x
+--     Left err -> putStrLn $ "woot!!! " ++ getErrorString err
+
 runTictactoe = do
   preludeFile <- Strict.readFile "Prelude.sil"
   tictactoe <- Strict.readFile "tictactoe.sil"
@@ -550,9 +612,19 @@ runTictactoe = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error . getErrorString $ pe
-  case parseMain prelude $ tictactoe of
-    Right x -> putStrLn $ show x
-    Left err -> putStrLn . getErrorString $ err
+  runSILParser_ parseTopLevel tictactoe
+  -- case parseWithPrelude prelude tictactoe of
+  --   Right x -> putStrLn . show $ x
+  --   Left err -> putStrLn . getErrorString $ err
+
+
+-- |Parse main.
+parseMain' :: Bindings -> String -> Either ErrorString Term1
+parseMain' prelude s = parseWithPrelude prelude s >>= getMain where
+  getMain bound = case Map.lookup "main" bound of
+    Nothing -> fail "no main method found"
+    Just main -> pure main--splitExpr <$> debruijinize [] main
+
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 

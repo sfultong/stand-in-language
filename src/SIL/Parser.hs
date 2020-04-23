@@ -155,6 +155,16 @@ resolve name (ParserState bound) = if Map.member name bound
                                    then Map.lookup name bound
                                    else Just . TVar . Right $ name
 
+-- |Parse a variable.
+parseVariable :: SILParser Term1
+parseVariable = do
+  varName <- identifier
+  pure . TVar . Right $ varName
+  -- parseState <- State.get
+  -- case resolve varName parseState of
+  --   Nothing -> fail $ concat  ["identifier ", varName, " undeclared"] -- unreachable
+  --   Just i -> pure i
+
 -- |Line comments start with "--".
 lineComment :: SILParser ()
 lineComment = L.skipLineComment "--"
@@ -222,15 +232,6 @@ integer = toInteger <$> lexeme L.decimal
 parseString :: SILParser (ParserTerm l v)
 parseString = fmap s2t $ char '\"' *> manyTill L.charLiteral (char '\"')
 
--- |Parse a variable.
-parseVariable :: SILParser Term1
-parseVariable = do
-  varName <- identifier
-  parseState <- State.get
-  case resolve varName parseState of
-    Nothing -> fail $ concat  ["identifier ", varName, " undeclared"] -- unreachable
-    Just i -> pure i
-
 -- |Prarse number (Integer).
 parseNumber :: SILParser (ParserTerm l v)
 parseNumber = (i2t . fromInteger) <$> integer
@@ -292,7 +293,7 @@ parseApplied = do
         TVar (Right "trace") -> case args of
           [t] -> pure . TTrace $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          _ -> fail "Failed to parse trace. Too many arguments applied to trace."
+          (x:xs) -> pure $ foldl TApp (TTrace x) xs
         TVar (Right "pair") -> case args of
           [a, b] -> pure $ TPair a b
           [a] -> pure $ TLam (Open (Right "x")) . TPair a . TVar . Right $ "x"
@@ -302,7 +303,8 @@ parseApplied = do
           [a, b] -> pure $ TApp a b
           [a] -> pure $ TLam (Open (Right "x")) . TApp a . TVar . Right $ "x"
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          _ -> fail "Failed to parse app. Too many arguments applied to app."
+          (x0:x1:xs) -> pure $ foldl TApp (TApp x0 x1) xs
+          -- _ -> fail "Failed to parse app. Too many arguments applied to app."
         TVar (Right "check") -> case args of
           [a, b] -> pure $ TCheck a b
           [a] -> pure $ TLam (Open (Right "x")) . TCheck a . TVar . Right $ "x"
@@ -364,9 +366,13 @@ parseLet = do
   initialState <- State.get
   lvl <- L.indentLevel
   manyTill (parseSameLvl lvl parseAssignment) (reserved "in") <* scn
-  expr <- parseLongExpr <*scn
+  expr <- parseLongExpr <* scn
+  
+  intermediateState <- State.get
+  let oexpr = optimizeLetBindingsReference intermediateState expr
+  
   State.put initialState
-  pure expr
+  pure oexpr
 
 -- |Parse long expression.
 parseLongExpr :: SILParser Term1
@@ -428,12 +434,14 @@ tagVar ps str i = case candidate `Set.member` bindingNames ps of
 stag :: ParserState -> String -> State (Int, VarList, VarList) String
 stag ps str = do
   (i0, new0, old0) <- State.get
-  let (new1, tag1) = tagVar ps str i0
-  State.modify (\(_, new, old) -> (tag1 + 1, new ++ [new1], old ++ [str]))
+  let (new1, tag1) = tagVar ps str (i0 + 1)
+  if i0 >= tag1
+    then State.modify (\(_, new, old) -> (i0 + 1, new ++ [new1], old ++ [str]))
+    else State.modify (\(_, new, old) -> (tag1 + 1, new ++ [new1], old ++ [str]))
   pure new1
 
 -- |Renames top level bindings references found on a `Term1` by tagging them with consecutive `Int`s
--- and keeps track of new names and substituted names.
+-- while keeping track of new names and substituted names.
 -- i.e. Let `f` and `g2` be two top level bindings
 -- then `\g -> [g,f,g2]` would be renamend to `\g -> [g,f1,g3]` in `Term1` representation.
 -- ["f1","g3"] would be the second part of the triplet (new names), and ["f", "g2"] the third part of
@@ -452,26 +460,43 @@ addBound name expr (ParserState bound) =
   then Nothing
   else Just . ParserState $ Map.insert name expr bound
 
+-- |Top level bindings encapsulated in an extra outer lambda and applied by it's corresponding
+-- original reference.
+-- e.g. let `f = zero` be a top level binding in `ParserState` `ps` and let `t1` be the `Term1` representation of
+-- `[f,f]`
+-- Then `optimizeTopLevelBindingsReference ps t1` will output the `Term1` representation of:
+-- (\f1 f2 -> [f1, f2]) f f`
+optimizeTopLevelBindingsReference :: ParserState -> Term1 -> Term1
+optimizeTopLevelBindingsReference parserState annoExp =
+  optimizeBindingsReference parserState (TVar . Right) annoExp
+
+optimizeLetBindingsReference :: ParserState -> Term1 -> Term1
+optimizeLetBindingsReference parserState annoExp =
+  optimizeBindingsReference parserState (\str -> (bound parserState) Map.! str) annoExp
+
+optimizeBindingsReference :: ParserState -> (String -> Term1) -> Term1 -> Term1
+optimizeBindingsReference parserState f annoExp =
+  case new == [] of
+    True -> annoExp
+    False -> foldl TApp (makeLambda parserState new t1) (f <$> old)
+  where
+    (t1, new, old) = rename parserState annoExp
+
+
+
+
 -- |Parse assignment add adding binding to ParserState.
 parseAssignment :: SILParser ()
 parseAssignment = do
-  
   parserState <- State.get
-  
   var <- identifier <* scn
   annotation <- optional . try $ parseRefinementCheck
   reserved "=" <?> "assignment ="
   expr <- parseLongExpr <* scn
-  
-  
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr
-      (t1, new, old) = rename parserState annoExp
-      -- _ -> pure $ foldl TApp f args
-      
-      appLambdaAnnoExp = foldl TApp (makeLambda parserState new t1) (TVar . Right <$> old)
-      -- assign ps = case addBound var annoExp ps of
+      appLambdaAnnoExp = optimizeTopLevelBindingsReference parserState annoExp
       assign ps = case addBound var appLambdaAnnoExp ps of
         Just nps -> nps
         _ -> error $ "shadowing of binding not allowed " ++ var
@@ -568,7 +593,7 @@ parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
 parseWithPrelude prelude str = do
   -- TODO: check what happens with overlaping definitions with initialMap
   let startState = ParserState $ prelude <> initialMap
-      p          = State.runStateT parseTopLevel startState
+      p = State.runStateT parseTopLevel startState
   case runParser p "" str of
     Right (a, s) -> Right a
     Left x       -> Left $ MkES $ errorBundlePretty x
