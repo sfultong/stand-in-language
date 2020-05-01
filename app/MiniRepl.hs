@@ -38,7 +38,7 @@ foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: 
 
 -- | Add a SIL expression to the ParserState.
 addReplBound :: String -> Term1 -> ParserState -> ParserState
-addReplBound name expr (ParserState bound) = ParserState (Map.insert name expr bound)
+addReplBound name expr ps = ParserState (Map.insert name expr $ bound ps) Map.empty
 
 -- | Assignment parsing from the repl.
 parseReplAssignment :: SILParser ()
@@ -73,7 +73,7 @@ parseReplStep =  step >>= (\x -> (x,) <$> (bound <$> State.get))
 -- | Try to parse the given string and update the bindings.
 runReplParser :: Bindings -> String -> Either ErrorString (ReplStep, Bindings)
 runReplParser prelude str = do
-  let startState = ParserState prelude
+  let startState = ParserState prelude Map.empty
       p          = State.runStateT parseReplStep startState
   case runParser p "" str of
     Right (a, s) -> Right a

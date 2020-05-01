@@ -9,12 +9,15 @@ import Test.Tasty.HUnit
 import Text.Megaparsec.Error
 import Text.Megaparsec
 import Text.Megaparsec.Debug
+import Data.Map (Map, fromList, toList)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Functor.Foldable
 import qualified SIL.Parser as Parsec
 import qualified System.IO.Strict as Strict
+import Control.Monad
 import qualified Control.Monad.State as State
+import qualified Data.Semigroup as Semigroup
 
 main = defaultMain tests
 
@@ -47,7 +50,7 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseLambda <* eof) testLambdawITEwPair
       res `compare` True @?= EQ
   , testCase "test parse assignment with Complete Lambda with ITE with Pair" $ do
-      res <- parseSuccessful (parseAssignment <* eof) testParseAssignmentwCLwITEwPair1
+      res <- parseSuccessful (parseTopLevelAssignment <* eof) testParseAssignmentwCLwITEwPair1
       res `compare` True @?= EQ
   , testCase "test if testParseTopLevelwCLwITEwPair parses successfuly" $ do
       res <- parseSuccessful (parseTopLevel <* eof) testParseTopLevelwCLwITEwPair
@@ -83,22 +86,22 @@ unitTests = testGroup "Unit tests"
       res <- runTestMainWType
       res `compare` True @?= EQ
   , testCase "testShowBoard0" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard0
+      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard0
       res `compare` True @?= EQ
   , testCase "testShowBoard1" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard1
+      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard1
       res `compare` True @?= EQ
   , testCase "testShowBoard2" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard2
+      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard2
       res `compare` True @?= EQ
   , testCase "testShowBoard3" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard3
+      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard3
       res `compare` True @?= EQ
   , testCase "testShowBoard4" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard4
+      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard4
       res `compare` True @?= EQ
   , testCase "testShowBoard5" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard5
+      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard5
       res `compare` True @?= EQ
   , testCase "testShowBoard6" $ do
       res <- parseSuccessful (parseApplied) testShowBoard6
@@ -116,13 +119,13 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard3
       res `compare` True @?= EQ
   , testCase "testLetShowBoard4" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testLetShowBoard4
+      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testLetShowBoard4
       res `compare` True @?= EQ
   , testCase "testLetShowBoard5" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard5
       res `compare` True @?= EQ
   , testCase "testLetShowBoard7" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
+      res <- parseSuccessful (parseTopLevelAssignment <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
       res `compare` True @?= EQ
   , testCase "testLetShowBoard8" $ do
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard8
@@ -182,7 +185,8 @@ unitTests = testGroup "Unit tests"
       res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
       res `compare` expr2 @?= EQ
   , testCase "rename" $ do
-      let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ))
+      let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
+                              topLevelBindingNames
                               expr8
       t1 `compare` expr9 @?= EQ
   , testCase "rename 2" $ do
@@ -202,6 +206,38 @@ unitTests = testGroup "Unit tests"
 --                               expr8
 --   putStrLn . show $ x Map.! "h"
 
+-- |Usefull to see if tictactoe.sil was correctly parsed
+-- and was usefull to compare with the deprecated SIL.Parser
+-- Parsec implementation
+testWtictactoe = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  tictactoe <- Strict.readFile "hello.sil"
+  let
+    prelude = case parsePrelude preludeFile of
+                Right p -> p
+                Left pe -> error . getErrorString $ pe
+  case parseMain prelude tictactoe of
+    Right _ -> return True
+    Left _ -> return False
+
+parseWithPreludeFile = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  file <- Strict.readFile "hello.sil"
+  let
+    prelude = case parsePrelude preludeFile of
+                Right p -> p
+                Left pe -> error . getErrorString $ pe
+    printBindings :: Map String Term1 -> IO ()
+    printBindings xs = forM_ (toList xs) $
+                       \b -> do
+                         putStr "  "
+                         putStr . show . fst $ b
+                         putStr " = "
+                         putStrLn $ show . snd $ b
+  case parseWithPrelude prelude file of
+    Right r -> printBindings r
+    Left l -> putStrLn . show $ l
+
 
 myDebug = do
   preludeFile <- Strict.readFile "Prelude.sil"
@@ -209,18 +245,31 @@ myDebug = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error . getErrorString $ pe
-  let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ))
-                              expr8
+    prelude' = ParserState prelude $ Map.insert "f" (TPair (TVar . Right $ "x") (TVar . Right $ "y")) . Map.insert "y" TZero . Map.insert "x" TZero $ Map.empty
+    oexpr = optimizeLetBindingsReference prelude' $ TVar . Right $ "f"
+    oexpr' = optimizeLetBindingsReference prelude' oexpr
+    oexpr'' = optimizeLetBindingsReference prelude' oexpr'
+  putStrLn . show $ oexpr
+  putStrLn . show $ oexpr'
+  putStrLn . show $ oexpr''
+  -- let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
+  --                         topLevelBindingNames
+  --                         expr8
   -- putStrLn . show $ t1
   -- putStrLn . show $ (expr9 :: Term1)
 
-  case parseWithPrelude prelude mainWithTopLevelBindings of
-    Right x -> do
-      -- expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
-      putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ 
-    Left err -> error . show $ err
+  -- case parseWithPrelude prelude' mainWithTopLevelBindings of
+  --   Right x -> do
+  --     -- expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
+  --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ 
+  --   Left err -> error . show $ err
 
-
+letExpr = unlines $
+  [ "let x = 0"
+  , "    y = 0"
+  , "    f = (x,y)"
+  , "in f"
+  ]
 mainWithTopLevelBindings = unlines $
   [ "f = (zero,zero)"
   , "g = (zero,zero)"
@@ -563,20 +612,6 @@ testList5 = unlines $
   , "  2 ]"
   ]
 
--- |Usefull to see if tictactoe.sil was correctly parsed
--- and was usefull to compare with the deprecated SIL.Parser
--- Parsec implementation
-testWtictactoe = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  tictactoe <- Strict.readFile "tictactoe.sil"
-  let
-    prelude = case parsePrelude preludeFile of
-                Right p -> p
-                Left pe -> error . getErrorString $ pe
-  case parseMain prelude tictactoe of
-    Right _ -> return True
-    Left _ -> return False
-
 -- -- |Helper function to debug tictactoe.sil
 -- debugTictactoe :: IO ()
 -- debugTictactoe  = do
@@ -737,3 +772,5 @@ testShowBoard5 = unlines
   , "                       1))"
   , "               (1)"
   ]
+
+
