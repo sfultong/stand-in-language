@@ -4,11 +4,15 @@
 module SIL.TypeChecker where
 
 import Control.Applicative
+import Control.Monad (foldM)
 import Control.Monad.Except
 import Control.Monad.State (State)
+import Data.Foldable
 import Data.Map (Map)
+import Data.Monoid (Any(..))
 import Data.Set (Set)
 import Debug.Trace
+import GHC.Exts (fromList)
 
 import qualified Control.Monad.State as State
 import qualified Data.DList as DList
@@ -16,6 +20,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 import SIL
+import SIL.Possible
 import PrettyPrint
 
 debug :: Bool
@@ -36,18 +41,29 @@ data TypeCheckError
   | RecursiveType Int
   deriving (Eq, Ord, Show)
 
+data AnnotateData v a
+  = AnnotateData { envType :: v
+                 , varIndex :: Int
+                 , associations :: Set (TypeAssociationV v)
+                 , miscAnnotation :: a
+                 }
+
 -- State is closure environment, set of associations between type variables and types, unresolved type id supply
 --type AnnotateState a = State (PartialType, Map Int PartialType, Int, Maybe TypeCheckError) a
-type AnnotateStateV a = ExceptT TypeCheckError (State (a, Set (TypeAssociationV a), Int))
+-- type AnnotateStateV a = ExceptT TypeCheckError (State (a, Set (TypeAssociationV a), Int))
+type AnnotateStateV a = ExceptT TypeCheckError (State (AnnotateData a ()))
 type AnnotateState = AnnotateStateV PartialType
 
 withNewEnv :: VariableTyped t => AnnotateStateV t a -> AnnotateStateV t (t, a)
 withNewEnv action = do
-  (env, typeMap, v) <- State.get
-  State.put (typeVariable v, typeMap, v + 1)
+  (AnnotateData env v assocs _) <- State.get
+  State.put (AnnotateData (typeVariable v) (v + 1) assocs ())
   result <- action
-  State.modify $ \(_, typeMap, v) -> (env, typeMap, v)
+  State.modify $ \(AnnotateData _ v typeMap o) -> (AnnotateData env v typeMap o)
   pure (typeVariable v, result)
+
+getEnv :: VariableTyped t => AnnotateStateV t t
+getEnv = State.get >>= (\(AnnotateData v _ _ _) -> pure v)
 
 data TypeAssociationV a = TypeAssociationV Int a
   deriving (Eq, Ord, Show)
@@ -90,17 +106,17 @@ traceAssociate a b = if debug
 
 associateVar :: Ord v => TypingSupport v -> v -> v -> AnnotateStateV v ()
 associateVar ts a b = liftEither (makeAssociations ts a b) >>= \set -> State.modify (changeState set) where
-  changeState set (curVar, oldSet, v) = (curVar, oldSet <> set, v)
+  changeState set (AnnotateData curVar v oldSet extra) = AnnotateData curVar v (oldSet <> set) extra
 
 {--
  - reserve 0 -> n*2 TypeVariables for types of FragExprs
  -}
-initState :: Term3 -> (PartialType, Set TypeAssociation, Int)
+initState :: VariableTyped v => Term3 -> AnnotateData v ()
 initState (Term3 termMap) =
   let startVariable = case Set.maxView (Map.keysSet termMap) of
         Nothing -> 0
         Just (FragIndex i, _) -> (i + 1) * 2
-  in (TypeVariable 0, Set.empty, startVariable)
+  in AnnotateData (typeVariable 0) startVariable Set.empty ()
 
 data TypingSupport v =
   TypingSupport { fragInputType :: FragIndex -> v
@@ -117,7 +133,7 @@ terminationTyping = TypingSupport
                   associate = associateVar terminationTyping in \case
       ZeroF -> pure ZeroTypeP
       PairF a b -> PairTypeP <$> recur a <*> recur b
-      EnvF -> (\(t, _, _) -> t) <$> State.get
+      EnvF -> getEnv
       SetEnvF x -> do
         xt <- recur x
         (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
@@ -142,9 +158,9 @@ terminationTyping = TypingSupport
         (ra, _) <- withNewEnv $ pure ()
         associate (PairTypeP AnyType ra) xt
         pure ra
-      TraceF -> (\(t, _, _) -> t) <$> State.get
+      TraceF -> getEnv
       --(v8 -> ((A,(((v17,v19) -> v7,A),A)) -> v7,v8),Z)
-      AuxF UnsizedRecursion -> do -- ugh... just trust this?
+      AuxF (UnsizedRecursion _) -> do -- ugh... just trust this?
         (ta, (tb, (tc, (td, _)))) <- withNewEnv . withNewEnv . withNewEnv . withNewEnv $ pure ()
         let it = PairTypeP AnyType (PairTypeP (PairTypeP (ArrTypeP (PairTypeP tc td) ta) AnyType) AnyType)
         pure $ PairTypeP (ArrTypeP tb (PairTypeP (ArrTypeP it ta) tb)) ZeroTypeP
@@ -161,27 +177,262 @@ terminationTyping = TypingSupport
     _ -> Left $ InconsistentTypes ta tb
   }
 
+{-
+type AnnotateStateV a = ExceptT TypeCheckError (State (a, Set (TypeAssociationV a), Int))
+type AnnotateState = AnnotateStateV PartialType
+                 getType :: FragExpr BreakExtras -> AnnotateStateV v v
+-}
+type AnnotateStateP = ExceptT TypeCheckError
+  (State (PossibleType, Set (TypeAssociationV PossibleType), Int, Map Int PossibleType))
+
+possibleTyping :: TypingSupport PossibleType
+possibleTyping = TypingSupport
+  { fragInputType = \(FragIndex i) -> typeVariable $ i * 2
+  , fragOutputType = \(FragIndex i) -> typeVariable $ i * 2 + 1
+  , getType = let recur = getType possibleTyping
+                  associate = associateVar possibleTyping in \case
+      ZeroF -> pure ZeroTypeO
+      PairF a b -> PairTypeO <$> recur a <*> recur b
+      EnvF -> getEnv
+      SetEnvF x -> do
+        xt <- recur x
+        (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
+        associate (PairTypeO (ArrTypeO it ot) it) xt
+        pure ot
+      DeferF ind -> pure $ ArrTypeO (fragInputType possibleTyping ind) (fragOutputType possibleTyping ind)
+      AbortF -> do
+        (it, _) <- withNewEnv $ pure ()
+        pure (ArrTypeO ZeroTypeO (ArrTypeO it it))
+      GateF l r -> do
+        lt <- recur l
+        rt <- recur r
+        pure $ ArrTypeO AnyTypeO (EitherType lt rt)
+      LeftF x -> do
+        xt <- recur x
+        (la, _) <- withNewEnv $ pure ()
+        associate (PairTypeO la AnyTypeO) xt
+        pure la
+      RightF x -> do
+        xt <- recur x
+        (ra, _) <- withNewEnv $ pure ()
+        associate (PairTypeO AnyTypeO ra) xt
+        pure ra
+      TraceF -> getEnv
+      AuxF (UnsizedRecursion _) -> do
+        (ta, (tb, (tc, (td, _)))) <- withNewEnv . withNewEnv . withNewEnv . withNewEnv $ pure ()
+        let it = PairTypeO AnyTypeO (PairTypeO (PairTypeO (ArrTypeO (PairTypeO tc td) ta) AnyTypeO) AnyTypeO)
+        pure $ PairTypeO (ArrTypeO tb (PairTypeO (ArrTypeO it ta) tb)) ZeroTypeO
+  , makeAssociations = let recur = makeAssociations possibleTyping in \ta tb -> case (ta, tb) of
+      (x, y) | x == y -> pure mempty
+      (AnyTypeO, _) -> pure mempty
+      (_, AnyTypeO) -> pure mempty
+      (EitherType a b, e) -> (<>) <$> recur a e <*> recur b e
+      (e, EitherType a b) -> (<>) <$> recur a e <*> recur b e
+      (TypeVariableO i, _) -> pure . Set.singleton $ TypeAssociationV i tb
+      (_, TypeVariableO i) -> pure . Set.singleton $ TypeAssociationV i ta
+      (ArrTypeO a b, ArrTypeO c d) -> Set.union <$> recur a c <*> recur b d
+      (PairTypeO a b, PairTypeO c d) -> Set.union <$> recur a c <*> recur b d
+      _ -> pure mempty
+  }
+
+possibleTypeLookup :: Term3 -> FragExpr BreakExtras -> Either TypeCheckError PossibleType
+possibleTypeLookup tm = let resolver = (fullyResolve . snd) <$> partiallyAnnotate possibleTyping tm
+                            gt env = let recur = gt env in \case
+                              ZeroF -> pure ZeroTypeO
+                              PairF a b -> PairTypeO <$> recur a <*> recur b
+                              EnvF -> pure env
+                              SetEnvF x -> case recur x of
+                                (PairTypeO (ArrTypeO _ ot) _) -> pure ot
+                                z -> error $ "possibleTypeLookup.setenv bad: " <> show z
+                              DeferF ind -> resolver $ ArrTypeO (fragInputType possibleTyping ind)
+                                (fragOutputType possibleTyping ind)
+                              AbortF
+                              
+
+possibleTypeToValue :: PossibleType -> PExpr
+possibleTypeToValue = \case
+  ZeroTypeO -> PZero
+  PairTypeO a b -> PPair (possibleTypeToValue a) (possibleTypeToValue b)
+  AnyTypeO -> PAny
+  TypeVariableO _ -> PAny
+  ArrTypeO _ o -> PDefer $ possibleTypeToValue o
+  EitherType a b -> PEither (possibleTypeToValue a) (possibleTypeToValue b)
+
+makePInputMap :: Term3 -> Either TypeCheckError (Map FragIndex PExpr)
+makePInputMap term@(Term3 termMap) =
+  let resolver = fullyResolve . snd <$> partiallyAnnotate possibleTyping term
+      possibleInput = fmap (\f -> possibleTypeToValue . f . fragInputType possibleTyping) resolver
+  in (\f -> Map.mapWithKey (\k _ -> f k) termMap) <$> possibleInput
+
+contaminationTyping :: TypingSupport ContaminatedType
+contaminationTyping = TypingSupport
+  { fragInputType = \(FragIndex i) -> typeVariable $ i * 2
+  , fragOutputType = \(FragIndex i) -> typeVariable $ i * 2 + 1
+  , getType = let recur = getType contaminationTyping
+                  associate = associateVar contaminationTyping in \case
+      ZeroF -> pure ZeroTypeC
+      PairF a b -> PairTypeC <$> recur a <*> recur b
+      EnvF -> getEnv
+      SetEnvF x -> do
+        xt <- recur x
+        (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
+        associate (PairTypeC (ArrTypeC False it ot) it) xt
+        pure ot
+      DeferF ind -> pure
+        $ ArrTypeC False (fragInputType contaminationTyping ind) (fragOutputType contaminationTyping ind)
+      AbortF -> do
+        (it, _) <- withNewEnv $ pure ()
+        pure (ArrTypeC False ZeroTypeC (ArrTypeC False it it))
+      GateF l r -> do
+        lt <- recur l
+        rt <- recur r
+        associate lt rt
+        pure $ ArrTypeC False ZeroTypeC lt
+      LeftF x -> do
+        xt <- recur x
+        (la, _) <- withNewEnv $ pure ()
+        associate (PairTypeC la AnyTypeC) xt
+        pure la
+      RightF x -> do
+        xt <- recur x
+        (ra, _) <- withNewEnv $ pure ()
+        associate (PairTypeC AnyTypeC ra) xt
+        pure ra
+      TraceF -> getEnv
+      AuxF (UnsizedRecursion _) -> do
+        (ta, (tb, (tc, (td, _)))) <- withNewEnv . withNewEnv . withNewEnv . withNewEnv $ pure ()
+        let it = PairTypeC AnyTypeC (PairTypeC (PairTypeC (ArrTypeC False (PairTypeC tc td) ta) AnyTypeC) AnyTypeC)
+        pure $ PairTypeC (ArrTypeC True tb (PairTypeC (ArrTypeC False it ta) tb)) ZeroTypeC
+  }
+
+data PoisonType
+  = ZeroTypeN
+  | AnyTypeN
+  | TypeVariableN Int
+  | PairTypeN PoisonType PoisonType
+  | ArrTypeN { poisoned :: Set BreakExtras
+             , typeFunction :: FragExpr BreakExtras
+             }
+
+poisoners :: PoisonType -> Set BreakExtras
+poisoners = \case
+  ArrTypeN pSet _ -> pSet
+  _ -> mempty
+
+infect :: Set BreakExtras -> PoisonType -> PoisonType
+infect pSet = \case
+  ArrTypeN oldSet tf -> ArrTypeN (oldSet <> pSet) tf
+  x -> x
+
+getContaminatedType :: (FragIndex -> PoisonType) -> PoisonType -> FragExpr BreakExtras -> PoisonType
+getContaminatedType getType env = let recur = getContaminatedType getType env in \case
+  ZeroF -> ZeroTypeN
+  PairF a b -> PairTypeN (recur a) (recur b)
+  EnvF -> env
+  {-
+  SetEnvF x -> case recur x of
+    (PairTypeN ft it) -> infect (poisoners it) . infect (poisoners ft) $ typeFunction ft it
+    _ -> error "getContaminatedType: bad setenv"
+-}
+  SetEnvF x -> case recur x of
+    (PairTypeN (ArrTypeN fp AbortF) it) -> infect (poisoners it) $ ArrTypeN fp EnvF
+    (PairTypeN (ArrTypeN fp (GateF l r)) it) -> infect (poisoners it) . infect fp
+      . infect (poisoners $ recur l) $ recur r
+    -- (PairTypeN (ArrTypeN fp (AuxF ur)) it) -> 
+    (PairTypeN (ArrTypeN fp fx) it) -> infect fp . infect (poisoners it) $ getContaminatedType getType it fx
+    _ -> error "getContaminatedType: bad setenv"
+  DeferF ind -> getType ind
+  AbortF -> ArrTypeN mempty AbortF
+  {-
+  GateF l r -> ArrTypeN mempty $ \case
+    ZeroTypeN -> recur l
+    AnyTypeN -> infect (poisoners $ recur l) $ recur r
+    _ -> recur r
+-}
+  GateF l r -> ArrTypeN mempty (GateF l r)
+  LeftF x -> case recur x of
+    PairTypeN l _ -> l
+    _ -> ZeroTypeN
+  RightF x -> case recur x of
+    PairTypeN _ r -> r
+    _ -> ZeroTypeN
+  TraceF -> env
+  AuxF ur -> PairTypeN (ArrTypeN (Set.singleton ur) (AuxF ur)) ZeroTypeN
+
+makeCInputMap :: Term3 -> FragIndex -> PoisonType
+makeCInputMap (Term3 termMap) =
+  -- let typeFuns = fmap (\frag f -> ArrTypeN mempty $ \e -> getContaminatedType f e frag) termMap
+  let typeFuns = fmap (ArrTypeN mempty) termMap
+  -- in fix (flip (typeFuns Map.!))
+  in (typeFuns Map.!)
+
+{--
+ - Build a map of functions to convert individual `?` operators to sized church numerals
+-}
+buildConverterMap :: Term3 -> Map BreakExtras (Term3 -> Int -> Term3)
+buildConverterMap (Term3 termMap) =
+  let changeMap be (Term3 tm) i =
+        let startKey = succ . fst $ Map.findMax tm
+            containsUnsized = getAny . monoidFold (\case
+              AuxF ur | ur == be -> Any True
+              _ -> Any False
+              )
+            changeIndex = fst . Map.findMax . Map.filter containsUnsized $ tm
+            changeTerm = \case
+              AuxF ur | ur == be -> partialFixF i
+              x -> pure x
+            (newFrag, (_,_,newMap)) = State.runState (mMap changeTerm $ tm Map.! changeIndex)
+              (0, startKey, tm)
+        in Term3 . Map.insert changeIndex newFrag $ newMap
+      getUnsized = monoidFold $ \case
+        AuxF ur -> Set.singleton ur
+        _ -> mempty
+      unsizedIndices = fold $ fmap getUnsized termMap
+  in Map.fromList . map (\i -> (i, changeMap i)) $ toList unsizedIndices
+
+data SizeTest = SizeTest (FragExpr BreakExtras) PExpr
+
+type TestMapBuilder = State (Map BreakExtras [SizeTest])
+
+buildTestMap :: Term3 -> Map BreakExtras [SizeTest]
+buildTestMap term@(Term3 termMap) =
+  let poisonType = makeCInputMap term
+      possibleTypeMap = 
+      alterSizeTest v = \case
+        Nothing -> pure v
+        Just e -> v : e
+      addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
+      builder env = let recur = builder env in \case
+        ZeroF -> pure ZeroTypeN
+        PairF a b -> PairTypeN <$> recur a <*> recur b
+        EnvF -> pure env
+        SetEnvF x -> recur x >>= \case
+          PairTypeN (ArrTypeN bs fx) it -> if null bs
+            -- then pure . infect (poisoners it) $ tf it
+            then infect (poisoners it) <$> builder it fx
+            else let pExpr = 
+
 annotate :: Ord v => TypingSupport v -> Term3 -> AnnotateStateV v v
 annotate ts (Term3 termMap) =
-  let initInputType fi = let it = fragInputType ts fi in State.modify (\(_, s, i) -> (it, s, i))
+  let initInputType fi = let it = fragInputType ts fi in State.modify (\s -> s {envType = it})
       associateOutType fi ot = let ot2 = fragOutputType ts fi in associateVar ts ot ot2
       rootType = initInputType (FragIndex 0) >> getType ts (rootFrag termMap)
   in sequence_ (Map.mapWithKey (\k v -> initInputType k >> getType ts v >>= associateOutType k) termMap) >> rootType
 
-partiallyAnnotate :: Term3 -> Either TypeCheckError (PartialType, Int -> Maybe PartialType)
-partiallyAnnotate term =
-  let runner :: State (PartialType, Set TypeAssociation, Int) (Either TypeCheckError PartialType)
-      runner = runExceptT $ annotate terminationTyping term
-      (rt, (_, s, _)) = State.runState runner (initState term)
-      associate = makeAssociations terminationTyping
-  in (,) <$> rt <*> (flip Map.lookup <$> buildTypeMap s associate)
+partiallyAnnotate :: (Ord v, VariableTyped v, Show v) =>
+  TypingSupport v -> Term3 -> Either TypeCheckError (v, Int -> Maybe v)
+partiallyAnnotate ts term =
+  let runner = runExceptT $ annotate ts term
+      (rt, as) = State.runState runner (initState term)
+      associate = makeAssociations ts
+  in (,) <$> rt <*> (flip Map.lookup <$> buildTypeMap (associations as) associate)
 
 inferType :: Term3 -> Either TypeCheckError PartialType
-inferType tm = lookupFully <$> partiallyAnnotate tm where
+inferType tm = lookupFully <$> partiallyAnnotate terminationTyping tm where
   lookupFully (ty, resolver) = fullyResolve resolver ty
 
 typeCheck :: PartialType -> Term3 -> Maybe TypeCheckError
-typeCheck t tm@(Term3 typeMap) = convert (partiallyAnnotate tm >>= associate) where
+typeCheck t tm@(Term3 typeMap) = convert (partiallyAnnotate terminationTyping tm >>= associate) where
   associate (ty, resolver) = debugTrace ("COMPARING TYPES " <> show (t, fullyResolve resolver ty) <> "\n" <> debugMap ty resolver)
     . traceAgain $ makeAssociations terminationTyping (fullyResolve resolver ty) t
   getFragType fi = ArrTypeP (fragInputType terminationTyping fi) (fragOutputType terminationTyping fi)

@@ -32,8 +32,8 @@ import qualified Control.Monad.State as State
 class EndoMapper a where
   endoMap :: (a -> a) -> a -> a
 
-class EitherEndoMapper a where
-  eitherEndoMap :: (a -> Either e a) -> a -> Either e a
+class MonadMapper a where
+  mMap :: Monad m => (a -> m a) -> a -> m a
 
 class MonoidEndoFolder a where
   monoidFold :: Monoid m => (a -> m) -> a -> m
@@ -166,11 +166,42 @@ data FragExpr a
   | AuxF a
   deriving (Eq, Ord, Show)
 
+instance MonoidEndoFolder (FragExpr a) where
+  monoidFold f = let recur = monoidFold f in \case
+    ZeroF -> f ZeroF
+    PairF a b -> mconcat [f (PairF a b), recur a, recur b]
+    EnvF -> f EnvF
+    SetEnvF x -> mconcat [f (SetEnvF x), recur x]
+    DeferF ind -> f $ DeferF ind
+    AbortF -> f AbortF
+    GateF l r -> mconcat [f (GateF l r), recur l, recur r]
+    LeftF x -> f (LeftF x) <> recur x
+    RightF x -> f (RightF x) <> recur x
+    TraceF -> f TraceF
+    AuxF a -> f $ AuxF a
+
+instance MonadMapper (FragExpr a) where
+  mMap f = let recur = mMap f in \case
+    ZeroF -> f ZeroF
+    PairF a b -> (PairF <$> recur a <*> recur b) >>= f
+    EnvF -> f EnvF
+    SetEnvF x -> (SetEnvF <$> recur x) >>= f
+    DeferF ind -> f $ DeferF ind
+    AbortF -> f AbortF
+    GateF l r -> (GateF <$> recur l <*> recur r) >>= f
+    LeftF x -> (LeftF <$> recur x) >>= f
+    RightF x -> (RightF <$> recur x) >>= f
+    TraceF -> f TraceF
+    AuxF x -> f $ AuxF x
+
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
+{-
 data BreakExtras
-  = UnsizedRecursion
+  = UnsizedRecursion Int
   deriving Show
+-}
+newtype BreakExtras = UnsizedRecursion { unUnsizedRecursion :: Int } deriving (Eq, Ord, Show, Enum)
 
 type ParserTerm l v = Fix (ParserTermF l v)
 
@@ -183,9 +214,9 @@ type Term2 = Fix (ParserTermF () Int)
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving Show
 
-type BreakState a = State (FragIndex, Map FragIndex (FragExpr a))
+type BreakState a b = State (b, FragIndex, Map FragIndex (FragExpr a))
 
-type BreakState' a = BreakState a (FragExpr a)
+type BreakState' a b = BreakState a b (FragExpr a)
 
 type IndExpr = ExprA EIndex
 
@@ -201,17 +232,17 @@ instance EndoMapper IExpr where
   endoMap f (PRight x) = f $ PRight (endoMap f x)
   endoMap f Trace = f Trace
 
-instance EitherEndoMapper IExpr where
-  eitherEndoMap f Zero = f Zero
-  eitherEndoMap f (Pair a b) = (Pair <$> eitherEndoMap f a <*> eitherEndoMap f b) >>= f
-  eitherEndoMap f Env = f Env
-  eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f Abort = f Abort
-  eitherEndoMap f (Gate l r) = (Gate <$> eitherEndoMap f l <*> eitherEndoMap f r) >>= f
-  eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f Trace = f Trace
+instance MonadMapper IExpr where
+  mMap f Zero = f Zero
+  mMap f (Pair a b) = (Pair <$> mMap f a <*> mMap f b) >>= f
+  mMap f Env = f Env
+  mMap f (SetEnv x) = (SetEnv <$> mMap f x) >>= f
+  mMap f (Defer x) = (Defer <$> mMap f x) >>= f
+  mMap f Abort = f Abort
+  mMap f (Gate l r) = (Gate <$> mMap f l <*> mMap f r) >>= f
+  mMap f (PLeft x) = (PLeft <$> mMap f x) >>= f
+  mMap f (PRight x) = (PRight <$> mMap f x) >>= f
+  mMap f Trace = f Trace
 
 instance MonoidEndoFolder IExpr where
   monoidFold f Zero = f Zero
@@ -374,37 +405,43 @@ pattern ToChurch <-
       (Lam (Lam (Lam FirstArg)))
     )
 
-deferF :: BreakState' a -> BreakState' a
+deferF :: BreakState' a b -> BreakState' a b
 deferF x = do
   bx <- x
-  (fi@(FragIndex i), fragMap) <- State.get
-  State.put (FragIndex (i + 1), Map.insert fi bx fragMap)
+  (uri, fi@(FragIndex i), fragMap) <- State.get
+  State.put (uri, FragIndex (i + 1), Map.insert fi bx fragMap)
   pure $ DeferF fi
 
-appF :: BreakState' a -> BreakState' a -> BreakState' a
+appF :: BreakState' a b -> BreakState' a b -> BreakState' a b
 appF c i =
   let twiddleF = deferF $ pure (PairF (LeftF (RightF EnvF)) (PairF (LeftF EnvF) (RightF (RightF EnvF))))
   in (\tf p -> SetEnvF (SetEnvF (PairF tf p))) <$> twiddleF <*> (PairF <$> i <*> c)
 
-lamF :: BreakState' a -> BreakState' a
+lamF :: BreakState' a b -> BreakState' a b
 lamF x = (\f -> PairF f EnvF) <$> deferF x
 
-clamF :: BreakState' a -> BreakState' a
+clamF :: BreakState' a b -> BreakState' a b
 clamF x = (\f -> PairF f ZeroF) <$> deferF x
 
-toChurchF :: Int -> BreakState' a
+toChurchF :: Int -> BreakState' a b
 toChurchF x' =
   let inner 0 = pure $ LeftF EnvF
       inner x = appF (pure $ LeftF (RightF EnvF)) (inner (x - 1))
   in lamF (lamF (inner x'))
 
-partialFixF :: Int -> BreakState' a
+partialFixF :: Int -> BreakState' a b
 partialFixF i =
   let firstArgF = pure $ LeftF EnvF
       secondArgF = pure $ LeftF (RightF EnvF)
       abortMessage = s2gF "recursion depth limit exceeded ~"
       abrt = SetEnvF . PairF AbortF <$> abortMessage
   in clamF (lamF (appF (appF (toChurchF i) secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
+
+nextBreakToken :: Enum b => BreakState a b b
+nextBreakToken = do
+  (token, fi, fm) <- State.get
+  State.put (succ token, fi, fm)
+  pure token
 
 pattern FirstArgA :: ExprA a
 pattern FirstArgA <- PLeftA (EnvA _) _
@@ -485,6 +522,55 @@ instance VariableTyped PartialType where
     PairTypeP a b -> getChildVariableIndices a <> getChildVariableIndices b
     _ -> mempty
 
+data PossibleType
+  = ZeroTypeO
+  | AnyTypeO
+  | TypeVariableO Int
+  | EitherType PossibleType PossibleType
+  | ArrTypeO PossibleType PossibleType
+  | PairTypeO PossibleType PossibleType
+  deriving (Eq, Ord, Show)
+
+instance VariableTyped PossibleType where
+  typeVariable = TypeVariableO
+  getVariableIndex = \case
+    TypeVariableO i -> pure i
+    _ -> empty
+  getChildVariableIndices = \case
+    TypeVariableO i -> DList.singleton i
+    ArrTypeO a b -> getChildVariableIndices a <> getChildVariableIndices b
+    PairTypeO a b -> getChildVariableIndices a <> getChildVariableIndices b
+    EitherType a b -> getChildVariableIndices a <> getChildVariableIndices b
+    _ -> mempty
+
+instance EndoMapper PossibleType where
+  endoMap f = let recur = endoMap f in \case
+    ZeroTypeO -> f ZeroTypeO
+    AnyTypeO -> f AnyTypeO
+    t@(TypeVariableO _) -> f t
+    PairTypeO a b -> f $ PairTypeO (recur a) (recur b)
+    ArrTypeO a b -> f $ ArrTypeO (recur a) (recur b)
+    EitherType a b -> f $ EitherType (recur a) (recur b)
+
+data ContaminatedType
+  = ZeroTypeC
+  | AnyTypeC
+  | TypeVariableC Int
+  | ArrTypeC Bool ContaminatedType ContaminatedType
+  | PairTypeC ContaminatedType ContaminatedType
+  deriving (Eq, Ord, Show)
+
+instance VariableTyped ContaminatedType where
+  typeVariable = TypeVariableC
+  getVariableIndex = \case
+    TypeVariableC i -> pure i
+    _ -> empty
+  getChildVariableIndices = \case
+    TypeVariableC i -> DList.singleton i
+    ArrTypeC _ a b -> getChildVariableIndices a <> getChildVariableIndices b
+    PairTypeC a b -> getChildVariableIndices a <> getChildVariableIndices b
+    _ -> mempty
+
 newtype PrettyPartialType = PrettyPartialType PartialType
 
 showInternalP at@(ArrTypeP _ _) = concat ["(", show $ PrettyPartialType at, ")"]
@@ -561,14 +647,14 @@ toChurch x =
       inner x = app (PLeft $ PRight Env) (inner (x - 1))
   in lam (lam (inner x))
 
-i2gF :: Int -> BreakState' a
+i2gF :: Int -> BreakState' a b
 i2gF 0 = pure ZeroF
 i2gF n = PairF <$> i2gF (n - 1) <*> pure ZeroF
 
-ints2gF :: [Int] -> BreakState' a
+ints2gF :: [Int] -> BreakState' a b
 ints2gF = foldr (\i g -> PairF <$> i2gF i <*> g) (pure ZeroF)
 
-s2gF :: String -> BreakState' a
+s2gF :: String -> BreakState' a b
 s2gF = ints2gF . map ord
 
 -- convention is numbers are left-nested pairs with zero on right

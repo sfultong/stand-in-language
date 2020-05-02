@@ -103,7 +103,7 @@ debruijinizedTerm parser str = do
              Left e -> error . errorBundlePretty $ e
   debruijinize [] t1
 
-splitExpr' :: Term2 -> BreakState' BreakExtras
+splitExpr' :: Term2 -> BreakState' BreakExtras BreakExtras
 splitExpr' = \case
   (Fix TZero) -> pure ZeroF
   Fix (TPair a b) -> PairF <$> splitExpr' a <*> splitExpr' b
@@ -118,16 +118,16 @@ splitExpr' = \case
   Fix (TTrace x) -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
   Fix (TLam (Open ()) x) -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
   Fix (TLam (Closed ()) x) -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
-  Fix TLimitedRecursion -> pure $ AuxF UnsizedRecursion
+  Fix TLimitedRecursion -> AuxF <$> nextBreakToken
 
 splitExpr :: Term2 -> Term3
-splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.empty)
+splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
               in Term3 $ Map.insert (FragIndex 0) bf m
 
 convertPT :: Int -> Term3 -> Term4
 convertPT n (Term3 termMap) =
   let changeTerm = \case
-        AuxF UnsizedRecursion -> partialFixF n
+        AuxF (UnsizedRecursion _) -> partialFixF n
         ZeroF -> pure ZeroF
         PairF a b -> PairF <$> changeTerm a <*> changeTerm b
         EnvF -> pure EnvF
@@ -142,8 +142,8 @@ convertPT n (Term3 termMap) =
       startKey = succ . fst $ Map.findMax termMap
       newMapBuilder = do
         changedTermMap <- mmap
-        State.modify (\(i,m) -> (i, Map.union changedTermMap m))
-      (_,newMap) = State.execState newMapBuilder (startKey, Map.empty)
+        State.modify (\(t,i,m) -> (t,i, Map.union changedTermMap m))
+      (_,_,newMap) = State.execState newMapBuilder (0,startKey, Map.empty)
   in Term4 newMap
 
 resolve :: String -> ParserState -> Maybe Term1

@@ -33,6 +33,7 @@ library
                      , SIL.Llvm
                      , SIL.Optimizer
                      , SIL.Parser
+                     , SIL.Possible
                      , SIL.RunTime
                      , SIL.TypeChecker
                      , SIL.Serializer
