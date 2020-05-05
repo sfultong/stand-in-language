@@ -1,12 +1,31 @@
 -- main =  \input -> (0,"Hello, world!")
 
+drawPiece = \piece alt -> if piece
+                             then if left piece
+                                     then "O"
+                                     else "X"
+                             else alt
 
--- main = \input ->  let x = "Hello, world!"
---                       y = 0
---                       f = (x,y)
+drawBoard = \pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
+                           alt = (n succ (left "1"), 0)
+                           dp = \n -> drawPiece (getPiece n) alt
+                           blankRow = "-+-+-\n"
+                           row5 = concat [dp $6, "|", dp $7, "|", dp $8, "\n"]
+                           row4 = concat [blankRow, row5]
+                           row3 = concat [dp $3, "|", dp $4, "|", dp $5, "\n", row4]
+                           row2 = concat [blankRow, row3]
+                           row1 = concat [dp $0, "|", dp $1, "|", dp $2, "\n", row2]
+                       in row1
+
+emptyBoard = [0,0,0,0,0,0,0,0,0]
+
+main = \input ->  let x = drawBoard emptyBoard
+                      y = 0
+                      f = (x,y)
+                  in f
+
+-- main = \input ->  let x = "0"
+--                       y = "0"
+--                       f = (0, concat [x,y])
 --                   in f
 
-main = \input ->  let x = "0"
-                      y = "0"
-                      f = (0, concat [x,y])
-                  in f

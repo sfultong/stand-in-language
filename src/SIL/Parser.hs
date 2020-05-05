@@ -411,13 +411,10 @@ parseLet = do
   lvl <- L.indentLevel
   manyTill (parseSameLvl lvl parseLetAssignment) (reserved "in") <* scn
   expr <- parseLongExpr <* scn
-  
   intermediateState <- State.get
-  let oexpr = optimizeLetBindingsReference intermediateState expr
-      oexpr' = applyUntilNoChange (optimizeLetBindingsReference intermediateState) oexpr
-  
+  let oexpr = applyUntilNoChange (optimizeLetBindingsReference intermediateState) expr
   State.put initialState
-  pure oexpr'
+  pure oexpr
 
 -- |Parse long expression.
 parseLongExpr :: SILParser Term1
@@ -519,7 +516,7 @@ addLetBound name expr ps =
 -- (\f1 f2 -> [f1, f2]) f f`
 optimizeTopLevelBindingsReference :: ParserState -> Term1 -> Term1
 optimizeTopLevelBindingsReference parserState annoExp =
-  optimizeBindingsReference parserState topLevelBindingNames (TVar . Right) annoExp
+  optimizeBindingsReference parserState topLevelBindingNames (\str -> (bound parserState) Map.! str) annoExp
 
 optimizeLetBindingsReference :: ParserState -> Term1 -> Term1
 optimizeLetBindingsReference parserState annoExp =
@@ -554,11 +551,13 @@ parseAssignment addBound = do
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr
-      appLambdaAnnoExp = optimizeTopLevelBindingsReference parserState annoExp
-      assign ps = case addBound var appLambdaAnnoExp ps of
+      oAnnoExp = applyUntilNoChange (optimizeTopLevelBindingsReference parserState) annoExp
+      assign ps = case addBound var oAnnoExp ps of
         Just nps -> nps
         _ -> error $ "shadowing of binding not allowed " ++ var
   State.modify assign
+
+
 
  -- |Parse top level expressions.
 parseTopLevel :: SILParser Bindings
@@ -650,18 +649,11 @@ parseSuccessful parser str = do
     Right _ -> return True
     Left _ -> return False
 
-
--- resolveAllTopLevel :: Bindings -> Set String -> Term1 -> Term1
-
 -- |Parse with specified prelude.
 parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
 parseWithPrelude prelude str = do
   -- TODO: check what happens with overlaping definitions with initialMap
   let startState = ParserState (prelude <> initialMap) (Map.empty)
-      -- parseTopLevel' = do
-      --   parseTopLevel
-        
-        
       p = State.runStateT parseTopLevel startState
   case runParser p "" str of
     Right (a, s) -> Right a
@@ -677,9 +669,4 @@ parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"
     Just main -> splitExpr <$> debruijinize [] main
-      -- do
-      -- ps <- State.get
-      
-      -- let tlv = topLevelBindingNames
-      --     main' = resolveAllTopLevel tlv fv main
 

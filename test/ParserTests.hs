@@ -197,6 +197,7 @@ unitTests = testGroup "Unit tests"
       case parseWithPrelude prelude mainWithTopLevelBindings of
         Right x -> do
           expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) f g f"
+          -- liftIO . putStrLn . show $
           (x Map.! "h") `compare` expected @?= EQ
         Left err -> assertFailure . show $ err
   ]
@@ -211,7 +212,7 @@ unitTests = testGroup "Unit tests"
 -- Parsec implementation
 testWtictactoe = do
   preludeFile <- Strict.readFile "Prelude.sil"
-  tictactoe <- Strict.readFile "hello.sil"
+  tictactoe <- Strict.readFile "tictactoe.sil"
   let
     prelude = case parsePrelude preludeFile of
                 Right p -> p
