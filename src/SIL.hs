@@ -154,66 +154,6 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
       r <- sr
       pure $ indent i (str <> "\n") <> l <> "\n" <> r
 
-
--- instance (Show l, Show v) => Show (ParserTerm l v) where
---   show x = State.evalState (cata alg $ x) 0 where
---     alg :: (Show l, Show v) => (Base (ParserTerm l v)) (State Int String) -> State Int String
---     alg TZeroF = sindent "0"
---     alg (TPairF sl sr) = do
---       i <- State.get
---       l <- sl
---       r <- sr
---       pure $ indent i "(" <> clean l <> ", " <> clean r <>")"
---       -- twoChildren "TPair" sl sr
---     alg (TVarF v) = sindent $ "TVar " <> show v
---     alg (TAppF sl sr) = do -- twoChildren "TApp" sl sr
---       i <- State.get
---       l <- sl
---       r <- sr
---       pure $ indent i "(" <> clean r <> ") " <> "(" <> clean l <> ")"
---     alg (TCheckF sl sr) = twoChildren "TCheck" sl sr
---     alg (TITEF sx sy sz) = do
---       i <- State.get
---       State.modify (+2)
---       x <- sx
---       State.modify (+2)
---       y <- sy
---       z <- sz
---       pure $ indent i "IF\n" <> x <> "\n" <> indent (i+2) "THEN\n" <> y <> "\n" <> indent (i+2) "ELSE\n" <> z
---     alg (TLeftF l) = oneChildren "TLeft" l
---     alg (TRightF r) = oneChildren "TRight" r
---     alg (TTraceF x) = oneChildren "TTrace" x
---     alg (TLamF l sx) = do
---       i <- State.get
---       State.modify (+2)
---       x <- sx
---       pure $ indent i "λ " <> show l <> " ->\n" <> x
---     alg TLimitedRecursionF = sindent "TLimitedRecursion"
---     sindent :: String -> State Int String
---     sindent str = State.get >>= (\i -> pure $ indent i str)
---     indent i str = replicate i ' ' <> str
---     oneChildren :: String -> State Int String -> State Int String
---     oneChildren str sx = do
---       i <- State.get
---       x <- sx
---       pure $ indent i str <> " " <> x
---     twoChildren :: String -> State Int String -> State Int String -> State Int String
---     twoChildren str sl sr = do
---       i <- State.get
---       State.modify (+2)
---       l <- sl
---       r <- sr
---       pure $ indent i (str <> "\n") <> l <> "\n" <> r
---     clean str = dropUntil (\c -> c /= ' ') str
-
--- -- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
--- dropUntil :: (a -> Bool) -> [a] -> [a]
--- dropUntil _ [] = []
--- dropUntil p x@(x1:_) =
---   case p x1 of
---     False -> dropUntil p (drop 1 x)
---     True -> x
-
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 
 data FragExpr a
