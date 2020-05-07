@@ -47,13 +47,14 @@ addBound name expr (ParserState bound) =
 -- |Int to ParserTerm
 i2t :: Int -> ParserTerm l v
 i2t = ana coalg where
-  coalg :: Int -> ParserTermF l v Int
-  coalg 0 = TZero
-  coalg n = TPair (n-1) 0
+  coalg :: Int -> Base (ParserTerm l v) Int
+  coalg 0 = TZeroF
+  coalg n = TPairF (n-1) 0
 
 -- |List of Int's to ParserTerm
 ints2t :: [Int] -> ParserTerm l v
-ints2t = foldr (\i t -> tpair (i2t i) t) tzero
+ints2t = foldr (\i t -> TPair (i2t i) t) TZero
+
 
 -- |String to ParserTerm
 s2t :: String -> ParserTerm l v
@@ -61,33 +62,34 @@ s2t = ints2t . map ord
 
 -- |Int to Church encoding
 i2c :: Int -> Term1
-i2c x = tlam (Closed (Left ())) (tlam (Open (Left ())) (inner x))
+i2c x = TLam (Closed (Left ())) (TLam (Open (Left ())) (inner x))
   where inner :: Int -> Term1
         inner = apo coalg
-        coalg :: Int -> Term1F (Either Term1 Int)
-        coalg 0 = TVar (Left 0)
-        coalg n = TApp (Left . Fix . TVar $ Left 1) (Right $ n - 1)
+        -- coalg :: Int -> Term1F (Either Term1 Int)
+        coalg :: Int -> Base Term1 (Either Term1 Int)
+        coalg 0 = TVarF (Left 0)
+        coalg n = TAppF (Left . TVar $ Left 1) (Right $ n - 1)
 
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
-debruijinize _ (Fix (TZero)) = pure $ Fix TZero
-debruijinize vl (Fix (TPair a b)) = tpair <$> debruijinize vl a <*> debruijinize vl b
-debruijinize _ (Fix (TVar (Left i))) = pure $ tvar i
-debruijinize vl (Fix (TVar (Right n))) = case elemIndex n vl of
-                                           Just i -> pure $ tvar i
-                                           Nothing -> fail $ "undefined identifier " ++ n
-debruijinize vl (Fix (TApp i c)) = tapp <$> debruijinize vl i <*> debruijinize vl c
-debruijinize vl (Fix (TCheck c tc)) = tcheck <$> debruijinize vl c <*> debruijinize vl tc
-debruijinize vl (Fix (TITE i t e)) = tite <$> debruijinize vl i
-                                          <*> debruijinize vl t
-                                          <*> debruijinize vl e
-debruijinize vl (Fix (TLeft x)) = tleft <$> debruijinize vl x
-debruijinize vl (Fix (TRight x)) = tright <$> debruijinize vl x
-debruijinize vl (Fix (TTrace x)) = ttrace <$> debruijinize vl x
-debruijinize vl (Fix (TLam (Open (Left _)) x)) = tlam (Open ()) <$> debruijinize ("-- dummy" : vl) x
-debruijinize vl (Fix (TLam (Closed (Left _)) x)) = tlam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
-debruijinize vl (Fix (TLam (Open (Right n)) x)) = tlam (Open ()) <$> debruijinize (n : vl) x
-debruijinize vl (Fix (TLam (Closed (Right n)) x)) = tlam (Closed ()) <$> debruijinize (n : vl) x
-debruijinize _ (Fix (TLimitedRecursion)) = pure tlimitedrecursion
+debruijinize _ (TZero) = pure $ TZero
+debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
+debruijinize _ (TVar (Left i)) = pure $ TVar i
+debruijinize vl (TVar (Right n)) = case elemIndex n vl of
+                                     Just i -> pure $ TVar i
+                                     Nothing -> fail $ "undefined identifier " ++ n
+debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
+debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
+debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i
+                                    <*> debruijinize vl t
+                                    <*> debruijinize vl e
+debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
+debruijinize vl (TRight x) = TRight <$> debruijinize vl x
+debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
+debruijinize vl (TLam (Open (Left _)) x) = TLam (Open ()) <$> debruijinize ("-- dummy" : vl) x
+debruijinize vl (TLam (Closed (Left _)) x) = TLam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
+debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n : vl) x
+debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
+debruijinize _ (TLimitedRecursion) = pure TLimitedRecursion
 
 -- |Helper function to get Term2
 debruijinizedTerm :: SILParser Term1 -> String -> IO Term2
@@ -105,20 +107,20 @@ debruijinizedTerm parser str = do
 
 splitExpr' :: Term2 -> BreakState' BreakExtras
 splitExpr' = \case
-  (Fix TZero) -> pure ZeroF
-  Fix (TPair a b) -> PairF <$> splitExpr' a <*> splitExpr' b
-  Fix (TVar n) -> pure $ varNF n
-  Fix (TApp c i) -> appF (splitExpr' c) (splitExpr' i)
-  Fix (TCheck c tc) ->
+  TZero -> pure ZeroF
+  TPair a b -> PairF <$> splitExpr' a <*> splitExpr' b
+  TVar n -> pure $ varNF n
+  TApp c i -> appF (splitExpr' c) (splitExpr' i)
+  TCheck c tc ->
     let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
     in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
-  Fix (TITE i t e) -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
-  Fix (TLeft x) -> LeftF <$> splitExpr' x
-  Fix (TRight x) -> RightF <$> splitExpr' x
-  Fix (TTrace x) -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
-  Fix (TLam (Open ()) x) -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
-  Fix (TLam (Closed ()) x) -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
-  Fix TLimitedRecursion -> pure $ AuxF UnsizedRecursion
+  TITE i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
+  TLeft x -> LeftF <$> splitExpr' x
+  TRight x -> RightF <$> splitExpr' x
+  TTrace x -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
+  TLam (Open ()) x -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
+  TLam (Closed ()) x -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
+  TLimitedRecursion -> pure $ AuxF UnsizedRecursion
 
 splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.empty)
@@ -149,7 +151,7 @@ convertPT n (Term3 termMap) =
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
                                    then Map.lookup name bound
-                                   else Just . tvar . Right $ name
+                                   else Just . TVar . Right $ name
 
 -- |Line comments start with "--".
 lineComment :: SILParser ()
@@ -237,13 +239,13 @@ parsePair = parens $ do
   a <- scn *> parseLongExpr <* scn
   symbol "," <* scn
   b <- parseLongExpr <* scn
-  pure $ tpair a b
+  pure $ TPair a b
 
 -- |Parse a list.
 parseList :: SILParser Term1
 parseList = do
   exprs <- brackets (commaSep (scn *> parseLongExpr <*scn))
-  return $ foldr tpair tzero exprs
+  return $ foldr TPair TZero exprs
 
 -- TODO: make error more descriptive
 -- |Parse ITE (which stands for "if then else").
@@ -255,7 +257,7 @@ parseITE = do
   thenExpr <- (parseLongExpr <|> parseSingleExpr) <* scn
   reserved "else" <* scn
   elseExpr <- parseLongExpr <* scn
-  return $ tite cond thenExpr elseExpr
+  return $ TITE cond thenExpr elseExpr
 
 -- |Parse a single expression.
 parseSingleExpr :: SILParser Term1
@@ -277,49 +279,49 @@ parseApplied = do
   case fargs of
     (f:args) -> do
       case f of
-        Fix (TVar (Right "left")) -> case args of
-          [t] -> pure . tleft $ t
+        TVar (Right "left") -> case args of
+          [t] -> pure . TLeft $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          (x:xs) -> pure $ foldl tapp (tleft x) xs
-        Fix (TVar (Right "right")) -> case args of
-          [t] -> pure . tright $ t
+          (x:xs) -> pure $ foldl TApp (TLeft x) xs
+        TVar (Right "right") -> case args of
+          [t] -> pure . TRight $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          (x:xs) -> pure $ foldl tapp (tright x) xs
-        Fix (TVar (Right "trace")) -> case args of
-          [t] -> pure . ttrace $ t
+          (x:xs) -> pure $ foldl TApp (TRight x) xs
+        TVar (Right "trace") -> case args of
+          [t] -> pure . TTrace $ t
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse trace. Too many arguments applied to trace."
-        Fix (TVar (Right "pair")) -> case args of
-          [a, b] -> pure $ tpair a b
-          [a] -> pure $ tlam (Open (Right "x")) . tpair a . tvar . Right $ "x"
+        TVar (Right "pair") -> case args of
+          [a, b] -> pure $ TPair a b
+          [a] -> pure $ TLam (Open (Right "x")) . TPair a . TVar . Right $ "x"
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse pair. Too many arguments applied to pair."
-        Fix (TVar (Right "app")) -> case args of
-          [a, b] -> pure $ tapp a b
-          [a] -> pure $ tlam (Open (Right "x")) . tapp a . tvar . Right $ "x"
+        TVar (Right "app") -> case args of
+          [a, b] -> pure $ TApp a b
+          [a] -> pure $ TLam (Open (Right "x")) . TApp a . TVar . Right $ "x"
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse app. Too many arguments applied to app."
-        Fix (TVar (Right "check")) -> case args of
-          [a, b] -> pure $ tcheck a b
-          [a] -> pure $ tlam (Open (Right "x")) . tcheck a . tvar . Right $ "x"
+        TVar (Right "check") -> case args of
+          [a, b] -> pure $ TCheck a b
+          [a] -> pure $ TLam (Open (Right "x")) . TCheck a . TVar . Right $ "x"
           [] -> fail "This should be imposible. I'm being called fro parseApplied."
           _ -> fail "Failed to parse check. Too many arguments applied to check."
-        _ -> pure $ foldl tapp f args
+        _ -> pure $ foldl TApp f args
     _ -> fail "expected expression"
 
 -- |Collect all variable names in a `Term1` expresion excluding terms binded
 --  to lambda args
 vars :: Term1 -> Set String
 vars = cata alg where
-  alg :: Term1F (Set String) -> Set String
-  alg (TVar (Right n)) = Set.singleton n
-  alg (TLam (Open (Right n)) x) = case Set.member n x of
-                                    False -> x
-                                    True -> Set.delete n x
-  alg (TLam (Closed (Right n)) x) = case Set.member n x of
-                                      False -> x
-                                      True -> Set.delete n x
+  alg :: Base Term1 (Set String) -> Set String
+  alg (TVarF (Right n)) = Set.singleton n
+  alg (TLamF (Open (Right n)) x) = del n x
+  alg (TLamF (Closed (Right n)) x) = del n x
   alg e = F.fold e
+  del :: String -> Set String -> Set String
+  del n x = case Set.member n x of
+              False -> x
+              True -> Set.delete n x
 
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
@@ -335,9 +337,9 @@ parseLambda = do
       variableSet = Set.fromList variables
       unbound = ((v \\ bindingsNames) \\ variableSet)
   case unbound == Set.empty of
-    True -> return . tlam (Closed (Right $ head variables)) $
-              foldr (\n -> tlam (Open (Right n))) term1expr (tail variables)
-    _ -> return $ foldr (\n -> tlam (Open (Right n))) term1expr variables
+    True -> return . TLam (Closed (Right $ head variables)) $
+              foldr (\n -> TLam (Open (Right n))) term1expr (tail variables)
+    _ -> return $ foldr (\n -> TLam (Open (Right n))) term1expr variables
 
 -- |Parser that fails if indent level is not `pos`.
 parseSameLvl :: Pos -> SILParser a -> SILParser a
@@ -373,10 +375,10 @@ parseChurch = (i2c . fromInteger) <$> (symbol "$" *> integer)
 
 -- |Parse refinement check.
 parsePartialFix :: SILParser Term1
-parsePartialFix = symbol "?" *> pure tlimitedrecursion
+parsePartialFix = symbol "?" *> pure TLimitedRecursion
 
 parseRefinementCheck :: SILParser (Term1 -> Term1)
-parseRefinementCheck = flip tcheck <$> (symbol ":" *> parseLongExpr)
+parseRefinementCheck = flip TCheck <$> (symbol ":" *> parseLongExpr)
 
 -- |Parse assignment.
 parseAssignment :: SILParser ()
@@ -405,28 +407,28 @@ debugIndent i = show $ State.runState i (initialPos "debug")
 
 -- |This allows parsing of AST instructions as functions (complete lambdas).
 initialMap = fromList
-  [ ("zero", Fix TZero)
-  , ("left", Fix (TLam (Closed (Right "x"))
-                   (Fix (TLeft (Fix (TVar (Right "x")))))))
-  , ("right", Fix (TLam (Closed (Right "x"))
-                    (Fix (TRight (Fix (TVar (Right "x")))))))
-  , ("trace", Fix (TLam (Closed (Right "x"))
-                    (Fix (TTrace (Fix (TVar (Right "x")))))))
-  , ("pair", Fix (TLam (Closed (Right "x"))
-                   (Fix (TLam (Open (Right "y"))
-                          (Fix (TPair
-                                 (Fix (TVar (Right "x")))
-                                 (Fix (TVar (Right "y")))))))))
-  , ("app", Fix (TLam (Closed (Right "x"))
-                  (Fix (TLam (Open (Right "y"))
-                         (Fix (TApp
-                                (Fix (TVar (Right "x")))
-                                (Fix (TVar (Right "y")))))))))
-  , ("check", Fix (TLam (Closed (Right "x"))
-                    (Fix (TLam (Open (Right "y"))
-                           (Fix (TCheck
-                                  (Fix (TVar (Right "x")))
-                                  (Fix (TVar (Right "y")))))))))
+  [ ("zero", TZero)
+  , ("left", TLam (Closed (Right "x"))
+               (TLeft (TVar (Right "x"))))
+  , ("right", TLam (Closed (Right "x"))
+                (TRight (TVar (Right "x"))))
+  , ("trace", TLam (Closed (Right "x"))
+                (TTrace (TVar (Right "x"))))
+  , ("pair", TLam (Closed (Right "x"))
+               (TLam (Open (Right "y"))
+                 (TPair
+                   (TVar (Right "x"))
+                   (TVar (Right "y")))))
+  , ("app", TLam (Closed (Right "x"))
+              (TLam (Open (Right "y"))
+                (TApp
+                  (TVar (Right "x"))
+                  (TVar (Right "y")))))
+  , ("check", TLam (Closed (Right "x"))
+                (TLam (Open (Right "y"))
+                  (TCheck
+                    (TVar (Right "x"))
+                    (TVar (Right "y")))))
   ]
 
 -- |Helper function to test parsers without a result.
