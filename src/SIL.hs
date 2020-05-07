@@ -130,9 +130,9 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
       y <- sy
       z <- sz
       pure $ indent i "TITE\n" <> x <> "\n" <> y <> "\n" <> z
-    alg (TLeftF l) = oneChildren "TLeft" l
-    alg (TRightF r) = oneChildren "TRight" r
-    alg (TTraceF x) = oneChildren "TTrace" x
+    alg (TLeftF l) = oneChild "TLeft" l
+    alg (TRightF r) = oneChild "TRight" r
+    alg (TTraceF x) = oneChild "TTrace" x
     alg (TLamF l sx) = do
       i <- State.get
       State.modify (+2)
@@ -142,8 +142,8 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
     sindent :: String -> State Int String
     sindent str = State.get >>= (\i -> pure $ indent i str)
     indent i str = replicate i ' ' <> str
-    oneChildren :: String -> State Int String -> State Int String
-    oneChildren str sx = do
+    oneChild :: String -> State Int String -> State Int String
+    oneChild str sx = do
       i <- State.get
       x <- sx
       pure $ indent i str <> " " <> x
