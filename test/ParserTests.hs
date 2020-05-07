@@ -159,10 +159,10 @@ unitTests = testGroup "Unit tests"
       let fv = vars expr1
       fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
       res `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x y -> (x, y)"
       res `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 3" $ do
       res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
@@ -182,60 +182,60 @@ unitTests = testGroup "Unit tests"
   ]
 
 -- | SIL Parser AST representation of: \x -> \y -> \z -> z
-expr6 = Fix (TLam (Closed (Right "x"))
-              (Fix (TLam (Closed (Right "y"))
-                     (Fix (TLam (Closed (Right "z"))
-                            (Fix (TVar (Right "z"))))))))
+expr6 = TLam (Closed (Right "x"))
+          (TLam (Closed (Right "y"))
+            (TLam (Closed (Right "z"))
+              (TVar (Right "z"))))
 
 -- | SIL Parser AST representation of: \x -> (x, x)
-expr5 = Fix (TLam (Closed (Right "x"))
-              (Fix (TPair
-                     (Fix (TVar (Right "x")))
-                     (Fix (TVar (Right "x"))))))
+expr5 = TLam (Closed (Right "x"))
+          (TPair
+            (TVar (Right "x"))
+            (TVar (Right "x")))
 
 -- | SIL Parser AST representation of: \x -> \x -> \x -> x
-expr4 = Fix (TLam (Closed (Right "x"))
-              (Fix (TLam (Closed (Right "x"))
-                     (Fix (TLam (Closed (Right "x"))
-                            (Fix (TVar (Right "x"))))))))
+expr4 = TLam (Closed (Right "x"))
+          (TLam (Closed (Right "x"))
+            (TLam (Closed (Right "x"))
+              (TVar (Right "x"))))
 
 -- | SIL Parser AST representation of: \x -> \y -> \z -> [x,y,z]
-expr3 = Fix (TLam (Closed (Right "x"))
-              (Fix (TLam (Open (Right "y"))
-                     (Fix (TLam (Open (Right "z"))
-                            (Fix (TPair
-                                   (Fix (TVar (Right "x")))
-                                   (Fix (TPair
-                                          (Fix (TVar (Right "y")))
-                                          (Fix (TPair
-                                                 (Fix (TVar (Right "z")))
-                                                 (Fix TZero))))))))))))
+expr3 = TLam (Closed (Right "x"))
+          (TLam (Open (Right "y"))
+            (TLam (Open (Right "z"))
+              (TPair
+                (TVar (Right "x"))
+                (TPair
+                  (TVar (Right "y"))
+                  (TPair
+                    (TVar (Right "z"))
+                    TZero)))))
 
--- | SIL Parser AST representation of: \a -> (a, (\a -> (a,0)))
-expr2 = Fix (TLam (Closed (Right "a"))
-              (Fix (TPair
-                     (Fix (TVar (Right "a")))
-                     (Fix (TLam (Closed (Right "a"))
-                            (Fix (TPair
-                                   (Fix (TVar (Right "a")))
-                                   (Fix TZero))))))))
+-- | SIL Parser AST representation of: (\a -> (a, (\a -> (a,0)))) 0
+expr2 = (TLam (Closed (Right "a"))
+          (TPair
+            (TVar (Right "a"))
+            (TLam (Closed (Right "a"))
+              (TPair
+                (TVar (Right "a"))
+                TZero))))
 
 
 -- | SIL Parser AST representation of: \x -> [x, x, x]
-expr1 = Fix (TLam (Closed (Right "x"))
-             (Fix (TPair
-                    (Fix (TVar (Right "x")))
-                    (Fix (TPair
-                           (Fix (TVar (Right "x")))
-                           (Fix (TPair
-                                  (Fix (TVar (Right "x")))
-                                  (Fix TZero))))))))
+expr1 = TLam (Closed (Right "x"))
+          (TPair
+            (TVar (Right "x"))
+            (TPair
+              (TVar (Right "x"))
+              (TPair
+                (TVar (Right "x"))
+                TZero)))
 
-expr = Fix (TLam (Closed (Right "x"))
-                   (Fix (TLam (Open (Right "y"))
-                          (Fix (TPair
-                                 (Fix (TVar (Right "x")))
-                                 (Fix (TVar (Right "y"))))))))
+expr = TLam (Closed (Right "x"))
+         (TLam (Open (Right "y"))
+           (TPair
+             (TVar (Right "x"))
+             (TVar (Right "y"))))
 
 range = unlines
   [ "range = \\a b -> let layer = \\recur i -> if dMinus b i"
@@ -245,7 +245,7 @@ range = unlines
   , "r = range 2 5"
   ]
 
-closedLambdaPair = "Fix (TLam (Closed (Right \"x\")) (Fix (TLam (Open (Right \"y\")) (Fix (TPair (Fix (TVar (Right \"x\"))) (Fix (TVar (Right \"y\"))))))))"
+closedLambdaPair = TLam (Closed (Right "x")) (TLam (Open (Right "y")) (TPair (TVar (Right "x")) (TVar (Right "y"))))
 
 testLetIndentation = unlines
   [ "let x = 0"

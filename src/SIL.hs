@@ -1,27 +1,29 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DeriveFoldable #-} 
-{-#LANGUAGE DeriveFunctor #-}
-{-#LANGUAGE DeriveGeneric#-}
-{-#LANGUAGE DeriveAnyClass#-}
-{-#LANGUAGE GeneralizedNewtypeDeriving#-}
-{-#LANGUAGE LambdaCase #-}
-{-#LANGUAGE PatternSynonyms #-}
-{-#LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveTraversable #-} 
+{-# LANGUAGE DeriveGeneric#-}
+{-# LANGUAGE DeriveAnyClass#-}
+{-# LANGUAGE GeneralizedNewtypeDeriving#-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module SIL where
 
 import Control.DeepSeq
+
 import Control.Monad.Except
 import Control.Monad.State (State)
 import Data.Char
 import Data.Void
 import Data.Map (Map)
 import Data.Functor.Foldable
+import Data.Functor.Foldable.TH 
 import Data.Functor.Classes
 import GHC.Generics
-import Text.Show.Deriving (deriveShow1)
-import Data.Ord.Deriving (deriveOrd1)
-import Data.Eq.Deriving (deriveEq1)
 import qualified Data.Map as Map
 import qualified Control.Monad.State as State
 
@@ -96,56 +98,121 @@ data LamType l
   | Closed l
   deriving (Eq, Show, Ord)
 
--- | Functor to do an F-algebra for recursive schemes.
-data ParserTermF l v r
+-- | Parser AST
+data ParserTerm l v
   = TZero
-  | TPair r r
+  | TPair (ParserTerm l v) (ParserTerm l v)
   | TVar v
-  | TApp r r
-  | TCheck r r
-  | TITE r r r
-  | TLeft r
-  | TRight r
-  | TTrace r
-  | TLam (LamType l) r
+  | TApp (ParserTerm l v) (ParserTerm l v)
+  | TCheck (ParserTerm l v) (ParserTerm l v)
+  | TITE (ParserTerm l v) (ParserTerm l v) (ParserTerm l v)
+  | TLeft (ParserTerm l v)
+  | TRight (ParserTerm l v)
+  | TTrace (ParserTerm l v)
+  | TLam (LamType l) (ParserTerm l v)
   | TLimitedRecursion
-  deriving (Eq, Show, Ord, Functor, Foldable)
-deriveShow1 ''ParserTermF
-deriveEq1 ''ParserTermF
-deriveOrd1 ''ParserTermF
+  deriving (Eq, Ord, Functor, Foldable, Traversable)
+makeBaseFunctor ''ParserTerm -- * Functorial version ParserTermF
 
-tzero :: ParserTerm l v
-tzero = Fix TZero
+instance (Show l, Show v) => Show (ParserTerm l v) where
+  show x = State.evalState (cata alg $ x) 0 where
+    alg :: (Show l, Show v) => (Base (ParserTerm l v)) (State Int String) -> State Int String
+    alg TZeroF = sindent "TZero"
+    alg (TPairF sl sr) = twoChildren "TPair" sl sr
+    alg (TVarF v) = sindent $ "TVar " <> show v
+    alg (TAppF sl sr) = twoChildren "TApp" sl sr
+    alg (TCheckF sl sr) = twoChildren "TCheck" sl sr
+    alg (TITEF sx sy sz) = do
+      i <- State.get
+      State.modify (+2)
+      x <- sx
+      y <- sy
+      z <- sz
+      pure $ indent i "TITE\n" <> x <> "\n" <> y <> "\n" <> z
+    alg (TLeftF l) = oneChildren "TLeft" l
+    alg (TRightF r) = oneChildren "TRight" r
+    alg (TTraceF x) = oneChildren "TTrace" x
+    alg (TLamF l sx) = do
+      i <- State.get
+      State.modify (+2)
+      x <- sx
+      pure $ indent i "TLam " <> show l <> "\n" <> x
+    alg TLimitedRecursionF = sindent "TLimitedRecursion"
+    sindent :: String -> State Int String
+    sindent str = State.get >>= (\i -> pure $ indent i str)
+    indent i str = replicate i ' ' <> str
+    oneChildren :: String -> State Int String -> State Int String
+    oneChildren str sx = do
+      i <- State.get
+      x <- sx
+      pure $ indent i str <> " " <> x
+    twoChildren :: String -> State Int String -> State Int String -> State Int String
+    twoChildren str sl sr = do
+      i <- State.get
+      State.modify (+2)
+      l <- sl
+      r <- sr
+      pure $ indent i (str <> "\n") <> l <> "\n" <> r
 
-tpair :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
-tpair x y = Fix $ TPair x y
 
-tvar :: v -> ParserTerm l v
-tvar v = Fix $ TVar v
+-- instance (Show l, Show v) => Show (ParserTerm l v) where
+--   show x = State.evalState (cata alg $ x) 0 where
+--     alg :: (Show l, Show v) => (Base (ParserTerm l v)) (State Int String) -> State Int String
+--     alg TZeroF = sindent "0"
+--     alg (TPairF sl sr) = do
+--       i <- State.get
+--       l <- sl
+--       r <- sr
+--       pure $ indent i "(" <> clean l <> ", " <> clean r <>")"
+--       -- twoChildren "TPair" sl sr
+--     alg (TVarF v) = sindent $ "TVar " <> show v
+--     alg (TAppF sl sr) = do -- twoChildren "TApp" sl sr
+--       i <- State.get
+--       l <- sl
+--       r <- sr
+--       pure $ indent i "(" <> clean r <> ") " <> "(" <> clean l <> ")"
+--     alg (TCheckF sl sr) = twoChildren "TCheck" sl sr
+--     alg (TITEF sx sy sz) = do
+--       i <- State.get
+--       State.modify (+2)
+--       x <- sx
+--       State.modify (+2)
+--       y <- sy
+--       z <- sz
+--       pure $ indent i "IF\n" <> x <> "\n" <> indent (i+2) "THEN\n" <> y <> "\n" <> indent (i+2) "ELSE\n" <> z
+--     alg (TLeftF l) = oneChildren "TLeft" l
+--     alg (TRightF r) = oneChildren "TRight" r
+--     alg (TTraceF x) = oneChildren "TTrace" x
+--     alg (TLamF l sx) = do
+--       i <- State.get
+--       State.modify (+2)
+--       x <- sx
+--       pure $ indent i "λ " <> show l <> " ->\n" <> x
+--     alg TLimitedRecursionF = sindent "TLimitedRecursion"
+--     sindent :: String -> State Int String
+--     sindent str = State.get >>= (\i -> pure $ indent i str)
+--     indent i str = replicate i ' ' <> str
+--     oneChildren :: String -> State Int String -> State Int String
+--     oneChildren str sx = do
+--       i <- State.get
+--       x <- sx
+--       pure $ indent i str <> " " <> x
+--     twoChildren :: String -> State Int String -> State Int String -> State Int String
+--     twoChildren str sl sr = do
+--       i <- State.get
+--       State.modify (+2)
+--       l <- sl
+--       r <- sr
+--       pure $ indent i (str <> "\n") <> l <> "\n" <> r
+--     clean str = dropUntil (\c -> c /= ' ') str
 
-tapp :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
-tapp x y = Fix $ TApp x y
-
-tcheck :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v
-tcheck x y = Fix $ TCheck x y
-
-tite :: ParserTerm l v -> ParserTerm l v -> ParserTerm l v -> ParserTerm l v
-tite x y z = Fix $ TITE x y z
-
-tleft :: ParserTerm l v -> ParserTerm l v
-tleft x = Fix $ TLeft x
-
-tright :: ParserTerm l v -> ParserTerm l v
-tright x = Fix $ TRight x
-
-ttrace :: ParserTerm l v -> ParserTerm l v
-ttrace x = Fix $ TTrace x
-
-tlam :: (LamType l) -> ParserTerm l v -> ParserTerm l v
-tlam l x = Fix $ TLam l x
-
-tlimitedrecursion :: ParserTerm l v
-tlimitedrecursion = Fix TLimitedRecursion
+-- -- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
+-- dropUntil :: (a -> Bool) -> [a] -> [a]
+-- dropUntil _ [] = []
+-- dropUntil p x@(x1:_) =
+--   case p x1 of
+--     False -> dropUntil p (drop 1 x)
+--     True -> x
 
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 
@@ -169,13 +236,8 @@ data BreakExtras
   = UnsizedRecursion
   deriving Show
 
-type ParserTerm l v = Fix (ParserTermF l v)
-
-type Term1F a = ParserTermF (Either () String) (Either Int String) a
-type Term2F a = ParserTermF () Int a
-
-type Term1 = Fix (ParserTermF (Either () String) (Either Int String))
-type Term2 = Fix (ParserTermF () Int)
+type Term1 = ParserTerm (Either () String) (Either Int String)
+type Term2 = ParserTerm () Int
 
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving Show
