@@ -164,10 +164,10 @@ unitTests = testGroup "Unit tests"
       let fv = vars expr1
       fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
       res `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
+      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x y -> (x, y)"
       res `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 3" $ do
       res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
@@ -391,7 +391,7 @@ range = unlines
   , "r = range 2 5"
   ]
 
-closedLambdaPair = "TLam (Closed (Right \"x\")) (TLam (Open (Right \"y\")) (TPair (TVar (Right \"x\")) (TVar (Right \"y\"))))"
+closedLambdaPair = TLam (Closed (Right "x")) (TLam (Open (Right "y")) (TPair (TVar (Right "x")) (TVar (Right "y"))))
 
 testLetIndentation = unlines
   [ "let x = 0"

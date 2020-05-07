@@ -77,48 +77,13 @@ i2c x = TLam (Closed (Left ())) (TLam (Open (Left ())) (inner x))
         coalg 0 = TVarF (Left 0)
         coalg n = TAppF (Left . TVar $ Left 1) (Right $ n - 1)
 
-
--- TODO: Use a recursion scheme.
-resolveAllTopLevel :: Bindings -> Set String -> Term1 -> Term1
-resolveAllTopLevel tlv fv (TZero) = TZero
-resolveAllTopLevel tlv fv (TPair a b) = TPair (resolveAllTopLevel tlv fv a) (resolveAllTopLevel tlv fv b)
-resolveAllTopLevel tlv fv (TVar (Left i)) = TVar . Left $ i
-resolveAllTopLevel tlv fv (TVar (Right n)) =   case n `Set.member` fv of
-                                             True -> tlv Map.! n
-                                             False -> TVar . Right $ n
-resolveAllTopLevel tlv fv (TApp i c) = TApp (resolveAllTopLevel tlv fv i) (resolveAllTopLevel tlv fv c)
-resolveAllTopLevel tlv fv (TCheck c tc) = TCheck (resolveAllTopLevel tlv fv c) (resolveAllTopLevel tlv fv tc)
-resolveAllTopLevel tlv fv (TITE i t e) = TITE (resolveAllTopLevel tlv fv i)
-                                          (resolveAllTopLevel tlv fv t)
-                                          (resolveAllTopLevel tlv fv e)
-resolveAllTopLevel tlv fv (TLeft x) = TLeft $ resolveAllTopLevel tlv fv x
-resolveAllTopLevel tlv fv (TRight x) = TRight $ resolveAllTopLevel tlv fv x
-resolveAllTopLevel tlv fv (TTrace x) = TTrace $ resolveAllTopLevel tlv fv x
-resolveAllTopLevel tlv fv (TLam l x) = TLam l $ resolveAllTopLevel tlv fv x
-resolveAllTopLevel tlv fv TLimitedRecursion = TLimitedRecursion
-
--- t1 = do
---   ps <- State.get
---   let vs = vars t1
---       tlv = bound ps
---       isTVarRight :: Term1 -> Bool
---       isTVarRight (TVar (Right _)) = True
---       isTVarRight _ = False
---       mod :: Term1 -> Term1
---       mod (TVar (Right s)) = tlv Map.! s
---       mod x = error "woooot"
---       myshow :: Term1 -> IO ()
---       myshow = putStrLn . show
---   -- t1 & (traversed . filtered (\x -> (isTVarRight x) && x `Set.member` (TVar . Right <$> vs))) %~ mod
---   traverseOf (traversed . filtered (\x -> (isTVarRight x))) (myshow) t1
-
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (TZero) = pure $ TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize _ (TVar (Left i)) = pure $ TVar i
 debruijinize vl (TVar (Right n)) = case elemIndex n vl of
-                                           Just i -> pure $ TVar i
-                                           Nothing -> fail $ "undefined identifier " ++ n
+                                     Just i -> pure $ TVar i
+                                     Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
 debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i
@@ -200,10 +165,6 @@ parseVariable :: SILParser Term1
 parseVariable = do
   varName <- identifier
   pure . TVar . Right $ varName
-  -- parseState <- State.get
-  -- case resolve varName parseState of
-  --   Nothing -> fail $ concat  ["identifier ", varName, " undeclared"] -- unreachable
-  --   Just i -> pure i
 
 -- |Line comments start with "--".
 lineComment :: SILParser ()
@@ -361,7 +322,6 @@ vars = cata alg where
   alg (TLamF (Open (Right n)) x) = del n x
   alg (TLamF (Closed (Right n)) x) = del n x
   alg e = F.fold e
-  
   del :: String -> Set String -> Set String
   del n x = case Set.member n x of
               False -> x
