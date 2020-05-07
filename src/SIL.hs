@@ -10,6 +10,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module SIL where
 
@@ -116,7 +117,7 @@ makeBaseFunctor ''ParserTerm -- * Functorial version ParserTermF
 
 instance (Show l, Show v) => Show (ParserTerm l v) where
   show x = State.evalState (cata alg $ x) 0 where
-    alg :: (Show l, Show v) => (Base (ParserTerm l v)) (State Int String) -> State Int String
+    alg :: (Base (ParserTerm l v)) (State Int String) -> State Int String
     alg TZeroF = sindent "TZero"
     alg (TPairF sl sr) = twoChildren "TPair" sl sr
     alg (TVarF v) = sindent $ "TVar " <> show v
