@@ -1,11 +1,11 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveTraversable #-} 
-{-# LANGUAGE DeriveFoldable #-} 
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveTraversable #-} 
-{-# LANGUAGE DeriveGeneric#-}
-{-# LANGUAGE DeriveAnyClass#-}
-{-# LANGUAGE GeneralizedNewtypeDeriving#-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -115,48 +115,48 @@ data ParserTerm l v
   | TTrace (ParserTerm l v)
   | TLam (LamType l) (ParserTerm l v)
   | TLimitedRecursion
-  deriving (Eq, Ord, Functor, Foldable, Traversable)
+  deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
 makeBaseFunctor ''ParserTerm -- * Functorial version ParserTermF
 
-instance (Show l, Show v) => Show (ParserTerm l v) where
-  show x = State.evalState (cata alg $ x) 0 where
-    alg :: (Base (ParserTerm l v)) (State Int String) -> State Int String
-    alg TZeroF = sindent "TZero"
-    alg (TPairF sl sr) = twoChildren "TPair" sl sr
-    alg (TVarF v) = sindent $ "TVar " <> show v
-    alg (TAppF sl sr) = twoChildren "TApp" sl sr
-    alg (TCheckF sl sr) = twoChildren "TCheck" sl sr
-    alg (TITEF sx sy sz) = do
-      i <- State.get
-      State.modify (+2)
-      x <- sx
-      y <- sy
-      z <- sz
-      pure $ indent i "TITE\n" <> x <> "\n" <> y <> "\n" <> z
-    alg (TLeftF l) = oneChild "TLeft" l
-    alg (TRightF r) = oneChild "TRight" r
-    alg (TTraceF x) = oneChild "TTrace" x
-    alg (TLamF l sx) = do
-      i <- State.get
-      State.modify (+2)
-      x <- sx
-      pure $ indent i "TLam " <> show l <> "\n" <> x
-    alg TLimitedRecursionF = sindent "TLimitedRecursion"
-    sindent :: String -> State Int String
-    sindent str = State.get >>= (\i -> pure $ indent i str)
-    indent i str = replicate i ' ' <> str
-    oneChild :: String -> State Int String -> State Int String
-    oneChild str sx = do
-      i <- State.get
-      x <- sx
-      pure $ indent i str <> " " <> x
-    twoChildren :: String -> State Int String -> State Int String -> State Int String
-    twoChildren str sl sr = do
-      i <- State.get
-      State.modify (+2)
-      l <- sl
-      r <- sr
-      pure $ indent i (str <> "\n") <> l <> "\n" <> r
+-- instance (Show l, Show v) => Show (ParserTerm l v) where
+--   show x = State.evalState (cata alg $ x) 0 where
+--     alg :: (Base (ParserTerm l v)) (State Int String) -> State Int String
+--     alg TZeroF = sindent "TZero"
+--     alg (TPairF sl sr) = twoChildren "TPair" sl sr
+--     alg (TVarF v) = sindent $ "TVar " <> show v
+--     alg (TAppF sl sr) = twoChildren "TApp" sl sr
+--     alg (TCheckF sl sr) = twoChildren "TCheck" sl sr
+--     alg (TITEF sx sy sz) = do
+--       i <- State.get
+--       State.modify (+2)
+--       x <- sx
+--       y <- sy
+--       z <- sz
+--       pure $ indent i "TITE\n" <> x <> "\n" <> y <> "\n" <> z
+--     alg (TLeftF l) = oneChild "TLeft" l
+--     alg (TRightF r) = oneChild "TRight" r
+--     alg (TTraceF x) = oneChild "TTrace" x
+--     alg (TLamF l sx) = do
+--       i <- State.get
+--       State.modify (+2)
+--       x <- sx
+--       pure $ indent i "TLam " <> show l <> "\n" <> x
+--     alg TLimitedRecursionF = sindent "TLimitedRecursion"
+--     sindent :: String -> State Int String
+--     sindent str = State.get >>= (\i -> pure $ indent i str)
+--     indent i str = replicate i ' ' <> str
+--     oneChild :: String -> State Int String -> State Int String
+--     oneChild str sx = do
+--       i <- State.get
+--       x <- sx
+--       pure $ indent i str <> " " <> x
+--     twoChildren :: String -> State Int String -> State Int String -> State Int String
+--     twoChildren str sl sr = do
+--       i <- State.get
+--       State.modify (+2)
+--       l <- sl
+--       r <- sr
+--       pure $ indent i (str <> "\n") <> l <> "\n" <> r
 
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 

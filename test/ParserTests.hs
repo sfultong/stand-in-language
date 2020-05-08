@@ -196,6 +196,8 @@ unitTests = testGroup "Unit tests"
                       Left pe -> error . getErrorString $ pe
       case parseWithPrelude prelude mainWithTopLevelBindings of
         Right x -> do
+          putStrLn "\n\n"
+          putStrLn . show $ (x Map.! "h")
           expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) f g f"
           -- liftIO . putStrLn . show $
           (x Map.! "h") `compare` expected @?= EQ

@@ -511,7 +511,8 @@ parseAssignment addBound = do
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr
-      oAnnoExp = applyUntilNoChange (optimizeTopLevelBindingsReference parserState) annoExp
+      -- oAnnoExp = applyUntilNoChange (optimizeTopLevelBindingsReference parserState) annoExp
+      oAnnoExp = optimizeTopLevelBindingsReference parserState annoExp
       assign ps = case addBound var oAnnoExp ps of
         Just nps -> nps
         _ -> error $ "shadowing of binding not allowed " ++ var
