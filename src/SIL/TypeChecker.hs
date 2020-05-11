@@ -235,6 +235,7 @@ possibleTyping = TypingSupport
       _ -> pure mempty
   }
 
+{-
 possibleTypeLookup :: Term3 -> FragExpr BreakExtras -> Either TypeCheckError PossibleType
 possibleTypeLookup tm = let resolver = (fullyResolve . snd) <$> partiallyAnnotate possibleTyping tm
                             gt env = let recur = gt env in \case
@@ -248,6 +249,7 @@ possibleTypeLookup tm = let resolver = (fullyResolve . snd) <$> partiallyAnnotat
                                 (fragOutputType possibleTyping ind)
                               AbortF
                               
+-}
 
 possibleTypeToValue :: PossibleType -> PExpr
 possibleTypeToValue = \case
@@ -397,20 +399,22 @@ type TestMapBuilder = State (Map BreakExtras [SizeTest])
 buildTestMap :: Term3 -> Map BreakExtras [SizeTest]
 buildTestMap term@(Term3 termMap) =
   let poisonType = makeCInputMap term
-      possibleTypeMap = 
+      possibleTypeMap = buildZInputMap term
       alterSizeTest v = \case
-        Nothing -> pure v
-        Just e -> v : e
+        Nothing -> pure [v]
+        Just e -> pure $ v : e
       addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
-      builder env = let recur = builder env in \case
+      builder pEnv zEnv = let recur = builder pEnv zEnv in \case
         ZeroF -> pure ZeroTypeN
         PairF a b -> PairTypeN <$> recur a <*> recur b
-        EnvF -> pure env
+        EnvF -> pure pEnv
         SetEnvF x -> recur x >>= \case
           PairTypeN (ArrTypeN bs fx) it -> if null bs
             -- then pure . infect (poisoners it) $ tf it
             then infect (poisoners it) <$> builder it fx
-            else let pExpr = 
+            else let pExpr = error "TODO"
+                 in error "TODO"
+  in error "TODO"
 
 annotate :: Ord v => TypingSupport v -> Term3 -> AnnotateStateV v v
 annotate ts (Term3 termMap) =
