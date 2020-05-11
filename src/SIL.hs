@@ -125,9 +125,11 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
     alg (TCheckF sl sr) = twoChildren "TCheck" sl sr
     alg (TITEF sx sy sz) = do
       i <- State.get
-      State.modify (+2)
+      State.put $ i + 2
       x <- sx
+      State.put $ i + 2
       y <- sy
+      State.put $ i + 2
       z <- sz
       pure $ indent i "TITE\n" <> x <> "\n" <> y <> "\n" <> z
     alg (TLeftF l) = oneChild "TLeft" l
@@ -139,9 +141,9 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
       x <- sx
       pure $ indent i "TLam " <> show l <> "\n" <> x
     alg TLimitedRecursionF = sindent "TLimitedRecursion"
+    indent i str = replicate i ' ' <> str
     sindent :: String -> State Int String
     sindent str = State.get >>= (\i -> pure $ indent i str)
-    indent i str = replicate i ' ' <> str
     oneChild :: String -> State Int String -> State Int String
     oneChild str sx = do
       i <- State.get
@@ -150,8 +152,9 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
     twoChildren :: String -> State Int String -> State Int String -> State Int String
     twoChildren str sl sr = do
       i <- State.get
-      State.modify (+2)
+      State.put $ i + 2
       l <- sl
+      State.put $ i + 2
       r <- sr
       pure $ indent i (str <> "\n") <> l <> "\n" <> r
 
