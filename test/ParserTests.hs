@@ -194,14 +194,17 @@ unitTests = testGroup "Unit tests"
       let prelude = case parsePrelude preludeFile of
                       Right p -> p
                       Left pe -> error . getErrorString $ pe
-      case parseWithPrelude prelude mainWithTopLevelBindings of
+      case parseWithPrelude prelude dependantTopLevelBindings of
         Right x -> do
-          putStrLn "\n\n"
-          putStrLn . show $ (x Map.! "h")
-          expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) f g f"
-          -- liftIO . putStrLn . show $
+          expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) (0, 0) (0, 0) (0, 0)"
           (x Map.! "h") `compare` expected @?= EQ
         Left err -> assertFailure . show $ err
+  ]
+
+dependantTopLevelBindings = unlines $
+  [ "f = (0,0)"
+  , "g = (0,0)"
+  , "h = [f,g,f]"
   ]
 
 -- myDebug2 = do
@@ -261,7 +264,7 @@ myDebug = do
   -- putStrLn . show $ t1
   -- putStrLn . show $ (expr9 :: Term1)
 
-  -- case parseWithPrelude prelude' mainWithTopLevelBindings of
+  -- case parseWithPrelude prelude' dependantTopLevelBindings of
   --   Right x -> do
   --     -- expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
   --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ 
@@ -272,11 +275,6 @@ letExpr = unlines $
   , "    y = 0"
   , "    f = (x,y)"
   , "in f"
-  ]
-mainWithTopLevelBindings = unlines $
-  [ "f = (zero,zero)"
-  , "g = (zero,zero)"
-  , "h = [f,g,f]"
   ]
 
 -- | SIL Parser AST representation of: \x -> \y -> \z -> [zz1, yy3, yy4, z, zz6]

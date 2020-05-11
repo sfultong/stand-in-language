@@ -373,6 +373,7 @@ parseLet = do
   expr <- parseLongExpr <* scn
   intermediateState <- State.get
   let oexpr = applyUntilNoChange (optimizeLetBindingsReference intermediateState) expr
+  -- let oexpr = optimizeLetBindingsReference intermediateState $ expr
   State.put initialState
   pure oexpr
 
@@ -477,6 +478,7 @@ addLetBound name expr ps =
 optimizeTopLevelBindingsReference :: ParserState -> Term1 -> Term1
 optimizeTopLevelBindingsReference parserState annoExp =
   optimizeBindingsReference parserState topLevelBindingNames (\str -> (bound parserState) Map.! str) annoExp
+  -- optimizeBindingsReference parserState topLevelBindingNames (TVar . Right) annoExp
 
 optimizeLetBindingsReference :: ParserState -> Term1 -> Term1
 optimizeLetBindingsReference parserState annoExp =
@@ -511,8 +513,8 @@ parseAssignment addBound = do
   let annoExp = case annotation of
         Just f -> f expr
         _ -> expr
-      -- oAnnoExp = applyUntilNoChange (optimizeTopLevelBindingsReference parserState) annoExp
-      oAnnoExp = optimizeTopLevelBindingsReference parserState annoExp
+      oAnnoExp = applyUntilNoChange (optimizeTopLevelBindingsReference parserState) annoExp
+      -- oAnnoExp = optimizeTopLevelBindingsReference parserState annoExp
       assign ps = case addBound var oAnnoExp ps of
         Just nps -> nps
         _ -> error $ "shadowing of binding not allowed " ++ var
