@@ -74,78 +74,67 @@ zCombine a b = case (a,b) of
   (ZEither a b, ZEither c d) -> ZEither (zCombine a c) (zCombine b d) --TODO .. maybe optimize more?
   _ -> ZEither a b
 
--- type ZBuilder = StateT (Map FragIndex (Either (Set BreakExtras) ZExpr)) (Either (Set BreakExtras))
-type ZBuilder = State (Map FragIndex (Either (Set BreakExtras) ZExpr))
+type ZBuilder = State (Map FragIndex ZExpr)
 
-zEval :: (FragIndex -> FragExpr BreakExtras) -> ZExpr -> FragExpr BreakExtras
-  -> ZBuilder (Either (Set BreakExtras) ZExpr)
+zEval :: (FragIndex -> FragExpr BreakExtras) -> ZExpr -> FragExpr BreakExtras -> ZBuilder ZExpr
 zEval fragLookup env =
   let recur = zEval fragLookup env
-      pureZ = pure . pure
   in \case
-  ZeroF -> pureZ ZZero
-  PairF a b -> do
-    na <- recur a
-    nb <- recur b
-    pure $ ZPair <$> na <*> nb
-  EnvF -> pureZ env
-  LeftF x -> fmap doLeft <$> recur x where
+  ZeroF -> pure ZZero
+  PairF a b -> ZPair <$> recur a <*> recur b
+  EnvF -> pure env
+  LeftF x -> doLeft <$> recur x where
     doLeft = \case
       ZPair l _ -> l
       ZAny -> ZEither ZZero (ZPair ZAny ZAny)
       ZZero -> ZZero
       z -> error $ "zEval leftF: unexpected " <> show z
-  RightF x -> fmap doRight <$> recur x where
+  RightF x -> doRight <$> recur x where
     doRight = \case
       ZPair _ r -> r
       ZAny -> ZEither ZZero (ZPair ZAny ZAny)
       ZZero -> ZZero
       z -> error $ "zEval rightF: unexpected " <> show z
-  GateF l r -> pureZ . ZEmbed $ GateF l r
+  GateF l r -> pure . ZEmbed $ GateF l r
   SetEnvF x ->
     -- TODO should probably use bifunctor for Either
-    let setEval :: Either (Set BreakExtras) ZExpr -> ZBuilder (Either (Set BreakExtras) ZExpr)
+    let setEval :: ZExpr -> ZBuilder ZExpr
         setEval = \case
-          Right xr -> case xr of
-                     ZPair (ZEmbed x) nenv -> case x of
+                     xr@(ZPair (ZEmbed x) nenv) -> case x of
                        (GateF l r) -> case nenv of
                          ZZero -> recur l
                          ZPair _ _ -> recur r
                          ZEither a b -> do
-                           nl <- setEval (pure $ ZPair (ZEmbed (GateF l r)) a)
-                           nr <- setEval (pure $ ZPair (ZEmbed (GateF l r)) b)
-                           pure $ zCombine <$> nl <*> nr
-
-                         ZAny -> do
-                           nl <- recur l
-                           nr <- recur r
-                           pure $ zCombine <$> nl <*> nr
-                         z -> error $ "zEval setenv gate: unexpected " <> show z
-                       AbortF -> pureZ ZID
-                       DeferF ind -> let mModify a b = case (a,b) of
-                                           -- first argument is always Right
-                                           (_, Left nb) -> Left nb
-                                           (Right na, Right nb) -> Right $ zCombine na nb
-                                           _ -> error "zEval setenv defer mModify should be unreachable"
-                                     in State.modify (Map.insertWith mModify ind (pure nenv))
+                           nl <- setEval (ZPair (ZEmbed (GateF l r)) a)
+                           nr <- setEval (ZPair (ZEmbed (GateF l r)) b)
+                           pure $ zCombine nl nr
+                         ZAny -> zCombine <$> recur l <*> recur r
+                         -- z -> error $ "zEval setenv gate: unexpected " <> show z
+                         -- just freeze computations we can't handle as-is
+                         _ -> pure xr
+                       AbortF -> pure ZID
+                       DeferF ind -> State.modify (Map.insertWith zCombine ind env)
                                         *> zEval fragLookup nenv (fragLookup ind)
-                       AuxF be -> pure . Left . Set.singleton $ be
-                       z -> error $ "zEval setenv embed: unexpected " <> show z
+                       -- evaluate later
+                       AuxF _ -> pure xr
+                       -- z -> error $ "zEval setenv embed: unexpected " <> show z
+                       -- just freeze computations we can't handle as-is
+                       _ -> pure xr
                      ZPair (ZEither a b) nenv -> do
-                       na <- setEval (pure $ ZPair a nenv)
-                       nb <- setEval (pure $ ZPair b nenv)
-                       pure $ zCombine <$> na <*> nb
-                     ZPair ZID nenv -> pureZ nenv
-                     z -> error $ "zEval setenv: unexpected " <> show z
-
-          Left x -> pure $ Left x
+                       na <- setEval (ZPair a nenv)
+                       nb <- setEval (ZPair b nenv)
+                       pure $ zCombine na nb
+                     ZPair ZID nenv -> pure nenv
+                     --z -> error $ "zEval setenv: unexpected " <> show z
+                     -- just freeze computations we can't handle as-is
+                     xr -> pure xr
     in recur x >>= setEval
-  d@(DeferF _) -> pureZ . ZEmbed $ d
-  AbortF -> pureZ . ZEmbed $ AbortF
-  a@(AuxF _) -> pureZ . ZEmbed $ a
-  TraceF -> pureZ env
+  d@(DeferF _) -> pure . ZEmbed $ d
+  AbortF -> pure . ZEmbed $ AbortF
+  a@(AuxF _) -> pure . ZEmbed $ a
+  TraceF -> pure env
 
-buildZInputMap :: Term3 -> Map FragIndex (Either (Set BreakExtras) ZExpr)
+buildZInputMap :: Term3 -> Map FragIndex ZExpr
 buildZInputMap (Term3 termMap) = State.execState (zEval (termMap Map.!) ZAny (rootFrag termMap)) mempty
 
 
