@@ -18,16 +18,22 @@
 --                       f = (x,y)
 --                   in f
 
-drawBoard = \pieces -> let alt = \n -> (n succ (left "1"), 0)
-                           dp = \n -> (alt n)
-                       in dp $8
+-- drawBoard = \pieces -> let alt = \n -> (n succ (left "1"), 0)
+--                            dp = \n -> (alt n)
+--                        in dp $8
 
-emptyBoard = [0,0,0,0,0,0,0,0,0]
+-- emptyBoard = [0,0,0,0,0,0,0,0,0]
 
-main = \input ->  let x = drawBoard emptyBoard
-                      -- x = "Hello"
+-- main = \input ->  let x = drawBoard emptyBoard
+--                       -- x = "Hello"
+--                       y = 0
+--                       f = (x,y)
+--                   in f
+
+main = \input ->  let alt = \n -> (n succ (left "1"), 0)
+                      dp = \n -> (alt n)
                       y = 0
-                      f = (x,y)
+                      f = (dp $7, y)
                   in f
 
 
