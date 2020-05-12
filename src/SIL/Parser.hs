@@ -342,6 +342,7 @@ makeLambda parserState variables term1expr =
 -- |Parse lambda expression.
 parseLambda :: SILParser Term1
 parseLambda = do
+  -- error "errrrrrorrr" :: SILParser ()
   parserState <- State.get
   symbol "\\" <* scn
   variables <- some identifier <* scn
@@ -396,14 +397,6 @@ parsePartialFix = symbol "?" *> pure TLimitedRecursion
 -- |Parse refinement check.
 parseRefinementCheck :: SILParser (Term1 -> Term1)
 parseRefinementCheck = flip TCheck <$> (symbol ":" *> parseLongExpr)
-
--- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
-dropUntil :: (a -> Bool) -> [a] -> [a]
-dropUntil _ [] = []
-dropUntil p x@(x1:_) =
-  case p x1 of
-    False -> dropUntil p (drop 1 x)
-    True -> x
 
 -- |True when char argument is not an Int.
 notInt :: Char -> Bool
@@ -567,15 +560,15 @@ runSILParser_ parser str = do
       let printBindings :: Map String Term1 -> IO ()
           printBindings xs = forM_ (toList xs) $
             \b -> do
-              putStr "  "
               putStr . show . fst $ b
-              putStr " = "
+              putStr " =\n"
               putStrLn $ show . snd $ b
-      putStrLn ("Result:      " ++ show a)
+              putStrLn ""
+      putStrLn ("Result:\n" ++ show a)
       putStrLn "Final top level bindings state:"
       printBindings . bound $ s
-      putStrLn "Final let bindings state:"
-      printBindings . letBound $ s
+      -- putStrLn "Final let bindings state:"
+      -- printBindings . letBound $ s
     Left e -> putStr (errorBundlePretty e)
 
 -- |Helper function to debug parsers without a result.
@@ -584,8 +577,8 @@ runSILParserWDebug parser str = do
   let p = State.runStateT parser $ ParserState initialMap Map.empty
   case runParser (dbg "debug" p) "" str of
     Right (a, s) -> do
-      putStrLn ("Result:      " ++ show a)
-      putStrLn ("Final state: " ++ show s)
+      putStrLn ("Result:\n" ++ show a)
+      putStrLn ("Final state:" ++ show s)
     Left e -> putStr (errorBundlePretty e)
 
 -- |Helper function to test parsers with result as String.

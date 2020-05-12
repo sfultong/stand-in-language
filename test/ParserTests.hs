@@ -217,7 +217,7 @@ dependantTopLevelBindings = unlines $
 -- Parsec implementation
 testWtictactoe = do
   preludeFile <- Strict.readFile "Prelude.sil"
-  tictactoe <- Strict.readFile "tictactoe.sil"
+  tictactoe <- Strict.readFile "hello.sil"
   let
     prelude = case parsePrelude preludeFile of
                 Right p -> p
@@ -225,6 +225,18 @@ testWtictactoe = do
   case parseMain prelude tictactoe of
     Right _ -> return True
     Left _ -> return False
+
+runTictactoe = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  tictactoe <- Strict.readFile "hello.sil"
+  let
+    prelude = case parsePrelude preludeFile of
+      Right p -> p
+      Left pe -> error . getErrorString $ pe
+  runSILParser_ parseTopLevel tictactoe
+  -- case parseWithPrelude prelude tictactoe of
+  --   Right x -> putStrLn . show $ x
+  --   Left err -> putStrLn . getErrorString $ err
 
 parseWithPreludeFile = do
   preludeFile <- Strict.readFile "Prelude.sil"
@@ -640,19 +652,6 @@ testList5 = unlines $
 --   case parseMain' prelude $ tictactoe of
 --     Right x -> putStrLn . show $ x
 --     Left err -> putStrLn $ "woot!!! " ++ getErrorString err
-
-runTictactoe = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  tictactoe <- Strict.readFile "tictactoe.sil"
-  let
-    prelude = case parsePrelude preludeFile of
-      Right p -> p
-      Left pe -> error . getErrorString $ pe
-  runSILParser_ parseTopLevel tictactoe
-  -- case parseWithPrelude prelude tictactoe of
-  --   Right x -> putStrLn . show $ x
-  --   Left err -> putStrLn . getErrorString $ err
-
 
 -- |Parse main.
 parseMain' :: Bindings -> String -> Either ErrorString Term1

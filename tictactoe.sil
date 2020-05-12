@@ -7,8 +7,8 @@ drawPiece = \piece alt -> if piece
 
 drawBoard
  = \pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
-                  alt = (n succ (left "1"), 0)
-                  dp = \n -> drawPiece (getPiece n) alt
+                  alt = \n -> (n succ (left "1"), 0)
+                  dp = \n -> drawPiece (getPiece n) (alt n)
                   blankRow = "-+-+-\n"
                   row5 = concat [dp $6, "|", dp $7, "|", dp $8, "\n"]
                   row4 = concat [blankRow, row5]
