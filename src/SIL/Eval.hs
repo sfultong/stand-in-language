@@ -121,9 +121,11 @@ findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
   TLimitedRecursion -> (True, TLimitedRecursion)
 -}
 
+{-
 resolveBinding :: String -> Bindings -> Maybe IExpr
 resolveBinding name bindings = Map.lookup name bindings >>=
   ((>>= toSIL) . fmap (findChurchSize . splitExpr) . debruijinize [])
+-}
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of
