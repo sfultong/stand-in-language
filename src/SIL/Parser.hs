@@ -60,6 +60,24 @@ data UnprocessedParsedTerm
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- * Functorial version UnprocessedParsedTerm
 
+instance EndoMapper UnprocessedParsedTerm where
+  endoMap f = \case
+    VarUP str -> f $ VarUP str
+    ITEUP i t e -> f $ ITEUP (recur i) (recur t) (recur e)
+    LetUP listmap expr -> f $ LetUP ((second recur) <$> listmap) $ recur expr
+    ListUP l -> f $ ListUP (recur <$> l)
+    IntUP i -> f $ IntUP i
+    StringUP str -> f $ StringUP str
+    PairUP a b -> f $ PairUP (recur a) (recur b)
+    AppUP x y -> f $ AppUP (recur x) (recur y)
+    LamUP str x -> f $ LamUP str (recur x)
+    ChurchUP i -> f $ ChurchUP i
+    UnsizedRecursionUP -> f UnsizedRecursionUP
+    LeftUP l -> f $ LeftUP (recur l)
+    RightUP r -> f $ RightUP (recur r)
+    TraceUP t -> f $ TraceUP (recur t)
+    where recur = endoMap f
+
 type VarList = [String]
 
 -- |SILParser :: * -> *
@@ -278,39 +296,7 @@ parseApplied = do
   fargs <- L.lineFold scn $ \sc' ->
     parseSingleExpr `sepBy` try sc'
   case fargs of
-    (f:args) -> do
-      {-
-      case f of
-        TVar (Right "left") -> case args of
-          [t] -> pure . TLeft $ t
-          [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          (x:xs) -> pure $ foldl TApp (TLeft x) xs
-        TVar (Right "right") -> case args of
-          [t] -> pure . TRight $ t
-          [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          (x:xs) -> pure $ foldl TApp (TRight x) xs
-        TVar (Right "trace") -> case args of
-          [t] -> pure . TTrace $ t
-          [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          (x:xs) -> pure $ foldl TApp (TTrace x) xs
-        TVar (Right "pair") -> case args of
-          [a, b] -> pure $ TPair a b
-          [a] -> pure $ TLam (Open (Right "x")) . TPair a . TVar . Right $ "x"
-          [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          _ -> fail "Failed to parse pair. Too many arguments applied to pair."
-        TVar (Right "app") -> case args of
-          [a, b] -> pure $ TApp a b
-          [a] -> pure $ TLam (Open (Right "x")) . TApp a . TVar . Right $ "x"
-          [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          (x0:x1:xs) -> pure $ foldl TApp (TApp x0 x1) xs
-        TVar (Right "check") -> case args of
-          [a, b] -> pure $ TCheck a b
-          [a] -> pure $ TLam (Open (Right "x")) . TCheck a . TVar . Right $ "x"
-          [] -> fail "This should be imposible. I'm being called fro parseApplied."
-          _ -> fail "Failed to parse check. Too many arguments applied to check."
-
-        _ -> pure $ foldl TApp f args
--}
+    (f:args) -> 
       pure $ foldl AppUP f args
     _ -> fail "expected expression"
 
@@ -599,8 +585,8 @@ validateVariables term =
           State.modify (Map.insert v (TVar (Right v)))
           result <- validateWithEnvironment x
           State.put oldState
-          -- pure $ TLam (Open (Right v)) result
-          pure $ makeLambda oldState v x result
+          pure $ TLam (Open (Right v)) result
+          -- pure $ makeLambda oldState v x result
         UnsizedRecursionUP -> pure TLimitedRecursion
         ChurchUP n -> pure $ i2c n
         LeftUP x -> TLeft <$> validateWithEnvironment x
@@ -608,8 +594,27 @@ validateVariables term =
         TraceUP x -> TTrace <$> validateWithEnvironment x
   in State.evalStateT (validateWithEnvironment term) Map.empty
 
+optimizeBuiltinFunctions :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+optimizeBuiltinFunctions = endoMap optimize where
+  optimize = \case
+    twoApp@(AppUP (AppUP f x) y) ->
+      case f of
+        VarUP "pair" -> PairUP x y
+        VarUP "app" -> AppUP x y
+        _ -> twoApp
+    oneApp@(AppUP f x) ->
+      case f of
+        VarUP "left" -> LeftUP x
+        VarUP "right" -> RightUP x
+        VarUP "trace" -> TraceUP x
+        VarUP "pair" -> LamUP "y" (PairUP x $ VarUP "y")
+        VarUP "app" -> LamUP "y" (AppUP x $ VarUP "y")
+        _ -> oneApp
+        -- VarUP "check" TODO
+    x -> x
+
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
 parseMain prelude s = parseWithPrelude s prelude >>= process where
   process :: UnprocessedParsedTerm -> Either String Term3
-  process = fmap splitExpr . (>>= debruijinize []) . validateVariables -- . (\x -> trace (show x) x)
+  process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)

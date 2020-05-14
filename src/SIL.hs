@@ -1,5 +1,4 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
@@ -32,6 +31,7 @@ import qualified Control.Monad.State as State
 -- if classes were categories, this would be an EndoFunctor?
 class EndoMapper a where
   endoMap :: (a -> a) -> a -> a
+             -- (a -> f a) -> s -> f s 
 
 class EitherEndoMapper a where
   eitherEndoMap :: (a -> Either e a) -> a -> Either e a
