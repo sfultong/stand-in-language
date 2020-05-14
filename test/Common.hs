@@ -1,8 +1,14 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 module Common where
 
+--import Control.Monad.State (State)
 import Test.QuickCheck
+import Test.QuickCheck.Gen
+--import qualified Control.Monad.State as State
 
 import SIL.TypeChecker
+import SIL.Parser
 import SIL
 
 class TestableIExpr a where
@@ -97,3 +103,78 @@ simpleArrowTyped x = inferType (fromSIL $ getIExpr x) == Right (ArrTypeP ZeroTyp
 instance Arbitrary ArrowTypedTestIExpr where
   arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped
   shrink (ArrowTypedTestIExpr atte) = map ArrowTypedTestIExpr . filter simpleArrowTyped $ shrink atte
+
+instance Arbitrary UnprocessedParsedTerm where
+  arbitrary = sized (genTree []) where
+      leaves varList =
+        oneof $
+            (if not (null varList) then ((VarUP <$> elements varList) :) else id)
+            [ StringUP <$> elements (map ((("s") <>) . show) [1..9]) -- chooseAny
+            , (IntUP <$> chooseAny)
+            , (ChurchUP <$> chooseAny)
+            , (pure UnsizedRecursionUP)
+            ]
+      lambdaTerms = ["w", "x", "y", "z"]
+      letTerms = map (("l" <>) . show) [1..255]
+      identifierList = frequency
+        [ (1, pure . cycle $ letTerms)
+        , (3, pure . cycle $ lambdaTerms <> letTerms)
+        , (1, cycle <$> shuffle (lambdaTerms <> letTerms))
+        ]
+      genTree varList i = let half = div i 2
+                              third = div i 3
+                              recur = genTree varList
+                              childList = do
+                                -- listSize <- chooseInt (0, i)
+                                listSize <- choose (0, i)
+                                let childShare = div i listSize
+                                vectorOf listSize $ genTree varList childShare
+                          in case i of
+                                   0 -> leaves varList
+                                   x -> oneof
+                                     [ LeftUP <$> recur (i - 1)
+                                     , RightUP <$> recur (i - 1)
+                                     , TraceUP <$> recur (i - 1)
+                                     , elements lambdaTerms >>= \var -> LamUP var <$> genTree (var : varList) (i - 1)
+                                     , ITEUP <$> recur third <*> recur third <*> recur third
+                                     , ListUP <$> childList
+                                     , do
+                                        -- listSize <- chooseInt (1, max i 1)
+                                        listSize <- choose (2, max i 2)
+                                        let childShare = div i listSize
+                                        let makeList = \case
+                                              [] -> pure []
+                                              (v:vl) -> do
+                                                newTree <- genTree (v:varList) childShare
+                                                ((v,newTree) :) <$> makeList vl
+                                        vars <- take listSize <$> identifierList
+                                        childList <- makeList vars
+                                        pure $ LetUP (init childList) (snd . last $ childList)
+                                     , PairUP <$> recur half <*> recur half
+                                     , AppUP <$> recur half <*> recur half
+                                     ]
+  shrink = \case
+    StringUP s -> case s of
+      [] -> []
+      _ -> pure . StringUP $ tail s
+    IntUP i -> case i of
+      0 -> []
+      x -> pure . IntUP $ x - 1
+    ChurchUP i -> case i of
+      0 -> []
+      x -> pure . ChurchUP $ x - 1
+    UnsizedRecursionUP -> []
+    VarUP _ -> []
+    LeftUP x -> x : map LeftUP (shrink x)
+    RightUP x -> x : map RightUP (shrink x)
+    TraceUP x -> x : map TraceUP (shrink x)
+    LamUP v x -> x : map (LamUP v) (shrink x)
+    ITEUP i t e -> i : t : e : [ITEUP ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
+    ListUP l -> case l of
+      [e] -> if null $ shrink e then [e] else e : map (ListUP . pure) (shrink e)
+      _ -> head l : ListUP (tail l) : map (ListUP . shrink) l
+    LetUP l i -> i : case l of -- TODO make this do proper, full enumeration
+      [(v,e)] -> if null $ shrink e then [e] else e : map (flip LetUP i . pure . (v,)) (shrink e) <> (map (LetUP l) (shrink i))
+      _ -> snd (head l) : LetUP (tail l) i : map (flip LetUP i. shrink) l
+    PairUP a b -> a : b : [PairUP na nb | (na, nb) <- shrink (a,b)]
+    AppUP f i -> f : i : [AppUP nf ni | (nf, ni) <- shrink (f,i)]

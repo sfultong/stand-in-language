@@ -505,6 +505,7 @@ runSILParser_ parser str = show <$> runSILParser parser str >>= putStrLn
 runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
 runSILParserWDebug parser str = show <$> runSILParser (dbg "debug" parser) str >>= putStrLn
 
+
 -- |Helper function to test SIL parsers with any result.
 runSILParser :: SILParser a -> String -> IO a
 runSILParser parser str =
@@ -514,12 +515,13 @@ runSILParser parser str =
 
 -- |Helper function to test if parser was successful.
 parseSuccessful :: SILParser a -> String -> IO Bool
-parseSuccessful parser str = do
+parseSuccessful parser str =
   case runParser parser "" str of
     Right _ -> return True
     Left _ -> return False
 
 -- |Parse with specified prelude.
+
 parseWithPrelude :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
   -> Either String UnprocessedParsedTerm
 parseWithPrelude str addDefinitions =

@@ -227,6 +227,7 @@ testWtictactoe = do
     Right _ -> return True
     Left _ -> return False
 
+{-
 runTictactoe = do
   preludeFile <- Strict.readFile "Prelude.sil"
   tictactoe <- Strict.readFile "hello.sil"
@@ -235,6 +236,7 @@ runTictactoe = do
       Right p -> p
       Left pe -> error . getErrorString $ pe
   runSILParser_ parseTopLevel tictactoe
+-}
   -- case parseWithPrelude prelude tictactoe of
   --   Right x -> putStrLn . show $ x
   --   Left err -> putStrLn . getErrorString $ err
@@ -271,7 +273,6 @@ runTictactoe = do
 --   putStrLn . show $ oexpr
 --   putStrLn . show $ oexpr'
 --   putStrLn . show $ oexpr''
-
 
   -- let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
   --                         topLevelBindingNames
@@ -652,13 +653,13 @@ testList5 = unlines $
 --     Right x -> putStrLn . show $ x
 --     Left err -> putStrLn $ "woot!!! " ++ getErrorString err
 
+
 -- -- |Parse main.
 -- parseMain' :: Bindings -> String -> Either ErrorString Term1
 -- parseMain' prelude s = parseWithPrelude prelude s >>= getMain where
 --   getMain bound = case Map.lookup "main" bound of
 --     Nothing -> fail "no main method found"
 --     Just main -> pure main--splitExpr <$> debruijinize [] main
-
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 
