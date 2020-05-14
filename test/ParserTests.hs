@@ -9,6 +9,7 @@ import Test.Tasty.HUnit
 import Text.Megaparsec.Error
 import Text.Megaparsec
 import Text.Megaparsec.Debug
+import Data.Either (fromRight)
 import Data.Map (Map, fromList, toList)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -50,7 +51,7 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseLambda <* eof) testLambdawITEwPair
       res `compare` True @?= EQ
   , testCase "test parse assignment with Complete Lambda with ITE with Pair" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* eof) testParseAssignmentwCLwITEwPair1
+      res <- parseSuccessful (parseTopLevel <* eof) testParseAssignmentwCLwITEwPair1
       res `compare` True @?= EQ
   , testCase "test if testParseTopLevelwCLwITEwPair parses successfuly" $ do
       res <- parseSuccessful (parseTopLevel <* eof) testParseTopLevelwCLwITEwPair
@@ -86,22 +87,22 @@ unitTests = testGroup "Unit tests"
       res <- runTestMainWType
       res `compare` True @?= EQ
   , testCase "testShowBoard0" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard0
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard0
       res `compare` True @?= EQ
   , testCase "testShowBoard1" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard1
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard1
       res `compare` True @?= EQ
   , testCase "testShowBoard2" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard2
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard2
       res `compare` True @?= EQ
   , testCase "testShowBoard3" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard3
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard3
       res `compare` True @?= EQ
   , testCase "testShowBoard4" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard4
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard4
       res `compare` True @?= EQ
   , testCase "testShowBoard5" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard5
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard5
       res `compare` True @?= EQ
   , testCase "testShowBoard6" $ do
       res <- parseSuccessful (parseApplied) testShowBoard6
@@ -119,13 +120,13 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard3
       res `compare` True @?= EQ
   , testCase "testLetShowBoard4" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testLetShowBoard4
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testLetShowBoard4
       res `compare` True @?= EQ
   , testCase "testLetShowBoard5" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard5
       res `compare` True @?= EQ
   , testCase "testLetShowBoard7" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
+      res <- parseSuccessful (parseTopLevel <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
       res `compare` True @?= EQ
   , testCase "testLetShowBoard8" $ do
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard8
@@ -157,48 +158,48 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetIncorrectIndentation2" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
-  , testCase "collect vars" $ do
-      let fv = vars expr
-      fv `compare` (Set.empty) @?= EQ
-  , testCase "collect vars many x's" $ do
-      let fv = vars expr1
-      fv `compare` (Set.empty) @?= EQ
+  -- , testCase "collect vars" $ do
+  --     let fv = vars expr
+  --     fv `compare` (Set.empty) @?= EQ
+  -- , testCase "collect vars many x's" $ do
+  --     let fv = vars expr1
+  --     fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
-      res `compare` closedLambdaPair @?= EQ
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
+      (fromRight TZero $ validateVariables res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x y -> (x, y)"
-      res `compare` closedLambdaPair @?= EQ
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
+      (fromRight TZero $ validateVariables res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 3" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
-      res `compare` expr6 @?= EQ
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
+      (fromRight TZero $ validateVariables res) `compare` expr6 @?= EQ
   , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> (x, x)"
-      res `compare` expr5 @?= EQ
-  , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
-      res `compare` expr4 @?= EQ
-  , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
-      res `compare` expr3 @?= EQ
-  , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
-      res `compare` expr2 @?= EQ
-  , testCase "rename" $ do
-      let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
-                              topLevelBindingNames
-                              expr8
-      t1 `compare` expr9 @?= EQ
-  , testCase "rename 2" $ do
-      preludeFile <- Strict.readFile "Prelude.sil"
-      let prelude = case parsePrelude preludeFile of
-                      Right p -> p
-                      Left pe -> error . getErrorString $ pe
-      case parseWithPrelude prelude dependantTopLevelBindings of
-        Right x -> do
-          expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) (0, 0) (0, 0) (0, 0)"
-          (x Map.! "h") `compare` expected @?= EQ
-        Left err -> assertFailure . show $ err
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> (x, x)"
+      (fromRight TZero $ validateVariables res) `compare` expr5 @?= EQ
+  , testCase "test automatic open close lambda 5" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
+      (fromRight TZero $ validateVariables res) `compare` expr4 @?= EQ
+  , testCase "test automatic open close lambda 6" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
+      (fromRight TZero $ validateVariables res) `compare` expr3 @?= EQ
+  , testCase "test automatic open close lambda 7" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
+      (fromRight TZero $ validateVariables res) `compare` expr2 @?= EQ
+  -- , testCase "rename" $ do
+  --     let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
+  --                             topLevelBindingNames
+  --                             expr8
+  --     t1 `compare` expr9 @?= EQ
+  -- , testCase "rename 2" $ do
+  --     preludeFile <- Strict.readFile "Prelude.sil"
+  --     let prelude = case parsePrelude preludeFile of
+  --                     Right p -> p
+  --                     Left pe -> error . getErrorString $ pe
+  --     case parseWithPrelude prelude dependantTopLevelBindings of
+  --       Right x -> do
+  --         expected :: Term1 <- runSILParser (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) (0, 0) (0, 0) (0, 0)"
+  --         (x Map.! "h") `compare` expected @?= EQ
+  --       Left err -> assertFailure . show $ err
   ]
 
 dependantTopLevelBindings = unlines $
@@ -238,38 +239,40 @@ runTictactoe = do
   --   Right x -> putStrLn . show $ x
   --   Left err -> putStrLn . getErrorString $ err
 
-parseWithPreludeFile = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  file <- Strict.readFile "hello.sil"
-  let
-    prelude = case parsePrelude preludeFile of
-                Right p -> p
-                Left pe -> error . getErrorString $ pe
-    printBindings :: Map String Term1 -> IO ()
-    printBindings xs = forM_ (toList xs) $
-                       \b -> do
-                         putStr "  "
-                         putStr . show . fst $ b
-                         putStr " = "
-                         putStrLn $ show . snd $ b
-  case parseWithPrelude prelude file of
-    Right r -> printBindings r
-    Left l -> putStrLn . show $ l
+-- parseWithPreludeFile = do
+--   preludeFile <- Strict.readFile "Prelude.sil"
+--   file <- Strict.readFile "hello.sil"
+--   let
+--     prelude = case parsePrelude preludeFile of
+--                 Right p -> p
+--                 Left pe -> error . getErrorString $ pe
+--     printBindings :: Map String Term1 -> IO ()
+--     printBindings xs = forM_ (toList xs) $
+--                        \b -> do
+--                          putStr "  "
+--                          putStr . show . fst $ b
+--                          putStr " = "
+--                          putStrLn $ show . snd $ b
+--   case parseWithPrelude prelude file of
+--     Right r -> printBindings r
+--     Left l -> putStrLn . show $ l
 
 
-myDebug = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  let
-    prelude = case parsePrelude preludeFile of
-      Right p -> p
-      Left pe -> error . getErrorString $ pe
-    prelude' = ParserState prelude $ Map.insert "f" (TPair (TVar . Right $ "x") (TVar . Right $ "y")) . Map.insert "y" TZero . Map.insert "x" TZero $ Map.empty
-    oexpr = optimizeLetBindingsReference prelude' $ TVar . Right $ "f"
-    oexpr' = optimizeLetBindingsReference prelude' oexpr
-    oexpr'' = optimizeLetBindingsReference prelude' oexpr'
-  putStrLn . show $ oexpr
-  putStrLn . show $ oexpr'
-  putStrLn . show $ oexpr''
+-- myDebug = do
+--   preludeFile <- Strict.readFile "Prelude.sil"
+--   let
+--     prelude = case parsePrelude preludeFile of
+--       Right p -> p
+--       Left pe -> error . getErrorString $ pe
+--     prelude' = ParserState prelude $ Map.insert "f" (TPair (TVar . Right $ "x") (TVar . Right $ "y")) . Map.insert "y" TZero . Map.insert "x" TZero $ Map.empty
+--     oexpr = optimizeLetBindingsReference prelude' $ TVar . Right $ "f"
+--     oexpr' = optimizeLetBindingsReference prelude' oexpr
+--     oexpr'' = optimizeLetBindingsReference prelude' oexpr'
+--   putStrLn . show $ oexpr
+--   putStrLn . show $ oexpr'
+--   putStrLn . show $ oexpr''
+
+
   -- let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
   --                         topLevelBindingNames
   --                         expr8
@@ -278,7 +281,7 @@ myDebug = do
 
   -- case parseWithPrelude prelude' dependantTopLevelBindings of
   --   Right x -> do
-  --     -- expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
+  --     -- expected :: Term1 <- runSILParser (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
   --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ 
   --   Left err -> error . show $ err
 
@@ -422,10 +425,6 @@ testLetIncorrectIndentation2 = unlines
   , "      y = 1"
   , "in (x,y)"
   ]
-
-
-runTestPair :: String -> IO String
-runTestPair = runSILParser parsePair
 
 testPair0 = "(\"Hello World!\", \"0\")"
 
@@ -653,18 +652,18 @@ testList5 = unlines $
 --     Right x -> putStrLn . show $ x
 --     Left err -> putStrLn $ "woot!!! " ++ getErrorString err
 
--- |Parse main.
-parseMain' :: Bindings -> String -> Either ErrorString Term1
-parseMain' prelude s = parseWithPrelude prelude s >>= getMain where
-  getMain bound = case Map.lookup "main" bound of
-    Nothing -> fail "no main method found"
-    Just main -> pure main--splitExpr <$> debruijinize [] main
+-- -- |Parse main.
+-- parseMain' :: Bindings -> String -> Either ErrorString Term1
+-- parseMain' prelude s = parseWithPrelude prelude s >>= getMain where
+--   getMain bound = case Map.lookup "main" bound of
+--     Nothing -> fail "no main method found"
+--     Just main -> pure main--splitExpr <$> debruijinize [] main
 
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 
 testShowBoard0 = unlines
-  [ "showBoard = or (and validPlace"
+  [ "main = or (and validPlace"
   , "                    (and (not winner)"
   , "                         (not filledBoard)"
   , "                    )"
@@ -673,18 +672,18 @@ testShowBoard0 = unlines
   ]
 
 testShowBoard1 = unlines
-  [ "showBoard = or (0)"
+  [ "main = or (0)"
   , "               (1)"
   ]
 
 testShowBoard2 = unlines
-  [ "showBoard = or (and 1"
+  [ "main = or (and 1"
   , "                    0)"
   , "               (1)"
   ]
 
 testShowBoard3 = unlines
-  [ "showBoard = or (and x"
+  [ "main = or (and x"
   , "                    0)"
   , "               (1)"
   ]
@@ -728,7 +727,7 @@ testLetShowBoard2 = unlines
   ]
 
 testLetShowBoard7 = unlines
-  [ "showBoard = or (and validPlace"
+  [ "main = or (and validPlace"
   , "                    1"
   , "               )"
   , "               (not boardIn)"
@@ -736,7 +735,7 @@ testLetShowBoard7 = unlines
   ]
 
 testLetShowBoard4 = unlines
-  [ "showBoard = or (and 0"
+  [ "main = or (and 0"
   , "                    1"
   , "               )"
   , "               (not boardIn)"
@@ -760,14 +759,14 @@ testShowBoard6 = unlines
   ]
 
 testShowBoard4 = unlines
-  [ "showBoard = or (and x"
+  [ "main = or (and x"
   , "                    (or 0"
   , "                        (1)))"
   , "               (1)"
   ]
 
 testShowBoard5 = unlines
-  [ "showBoard = or (or x"
+  [ "main = or (or x"
   , "                   (or 0"
   , "                       1))"
   , "               (1)"
