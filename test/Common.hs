@@ -106,14 +106,6 @@ instance Arbitrary ArrowTypedTestIExpr where
 
 instance Arbitrary UnprocessedParsedTerm where
   arbitrary = sized (genTree []) where
-    {-
-      leaves varList = oneof $
-            (pure $ StringUP <$> chooseAny)
-            : (IntUP <$> chooseAny)
-            : (ChurchUP <$> chooseAny)
-            : (pure UnsizedRecursionUP)
-            (if not null varList then [VarUP <$> elements varList] else [])
--}
       leaves varList =
         oneof $
             (if not (null varList) then ((VarUP <$> elements varList) :) else id)
@@ -161,17 +153,28 @@ instance Arbitrary UnprocessedParsedTerm where
                                      , PairUP <$> recur half <*> recur half
                                      , AppUP <$> recur half <*> recur half
                                      ]
-      {-
-      let leaves = State.get >>= \varList -> oneof $
-            (pure $ StringUP <$> chooseAny)
-            : (pure $ IntUP <$> chooseAny)
-            : (pure $ ChurchUP <$> chooseAny)
-            : (pure UnsizedRecursionUP)
-            (if not null varList then [pure $ VarUP <$> oneof varList] else [])
-          genTree i = let half = div i 2
-                      in case i of
-                           0 -> leaves
-                           x -> oneof
-                             [
-                             ]
--}
+  shrink = \case
+    StringUP s -> case s of
+      [] -> []
+      _ -> pure . StringUP $ tail s
+    IntUP i -> case i of
+      0 -> []
+      x -> pure . IntUP $ x - 1
+    ChurchUP i -> case i of
+      0 -> []
+      x -> pure . ChurchUP $ x - 1
+    UnsizedRecursionUP -> []
+    VarUP _ -> []
+    LeftUP x -> x : map LeftUP (shrink x)
+    RightUP x -> x : map RightUP (shrink x)
+    TraceUP x -> x : map TraceUP (shrink x)
+    LamUP v x -> x : map (LamUP v) (shrink x)
+    ITEUP i t e -> i : t : e : [ITEUP ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
+    ListUP l -> case l of
+      [e] -> if null $ shrink e then [e] else e : map (ListUP . pure) (shrink e)
+      _ -> head l : ListUP (tail l) : map (ListUP . shrink) l
+    LetUP l i -> i : case l of -- TODO make this do proper, full enumeration
+      [(v,e)] -> if null $ shrink e then [e] else e : map (flip LetUP i . pure . (v,)) (shrink e) <> (map (LetUP l) (shrink i))
+      _ -> snd (head l) : LetUP (tail l) i : map (flip LetUP i. shrink) l
+    PairUP a b -> a : b : [PairUP na nb | (na, nb) <- shrink (a,b)]
+    AppUP f i -> f : i : [AppUP nf ni | (nf, ni) <- shrink (f,i)]
