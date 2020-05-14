@@ -1,8 +1,14 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TupleSections #-}
 module Common where
 
+--import Control.Monad.State (State)
 import Test.QuickCheck
+import Test.QuickCheck.Gen
+--import qualified Control.Monad.State as State
 
 import SIL.TypeChecker
+import SIL.Parser
 import SIL
 
 class TestableIExpr a where
@@ -97,3 +103,75 @@ simpleArrowTyped x = inferType (fromSIL $ getIExpr x) == Right (ArrTypeP ZeroTyp
 instance Arbitrary ArrowTypedTestIExpr where
   arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped
   shrink (ArrowTypedTestIExpr atte) = map ArrowTypedTestIExpr . filter simpleArrowTyped $ shrink atte
+
+instance Arbitrary UnprocessedParsedTerm where
+  arbitrary = sized (genTree []) where
+    {-
+      leaves varList = oneof $
+            (pure $ StringUP <$> chooseAny)
+            : (IntUP <$> chooseAny)
+            : (ChurchUP <$> chooseAny)
+            : (pure UnsizedRecursionUP)
+            (if not null varList then [VarUP <$> elements varList] else [])
+-}
+      leaves varList =
+        oneof $
+            (if not (null varList) then ((VarUP <$> elements varList) :) else id)
+            [ StringUP <$> elements (map ((("s") <>) . show) [1..9]) -- chooseAny
+            , (IntUP <$> chooseAny)
+            , (ChurchUP <$> chooseAny)
+            , (pure UnsizedRecursionUP)
+            ]
+      lambdaTerms = ["w", "x", "y", "z"]
+      letTerms = map (("l" <>) . show) [1..255]
+      identifierList = frequency
+        [ (1, pure . cycle $ letTerms)
+        , (3, pure . cycle $ lambdaTerms <> letTerms)
+        , (1, cycle <$> shuffle (lambdaTerms <> letTerms))
+        ]
+      genTree varList i = let half = div i 2
+                              third = div i 3
+                              recur = genTree varList
+                              childList = do
+                                -- listSize <- chooseInt (0, i)
+                                listSize <- choose (0, i)
+                                let childShare = div i listSize
+                                vectorOf listSize $ genTree varList childShare
+                          in case i of
+                                   0 -> leaves varList
+                                   x -> oneof
+                                     [ LeftUP <$> recur (i - 1)
+                                     , RightUP <$> recur (i - 1)
+                                     , TraceUP <$> recur (i - 1)
+                                     , elements lambdaTerms >>= \var -> LamUP var <$> genTree (var : varList) (i - 1)
+                                     , ITEUP <$> recur third <*> recur third <*> recur third
+                                     , ListUP <$> childList
+                                     , do
+                                        -- listSize <- chooseInt (1, max i 1)
+                                        listSize <- choose (2, max i 2)
+                                        let childShare = div i listSize
+                                        let makeList = \case
+                                              [] -> pure []
+                                              (v:vl) -> do
+                                                newTree <- genTree (v:varList) childShare
+                                                ((v,newTree) :) <$> makeList vl
+                                        vars <- take listSize <$> identifierList
+                                        childList <- makeList vars
+                                        pure $ LetUP (init childList) (snd . last $ childList)
+                                     , PairUP <$> recur half <*> recur half
+                                     , AppUP <$> recur half <*> recur half
+                                     ]
+      {-
+      let leaves = State.get >>= \varList -> oneof $
+            (pure $ StringUP <$> chooseAny)
+            : (pure $ IntUP <$> chooseAny)
+            : (pure $ ChurchUP <$> chooseAny)
+            : (pure UnsizedRecursionUP)
+            (if not null varList then [pure $ VarUP <$> oneof varList] else [])
+          genTree i = let half = div i 2
+                      in case i of
+                           0 -> leaves
+                           x -> oneof
+                             [
+                             ]
+-}

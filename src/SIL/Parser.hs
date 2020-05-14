@@ -665,24 +665,20 @@ runSILParser parser str = do
 -}
 
 -- |Helper function to test parsers with `Term1` result.
-{-
-runSILParserTerm1 :: SILParser Term1 -> String -> IO Term1
-runSILParserTerm1 parser str = do
-  let p = State.runStateT parser $ ParserState initialMap Map.empty
-  case runParser p "" str of
-    Right (a, s) -> return a
+runSILParserTerm1 :: SILParser UnprocessedParsedTerm -> String -> IO Term1
+runSILParserTerm1 parser str =
+  case runParser parser "" str of
+    Right a -> case validateVariables a of
+      Right s -> pure s
+      Left e -> error e
     Left e -> error $ errorBundlePretty e
--}
 
 -- |Helper function to test if parser was successful.
-{-
-parseSuccessful :: Show a => SILParser a -> String -> IO Bool
-parseSuccessful parser str = do
-  let p = State.runStateT parser $ ParserState initialMap Map.empty
-  case runParser p "" str of
+parseSuccessful :: SILParser a -> String -> IO Bool
+parseSuccessful parser str =
+  case runParser parser "" str of
     Right _ -> return True
     Left _ -> return False
--}
 
 -- |Parse with specified prelude.
 {-
@@ -695,9 +691,9 @@ parseWithPrelude prelude str = do
     Right (a, s) -> Right a
     Left x       -> Left $ MkES $ errorBundlePretty x
 -}
-parseWithPrelude :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+parseWithPrelude :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String
   -> Either String UnprocessedParsedTerm
-parseWithPrelude str addDefinitions = let result = addDefinitions <$> runParser parseTopLevel "" str
+parseWithPrelude addDefinitions str = let result = addDefinitions <$> runParser parseTopLevel "" str
                                       in first errorBundlePretty result
 
 addBuiltins :: UnprocessedParsedTerm -> UnprocessedParsedTerm
@@ -764,6 +760,6 @@ parseMain prelude s = parseWithPrelude prelude s >>= getMain where
     Nothing -> fail "no main method found"
     Just main -> splitExpr <$> debruijinize [] main
 -}
-parseMain prelude s = parseWithPrelude s prelude >>= process where
+parseMain prelude s = parseWithPrelude prelude s >>= process where
   process = fmap splitExpr . (>>= debruijinize []) . validateVariables -- . (\x -> trace (show x) x)
 

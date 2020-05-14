@@ -50,7 +50,7 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseLambda <* eof) testLambdawITEwPair
       res `compare` True @?= EQ
   , testCase "test parse assignment with Complete Lambda with ITE with Pair" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* eof) testParseAssignmentwCLwITEwPair1
+      res <- parseSuccessful (parseDefinitions <* eof) testParseAssignmentwCLwITEwPair1
       res `compare` True @?= EQ
   , testCase "test if testParseTopLevelwCLwITEwPair parses successfuly" $ do
       res <- parseSuccessful (parseTopLevel <* eof) testParseTopLevelwCLwITEwPair
@@ -86,22 +86,22 @@ unitTests = testGroup "Unit tests"
       res <- runTestMainWType
       res `compare` True @?= EQ
   , testCase "testShowBoard0" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard0
+      res <- parseSuccessful (parseDefinitions <* scn <* eof) testShowBoard0
       res `compare` True @?= EQ
   , testCase "testShowBoard1" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard1
+      res <- parseSuccessful (parseDefinitions <* scn <* eof) testShowBoard1
       res `compare` True @?= EQ
   , testCase "testShowBoard2" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard2
+      res <- parseSuccessful (parseDefinitions <* scn <* eof) testShowBoard2
       res `compare` True @?= EQ
   , testCase "testShowBoard3" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard3
+      res <- parseSuccessful (parseDefinitions <* scn <* eof) testShowBoard3
       res `compare` True @?= EQ
   , testCase "testShowBoard4" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard4
+      res <- parseSuccessful (parseDefinitions <* scn <* eof) testShowBoard4
       res `compare` True @?= EQ
   , testCase "testShowBoard5" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testShowBoard5
+      res <- parseSuccessful (parseDefinitions <* scn <* eof) testShowBoard5
       res `compare` True @?= EQ
   , testCase "testShowBoard6" $ do
       res <- parseSuccessful (parseApplied) testShowBoard6
@@ -119,13 +119,13 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard3
       res `compare` True @?= EQ
   , testCase "testLetShowBoard4" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* eof) testLetShowBoard4
+      res <- parseSuccessful (parseDefinitions <* scn <* eof) testLetShowBoard4
       res `compare` True @?= EQ
   , testCase "testLetShowBoard5" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard5
       res `compare` True @?= EQ
   , testCase "testLetShowBoard7" $ do
-      res <- parseSuccessful (parseTopLevelAssignment <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
+      res <- parseSuccessful (parseDefinitions <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
       res `compare` True @?= EQ
   , testCase "testLetShowBoard8" $ do
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard8
@@ -184,6 +184,7 @@ unitTests = testGroup "Unit tests"
   , testCase "test automatic open close lambda 4" $ do
       res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
       res `compare` expr2 @?= EQ
+  {-
   , testCase "rename" $ do
       let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
                               topLevelBindingNames
@@ -199,6 +200,7 @@ unitTests = testGroup "Unit tests"
           expected :: Term1 <- runSILParserTerm1 (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) (0, 0) (0, 0) (0, 0)"
           (x Map.! "h") `compare` expected @?= EQ
         Left err -> assertFailure . show $ err
+-}
   ]
 
 dependantTopLevelBindings = unlines $
@@ -226,6 +228,7 @@ testWtictactoe = do
     Right _ -> return True
     Left _ -> return False
 
+{-
 runTictactoe = do
   preludeFile <- Strict.readFile "Prelude.sil"
   tictactoe <- Strict.readFile "hello.sil"
@@ -234,6 +237,7 @@ runTictactoe = do
       Right p -> p
       Left pe -> error . getErrorString $ pe
   runSILParser_ parseTopLevel tictactoe
+-}
   -- case parseWithPrelude prelude tictactoe of
   --   Right x -> putStrLn . show $ x
   --   Left err -> putStrLn . getErrorString $ err
@@ -253,10 +257,11 @@ parseWithPreludeFile = do
                          putStr " = "
                          putStrLn $ show . snd $ b
   case parseWithPrelude prelude file of
-    Right r -> printBindings r
+    Right r -> print r -- printBindings r
     Left l -> putStrLn . show $ l
 
 
+{-
 myDebug = do
   preludeFile <- Strict.readFile "Prelude.sil"
   let
@@ -270,6 +275,7 @@ myDebug = do
   putStrLn . show $ oexpr
   putStrLn . show $ oexpr'
   putStrLn . show $ oexpr''
+-}
   -- let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
   --                         topLevelBindingNames
   --                         expr8
@@ -423,9 +429,10 @@ testLetIncorrectIndentation2 = unlines
   , "in (x,y)"
   ]
 
-
+{-
 runTestPair :: String -> IO String
 runTestPair = runSILParser parsePair
+-}
 
 testPair0 = "(\"Hello World!\", \"0\")"
 
@@ -654,11 +661,13 @@ testList5 = unlines $
 --     Left err -> putStrLn $ "woot!!! " ++ getErrorString err
 
 -- |Parse main.
-parseMain' :: Bindings -> String -> Either ErrorString Term1
+{-
+parseMain' :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term1
 parseMain' prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"
     Just main -> pure main--splitExpr <$> debruijinize [] main
+-}
 
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
