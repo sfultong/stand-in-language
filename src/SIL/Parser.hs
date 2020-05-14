@@ -607,8 +607,8 @@ optimizeBuiltinFunctions = endoMap optimize where
         VarUP "left" -> LeftUP x
         VarUP "right" -> RightUP x
         VarUP "trace" -> TraceUP x
-        VarUP "pair" -> LamUP "y" (PairUP x $ VarUP "y")
-        VarUP "app" -> LamUP "y" (AppUP x $ VarUP "y")
+        VarUP "pair" -> LamUP "y" (PairUP x . VarUP $ "y")
+        VarUP "app" -> LamUP "y" (AppUP x . VarUP $ "y")
         _ -> oneApp
         -- VarUP "check" TODO
     x -> x
