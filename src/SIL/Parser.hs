@@ -613,4 +613,3 @@ parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Eithe
 parseMain prelude s = parseWithPrelude s prelude >>= process where
   process :: UnprocessedParsedTerm -> Either String Term3
   process = fmap splitExpr . (>>= debruijinize []) . validateVariables -- . (\x -> trace (show x) x)
-

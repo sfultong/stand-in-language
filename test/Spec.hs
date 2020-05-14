@@ -353,6 +353,25 @@ debugPEIITO iexpr = do
            , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
 
 -}
+
+-- partiallyEvaluatedIsIsomorphicToOriginal :: ArrowTypedTestIExpr -> Bool
+-- --partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getIExpr vte) 0) == pureREval (app ())
+-- partiallyEvaluatedIsIsomorphicToOriginal vte =
+--   let iexpr = getIExpr vte
+--       sameError (GenericRunTimeError sa _) (GenericRunTimeError sb _) = sa == sb
+--       -- sameError (SetEnvError _) (SetEnvError _) = True
+--       sameError a b = a == b
+--   in case (\x -> pureREval (app x Zero)) <$> eval iexpr of
+--   Left (RTE e) -> Left e == pureREval (app iexpr Zero)
+--   Right x -> case (x, pureREval (app iexpr Zero)) of
+--     (Left a, Left b) -> sameError a b
+--     (a, b) -> a == b
+
+-- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
+-- quickcheckBuiltInOptimizedDoesNotChangeEval up =
+--   let iexpr = toSIL . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables $ up
+--   in False
+
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
   , "       in $3 layer (\\x -> x) 0"
