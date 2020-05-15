@@ -542,9 +542,9 @@ parsePrelude str = case runParser parseDefinitions "" str of
 vars :: Term1 -> Set String
 vars = cata alg where
   alg :: Base Term1 (Set String) -> Set String
-  alg (TVarF (Right n)) = Set.singleton n
-  alg (TLamF (Open (Right n)) x) = del n x
-  alg (TLamF (Closed (Right n)) x) = del n x
+  alg (TVarF n) = Set.singleton n
+  alg (TLamF (Open n) x) = del n x
+  alg (TLamF (Closed n) x) = del n x
   alg e = F.fold e
   del :: String -> Set String -> Set String
   del n x = case Set.member n x of
@@ -553,14 +553,36 @@ vars = cata alg where
 
 -- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
 -- Automatic recognition of Close or Open type of `TLam`.
-makeLambda :: Map String Term1 -> String -> Term1 -> Term1 -> Term1
+makeLambda :: Set String -> String -> Term1 -> Term1 -> Term1
 makeLambda state variable upTermExpr term1 = -- trace ("\nstate: " <> show state <> ) $
   case unbound == Set.empty of
-    True -> TLam (Closed (Right variable)) term1
-    _ -> TLam (Open (Right variable)) term1
+    True -> TLam (Closed variable) term1
+    _ -> TLam (Open variable) term1
   where v = vars upTermExpr
-        unbound = ((v \\ Map.keysSet state) \\ Set.singleton variable)
+        unbound = ((v \\ state) \\ Set.singleton variable)
 
+makeLambda' :: Term1 -> Term1
+makeLambda' =
+  let traverseWithVariables :: Set String -> Term1 -> Term1
+      traverseWithVariables variables = let recur = traverseWithVariables variables in \case
+        TVar n -> TVar n
+        TITE i t e -> TITE (recur i) (recur t) (recur e)
+        TPair a b -> TPair (recur a) (recur b)
+        TZero -> TZero
+        TCheck c x -> TCheck (recur c) (recur x)
+        TApp f x -> TApp (recur f) (recur x)
+        TLeft x -> TLeft (recur x)
+        TRight x -> TRight (recur x)
+        TTrace x -> TTrace (recur x)
+        TLimitedRecursion -> TLimitedRecursion
+        TLam n x ->
+          let newVars = Set.insert lambdaName variables
+              lambdaName = case n of
+                Open s -> s
+                Closed s -> s
+              processedX = traverseWithVariables newVars x
+          in makeLambda variables lambdaName x processedX
+  in traverseWithVariables Set.empty
 
 -----------------------------------------------------------------------
 
@@ -640,4 +662,4 @@ optimizeBuiltinFunctions = endoMap optimize where
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
 parseMain prelude s = parseWithPrelude s prelude >>= process where
   process :: UnprocessedParsedTerm -> Either String Term3
-  process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
+  process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
