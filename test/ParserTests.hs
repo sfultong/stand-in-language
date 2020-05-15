@@ -23,7 +23,6 @@ import Control.Monad
 import qualified Control.Monad.State as State
 import qualified Data.Semigroup as Semigroup
 
-
 main = defaultMain tests
 
 tests :: TestTree

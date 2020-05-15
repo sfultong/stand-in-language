@@ -195,7 +195,7 @@ data BreakExtras
   = UnsizedRecursion
   deriving Show
 
-type Term1 = ParserTerm (Either () String) (Either Int String)
+type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
 
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show

@@ -103,20 +103,19 @@ s2t = ints2t . map ord
 
 -- |Int to Church encoding
 i2c :: Int -> Term1
-i2c x = TLam (Closed (Left ())) (TLam (Open (Left ())) (inner x))
+i2c x = TLam (Closed "f") (TLam (Open "x") (inner x))
   where inner :: Int -> Term1
         inner = apo coalg
         coalg :: Int -> Base Term1 (Either Term1 Int)
-        coalg 0 = TVarF (Left 0)
-        coalg n = TAppF (Left . TVar $ Left 1) (Right $ n - 1)
+        coalg 0 = TVarF "x"
+        coalg n = TAppF (Left . TVar $ "f") (Right $ n - 1)
 
 debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (TZero) = pure $ TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
-debruijinize _ (TVar (Left i)) = pure $ TVar i
-debruijinize vl (TVar (Right n)) = case elemIndex n vl of
-                                     Just i -> pure $ TVar i
-                                     Nothing -> fail $ "undefined identifier " ++ n
+debruijinize vl (TVar n) = case elemIndex n vl of
+                             Just i -> pure $ TVar i
+                             Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
 debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i
@@ -125,10 +124,8 @@ debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i
 debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
 debruijinize vl (TRight x) = TRight <$> debruijinize vl x
 debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
-debruijinize vl (TLam (Open (Left _)) x) = TLam (Open ()) <$> debruijinize ("-- dummy" : vl) x
-debruijinize vl (TLam (Closed (Left _)) x) = TLam (Closed ()) <$> debruijinize ("-- dummyC" : vl) x
-debruijinize vl (TLam (Open (Right n)) x) = TLam (Open ()) <$> debruijinize (n : vl) x
-debruijinize vl (TLam (Closed (Right n)) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
+debruijinize vl (TLam (Open n) x) = TLam (Open ()) <$> debruijinize (n : vl) x
+debruijinize vl (TLam (Closed n) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ (TLimitedRecursion) = pure TLimitedRecursion
 
 splitExpr' :: Term2 -> BreakState' BreakExtras
@@ -396,20 +393,19 @@ stag ps bindingNames str = do
   pure new1
 -}
 
--- |Renames top level bindings references found on a `Term1` by tagging them with consecutive `Int`s
--- while keeping track of new names and substituted names.
--- i.e. Let `f` and `g2` be two top level bindings
--- then `\g -> [g,f,g2]` would be renamend to `\g -> [g,f1,g3]` in `Term1` representation.
--- ["f1","g3"] would be the second part of the triplet (new names), and ["f", "g2"] the third part of
--- the triplet (substituted names)
-{-
-rename :: ParserState -> (ParserState -> Set String) -> Term1 -> (Term1, VarList, VarList)
-rename ps bindingNames term1 = (res, newf, oldf)
-  where
-    toReplace = (vars term1) `Set.intersection` bindingNames ps
-    sres = traverseOf (traversed . _Right . filtered (`Set.member` toReplace)) (stag ps bindingNames) term1
-    (res, (_, newf, oldf)) = State.runState sres (1,[],[])
--}
+-- -- |Renames top level bindings references found on a `Term1` by tagging them with consecutive `Int`s
+-- -- while keeping track of new names and substituted names.
+-- -- i.e. Let `f` and `g2` be two top level bindings
+-- -- then `\g -> [g,f,g2]` would be renamend to `\g -> [g,f1,g3]` in `Term1` representation.
+-- -- ["f1","g3"] would be the second part of the triplet (new names), and ["f", "g2"] the third part of
+-- -- the triplet (substituted names)
+-- rename :: ParserState -> (ParserState -> Set String) -> Term1 -> (Term1, VarList, VarList)
+-- rename ps bindingNames term1 = (res, newf, oldf)
+--   where
+--     toReplace = (vars term1) `Set.intersection` bindingNames ps
+--     sres = traverseOf (traversed . _Right . filtered (`Set.member` toReplace)) (stag ps bindingNames) term1
+--     (res, (_, newf, oldf)) = State.runState sres (1,[],[])
+
 
 -- |Adds bound to `ParserState` if there's no shadowing conflict.
 {-
@@ -530,13 +526,25 @@ parsePrelude str = case runParser parseDefinitions "" str of
   Right pd -> Right (addBuiltins . pd)
   Left x -> Left $ MkES $ errorBundlePretty x
 
+
+-- vars :: UnprocessedParsedTerm -> Set String
+-- vars = cata alg where
+--   alg :: Base UnprocessedParsedTerm (Set String) -> Set String
+--   alg (VarUPF n) = Set.singleton n
+--   alg (LamUPF n x) = del n x
+--   alg e = F.fold e
+--   del :: String -> Set String -> Set String
+--   del n x = case Set.member n x of
+--               False -> x
+--               True -> Set.delete n x
 -- |Collect all variable names in a `Term1` expresion excluding terms binded
 --  to lambda args
-vars :: UnprocessedParsedTerm -> Set String
+vars :: Term1 -> Set String
 vars = cata alg where
-  alg :: Base UnprocessedParsedTerm (Set String) -> Set String
-  alg (VarUPF n) = Set.singleton n
-  alg (LamUPF n x) = del n x
+  alg :: Base Term1 (Set String) -> Set String
+  alg (TVarF (Right n)) = Set.singleton n
+  alg (TLamF (Open (Right n)) x) = del n x
+  alg (TLamF (Closed (Right n)) x) = del n x
   alg e = F.fold e
   del :: String -> Set String -> Set String
   del n x = case Set.member n x of
@@ -545,13 +553,28 @@ vars = cata alg where
 
 -- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
 -- Automatic recognition of Close or Open type of `TLam`.
-makeLambda :: Map String Term1 -> String -> UnprocessedParsedTerm -> Term1 -> Term1
+makeLambda :: Map String Term1 -> String -> Term1 -> Term1 -> Term1
 makeLambda state variable upTermExpr term1 = -- trace ("\nstate: " <> show state <> ) $
   case unbound == Set.empty of
     True -> TLam (Closed (Right variable)) term1
     _ -> TLam (Open (Right variable)) term1
   where v = vars upTermExpr
         unbound = ((v \\ Map.keysSet state) \\ Set.singleton variable)
+
+
+-----------------------------------------------------------------------
+
+-- makelambda :: Term1 -> Term1
+-- makeLambda term1 =
+--   let makeLambdaWithEnviroment ::Set String -> Term1 -> Term1
+--       makeLambdaWithEnviroment varSet t1 =
+--         let v = vars t1
+--             unbound = ((v \\ varSet) \\ Set.singleton variable)
+--         in case unbound == Set.empty of
+--              True -> undefined
+--              _    -> undefined
+--   in State.evalState (makeLambdaWithEnviroment term1) (Map.empty)
+-- --sres = traverseOf (traversed . _Right . filtered (`Set.member` toReplace)) (stag ps bindingNames) term1
 
 validateVariables :: UnprocessedParsedTerm -> Either String Term1
 validateVariables term =
@@ -582,10 +605,10 @@ validateVariables term =
         --LamUP v x -> TLam (Open (Right v)) <$> validateWithEnvironment x
         LamUP v x -> do
           oldState <- State.get
-          State.modify (Map.insert v (TVar (Right v)))
+          State.modify (Map.insert v (TVar v))
           result <- validateWithEnvironment x
           State.put oldState
-          pure $ TLam (Open (Right v)) result
+          pure $ TLam (Open v) result
           -- pure $ makeLambda oldState v x result
         UnsizedRecursionUP -> pure TLimitedRecursion
         ChurchUP n -> pure $ i2c n
