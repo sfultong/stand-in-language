@@ -22,9 +22,6 @@ import qualified System.IO.Strict as Strict
 import Control.Monad
 import qualified Control.Monad.State as State
 import qualified Data.Semigroup as Semigroup
-import Test.Hspec
-import Test.QuickCheck
-import Common
 
 
 main = defaultMain tests
@@ -780,25 +777,3 @@ testShowBoard5 = unlines
   , "               (1)"
   ]
 
-quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
-quickcheckBuiltInOptimizedDoesNotChangeEval up =
-  let iexpr :: Either String (Maybe IExpr)
-      iexpr = second
-                (toSIL . findChurchSize)
-                (fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions $ up)
-
-      iexpr' = second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables $ up)
-  in
-    case (iexpr, iexpr') of
-       (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
-       _ | iexpr == iexpr'-> True
-       _ | otherwise -> False
-
-unitTestQC :: Testable p => String -> Int -> p -> IO Bool
-unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p >>= \result -> case result of
-  (Success _ _ _ _ _ _) -> pure True
-  x -> (putStrLn $ concat [name, " failed: ", show x]) >> pure False
-
--- quickCheckTests unitTest2 unitTestType =
---   [ unitTestQC "First quickcheck test!" 1000 quickcheckBuiltInOptimizedDoesNotChangeEval
---   ]

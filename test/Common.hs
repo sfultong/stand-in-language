@@ -2,10 +2,8 @@
 {-# LANGUAGE TupleSections #-}
 module Common where
 
---import Control.Monad.State (State)
 import Test.QuickCheck
 import Test.QuickCheck.Gen
---import qualified Control.Monad.State as State
 
 import SIL.TypeChecker
 import SIL.Parser
@@ -110,8 +108,8 @@ instance Arbitrary UnprocessedParsedTerm where
         oneof $
             (if not (null varList) then ((VarUP <$> elements varList) :) else id)
             [ StringUP <$> elements (map ((("s") <>) . show) [1..9]) -- chooseAny
-            , (IntUP <$> chooseAny)
-            , (ChurchUP <$> chooseAny)
+            , (IntUP <$> elements [0..9])
+            , (ChurchUP <$> elements [0..9])
             , (pure UnsizedRecursionUP)
             ]
       lambdaTerms = ["w", "x", "y", "z"]
@@ -132,7 +130,8 @@ instance Arbitrary UnprocessedParsedTerm where
                           in case i of
                                    0 -> leaves varList
                                    x -> oneof
-                                     [ LeftUP <$> recur (i - 1)
+                                     [ leaves varList
+                                     , LeftUP <$> recur (i - 1)
                                      , RightUP <$> recur (i - 1)
                                      , TraceUP <$> recur (i - 1)
                                      , elements lambdaTerms >>= \var -> LamUP var <$> genTree (var : varList) (i - 1)
