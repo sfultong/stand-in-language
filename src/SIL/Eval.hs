@@ -11,6 +11,7 @@ import SIL.Parser
 import SIL.RunTime
 import SIL.TypeChecker
 import SIL.Optimizer
+import SIL.Serializer
 
 data ExpP
   = ZeroP
@@ -132,15 +133,16 @@ evalLoop iexpr = case eval' iexpr of
   Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
   Right peExp ->
     let mainLoop s = do
-             result <- optimizedEval (app peExp s)
-             case result of
-               Zero -> putStrLn "aborted"
-               (Pair disp newState) -> do
-                 putStrLn . g2s $ disp
-                 case newState of
-                   Zero -> putStrLn "done"
-                   _ -> do
-                     inp <- s2g <$> getLine
-                     mainLoop $ Pair inp newState
-               r -> putStrLn $ concat ["runtime error, dumped ", show r]
+          -- result <- optimizedEval (app peExp s)
+          result <- simpleEval (app peExp s)
+          case result of
+            Zero -> putStrLn "aborted"
+            (Pair disp newState) -> do
+              putStrLn . g2s $ disp
+              case newState of
+                Zero -> putStrLn "done"
+                _ -> do
+                  inp <- s2g <$> getLine
+                  mainLoop $ Pair inp newState
+            r -> putStrLn $ concat ["runtime error, dumped ", show r]
     in mainLoop Zero

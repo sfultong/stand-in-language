@@ -37,56 +37,82 @@ foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: 
 
 
 -- | Add a SIL expression to the ParserState.
-addReplBound :: String -> Term1 -> ParserState -> ParserState
-addReplBound name expr ps = ParserState (Map.insert name expr $ bound ps) Map.empty
+addReplBound :: String -> UnprocessedParsedTerm -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+addReplBound name expr = LetUP [(name, expr)]
+-- addReplBound :: String -> Term1 -> ParserState -> ParserState
+-- addReplBound name expr ps = ParserState (Map.insert name expr $ bound ps) Map.empty
 
 -- | Assignment parsing from the repl.
-parseReplAssignment :: SILParser ()
+parseReplAssignment :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseReplAssignment = do
-  var <- identifier
-  annotation <- optional . try $ parseRefinementCheck
-  reserved "=" <?> "assignment ="
-  expr <- parseLongExpr
-  let annoExp = case annotation of
-        Just f -> f expr
-        _ -> expr
-      assign ps = addReplBound var annoExp ps 
-  State.modify assign
+  (var, expr) <- parseAssignment
+  pure $ addReplBound var expr
+-- parseReplAssignment :: SILParser ()
+-- parseReplAssignment = do
+--   var <- identifier
+--   annotation <- optional . try $ parseRefinementCheck
+--   reserved "=" <?> "assignment ="
+--   expr <- parseLongExpr
+--   let annoExp = case annotation of
+--         Just f -> f expr
+--         _ -> expr
+--       assign ps = addReplBound var annoExp ps 
+--   State.modify assign
 
 -- | Parse only an expression
-parseReplExpr :: SILParser ()
+parseReplExpr :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseReplExpr = do
   expr <- parseLongExpr
-  let assign ps = addReplBound "_tmp_" expr ps
-  State.modify assign
+  pure $ addReplBound "_tmp_" expr
+-- parseReplExpr :: SILParser ()
+-- parseReplExpr = do
+--   expr <- parseLongExpr
+--   let assign ps = addReplBound "_tmp_" expr ps
+--   State.modify assign
+
 
 -- | Information about what has the REPL parsed.
-data ReplStep = ReplAssignment
-              | ReplExpr
+data ReplStep a = ReplAssignment a
+                | ReplExpr a
 
 -- | Combination of `parseReplExpr` and `parseReplAssignment`
-parseReplStep :: SILParser (ReplStep, Bindings)
-parseReplStep =  step >>= (\x -> (x,) <$> (bound <$> State.get)) 
-    where step = try (parseReplAssignment *> return ReplAssignment)
-               <|> (parseReplExpr *> return ReplExpr)
+parseReplStep :: SILParser (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
+parseReplStep = try (parseReplAssignment >>= (pure . ReplAssignment))
+                 <|> (parseReplExpr >>= (pure . ReplExpr))
+-- parseReplStep :: SILParser (ReplStep, Bindings)
+-- parseReplStep =  step >>= (\x -> (x,) <$> (bound <$> State.get)) 
+--     where step = try (parseReplAssignment *> return ReplAssignment)
+--                  <|> (parseReplExpr *> return ReplExpr)
+
 
 -- | Try to parse the given string and update the bindings.
-runReplParser :: Bindings -> String -> Either ErrorString (ReplStep, Bindings)
+runReplParser :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+              -> String
+              -> Either String (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
 runReplParser prelude str = do
-  let startState = ParserState prelude Map.empty
-      p          = State.runStateT parseReplStep startState
-  case runParser p "" str of
-    Right (a, s) -> Right a
-    Left x       -> Left $ MkES $ errorBundlePretty x
+  case runParser parseReplStep "" str of
+    Right (a, s) -> Right . prelude $ a
+    Left x       -> Left $ errorBundlePretty x
+-- runReplParser :: Bindings -> String -> Either ErrorString (ReplStep, Bindings)
+-- runReplParser prelude str = do
+--   let startState = ParserState prelude Map.empty
+--       p          = State.runStateT parseReplStep startState
+--   case runParser p "" str of
+--     Right (a, s) -> Right a
+--     Left x       -> Left $ MkES $ errorBundlePretty x
+
 
 -- Common functions 
 -- ~~~~~~~~~~~~~~~~
 
 -- | Obtain expression from the bindings 
 -- and transform them into Term3.
-resolveBinding' :: String -> Bindings -> Maybe Term3
+resolveBinding' :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> Maybe Term3
 resolveBinding' name bindings = Map.lookup name bindings >>=
   (fmap splitExpr . debruijinize [])
+-- resolveBinding' :: String -> Bindings -> Maybe Term3
+-- resolveBinding' name bindings = Map.lookup name bindings >>=
+--   (fmap splitExpr . debruijinize [])
 
 
 
@@ -227,7 +253,7 @@ startLoop state = runInputT defaultSettings $ replLoop state
 
 -- | Compile and output a SIL expression.
 startExpr :: (IExpr -> IO IExpr)
-          -> Bindings
+          -> UnprocessedParsedTerm
           -> String
           -> IO ()
 startExpr eval bindings s_expr = do
@@ -241,7 +267,7 @@ main = do
     settings  <- execParser opts
     eval <- case _backend settings of
         SimpleBackend -> return simpleEval
-        LLVMBackend   -> do 
+        LLVMBackend   -> do
             gcInit
             gcAllowRegisterThreads
             return optimizedEval

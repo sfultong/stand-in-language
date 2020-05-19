@@ -297,110 +297,111 @@ letExpr = unlines $
   ]
 
 -- | SIL Parser AST representation of: \x -> \y -> \z -> [zz1, yy3, yy4, z, zz6]
-expr9 = TLam (Closed (Right "x"))
-          (TLam (Open (Right "y"))
-            (TLam (Open (Right "z"))
+expr9 = TLam (Closed ("x"))
+          (TLam (Open ("y"))
+            (TLam (Open ("z"))
               (TPair
-                (TVar (Right "zz1"))
+                (TVar ("zz1"))
                 (TPair
-                  (TVar (Right "yy3"))
+                  (TVar ("yy3"))
                   (TPair
-                    (TVar (Right "yy5"))
+                    (TVar ("yy5"))
                     (TPair
-                      (TVar (Right "z"))
+                      (TVar ("z"))
                       (TPair
-                        (TVar (Right "zz6"))
+                        (TVar ("zz6"))
                         TZero)))))))
 
 -- | SIL Parser AST representation of: \x -> \y -> \z -> [zz, yy0, yy0, z, zz]
-expr8 = TLam (Closed (Right "x"))
-          (TLam (Open (Right "y"))
-            (TLam (Open (Right "z"))
+expr8 = TLam (Closed ("x"))
+          (TLam (Open ("y"))
+            (TLam (Open ("z"))
               (TPair
-                (TVar (Right "zz"))
+                (TVar ("zz"))
                 (TPair
-                  (TVar (Right "yy0"))
+                  (TVar ("yy0"))
                   (TPair
-                    (TVar (Right "yy0"))
+                    (TVar ("yy0"))
                     (TPair
-                      (TVar (Right "z"))
+                      (TVar ("z"))
                       (TPair
-                        (TVar (Right "zz"))
+                        (TVar ("zz"))
                         TZero)))))))
 
 -- | SIL Parser AST representation of: "\z -> [x,x,y,x,z,y,z]"
-expr7 = TLam (Open (Right "z"))
+expr7 = TLam (Open ("z"))
           (TPair
-            (TVar (Right "x"))
+            (TVar ("x"))
             (TPair
-              (TVar (Right "x"))
+              (TVar ("x"))
               (TPair
-                (TVar (Right "y"))
+                (TVar ("y"))
                 (TPair
-                  (TVar (Right "x"))
+                  (TVar ("x"))
                   (TPair
-                    (TVar (Right "z"))
+                    (TVar ("z"))
                     (TPair
-                      (TVar (Right "y"))
+                      (TVar ("y"))
                       (TPair
-                        (TVar (Right "z"))
+                        (TVar ("z"))
                         TZero)))))))
 
 -- | SIL Parser AST representation of: \x -> \y -> \z -> z
-expr6 = TLam (Closed (Right "x"))
-          (TLam (Closed (Right "y"))
-            (TLam (Closed (Right "z"))
-              (TVar (Right "z"))))
+expr6 :: Term1
+expr6 = TLam (Closed ("x"))
+          (TLam (Closed ("y"))
+            (TLam (Closed ("z"))
+              (TVar ("z"))))
 
 -- | SIL Parser AST representation of: \x -> (x, x)
-expr5 = TLam (Closed (Right "x"))
+expr5 = TLam (Closed ("x"))
           (TPair
-            (TVar (Right "x"))
-            (TVar (Right "x")))
+            (TVar ("x"))
+            (TVar ("x")))
 
 -- | SIL Parser AST representation of: \x -> \x -> \x -> x
-expr4 = TLam (Closed (Right "x"))
-          (TLam (Closed (Right "x"))
-            (TLam (Closed (Right "x"))
-              (TVar (Right "x"))))
+expr4 = TLam (Closed ("x"))
+          (TLam (Closed ("x"))
+            (TLam (Closed ("x"))
+              (TVar ("x"))))
 
 -- | SIL Parser AST representation of: \x -> \y -> \z -> [x,y,z]
-expr3 = TLam (Closed (Right "x"))
-          (TLam (Open (Right "y"))
-            (TLam (Open (Right "z"))
+expr3 = TLam (Closed ("x"))
+          (TLam (Open ("y"))
+            (TLam (Open ("z"))
               (TPair
-                (TVar (Right "x"))
+                (TVar ("x"))
                 (TPair
-                  (TVar (Right "y"))
+                  (TVar ("y"))
                   (TPair
-                    (TVar (Right "z"))
+                    (TVar ("z"))
                     TZero)))))
 
 -- | SIL Parser AST representation of: \a -> (a, (\a -> (a,0)))
-expr2 = TLam (Closed (Right "a"))
+expr2 = TLam (Closed ("a"))
           (TPair
-            (TVar (Right "a"))
-            (TLam (Closed (Right "a"))
+            (TVar ("a"))
+            (TLam (Closed ("a"))
               (TPair
-                (TVar (Right "a"))
+                (TVar ("a"))
                 TZero)))
 
 
 -- | SIL Parser AST representation of: \x -> [x, x, x]
-expr1 = TLam (Closed (Right "x"))
+expr1 = TLam (Closed ("x"))
           (TPair
-            (TVar (Right "x"))
+            (TVar ("x"))
             (TPair
-              (TVar (Right "x"))
+              (TVar ("x"))
               (TPair
-                (TVar (Right "x"))
+                (TVar ("x"))
                 TZero)))
 
-expr = TLam (Closed (Right "x"))
-         (TLam (Open (Right "y"))
+expr = TLam (Closed ("x"))
+         (TLam (Open ("y"))
            (TPair
-             (TVar (Right "x"))
-             (TVar (Right "y"))))
+             (TVar ("x"))
+             (TVar ("y"))))
 
 range = unlines
   [ "range = \\a b -> let layer = \\recur i -> if dMinus b i"
@@ -410,7 +411,7 @@ range = unlines
   , "r = range 2 5"
   ]
 
-closedLambdaPair = TLam (Closed (Right "x")) (TLam (Open (Right "y")) (TPair (TVar (Right "x")) (TVar (Right "y"))))
+closedLambdaPair = TLam (Closed ("x")) (TLam (Open ("y")) (TPair (TVar ("x")) (TVar ("y"))))
 
 testLetIndentation = unlines
   [ "let x = 0"

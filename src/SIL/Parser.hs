@@ -223,7 +223,7 @@ identifier = (lexeme . try) $ p >>= check
       p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
       check x = if x `elem` rws
                 then fail $ "keyword " ++ show x ++ " cannot be an identifier"
-                else return x
+                else pure x
 
 -- |Parser for parenthesis.
 parens :: SILParser a -> SILParser a
@@ -261,7 +261,7 @@ parsePair = parens $ do
 parseList :: SILParser UnprocessedParsedTerm
 parseList = do
   exprs <- brackets (commaSep (scn *> parseLongExpr <*scn))
-  return $ ListUP exprs
+  pure $ ListUP exprs
 
 -- TODO: make error more descriptive
 -- |Parse ITE (which stands for "if then else").
@@ -273,7 +273,7 @@ parseITE = do
   thenExpr <- (parseLongExpr <|> parseSingleExpr) <* scn
   reserved "else" <* scn
   elseExpr <- parseLongExpr <* scn
-  return $ ITEUP cond thenExpr elseExpr
+  pure $ ITEUP cond thenExpr elseExpr
 
 -- |Parse a single expression.
 parseSingleExpr :: SILParser UnprocessedParsedTerm
@@ -489,26 +489,38 @@ runSILParserWDebug parser str = show <$> runSILParser (dbg "debug" parser) str >
 
 
 -- |Helper function to test SIL parsers with any result.
-runSILParser :: SILParser a -> String -> IO a
+runSILParser :: Monad m => SILParser a -> String -> m a
 runSILParser parser str =
   case runParser parser "" str of
     Right x -> pure x
     Left e -> error $ errorBundlePretty e
 
 -- |Helper function to test if parser was successful.
-parseSuccessful :: SILParser a -> String -> IO Bool
+parseSuccessful :: Monad m => SILParser a -> String -> m Bool
 parseSuccessful parser str =
   case runParser parser "" str of
-    Right _ -> return True
-    Left _ -> return False
+    Right _ -> pure True
+    Left _ -> pure False
 
--- |Parse with specified prelude.
-
+-- |Parse with specified prelude and getting main.
 parseWithPrelude :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-  -> Either String UnprocessedParsedTerm
-parseWithPrelude str addDefinitions =
-  let result = addDefinitions <$> runParser parseTopLevel "" str
-  in first errorBundlePretty result
+                 -> Either String UnprocessedParsedTerm
+parseWithPrelude str prelude = let result = prelude <$> runParser parseTopLevel "" str
+                               in first errorBundlePretty result
+-- runParserWithPrelude parseTopLevel
+
+-- -- |Parse with specified prelude and getting main.
+-- runParserWithPrelude :: SILParser a
+--                      -> String
+--                      -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+--                      -> Either String UnprocessedParsedTerm
+-- runParserWithPrelude parser str prelude =
+
+  -- prelude `second` runSILParser parser "" str
+  -- first errorBundlePretty $ prelude <$> runParser parser "" str
+-- parseWithPrelude :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+--   -> Either String UnprocessedParsedTerm
+-- parseWithPrelude str addDefinitions =
 
 addBuiltins :: UnprocessedParsedTerm -> UnprocessedParsedTerm
 addBuiltins = LetUP
@@ -662,4 +674,5 @@ optimizeBuiltinFunctions = endoMap optimize where
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
 parseMain prelude s = parseWithPrelude s prelude >>= process where
   process :: UnprocessedParsedTerm -> Either String Term3
-  process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
+  -- process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
+  process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
