@@ -672,7 +672,10 @@ optimizeBuiltinFunctions = endoMap optimize where
 
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
-parseMain prelude s = parseWithPrelude s prelude >>= process where
-  process :: UnprocessedParsedTerm -> Either String Term3
-  -- process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
-  process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
+parseMain prelude s = parseWithPrelude s prelude >>= process
+
+-- | TODO Document
+process :: UnprocessedParsedTerm -> Either String Term3
+process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions
+-- process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
+
