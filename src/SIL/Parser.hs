@@ -509,20 +509,6 @@ parseWithPrelude :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
                  -> Either String UnprocessedParsedTerm
 parseWithPrelude str prelude = let result = prelude <$> runParser parseTopLevel "" str
                                in first errorBundlePretty result
--- runParserWithPrelude parseTopLevel
-
--- -- |Parse with specified prelude and getting main.
--- runParserWithPrelude :: SILParser a
---                      -> String
---                      -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
---                      -> Either String UnprocessedParsedTerm
--- runParserWithPrelude parser str prelude =
-
-  -- prelude `second` runSILParser parser "" str
-  -- first errorBundlePretty $ prelude <$> runParser parser "" str
--- parseWithPrelude :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
---   -> Either String UnprocessedParsedTerm
--- parseWithPrelude str addDefinitions =
 
 addBuiltins :: UnprocessedParsedTerm -> UnprocessedParsedTerm
 addBuiltins = LetUP
@@ -674,7 +660,8 @@ optimizeBuiltinFunctions = endoMap optimize where
 
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
 process :: UnprocessedParsedTerm -> Either String Term3
-process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions
+-- process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions
+process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions
 
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3

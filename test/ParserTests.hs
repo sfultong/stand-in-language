@@ -8,6 +8,7 @@ import SIL.Parser
 import SIL.RunTime
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.QuickCheck
 import Text.Megaparsec.Error
 import Text.Megaparsec
 import Text.Megaparsec.Debug
@@ -22,6 +23,7 @@ import qualified System.IO.Strict as Strict
 import Control.Monad
 import qualified Control.Monad.State as State
 import qualified Data.Semigroup as Semigroup
+import Common
 
 main = defaultMain tests
 
@@ -779,3 +781,7 @@ testShowBoard5 = unlines
   , "               (1)"
   ]
 
+fiveApp = concat
+  [ "main = let fiveApp = $5\n"
+  , "       in fiveApp (\\x -> (x,0)) 0"
+  ]

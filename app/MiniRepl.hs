@@ -74,8 +74,13 @@ rightToMaybe :: Either a b -> Maybe b
 rightToMaybe (Right b) = Just b
 rightToMaybe _ = Nothing
 
+flattenOuterLetUP :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+flattenOuterLetUP (LetUP l (LetUP l' x)) = LetUP (l' <> l) x
+flattenOuterLetUP x = x
+
 -- |Extra processing (see `SIL.Parser.process`) useful for the MinRepl's context.
 process' :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Maybe Term3
+-- process' bindings x = rightToMaybe . process . bindings $ x 
 process' bindings x = rightToMaybe . process . applyUntilNoChange flattenOuterLetUP . bindings $ x
 
 -- |Obtain expression from the bindings and transform them into maybe a Term3.
