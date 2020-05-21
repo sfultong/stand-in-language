@@ -4,12 +4,11 @@
 {-# LANGUAGE DeriveFunctor #-}
 module Main where
 
-import           Options.Applicative hiding (ParseError, (<|>))
+import Options.Applicative hiding (ParseError, (<|>))
 import qualified Options.Applicative as O
 import System.Console.Haskeline
 import Text.Megaparsec
 import Text.Megaparsec.Char
-
 import SIL.Eval
 import SIL.Parser
 import SIL.RunTime
@@ -17,13 +16,12 @@ import SIL.TypeChecker
 import SIL
 import Naturals
 import PrettyPrint
-
 import qualified Control.Monad.State as State
 import Control.Monad.IO.Class
 import Data.List
-
-import qualified Data.Map         as Map
+import qualified Data.Map as Map
 import qualified System.IO.Strict as Strict
+import System.Exit (exitSuccess)
 
 foreign import capi "gc.h GC_INIT" gcInit :: IO ()
 foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
@@ -36,41 +34,21 @@ foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: 
 -- to overwrite top-level bindings.
 --
 
-
 -- | Add a SIL expression to the ParserState.
 addReplBound :: String -> UnprocessedParsedTerm -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 addReplBound name expr = LetUP [(name, expr)]
--- addReplBound :: String -> Term1 -> ParserState -> ParserState
--- addReplBound name expr ps = ParserState (Map.insert name expr $ bound ps) Map.empty
 
 -- | Assignment parsing from the repl.
 parseReplAssignment :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseReplAssignment = do
-  (var, expr) <- parseAssignment
+  (var, expr) <- parseAssignment <* eof
   pure $ addReplBound var expr
--- parseReplAssignment :: SILParser ()
--- parseReplAssignment = do
---   var <- identifier
---   annotation <- optional . try $ parseRefinementCheck
---   reserved "=" <?> "assignment ="
---   expr <- parseLongExpr
---   let annoExp = case annotation of
---         Just f -> f expr
---         _ -> expr
---       assign ps = addReplBound var annoExp ps 
---   State.modify assign
 
 -- | Parse only an expression
 parseReplExpr :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseReplExpr = do
-  expr <- parseLongExpr
+  expr <- parseLongExpr <* eof
   pure $ addReplBound "_tmp_" expr
--- parseReplExpr :: SILParser ()
--- parseReplExpr = do
---   expr <- parseLongExpr
---   let assign ps = addReplBound "_tmp_" expr ps
---   State.modify assign
-
 
 -- | Information about what has the REPL parsed.
 data ReplStep a = ReplAssignment a
@@ -81,25 +59,12 @@ data ReplStep a = ReplAssignment a
 parseReplStep :: SILParser (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
 parseReplStep = try (parseReplAssignment >>= (pure . ReplAssignment))
                 <|> (parseReplExpr >>= (pure . ReplExpr))
--- parseReplStep :: SILParser (ReplStep, Bindings)
--- parseReplStep =  step >>= (\x -> (x,) <$> (bound <$> State.get)) 
---     where step = try (parseReplAssignment *> return ReplAssignment)
---                  <|> (parseReplExpr *> return ReplExpr)
-
 
 -- | Try to parse the given string and update the bindings.
 runReplParser :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
               -> String
               -> Either String (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
 runReplParser prelude str = (fmap . fmap) (. prelude) $ runSILParser parseReplStep str
--- runReplParser :: Bindings -> String -> Either ErrorString (ReplStep, Bindings)
--- runReplParser prelude str = do
---   let startState = ParserState prelude Map.empty
---       p = State.runStateT parseReplStep startState
---   case runParser p "" str of
---     Right (a, s) -> Right a
---     Left x       -> Left $ MkES $ errorBundlePretty x
-
 
 -- Common functions 
 -- ~~~~~~~~~~~~~~~~
@@ -109,31 +74,28 @@ rightToMaybe :: Either a b -> Maybe b
 rightToMaybe (Right b) = Just b
 rightToMaybe _ = Nothing
 
+-- |Extra processing (see `SIL.Parser.process`) useful for the MinRepl's context.
+process' :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Maybe Term3
+process' bindings x = rightToMaybe . process . applyUntilNoChange flattenOuterLetUP . bindings $ x
 
--- | Obtain expression from the bindings 
--- and transform them into Term3.
+-- |Obtain expression from the bindings and transform them into maybe a Term3.
 resolveBinding' :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> Maybe Term3
-resolveBinding' name bindings = lookup name (extractBindings bindings) >>= rightToMaybe . process
--- resolveBinding' :: String -> Bindings -> Maybe Term3
--- resolveBinding' name bindings = Map.lookup name bindings >>=
---   (fmap splitExpr . debruijinize [])
+resolveBinding' name bindings = do
+  x <- lookup name (extractBindingsList bindings)
+  process' bindings x
 
+-- |Obtain expression from the bindings and transform them maybe into a IExpr.
 resolveBinding :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> Maybe IExpr
 resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings >>= toSIL
--- resolveBinding :: String -> Bindings -> Maybe IExpr
--- resolveBinding name bindings = Map.lookup name bindings >>=
---   ((>>= toSIL) . fmap (findChurchSize . splitExpr) . debruijinize [])
 
--- m_iexpr = findChurchSize <$> (rightToMaybe $ process e) >>= toSIL
-
-extractBindings :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-                -> [(String, UnprocessedParsedTerm)]
-extractBindings bindings = case bindings $ IntUP 0 of
+-- |Extracting list (bindings) from the wrapping `LetUP` used to keep track of bindings.
+extractBindingsList :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+                    -> [(String, UnprocessedParsedTerm)]
+extractBindingsList bindings = case bindings $ IntUP 0 of
               LetUP b x -> b
               _ -> error $ unlines [ "`bindings` should be an unapplied LetUP UnprocessedParsedTerm."
                                    , "Called from `resolveBinding'`"
                                    ]
-
 
 -- |Print last expression bound to 
 -- the _tmp_ variable in the bindings
@@ -141,39 +103,24 @@ printLastExpr :: (MonadIO m)
               => (String -> m ())    -- ^Printing function
               -> (IExpr -> m IExpr) -- ^SIL backend
               -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-              -- ^ an unapplied `LetUP` holding al bindings -- TODO FIX unapplied spelling
+              -- ^ an unapplied `LetUP` holding al bindings
               -> m ()
-printLastExpr printer eval bindings = case lookup "_tmp_" (extractBindings bindings) of
+printLastExpr printer eval bindings = case lookup "_tmp_" (extractBindingsList bindings) of
     Nothing -> printer "Could not find _tmp_ in bindings"
     Just e -> do
-        let m_iexpr = findChurchSize <$> (rightToMaybe $ process e) >>= toSIL
-        case m_iexpr of
-            Nothing     -> printer "conversion error"
-            Just iexpr' -> do
-                iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
-                printer $ (show.PrettyIExpr) iexpr
--- printLastExpr :: (MonadIO m)
---               => (String -> m ())    -- ^ Printing function
---               -> (IExpr  -> m IExpr) -- ^ SIL backend
---               -> Bindings
---               -> m ()
--- printLastExpr printer eval bindings = case Map.lookup "_tmp_" bindings of
---     Nothing -> printer "Could not find _tmp_ in bindings"
---     Just e  -> do
---         let  m_iexpr = ((findChurchSize . splitExpr) <$> debruijinize [] e) >>= toSIL
---         case m_iexpr of
---             Nothing     -> printer "conversion error"
---             Just iexpr' -> do
---                 iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
---                 printer $ (show.PrettyIExpr) iexpr
-
+      let m_iexpr = findChurchSize <$> (process' bindings e) >>= toSIL
+      case m_iexpr of
+        Nothing -> printer "conversion error"
+        Just iexpr' -> do
+          iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
+          printer $ (show.PrettyIExpr) iexpr
 
 -- REPL related logic
 -- ~~~~~~~~~~~~~~~~~~
 
 data ReplState = ReplState 
     { replBindings :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-    -- ^. an unapplied `LetUP` holding al bindings -- TODO FIX unapplied spelling
+    -- ^. an unapplied `LetUP` holding al bindings
       -- replBindings :: Bindings
     , replEval     :: (IExpr -> IO IExpr)
     -- ^ Backend function used to compile IExprs.
@@ -195,19 +142,6 @@ replStep eval bindings s = do
             return bindings
         Right (ReplAssignment new_bindings) -> do
             return new_bindings
--- replStep :: (IExpr -> IO IExpr) -> Bindings -> String -> InputT IO Bindings
--- replStep eval bindings s = do
---     let e_new_bindings = runReplParser bindings s
---     case e_new_bindings of
---         Left err -> do 
---             outputStrLn $ "Parse error: " ++ getErrorString err
---             return bindings
---         Right (ReplExpr,new_bindings) -> do  
---             printLastExpr (outputStrLn) (liftIO.eval) new_bindings
---             return bindings
---         Right (ReplAssignment, new_bindings) -> do
---             return new_bindings
-
 
 -- | Obtain a multiline string.
 replMultiline :: [String] -> InputT IO String
@@ -218,13 +152,13 @@ replMultiline buffer = do
         Just ":}" -> return $ concat $ intersperse "\n" $ reverse buffer
         Just s    -> replMultiline (s : buffer) 
 
-
 -- | Main loop for the REPL.
 replLoop :: ReplState -> InputT IO ()
 replLoop (ReplState bs eval) = do 
     minput <- getInputLine "sil> "
     case minput of
         Nothing   -> return ()
+        Just ":q" -> liftIO exitSuccess
         Just ":{" -> do
             new_bs <- replStep eval bs =<< replMultiline []
             replLoop $ ReplState new_bs eval 
@@ -313,16 +247,6 @@ startExpr eval bindings s_expr = do
         Left err -> putStrLn $ "Parse error: " ++ err
         Right (ReplAssignment _) -> putStrLn $ "Expression is an assignment"
         Right (ReplExpr binds) -> printLastExpr putStrLn eval binds
--- startExpr :: (IExpr -> IO IExpr)
---           -> Bindings
---           -> String
---           -> IO ()
--- startExpr eval bindings s_expr = do
---     case runReplParser bindings s_expr of
---         Left err -> putStrLn $ "Parse error: " ++ getErrorString err
---         Right (ReplAssignment, binds) -> putStrLn $ "Expression is an assignment"
---         Right (ReplExpr      , binds) -> printLastExpr putStrLn eval binds
-
 
 main = do
     e_prelude <- parsePrelude <$> Strict.readFile "Prelude.sil" 

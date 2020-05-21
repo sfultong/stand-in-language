@@ -315,6 +315,8 @@ parseSameLvl pos parser = do
     True -> parser
     False -> fail "Expected same indentation."
 
+-- |`applyUntilNoChange f x` returns the fix point of `f` with `x` the starting point.
+-- This function will loop if there is no fix point exists.
 applyUntilNoChange :: Eq a => (a -> a) -> a -> a
 applyUntilNoChange f x = case x == (f x) of
                            True -> x
@@ -464,8 +466,8 @@ parseAssignment :: SILParser (String, UnprocessedParsedTerm)
 parseAssignment = do
   var <- identifier <* scn
   annotation <- optional . try $ parseRefinementCheck
-  reserved "=" <?> "assignment ="
-  expr <- parseLongExpr <* scn
+  scn *> symbol "=" <?> "assignment ="
+  expr <- scn *> parseLongExpr <* scn
   pure (var, expr)
 
  -- |Parse top level expressions.
@@ -670,12 +672,12 @@ optimizeBuiltinFunctions = endoMap optimize where
         -- VarUP "check" TODO
     x -> x
 
+-- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
+process :: UnprocessedParsedTerm -> Either String Term3
+process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions
+
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
 parseMain prelude s = parseWithPrelude s prelude >>= process
 
--- | TODO Document
-process :: UnprocessedParsedTerm -> Either String Term3
-process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions
--- process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions -- . (\x -> trace (show x) x)
 

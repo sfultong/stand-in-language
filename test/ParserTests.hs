@@ -17,7 +17,7 @@ import Data.Map (Map, fromList, toList)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Functor.Foldable
-import qualified SIL.Parser as Parsec
+import Debug.Trace (trace)
 import qualified System.IO.Strict as Strict
 import Control.Monad
 import qualified Control.Monad.State as State
@@ -204,6 +204,8 @@ unitTests = testGroup "Unit tests"
   --         (x Map.! "h") `compare` expected @?= EQ
   --       Left err -> assertFailure . show $ err
   ]
+
+myTrace a = trace (show a) a
 
 dependantTopLevelBindings = unlines $
   [ "f = (0,0)"
