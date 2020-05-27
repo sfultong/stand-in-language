@@ -74,6 +74,37 @@ zCombine a b = case (a,b) of
   (ZEither a b, ZEither c d) -> ZEither (zCombine a c) (zCombine b d) --TODO .. maybe optimize more?
   _ -> ZEither a b
 
+zToP :: Term3 -> Int -> ZExpr -> PExpr
+zToP tm@(Term3 termMap) churchSize = let recur = zToP tm churchSize in \case
+  ZZero -> PZero
+  ZPair a b -> PPair (recur a) (recur b)
+  ZAny -> PAny
+  ZID -> error "zToP hit ZID, gonna have to thinkkkkk"
+  ZEither a b -> PEither (recur a) (recur b)
+  ZEmbed x -> tr x where
+    tr = \case
+      ZeroF -> PZero
+      PairF a b -> PPair (tr a) (tr b)
+      GateF l r -> PGate (tr l) (tr r)
+      DeferF ind -> case Map.lookup ind termMap of
+        Just x -> PDefer $ tr x
+        _ -> error "zToP deferF index not found"
+      SetEnvF x -> PSetEnv $ tr x
+      EnvF -> PEnv
+      LeftF x -> PPLeft $ tr x
+      RightF x -> PPRight $ tr x
+      AbortF -> PAbort
+      TraceF -> error "zToP traceF not supported"
+      AuxF _ -> let lamp x = PPair (PDefer x) PEnv
+                    clamp x = PPair (PDefer x) PZero
+                    v0 = PPLeft PEnv
+                    v1 = PPLeft $ PPRight PEnv
+                    twiddleP = PDefer $ PPair (PPLeft (PPRight PEnv)) (PPair (PPLeft PEnv) (PPRight (PPRight PEnv)))
+                    appP c i = PSetEnv (PSetEnv (PPair twiddleP (PPair i c)))
+                    toC 0 = v0
+                    toC n = appP v1 (toC (n - 1))
+                in clamp (lamp (toC churchSize))
+
 type ZBuilder = State (Map FragIndex ZExpr)
 
 zEval :: (FragIndex -> FragExpr BreakExtras) -> ZExpr -> FragExpr BreakExtras -> ZBuilder ZExpr
@@ -97,7 +128,6 @@ zEval fragLookup env =
       z -> error $ "zEval rightF: unexpected " <> show z
   GateF l r -> pure . ZEmbed $ GateF l r
   SetEnvF x ->
-    -- TODO should probably use bifunctor for Either
     let setEval :: ZExpr -> ZBuilder ZExpr
         setEval = \case
                      xr@(ZPair (ZEmbed x) nenv) -> case x of
