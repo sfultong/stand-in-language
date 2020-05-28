@@ -175,7 +175,6 @@ convertPT n (Term3 termMap) =
 parseVariable :: SILParser UnprocessedParsedTerm
 parseVariable = do
   varName <- identifier
-  --pure . TVar . Right $ varName
   pure $ VarUP varName
 
 -- |Line comments start with "--".
@@ -328,10 +327,17 @@ parseLet = do
   reserved "let" <* scn
   lvl <- L.indentLevel
   bindingsList <- manyTill (parseSameLvl lvl parseAssignment) (reserved "in") <* scn
-  --let bindingsMap = foldr (uncurry Map.insert) Map.empty bindingsList
   expr <- parseLongExpr <* scn
-  --let oexpr = applyUntilNoChange (optimizeLetBindingsReference intermediateState) expr
   pure $ LetUP bindingsList expr
+
+-- |Extracting list (bindings) from the wrapping `LetUP` used to keep track of bindings.
+extractBindingsList :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+                    -> [(String, UnprocessedParsedTerm)]
+extractBindingsList bindings = case bindings $ IntUP 0 of
+              LetUP b x -> b
+              _ -> error $ unlines [ "`bindings` should be an unapplied LetUP UnprocessedParsedTerm."
+                                   , "Called from `extractBindingsList'`"
+                                   ]
 
 -- |Parse long expression.
 parseLongExpr :: SILParser UnprocessedParsedTerm
@@ -353,47 +359,43 @@ parsePartialFix = symbol "?" *> pure UnsizedRecursionUP
 parseRefinementCheck :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseRefinementCheck = pure id <* (symbol ":" *> parseLongExpr)
 
--- |True when char argument is not an Int.
-notInt :: Char -> Bool
-notInt s = case (readMaybe [s]) :: Maybe Int of
-             Just _ -> False
-             Nothing -> True
+-- -- |True when char argument is not an Int.
+-- notInt :: Char -> Bool
+-- notInt s = case (readMaybe [s]) :: Maybe Int of
+--              Just _ -> False
+--              Nothing -> True
 
--- |Separates name and Int tag.
---  Case of no tag, assigned tag is `-1` which will become `0` in `tagVar`
-getTag :: String -> (String, Int)
-getTag str = case name == str of
-                  True -> (name, -1)
-                  False -> (name, read $ drop (length str') str)
-  where
-    str' = dropUntil notInt $ reverse str
-    name = take (length str') str
+-- -- |Separates name and Int tag.
+-- --  Case of no tag, assigned tag is `-1` which will become `0` in `tagVar`
+-- getTag :: String -> (String, Int)
+-- getTag str = case name == str of
+--                   True -> (name, -1)
+--                   False -> (name, read $ drop (length str') str)
+--   where
+--     str' = dropUntil notInt $ reverse str
+--     name = take (length str') str
 
--- |Tags a var with number `i` if it doesn't already contain a number tag, or `i`
--- plus the already present number tag, and corrects for name collisions.
--- Also returns `Int` tag.
-{-
-tagVar :: ParserState -> (ParserState -> Set String) -> String -> Int -> (String, Int)
-tagVar ps bindingNames str i = case candidate `Set.member` bindingNames ps of
-                                 True -> (fst $ tagVar ps bindingNames str (i + 1), n + i + 1)
-                                 False -> (candidate, n + i)
-  where
-    (name,n) = getTag str
-    candidate = name ++ (show $ n + i)
--}
+-- -- |Tags a var with number `i` if it doesn't already contain a number tag, or `i`
+-- -- plus the already present number tag, and corrects for name collisions.
+-- -- Also returns `Int` tag.
+-- tagVar :: ParserState -> (ParserState -> Set String) -> String -> Int -> (String, Int)
+-- tagVar ps bindingNames str i = case candidate `Set.member` bindingNames ps of
+--                                  True -> (fst $ tagVar ps bindingNames str (i + 1), n + i + 1)
+--                                  False -> (candidate, n + i)
+--   where
+--     (name,n) = getTag str
+--     candidate = name ++ (show $ n + i)
 
--- |Sateful (Int count) string tagging and keeping track of new names and old names with name collision
--- avoidance.
-{-
-stag :: ParserState -> (ParserState -> Set String) -> String -> State (Int, VarList, VarList) String
-stag ps bindingNames str = do
-  (i0, new0, old0) <- State.get
-  let (new1, tag1) = tagVar ps bindingNames str (i0 + 1)
-  if i0 >= tag1
-    then State.modify (\(_, new, old) -> (i0 + 1, new ++ [new1], old ++ [str]))
-    else State.modify (\(_, new, old) -> (tag1 + 1, new ++ [new1], old ++ [str]))
-  pure new1
--}
+-- -- |Sateful (Int count) string tagging and keeping track of new names and old names with name collision
+-- -- avoidance.
+-- stag :: ParserState -> (ParserState -> Set String) -> String -> State (Int, VarList, VarList) String
+-- stag ps bindingNames str = do
+--   (i0, new0, old0) <- State.get
+--   let (new1, tag1) = tagVar ps bindingNames str (i0 + 1)
+--   if i0 >= tag1
+--     then State.modify (\(_, new, old) -> (i0 + 1, new ++ [new1], old ++ [str]))
+--     else State.modify (\(_, new, old) -> (tag1 + 1, new ++ [new1], old ++ [str]))
+--   pure new1
 
 -- -- |Renames top level bindings references found on a `Term1` by tagging them with consecutive `Int`s
 -- -- while keeping track of new names and substituted names.
@@ -408,58 +410,51 @@ stag ps bindingNames str = do
 --     sres = traverseOf (traversed . _Right . filtered (`Set.member` toReplace)) (stag ps bindingNames) term1
 --     (res, (_, newf, oldf)) = State.runState sres (1,[],[])
 
+-- -- |Adds bound to `ParserState` if there's no shadowing conflict.
+-- addTopLevelBound :: String -> Term1 -> ParserState -> Maybe ParserState
+-- addTopLevelBound name expr ps =
+--   if Map.member name $ bound ps
+--   then Nothing
+--   else Just $ ParserState (Map.insert name expr $ bound ps) (letBound ps)
 
--- |Adds bound to `ParserState` if there's no shadowing conflict.
-{-
-addTopLevelBound :: String -> Term1 -> ParserState -> Maybe ParserState
-addTopLevelBound name expr ps =
-  if Map.member name $ bound ps
-  then Nothing
-  else Just $ ParserState (Map.insert name expr $ bound ps) (letBound ps)
+-- addLetBound :: String -> Term1 -> ParserState -> Maybe ParserState
+-- addLetBound name expr ps =
+--   if Map.member name $ letBound ps
+--   then Nothing
+--   else Just $ ParserState (bound ps) (Map.insert name expr $ letBound ps)
 
-addLetBound :: String -> Term1 -> ParserState -> Maybe ParserState
-addLetBound name expr ps =
-  if Map.member name $ letBound ps
-  then Nothing
-  else Just $ ParserState (bound ps) (Map.insert name expr $ letBound ps)
--}
+-- -- |Top level bindings encapsulated in an extra outer lambda and applied by it's corresponding
+-- -- original reference.
+-- -- e.g. let `f = zero` be a top level binding in `ParserState` `ps` and let `t1` be the `Term1` representation of
+-- -- `[f,f]`
+-- -- Then `optimizeTopLevelBindingsReference ps t1` will output the `Term1` representation of:
+-- -- (\f1 f2 -> [f1, f2]) f f`
+-- optimizeTopLevelBindingsReference :: ParserState -> Term1 -> Term1
+-- optimizeTopLevelBindingsReference parserState annoExp =
+--   optimizeBindingsReference parserState topLevelBindingNames (\str -> (bound parserState) Map.! str) annoExp
+--   -- optimizeBindingsReference parserState topLevelBindingNames (TVar . Right) annoExp
 
--- |Top level bindings encapsulated in an extra outer lambda and applied by it's corresponding
--- original reference.
--- e.g. let `f = zero` be a top level binding in `ParserState` `ps` and let `t1` be the `Term1` representation of
--- `[f,f]`
--- Then `optimizeTopLevelBindingsReference ps t1` will output the `Term1` representation of:
--- (\f1 f2 -> [f1, f2]) f f`
-{-
-optimizeTopLevelBindingsReference :: ParserState -> Term1 -> Term1
-optimizeTopLevelBindingsReference parserState annoExp =
-  optimizeBindingsReference parserState topLevelBindingNames (\str -> (bound parserState) Map.! str) annoExp
-  -- optimizeBindingsReference parserState topLevelBindingNames (TVar . Right) annoExp
+-- optimizeLetBindingsReference :: ParserState -> Term1 -> Term1
+-- optimizeLetBindingsReference parserState annoExp =
+--   optimizeBindingsReference parserState letBindingNames (\str -> (letBound parserState) Map.! str) annoExp
 
-optimizeLetBindingsReference :: ParserState -> Term1 -> Term1
-optimizeLetBindingsReference parserState annoExp =
-  optimizeBindingsReference parserState letBindingNames (\str -> (letBound parserState) Map.! str) annoExp
+-- optimizeBindingsReference :: ParserState
+--                           -> (ParserState -> Set String)
+--                           -> (String -> Term1)
+--                           -> Term1
+--                           -> Term1
+-- optimizeBindingsReference parserState bindingNames f annoExp =
+--   case new == [] of
+--     True -> annoExp
+--     False -> foldl TApp (makeLambda parserState new t1) (f <$> old)
+--   where
+--     (t1, new, old) = rename parserState bindingNames annoExp
 
-optimizeBindingsReference :: ParserState
-                          -> (ParserState -> Set String)
-                          -> (String -> Term1)
-                          -> Term1
-                          -> Term1
-optimizeBindingsReference parserState bindingNames f annoExp =
-  case new == [] of
-    True -> annoExp
-    False -> foldl TApp (makeLambda parserState new t1) (f <$> old)
-  where
-    (t1, new, old) = rename parserState bindingNames annoExp
--}
+-- parseTopLevelAssignment :: SILParser ()
+-- parseTopLevelAssignment = parseAssignment addTopLevelBound
 
-{-
-parseTopLevelAssignment :: SILParser ()
-parseTopLevelAssignment = parseAssignment addTopLevelBound
-
-parseLetAssignment :: SILParser ()
-parseLetAssignment = parseAssignment addLetBound
--}
+-- parseLetAssignment :: SILParser ()
+-- parseLetAssignment = parseAssignment addLetBound
 
 -- |Parse assignment add adding binding to ParserState.
 parseAssignment :: SILParser (String, UnprocessedParsedTerm)
@@ -526,17 +521,6 @@ parsePrelude str = case runParser parseDefinitions "" str of
   Right pd -> Right (addBuiltins . pd)
   Left x -> Left $ MkES $ errorBundlePretty x
 
-
--- vars :: UnprocessedParsedTerm -> Set String
--- vars = cata alg where
---   alg :: Base UnprocessedParsedTerm (Set String) -> Set String
---   alg (VarUPF n) = Set.singleton n
---   alg (LamUPF n x) = del n x
---   alg e = F.fold e
---   del :: String -> Set String -> Set String
---   del n x = case Set.member n x of
---               False -> x
---               True -> Set.delete n x
 -- |Collect all variable names in a `Term1` expresion excluding terms binded
 --  to lambda args
 vars :: Term1 -> Set String
@@ -553,65 +537,34 @@ vars = cata alg where
 
 -- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
 -- Automatic recognition of Close or Open type of `TLam`.
-makeLambda :: Set String -> String -> Term1 -> Term1 -> Term1
-makeLambda state variable upTermExpr term1 = -- trace ("\nstate: " <> show state <> ) $
+makeLambda :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -- ^Bindings
+           -> String                                           -- ^Variable name
+           -> Term1                                            -- ^Lambda body
+           -> Term1
+makeLambda bindings str term1 =
   case unbound == Set.empty of
-    True -> TLam (Closed variable) term1
-    _ -> TLam (Open variable) term1
-  where v = vars upTermExpr
-        unbound = ((v \\ state) \\ Set.singleton variable)
+    True -> TLam (Closed str) term1
+    _ -> TLam (Open str) term1
+  where bindings' = Set.fromList $ fst <$> extractBindingsList bindings
+        v = vars term1
+        unbound = ((v \\ bindings') \\ Set.singleton str)
 
-makeLambda' :: Term1 -> Term1
-makeLambda' =
-  let traverseWithVariables :: Set String -> Term1 -> Term1
-      traverseWithVariables variables = let recur = traverseWithVariables variables in \case
-        TVar n -> TVar n
-        TITE i t e -> TITE (recur i) (recur t) (recur e)
-        TPair a b -> TPair (recur a) (recur b)
-        TZero -> TZero
-        TCheck c x -> TCheck (recur c) (recur x)
-        TApp f x -> TApp (recur f) (recur x)
-        TLeft x -> TLeft (recur x)
-        TRight x -> TRight (recur x)
-        TTrace x -> TTrace (recur x)
-        TLimitedRecursion -> TLimitedRecursion
-        TLam n x ->
-          let newVars = Set.insert lambdaName variables
-              lambdaName = case n of
-                Open s -> s
-                Closed s -> s
-              processedX = traverseWithVariables newVars x
-          in makeLambda variables lambdaName x processedX
-  in traverseWithVariables Set.empty
-
------------------------------------------------------------------------
-
--- makelambda :: Term1 -> Term1
--- makeLambda term1 =
---   let makeLambdaWithEnviroment ::Set String -> Term1 -> Term1
---       makeLambdaWithEnviroment varSet t1 =
---         let v = vars t1
---             unbound = ((v \\ varSet) \\ Set.singleton variable)
---         in case unbound == Set.empty of
---              True -> undefined
---              _    -> undefined
---   in State.evalState (makeLambdaWithEnviroment term1) (Map.empty)
--- --sres = traverseOf (traversed . _Right . filtered (`Set.member` toReplace)) (stag ps bindingNames) term1
-
-validateVariables :: UnprocessedParsedTerm -> Either String Term1
-validateVariables term =
+validateVariables :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Either String Term1
+validateVariables bindings term =
   let validateWithEnvironment :: UnprocessedParsedTerm
         -> State.StateT (Map String Term1) (Either String) Term1
       validateWithEnvironment = \case
+        LamUP v x -> do
+          oldState <- State.get
+          State.modify (Map.insert v (TVar v))
+          result <- validateWithEnvironment x
+          State.put oldState
+          pure $ makeLambda bindings v result
         VarUP n -> do
           definitionsMap <- State.get
           case Map.lookup n definitionsMap of
             Just v -> pure v
             _ -> State.lift . Left  $ "No definition found for " <> n
-        ITEUP i t e -> TITE <$> validateWithEnvironment i <*> validateWithEnvironment t <*> validateWithEnvironment e
-        IntUP x -> pure $ i2t x
-        StringUP s -> pure $ s2t s
-        PairUP a b -> TPair <$> validateWithEnvironment a <*> validateWithEnvironment b
         --TODO add in Daniel's code
         LetUP bindingsMap inner -> do
           oldBindings <- State.get
@@ -622,16 +575,16 @@ validateVariables term =
           result <- validateWithEnvironment inner
           State.put oldBindings
           pure result
+        ITEUP i t e -> TITE <$> validateWithEnvironment i
+                            <*> validateWithEnvironment t
+                            <*> validateWithEnvironment e
+        IntUP x -> pure $ i2t x
+        StringUP s -> pure $ s2t s
+        PairUP a b -> TPair <$> validateWithEnvironment a
+                            <*> validateWithEnvironment b
         ListUP l -> foldr TPair TZero <$> mapM validateWithEnvironment l
-        AppUP f x -> TApp <$> validateWithEnvironment f <*> validateWithEnvironment x
-        --LamUP v x -> TLam (Open (Right v)) <$> validateWithEnvironment x
-        LamUP v x -> do
-          oldState <- State.get
-          State.modify (Map.insert v (TVar v))
-          result <- validateWithEnvironment x
-          State.put oldState
-          pure $ TLam (Open v) result
-          -- pure $ makeLambda oldState v x result
+        AppUP f x -> TApp <$> validateWithEnvironment f
+                          <*> validateWithEnvironment x
         UnsizedRecursionUP -> pure TLimitedRecursion
         ChurchUP n -> pure $ i2c n
         LeftUP x -> TLeft <$> validateWithEnvironment x
@@ -659,12 +612,12 @@ optimizeBuiltinFunctions = endoMap optimize where
     x -> x
 
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
-process :: UnprocessedParsedTerm -> Either String Term3
--- process = fmap splitExpr . (>>= debruijinize []) . validateVariables . optimizeBuiltinFunctions
-process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions
+process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Either String Term3
+process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bindings . optimizeBuiltinFunctions
+-- process = fmap splitExpr . (>>= debruijinize [] . makeLambda') . validateVariables . optimizeBuiltinFunctions
 
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
-parseMain prelude s = parseWithPrelude s prelude >>= process
+parseMain prelude s = parseWithPrelude s prelude >>= process prelude
 
 

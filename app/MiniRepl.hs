@@ -81,7 +81,7 @@ flattenOuterLetUP x = x
 -- |Extra processing (see `SIL.Parser.process`) useful for the MinRepl's context.
 process' :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Maybe Term3
 -- process' bindings x = rightToMaybe . process . bindings $ x 
-process' bindings x = rightToMaybe . process . applyUntilNoChange flattenOuterLetUP . bindings $ x
+process' bindings x = rightToMaybe . process bindings . applyUntilNoChange flattenOuterLetUP . bindings $ x
 
 -- |Obtain expression from the bindings and transform them into maybe a Term3.
 resolveBinding' :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> Maybe Term3
@@ -92,15 +92,6 @@ resolveBinding' name bindings = do
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
 resolveBinding :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> Maybe IExpr
 resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings >>= toSIL
-
--- |Extracting list (bindings) from the wrapping `LetUP` used to keep track of bindings.
-extractBindingsList :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-                    -> [(String, UnprocessedParsedTerm)]
-extractBindingsList bindings = case bindings $ IntUP 0 of
-              LetUP b x -> b
-              _ -> error $ unlines [ "`bindings` should be an unapplied LetUP UnprocessedParsedTerm."
-                                   , "Called from `resolveBinding'`"
-                                   ]
 
 -- |Print last expression bound to 
 -- the _tmp_ variable in the bindings

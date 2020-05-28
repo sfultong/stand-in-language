@@ -130,9 +130,6 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetShowBoard5" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard5
       res `compare` True @?= EQ
-  , testCase "testLetShowBoard7" $ do
-      res <- parseSuccessful (parseTopLevel <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
-      res `compare` True @?= EQ
   , testCase "testLetShowBoard8" $ do
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard8
       res `compare` True @?= EQ
@@ -171,25 +168,25 @@ unitTests = testGroup "Unit tests"
   --     fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
-      (fromRight TZero $ validateVariables res) `compare` closedLambdaPair @?= EQ
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
-      (fromRight TZero $ validateVariables res) `compare` closedLambdaPair @?= EQ
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 3" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
-      (fromRight TZero $ validateVariables res) `compare` expr6 @?= EQ
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr6 @?= EQ
   , testCase "test automatic open close lambda 4" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\x -> (x, x)"
-      (fromRight TZero $ validateVariables res) `compare` expr5 @?= EQ
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr5 @?= EQ
   , testCase "test automatic open close lambda 5" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
-      (fromRight TZero $ validateVariables res) `compare` expr4 @?= EQ
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr4 @?= EQ
   , testCase "test automatic open close lambda 6" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
-      (fromRight TZero $ validateVariables res) `compare` expr3 @?= EQ
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr3 @?= EQ
   , testCase "test automatic open close lambda 7" $ do
       res <- runSILParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
-      (fromRight TZero $ validateVariables res) `compare` expr2 @?= EQ
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr2 @?= EQ
   -- , testCase "rename" $ do
   --     let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
   --                             topLevelBindingNames
@@ -671,13 +668,22 @@ testList5 = unlines $
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 
+-- TODO: does it matter that one parses succesfuly and the other doesnt?
+parseApplied0 = unlines
+  [ "foo (bar baz"
+  , "     )"
+  ]
+parseApplied1 = unlines
+  [ "foo (bar baz"
+  , "      )"
+  ]
+
+
 testShowBoard0 = unlines
   [ "main = or (and validPlace"
   , "                    (and (not winner)"
-  , "                         (not filledBoard)"
-  , "                    )"
-  , "               )"
-  , "               (1)"
+  , "                         (not filledBoard)))"
+  , "          (1)"
   ]
 
 testShowBoard1 = unlines
@@ -735,18 +741,9 @@ testLetShowBoard2 = unlines
   , "in 0"
   ]
 
-testLetShowBoard7 = unlines
-  [ "main = or (and validPlace"
-  , "                    1"
-  , "               )"
-  , "               (not boardIn)"
-  , "0"
-  ]
-
 testLetShowBoard4 = unlines
   [ "main = or (and 0"
-  , "                    1"
-  , "               )"
+  , "                    1)"
   , "               (not boardIn)"
   ]
 

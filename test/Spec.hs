@@ -308,10 +308,10 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
 quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
 quickcheckBuiltInOptimizedDoesNotChangeEval up =
   let
-      makeSIL f = second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables . f . addBuiltins $ up)
+      makeSIL f = second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id . f . addBuiltins $ up)
       iexpr :: Either String (Maybe IExpr)
-      iexpr = makeSIL id -- x. validateVariables . optimizeBuiltinFunctions $ up)
-      iexpr' = makeSIL optimizeBuiltinFunctions -- second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables $ up)
+      iexpr = makeSIL id -- x. validateVariables id . optimizeBuiltinFunctions $ up)
+      iexpr' = makeSIL optimizeBuiltinFunctions -- second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up)
   in
     case (iexpr, iexpr') of
        (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
@@ -395,7 +395,7 @@ debugPEIITO iexpr = do
 
 -- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
 -- quickcheckBuiltInOptimizedDoesNotChangeEval up =
---   let iexpr = toSIL . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables $ up
+--   let iexpr = toSIL . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up
 --   in False
 
 testRecur = concat
@@ -631,8 +631,8 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
   -- warning: may be slow
-  describe "quickcheck" $ do
-    unitTestQC "builtinOptimizationDoesntBreakEvaluation" 100 quickcheckBuiltInOptimizedDoesNotChangeEval
+  -- describe "quickcheck" $ do
+  --   unitTestQC "builtinOptimizationDoesntBreakEvaluation" 100 quickcheckBuiltInOptimizedDoesNotChangeEval
   -- ++ quickCheckTests unitTest2 unitTestType
 
 testExpr = concat
