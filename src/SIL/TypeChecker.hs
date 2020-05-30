@@ -6,8 +6,10 @@ module SIL.TypeChecker where
 import Control.Applicative
 import Control.Monad (foldM)
 import Control.Monad.Except
+import Control.Monad.Reader
 import Control.Monad.State (State)
 import Data.Foldable
+import Data.Functor.Compose
 import Data.Map (Map)
 import Data.Monoid (Any(..))
 import Data.Set (Set)
@@ -310,21 +312,46 @@ contaminationTyping = TypingSupport
 data PoisonType
   = ZeroTypeN
   | AnyTypeN
-  | TypeVariableN Int
   | PairTypeN PoisonType PoisonType
+  | EitherTypeN PoisonType PoisonType
   | ArrTypeN { poisoned :: Set BreakExtras
              , typeFunction :: FragExpr BreakExtras
              }
+  deriving (Eq, Ord, Show)
 
 poisoners :: PoisonType -> Set BreakExtras
 poisoners = \case
   ArrTypeN pSet _ -> pSet
+  EitherTypeN a b -> poisoners a <> poisoners b
   _ -> mempty
 
 infect :: Set BreakExtras -> PoisonType -> PoisonType
 infect pSet = \case
   ArrTypeN oldSet tf -> ArrTypeN (oldSet <> pSet) tf
+  EitherTypeN a b -> EitherTypeN (infect pSet a) (infect pSet b)
   x -> x
+
+pCombine :: PoisonType -> PoisonType -> PoisonType
+pCombine a b = case (a,b) of
+  (ZeroTypeN, ZeroTypeN) -> ZeroTypeN
+  (AnyTypeN, _) -> AnyTypeN
+  (_, AnyTypeN) -> AnyTypeN
+  (ArrTypeN sa fa, ArrTypeN sb fb) | fa == fb -> ArrTypeN (sa <> sb) fa
+  (PairTypeN a b, PairTypeN c d) | a == c -> PairTypeN a (pCombine b d)
+  (PairTypeN a b, PairTypeN c d) | b == d -> PairTypeN (pCombine a c) b
+  (EitherTypeN a b, EitherTypeN c d) -> EitherTypeN (pCombine a c) (pCombine b d) -- TODO maybe optimize?
+  _ -> EitherTypeN a b
+
+zeroOption :: PoisonType -> Bool
+zeroOption = \case
+  ZeroTypeN -> True
+  EitherTypeN a b -> zeroOption a || zeroOption b
+  _ -> False
+
+
+-- oEval :: PoisonType -> PoisonType -> (Bool, PoisonType)
+-- oEval env = \case
+  
 
 getContaminatedType :: (FragIndex -> PoisonType) -> PoisonType -> FragExpr BreakExtras -> PoisonType
 getContaminatedType getType env = let recur = getContaminatedType getType env in \case
@@ -374,6 +401,7 @@ hasContamination :: PoisonType -> Bool
 hasContamination = \case
   ArrTypeN s _ | not (null s) -> True
   PairTypeN a b -> hasContamination a || hasContamination b
+  EitherTypeN a b -> hasContamination a || hasContamination b
   _ -> False
 
 {--
@@ -400,9 +428,64 @@ buildConverterMap (Term3 termMap) =
       unsizedIndices = fold $ fmap getUnsized termMap
   in Map.fromList . map (\i -> (i, changeMap i)) $ toList unsizedIndices
 
-data SizeTest = SizeTest (FragExpr BreakExtras) ZExpr
+data SizeTest = SizeTest (FragExpr BreakExtras) PoisonType
 
 type TestMapBuilder = State (Map BreakExtras [SizeTest])
+
+newtype TestMapBuilder' = Compose TestMapBuilder (Reader Int)
+
+
+fragToPoison :: Monad m => (FragIndex -> FragExpr BreakExtras) -> (PoisonType -> PoisonType -> m PoisonType)
+  -> PoisonType -> FragExpr BreakExtras -> m PoisonType
+fragToPoison fragLookup setEval env =
+  let fragToPoison' = fragToPoison fragLookup setEval
+      recur = fragToPoison' env
+  in \case
+  ZeroF -> pure ZeroTypeN
+  PairF a b -> PairTypeN <$> recur a <*> recur b
+  EnvF -> pure env
+  LeftF x -> let process = \case
+                    PairTypeN ln _ -> pure ln
+                    z@ZeroTypeN -> pure z
+                    a@AnyTypeN -> pure a
+                    EitherTypeN a b -> EitherTypeN <$> process a <*> process b
+                    z -> error $ "buildTestMap leftF unexpected: " <> show z
+              in recur x >>= process
+  RightF x -> let process = \case
+                    PairTypeN _ rn -> pure rn
+                    z@ZeroTypeN -> pure z
+                    a@AnyTypeN -> pure a
+                    EitherTypeN a b -> EitherTypeN <$> process a <*> process b
+                    z -> error $ "buildTestMap rightF unexpected: " <> show z
+              in recur x >>= process
+  SetEnvF x -> recur x >>= \case
+    PairTypeN ft it -> setEval ft it
+      -- let setEval = \case
+      --       at@(ArrTypeN fp nf) -> case nf of
+      --         AbortF -> pure . infect (poisoners it) $ ArrTypeN fp EnvF
+      --         GateF l r -> infect (poisoners it) . infect fp <$> case it of -- TODO 'it' can't have poisoners?
+      --           ZeroTypeN -> recur l
+      --           PairTypeN _ _ -> recur r
+      --           AnyTypeN -> pCombine <$> recur l <*> recur r
+      --           e@(EitherTypeN _ _) -> if zeroOption e
+      --             then pCombine <$> recur l <*> recur r
+      --             else recur r
+      --           z -> error $ "buildTestMap setenv gate unexpected: " <> show z
+      --         AuxF _ -> pure $ PairTypeN (infect fp it) env
+      --         -- DeferF _ -> infect (poisoners it) <$> builder it nf
+      --         _ -> (infect (poisoners it) <$> fragToPoison' it nf) >>= recordSizeTest (SizeTest nf pt)
+      --       EitherTypeN a b -> pCombine <$> setEval a <*> setEval b
+      --       z -> error $ "buildTestMap setenv seteval unexpected: " <> show z
+      -- in setEval ft
+    z -> error $ "buildTestMap setenv not pair: " <> show z
+  -- DeferF ind -> case Map.lookup ind termMap of
+  --   Just frag -> pure $ ArrTypeN mempty frag
+  --   _ -> error "buildTestMap: bad defer index"
+  DeferF ind -> pure . ArrTypeN mempty $ fragLookup ind
+  g@(GateF _ _) -> pure $ ArrTypeN mempty g
+  AbortF -> pure $ ArrTypeN mempty AbortF
+  a@(AuxF ur) -> pure $ PairTypeN (ArrTypeN (Set.singleton ur) a) ZeroTypeN
+  TraceF -> pure env
 
 buildTestMap :: Term3 -> Map BreakExtras [SizeTest]
 buildTestMap term@(Term3 termMap) =
@@ -412,49 +495,56 @@ buildTestMap term@(Term3 termMap) =
         Nothing -> pure [v]
         Just e -> pure $ v : e
       addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
-      builder pEnv zEnv = let recur = builder pEnv zEnv in \case
-        ZeroF -> pure (ZeroTypeN, ZZero)
-        -- PairF a b -> PairTypeN <$> recur a <*> recur b
-        PairF a b -> (\(na,pa) (nb,pb) -> (PairTypeN na nb, ZPair pa pb)) <$> recur a <*> recur b
-        EnvF -> pure (pEnv,zEnv)
-        LeftF x -> recur x >>= \case
-          (PairTypeN ln _, ZPair lz _) -> pure (ln, lz)
-          z@(ZeroTypeN, ZZero) -> pure z
-          a@(AnyTypeN, ZAny) -> pure a
-          z -> error $ "buildTestMap leftF unexpected thing"
-        RightF x -> recur x >>= \case
-          (PairTypeN _ rn, ZPair _ rz) -> pure (rn, rz)
-          z@(ZeroTypeN, ZZero) -> pure z
-          a@(AnyTypeN, ZAny) -> pure a
-          z -> error $ "buildTestMap rightF unexpected thing"
-  {-
+      builder env = let recur = builder env in \case
+        ZeroF -> pure ZeroTypeN
+        PairF a b -> PairTypeN <$> recur a <*> recur b
+        EnvF -> pure env
+        LeftF x -> let process = \case
+                         PairTypeN ln _ -> pure ln
+                         z@ZeroTypeN -> pure z
+                         a@AnyTypeN -> pure a
+                         EitherTypeN a b -> EitherTypeN <$> process a <*> process b
+                         z -> error $ "buildTestMap leftF unexpected: " <> show z
+                   in recur x >>= process
+        RightF x -> let process = \case
+                          PairTypeN _ rn -> pure rn
+                          z@ZeroTypeN -> pure z
+                          a@AnyTypeN -> pure a
+                          EitherTypeN a b -> EitherTypeN <$> process a <*> process b
+                          z -> error $ "buildTestMap rightF unexpected: " <> show z
+                    in recur x >>= process
         SetEnvF x -> recur x >>= \case
-          (PairTypeN ft@(ArrTypeN bs fx) it, ZPair (ZEmbed fragF) zin) -> builder it zin fx >>=
-            (\(oct, opt) ->
-               (if hasContamination ft && not (hasContamination oct)
-                then mapM_ (flip addSizeTest (SizeTest fragF zin)) bs
-                else pure ()
-               ) >> pure (oct, opt)
-            )
-          z -> error "buildTestMap TODO other setenv"
--}
-        SetEnvF x -> recur x >>= \case
-          (PairTypeN ft it, ZPair zf zin) -> case (ft, zf) of
-            (ArrTypeN fp nf, ZEmbed zef) -> case (nf, zef) of
-              (AbortF, AbortF) -> pure (infect (poisoners it) $ ArrTypeN fp EnvF, ZID)
-              (GateF l r, ) -> case (it, zin) of
-                (ZeroTypeN, ZZero) -> recur l >>= \(nnl, nzl) ->
-                  pure (infect (poisoners it) . infect fp $ nnl,  )
-          z -> error "buildTestMap setenv not pair"
+          pt@(PairTypeN ft it) ->
+            let setEval = \case
+                  at@(ArrTypeN fp nf) -> case nf of
+                    AbortF -> pure . infect (poisoners it) $ ArrTypeN fp EnvF
+                    GateF l r -> infect (poisoners it) . infect fp <$> case it of -- TODO 'it' can't have poisoners?
+                      ZeroTypeN -> recur l
+                      PairTypeN _ _ -> recur r
+                      AnyTypeN -> pCombine <$> recur l <*> recur r
+                      e@(EitherTypeN _ _) -> if zeroOption e
+                        then pCombine <$> recur l <*> recur r
+                        else recur r
+                      z -> error $ "buildTestMap setenv gate unexpected: " <> show z
+                    AuxF _ -> pure $ PairTypeN (infect fp it) env -- TODO this needs to be recalculated
+                    -- DeferF _ -> infect (poisoners it) <$> builder it nf
+                    _ -> (infect (poisoners it) <$> builder it nf) >>=
+                      \opt -> (if hasContamination at && not (hasContamination opt)
+                               then mapM_ (flip addSizeTest (SizeTest nf pt)) fp
+                               else pure ()
+                              ) >> pure opt
+                  EitherTypeN a b -> pCombine <$> setEval a <*> setEval b
+                  z -> error $ "buildTestMap setenv seteval unexpected: " <> show z
+            in setEval ft
+          z -> error $ "buildTestMap setenv not pair: " <> show z
         DeferF ind -> case Map.lookup ind termMap of
-          Just frag -> pure (ArrTypeN mempty frag, ZEmbed $ DeferF ind)
+          Just frag -> pure $ ArrTypeN mempty frag
           _ -> error "buildTestMap: bad defer index"
-        g@(GateF _ _) -> pure (ArrTypeN mempty g, ZEmbed g)
-        AbortF -> pure (ArrTypeN mempty AbortF, ZEmbed AbortF)
-        a@(AuxF ur) -> pure (PairTypeN (ArrTypeN (Set.singleton ur) a) ZeroTypeN, ZEmbed a)
-        TraceF -> pure (pEnv, zEnv)
-          -- frag -> (ArrTypeN )
-  in State.execState (builder AnyTypeN ZAny (rootFrag termMap)) Map.empty
+        g@(GateF _ _) -> pure $ ArrTypeN mempty g
+        AbortF -> pure $ ArrTypeN mempty AbortF
+        a@(AuxF ur) -> pure $ PairTypeN (ArrTypeN (Set.singleton ur) a) ZeroTypeN
+        TraceF -> pure env
+  in State.execState (builder AnyTypeN (rootFrag termMap)) Map.empty
 
 annotate :: Ord v => TypingSupport v -> Term3 -> AnnotateStateV v v
 annotate ts (Term3 termMap) =
