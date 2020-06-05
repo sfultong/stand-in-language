@@ -35,11 +35,8 @@ import Text.Megaparsec.Pos
 import qualified Control.Monad.State as State
 import Control.Monad.State (State)
 import qualified System.IO.Strict as Strict
-
-
 import SIL
 import SIL.TypeChecker
--- import SIL.Prisms
 
 data UnprocessedParsedTerm
   = VarUP String
@@ -521,5 +518,3 @@ process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bi
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
 parseMain prelude s = parseWithPrelude s prelude >>= process prelude
-
-
