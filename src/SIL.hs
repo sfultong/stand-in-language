@@ -31,7 +31,6 @@ import qualified Control.Monad.State as State
 -- if classes were categories, this would be an EndoFunctor?
 class EndoMapper a where
   endoMap :: (a -> a) -> a -> a
-             -- (a -> f a) -> s -> f s 
 
 class EitherEndoMapper a where
   eitherEndoMap :: (a -> Either e a) -> a -> Either e a
@@ -285,7 +284,6 @@ env = Env
 twiddle :: IExpr -> IExpr
 twiddle x = setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env))))) x)
 app :: IExpr -> IExpr -> IExpr
---app c i = setenv (twiddle (pair i c))
 app c i = setenv (setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env)))))
                           (pair i c)))
 check :: IExpr -> IExpr -> IExpr
@@ -447,12 +445,6 @@ pattern PlusA :: ExprA a -> ExprA a -> ExprA a
 pattern PlusA m n <- LamA (LamA (AppA (AppA m SecondArgA) (AppA (AppA n SecondArgA) FirstArgA)))
 pattern MultA :: ExprA a -> ExprA a -> ExprA a
 pattern MultA m n <- LamA (AppA m (AppA n FirstArgA))
-
-{-
-pattern AppF :: FragExpr a -> FragExpr a -> FragExpr a
-pattern AppF c i = SetEnvF (SetEnvF (PairF (DeferF (PairF (LeftF (RightF EnvF)) (PairF (LeftF EnvF) (RightF (RightF EnvF)))))
-                                    (PairF i c)))
--}
 
 data DataType
   = ZeroType
