@@ -18,8 +18,8 @@ main = do
       Right p -> p
       Left pe -> error $ getErrorString pe
     runMain s = case toSIL . findChurchSize <$> parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", getErrorString $ e]
-      Right (Just g) -> evalLoop $ g
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", e]
+      Right (Just g) -> evalLoop g
     --testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
     --testData = PRight $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
     --testData = SetEnv $ Pair (Defer $ Pair Zero Env) Zero

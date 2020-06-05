@@ -1,18 +1,29 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Main where
 
 import SIL
+import SIL.Eval
 import SIL.Parser
+import SIL.RunTime
 import Test.Tasty
 import Test.Tasty.HUnit
+import Test.QuickCheck
 import Text.Megaparsec.Error
 import Text.Megaparsec
 import Text.Megaparsec.Debug
+import Data.Bifunctor
+import Data.Either (fromRight)
+import Data.Map (Map, fromList, toList)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Functor.Foldable
-import qualified SIL.Parser as Parsec
+import Debug.Trace (trace)
 import qualified System.IO.Strict as Strict
+import Control.Monad
 import qualified Control.Monad.State as State
+import qualified Data.Semigroup as Semigroup
+import Common
 
 main = defaultMain tests
 
@@ -45,7 +56,7 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseLambda <* eof) testLambdawITEwPair
       res `compare` True @?= EQ
   , testCase "test parse assignment with Complete Lambda with ITE with Pair" $ do
-      res <- parseSuccessful (parseAssignment <* eof) testParseAssignmentwCLwITEwPair1
+      res <- parseSuccessful (parseTopLevel <* eof) testParseAssignmentwCLwITEwPair1
       res `compare` True @?= EQ
   , testCase "test if testParseTopLevelwCLwITEwPair parses successfuly" $ do
       res <- parseSuccessful (parseTopLevel <* eof) testParseTopLevelwCLwITEwPair
@@ -81,22 +92,22 @@ unitTests = testGroup "Unit tests"
       res <- runTestMainWType
       res `compare` True @?= EQ
   , testCase "testShowBoard0" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard0
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard0
       res `compare` True @?= EQ
   , testCase "testShowBoard1" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard1
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard1
       res `compare` True @?= EQ
   , testCase "testShowBoard2" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard2
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard2
       res `compare` True @?= EQ
   , testCase "testShowBoard3" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard3
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard3
       res `compare` True @?= EQ
   , testCase "testShowBoard4" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard4
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard4
       res `compare` True @?= EQ
   , testCase "testShowBoard5" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testShowBoard5
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard5
       res `compare` True @?= EQ
   , testCase "testShowBoard6" $ do
       res <- parseSuccessful (parseApplied) testShowBoard6
@@ -114,13 +125,10 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard3
       res `compare` True @?= EQ
   , testCase "testLetShowBoard4" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* eof) testLetShowBoard4
+      res <- parseSuccessful (parseTopLevel <* scn <* eof) testLetShowBoard4
       res `compare` True @?= EQ
   , testCase "testLetShowBoard5" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard5
-      res `compare` True @?= EQ
-  , testCase "testLetShowBoard7" $ do
-      res <- parseSuccessful (parseAssignment <* scn <* parseNumber <* scn <* eof) testLetShowBoard7
       res `compare` True @?= EQ
   , testCase "testLetShowBoard8" $ do
       res <- parseSuccessful (parseApplied <* scn <* eof) testLetShowBoard8
@@ -152,90 +160,249 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetIncorrectIndentation2" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
-  , testCase "collect vars" $ do
-      let fv = vars expr
-      fv `compare` (Set.empty) @?= EQ
-  , testCase "collect vars many x's" $ do
-      let fv = vars expr1
-      fv `compare` (Set.empty) @?= EQ
+  -- , testCase "collect vars" $ do
+  --     let fv = vars expr
+  --     fv `compare` (Set.empty) @?= EQ
+  -- , testCase "collect vars many x's" $ do
+  --     let fv = vars expr1
+  --     fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
-      res `compare` closedLambdaPair @?= EQ
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x y -> (x, y)"
-      res `compare` closedLambdaPair @?= EQ
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 3" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
-      res `compare` expr6 @?= EQ
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr6 @?= EQ
   , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> (x, x)"
-      res `compare` expr5 @?= EQ
-  , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
-      res `compare` expr4 @?= EQ
-  , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
-      res `compare` expr3 @?= EQ
-  , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParserTerm1 (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
-      res `compare` expr2 @?= EQ
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> (x, x)"
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr5 @?= EQ
+  , testCase "test automatic open close lambda 5" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr4 @?= EQ
+  , testCase "test automatic open close lambda 6" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr3 @?= EQ
+  , testCase "test automatic open close lambda 7" $ do
+      res <- runSILParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
+      (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr2 @?= EQ
+  -- , testCase "rename" $ do
+  --     let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
+  --                             topLevelBindingNames
+  --                             expr8
+  --     t1 `compare` expr9 @?= EQ
+  -- , testCase "rename 2" $ do
+  --     preludeFile <- Strict.readFile "Prelude.sil"
+  --     let prelude = case parsePrelude preludeFile of
+  --                     Right p -> p
+  --                     Left pe -> error . getErrorString $ pe
+  --     case parseWithPrelude prelude dependantTopLevelBindings of
+  --       Right x -> do
+  --         expected :: Term1 <- runSILParser (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) (0, 0) (0, 0) (0, 0)"
+  --         (x Map.! "h") `compare` expected @?= EQ
+  --       Left err -> assertFailure . show $ err
   ]
 
+myTrace a = trace (show a) a
+
+dependantTopLevelBindings = unlines $
+  [ "f = (0,0)"
+  , "g = (0,0)"
+  , "h = [f,g,f]"
+  ]
+
+-- myDebug2 = do
+--   let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ))
+--                               expr8
+--   putStrLn . show $ x Map.! "h"
+
+-- |Usefull to see if tictactoe.sil was correctly parsed
+-- and was usefull to compare with the deprecated SIL.Parser
+-- Parsec implementation
+testWtictactoe = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  tictactoe <- Strict.readFile "hello.sil"
+  let
+    prelude = case parsePrelude preludeFile of
+                Right p -> p
+                Left pe -> error . getErrorString $ pe
+  case parseMain prelude tictactoe of
+    Right _ -> return True
+    Left _ -> return False
+
+{-
+runTictactoe = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  tictactoe <- Strict.readFile "hello.sil"
+  let
+    prelude = case parsePrelude preludeFile of
+      Right p -> p
+      Left pe -> error . getErrorString $ pe
+  runSILParser_ parseTopLevel tictactoe
+-}
+  -- case parseWithPrelude prelude tictactoe of
+  --   Right x -> putStrLn . show $ x
+  --   Left err -> putStrLn . getErrorString $ err
+
+-- parseWithPreludeFile = do
+--   preludeFile <- Strict.readFile "Prelude.sil"
+--   file <- Strict.readFile "hello.sil"
+--   let
+--     prelude = case parsePrelude preludeFile of
+--                 Right p -> p
+--                 Left pe -> error . getErrorString $ pe
+--     printBindings :: Map String Term1 -> IO ()
+--     printBindings xs = forM_ (toList xs) $
+--                        \b -> do
+--                          putStr "  "
+--                          putStr . show . fst $ b
+--                          putStr " = "
+--                          putStrLn $ show . snd $ b
+--   case parseWithPrelude prelude file of
+--     Right r -> printBindings r
+--     Left l -> putStrLn . show $ l
+
+
+-- myDebug = do
+--   preludeFile <- Strict.readFile "Prelude.sil"
+--   let
+--     prelude = case parsePrelude preludeFile of
+--       Right p -> p
+--       Left pe -> error . getErrorString $ pe
+--     prelude' = ParserState prelude $ Map.insert "f" (TPair (TVar . Right $ "x") (TVar . Right $ "y")) . Map.insert "y" TZero . Map.insert "x" TZero $ Map.empty
+--     oexpr = optimizeLetBindingsReference prelude' $ TVar . Right $ "f"
+--     oexpr' = optimizeLetBindingsReference prelude' oexpr
+--     oexpr'' = optimizeLetBindingsReference prelude' oexpr'
+--   putStrLn . show $ oexpr
+--   putStrLn . show $ oexpr'
+--   putStrLn . show $ oexpr''
+
+  -- let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
+  --                         topLevelBindingNames
+  --                         expr8
+  -- putStrLn . show $ t1
+  -- putStrLn . show $ (expr9 :: Term1)
+
+  -- case parseWithPrelude prelude' dependantTopLevelBindings of
+  --   Right x -> do
+  --     -- expected :: Term1 <- runSILParser (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
+  --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ 
+  --   Left err -> error . show $ err
+
+letExpr = unlines $
+  [ "let x = 0"
+  , "    y = 0"
+  , "    f = (x,y)"
+  , "in f"
+  ]
+
+-- | SIL Parser AST representation of: \x -> \y -> \z -> [zz1, yy3, yy4, z, zz6]
+expr9 = TLam (Closed ("x"))
+          (TLam (Open ("y"))
+            (TLam (Open ("z"))
+              (TPair
+                (TVar ("zz1"))
+                (TPair
+                  (TVar ("yy3"))
+                  (TPair
+                    (TVar ("yy5"))
+                    (TPair
+                      (TVar ("z"))
+                      (TPair
+                        (TVar ("zz6"))
+                        TZero)))))))
+
+-- | SIL Parser AST representation of: \x -> \y -> \z -> [zz, yy0, yy0, z, zz]
+expr8 = TLam (Closed ("x"))
+          (TLam (Open ("y"))
+            (TLam (Open ("z"))
+              (TPair
+                (TVar ("zz"))
+                (TPair
+                  (TVar ("yy0"))
+                  (TPair
+                    (TVar ("yy0"))
+                    (TPair
+                      (TVar ("z"))
+                      (TPair
+                        (TVar ("zz"))
+                        TZero)))))))
+
+-- | SIL Parser AST representation of: "\z -> [x,x,y,x,z,y,z]"
+expr7 = TLam (Open ("z"))
+          (TPair
+            (TVar ("x"))
+            (TPair
+              (TVar ("x"))
+              (TPair
+                (TVar ("y"))
+                (TPair
+                  (TVar ("x"))
+                  (TPair
+                    (TVar ("z"))
+                    (TPair
+                      (TVar ("y"))
+                      (TPair
+                        (TVar ("z"))
+                        TZero)))))))
+
 -- | SIL Parser AST representation of: \x -> \y -> \z -> z
-expr6 = TLam (Closed (Right "x"))
-          (TLam (Closed (Right "y"))
-            (TLam (Closed (Right "z"))
-              (TVar (Right "z"))))
+expr6 :: Term1
+expr6 = TLam (Closed ("x"))
+          (TLam (Closed ("y"))
+            (TLam (Closed ("z"))
+              (TVar ("z"))))
 
 -- | SIL Parser AST representation of: \x -> (x, x)
-expr5 = TLam (Closed (Right "x"))
+expr5 = TLam (Closed ("x"))
           (TPair
-            (TVar (Right "x"))
-            (TVar (Right "x")))
+            (TVar ("x"))
+            (TVar ("x")))
 
 -- | SIL Parser AST representation of: \x -> \x -> \x -> x
-expr4 = TLam (Closed (Right "x"))
-          (TLam (Closed (Right "x"))
-            (TLam (Closed (Right "x"))
-              (TVar (Right "x"))))
+expr4 = TLam (Closed ("x"))
+          (TLam (Closed ("x"))
+            (TLam (Closed ("x"))
+              (TVar ("x"))))
 
 -- | SIL Parser AST representation of: \x -> \y -> \z -> [x,y,z]
-expr3 = TLam (Closed (Right "x"))
-          (TLam (Open (Right "y"))
-            (TLam (Open (Right "z"))
+expr3 = TLam (Closed ("x"))
+          (TLam (Open ("y"))
+            (TLam (Open ("z"))
               (TPair
-                (TVar (Right "x"))
+                (TVar ("x"))
                 (TPair
-                  (TVar (Right "y"))
+                  (TVar ("y"))
                   (TPair
-                    (TVar (Right "z"))
+                    (TVar ("z"))
                     TZero)))))
 
--- | SIL Parser AST representation of: (\a -> (a, (\a -> (a,0)))) 0
-expr2 = (TLam (Closed (Right "a"))
+-- | SIL Parser AST representation of: \a -> (a, (\a -> (a,0)))
+expr2 = TLam (Closed ("a"))
           (TPair
-            (TVar (Right "a"))
-            (TLam (Closed (Right "a"))
+            (TVar ("a"))
+            (TLam (Closed ("a"))
               (TPair
-                (TVar (Right "a"))
-                TZero))))
+                (TVar ("a"))
+                TZero)))
 
 
 -- | SIL Parser AST representation of: \x -> [x, x, x]
-expr1 = TLam (Closed (Right "x"))
+expr1 = TLam (Closed ("x"))
           (TPair
-            (TVar (Right "x"))
+            (TVar ("x"))
             (TPair
-              (TVar (Right "x"))
+              (TVar ("x"))
               (TPair
-                (TVar (Right "x"))
+                (TVar ("x"))
                 TZero)))
 
-expr = TLam (Closed (Right "x"))
-         (TLam (Open (Right "y"))
+expr = TLam (Closed ("x"))
+         (TLam (Open ("y"))
            (TPair
-             (TVar (Right "x"))
-             (TVar (Right "y"))))
+             (TVar ("x"))
+             (TVar ("y"))))
 
 range = unlines
   [ "range = \\a b -> let layer = \\recur i -> if dMinus b i"
@@ -245,7 +412,7 @@ range = unlines
   , "r = range 2 5"
   ]
 
-closedLambdaPair = TLam (Closed (Right "x")) (TLam (Open (Right "y")) (TPair (TVar (Right "x")) (TVar (Right "y"))))
+closedLambdaPair = TLam (Closed ("x")) (TLam (Open ("y")) (TPair (TVar ("x")) (TVar ("y"))))
 
 testLetIndentation = unlines
   [ "let x = 0"
@@ -264,10 +431,6 @@ testLetIncorrectIndentation2 = unlines
   , "      y = 1"
   , "in (x,y)"
   ]
-
-
-runTestPair :: String -> IO String
-runTestPair = runSILParser parsePair
 
 testPair0 = "(\"Hello World!\", \"0\")"
 
@@ -467,20 +630,6 @@ testList5 = unlines $
   , "  2 ]"
   ]
 
--- |Usefull to see if tictactoe.sil was correctly parsed
--- and was usefull to compare with the deprecated SIL.Parser
--- Parsec implementation
-testWtictactoe = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  tictactoe <- Strict.readFile "tictactoe.sil"
-  let
-    prelude = case parsePrelude preludeFile of
-                Right p -> p
-                Left pe -> error . getErrorString $ pe
-  case parseMain prelude tictactoe of
-    Right _ -> return True
-    Left _ -> return False
-
 -- -- |Helper function to debug tictactoe.sil
 -- debugTictactoe :: IO ()
 -- debugTictactoe  = do
@@ -497,41 +646,59 @@ testWtictactoe = do
 --       putStrLn ("Final state: " ++ show s)
 --     Left err -> putStr (errorBundlePretty err)
 
-runTictactoe = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  tictactoe <- Strict.readFile "tictactoe.sil"
-  let
-    prelude = case parsePrelude preludeFile of
-      Right p -> p
-      Left pe -> error . getErrorString $ pe
-  case parseMain prelude $ tictactoe of
-    Right x -> putStrLn $ show x
-    Left err -> putStrLn . getErrorString $ err
+-- runTictactoe = do
+--   preludeFile <- Strict.readFile "Prelude.sil"
+--   tictactoe <- Strict.readFile "tictactoe.sil"
+--   let
+--     prelude = case parsePrelude preludeFile of
+--       Right p -> p
+--       Left pe -> error $ "woot2!!!" ++ getErrorString pe
+--   putStrLn "Not broken till here."
+--   case parseMain' prelude $ tictactoe of
+--     Right x -> putStrLn . show $ x
+--     Left err -> putStrLn $ "woot!!! " ++ getErrorString err
+
+
+-- -- |Parse main.
+-- parseMain' :: Bindings -> String -> Either ErrorString Term1
+-- parseMain' prelude s = parseWithPrelude prelude s >>= getMain where
+--   getMain bound = case Map.lookup "main" bound of
+--     Nothing -> fail "no main method found"
+--     Just main -> pure main--splitExpr <$> debruijinize [] main
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 
+-- TODO: does it matter that one parses succesfuly and the other doesnt?
+parseApplied0 = unlines
+  [ "foo (bar baz"
+  , "     )"
+  ]
+parseApplied1 = unlines
+  [ "foo (bar baz"
+  , "      )"
+  ]
+
+
 testShowBoard0 = unlines
-  [ "showBoard = or (and validPlace"
+  [ "main = or (and validPlace"
   , "                    (and (not winner)"
-  , "                         (not filledBoard)"
-  , "                    )"
-  , "               )"
-  , "               (1)"
+  , "                         (not filledBoard)))"
+  , "          (1)"
   ]
 
 testShowBoard1 = unlines
-  [ "showBoard = or (0)"
+  [ "main = or (0)"
   , "               (1)"
   ]
 
 testShowBoard2 = unlines
-  [ "showBoard = or (and 1"
+  [ "main = or (and 1"
   , "                    0)"
   , "               (1)"
   ]
 
 testShowBoard3 = unlines
-  [ "showBoard = or (and x"
+  [ "main = or (and x"
   , "                    0)"
   , "               (1)"
   ]
@@ -574,18 +741,9 @@ testLetShowBoard2 = unlines
   , "in 0"
   ]
 
-testLetShowBoard7 = unlines
-  [ "showBoard = or (and validPlace"
-  , "                    1"
-  , "               )"
-  , "               (not boardIn)"
-  , "0"
-  ]
-
 testLetShowBoard4 = unlines
-  [ "showBoard = or (and 0"
-  , "                    1"
-  , "               )"
+  [ "main = or (and 0"
+  , "                    1)"
   , "               (not boardIn)"
   ]
 
@@ -607,15 +765,20 @@ testShowBoard6 = unlines
   ]
 
 testShowBoard4 = unlines
-  [ "showBoard = or (and x"
+  [ "main = or (and x"
   , "                    (or 0"
   , "                        (1)))"
   , "               (1)"
   ]
 
 testShowBoard5 = unlines
-  [ "showBoard = or (or x"
+  [ "main = or (or x"
   , "                   (or 0"
   , "                       1))"
   , "               (1)"
+  ]
+
+fiveApp = concat
+  [ "main = let fiveApp = $5\n"
+  , "       in fiveApp (\\x -> (x,0)) 0"
   ]
