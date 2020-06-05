@@ -148,7 +148,6 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
       i <- State.get
       State.put $ i + 2
       x <- sx
-      -- State.put $ i + 2*(length str + 1) + measureTilNewLine (clean x)
       pure $ indent i (str <> "\n") <> x
     twoChildren :: String -> State Int String -> State Int String -> State Int String
     twoChildren str sl sr = do
@@ -158,12 +157,6 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
       State.put $ i + 2
       r <- sr
       pure $ indent i (str <> "\n") <> l <> "\n" <> r
-    -- clean = dropUntil (\c -> c /= ' ')
-    -- measureTilNewLine str = countUntil (\c -> c /= '\n') str
-    -- countUntil _ [] = 0
-    -- countUntil p x@(x1:_) = case p x1 of
-    --                           False -> 1 + countUntil p (drop 1 x)
-    --                           True -> 1
 
 -- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
 dropUntil :: (a -> Bool) -> [a] -> [a]
