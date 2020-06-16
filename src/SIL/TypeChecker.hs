@@ -33,12 +33,14 @@ data TypeCheckError
   = UnboundType Int
   | InconsistentTypes PartialType PartialType
   | RecursiveType Int
+  | UnboundEnvironment
   deriving (Eq, Ord, Show)
 
--- State is closure environment, set of associations between type variables and types, unresolved type id supply
+-- State is set of associations between type variables and types, unresolved type id supply
 --type AnnotateState a = State (PartialType, Map Int PartialType, Int, Maybe TypeCheckError) a
-type AnnotateState = ExceptT TypeCheckError (State (PartialType, Set TypeAssociation, Int))
+type AnnotateState = ExceptT TypeCheckError (State (Set TypeAssociation, Int))
 
+{-
 withNewEnv :: AnnotateState a -> AnnotateState (PartialType, a)
 withNewEnv action = do
   (env, typeMap, v) <- State.get
@@ -46,9 +48,13 @@ withNewEnv action = do
   result <- action
   State.modify $ \(_, typeMap, v) -> (env, typeMap, v)
   pure (TypeVariable v, result)
+-}
 
-setEnv :: PartialType -> AnnotateState ()
-setEnv env = State.modify $ \(_, typeMap, v) -> (env, typeMap, v)
+freshTypeVariable :: AnnotateState PartialType
+freshTypeVariable = do
+  (assocSet, varIndex) <- State.get
+  State.put (assocSet, varIndex + 1)
+  pure $ TypeVariable varIndex
 
 data TypeAssociation = TypeAssociation Int PartialType
   deriving (Eq, Ord, Show)
@@ -107,7 +113,7 @@ traceAssociate a b = if debug
 
 associateVar :: PartialType -> PartialType -> AnnotateState ()
 associateVar a b = liftEither (makeAssociations a b) >>= \set -> State.modify (changeState set) where
-  changeState set (curVar, oldSet, v) = (curVar, oldSet <> set, v)
+  changeState set (oldSet, v) = (oldSet <> set, v)
 
 {-
 -- convert a PartialType to a full type, aborting on circular references
@@ -126,74 +132,93 @@ fullyResolve typeMap x = case mostlyResolved of
 {--
  - reserve 0 -> n*2 TypeVariables for types of FragExprs
  -}
-initState :: Term3 -> (PartialType, Set TypeAssociation, Int)
+initState :: Term3 -> (Set TypeAssociation, Int)
 initState (Term3 termMap) =
   let startVariable = case Set.maxView (Map.keysSet termMap) of
         Nothing -> 0
         Just (FragIndex i, _) -> (i + 1) * 2
-  in (TypeVariable 0, Set.empty, startVariable)
+  in (Set.empty, startVariable)
 
+-- reserve first 2n type variables for n frags
 getFragType :: FragIndex -> PartialType
 getFragType (FragIndex i) = ArrTypeP (TypeVariable $ i * 2) (TypeVariable $ i * 2 + 1)
 
-annotate :: Term3 -> AnnotateState PartialType
+annotate :: Term3 -> AnnotateState ()
 annotate (Term3 termMap) =
-  let annotate' :: FragExpr BreakExtras -> AnnotateState PartialType
-      annotate' = \case
+  let annotate' :: PartialType -> FragExpr BreakExtras -> AnnotateState PartialType
+      annotate' env = let recur = annotate' env in \case
         ZeroF -> pure ZeroTypeP
-        PairF a b -> PairTypeP <$> annotate' a <*> annotate' b
-        EnvF -> (\(t, _, _) -> t) <$> State.get
+        PairF a b -> PairTypeP <$> recur a <*> recur b
+        EnvF -> pure env
         SetEnvF x -> do
-          xt <- annotate' x
-          (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
+          xt <- recur x
+          it <- freshTypeVariable
+          ot <- freshTypeVariable
           associateVar (PairTypeP (ArrTypeP it ot) it) xt
           pure ot
         DeferF ind -> pure $ getFragType ind
         AbortF -> do
-          (it, _) <- withNewEnv $ pure ()
+          it <- freshTypeVariable
           pure (ArrTypeP ZeroTypeP (ArrTypeP it it))
         GateF l r -> do
-          lt <- annotate' l
-          rt <- annotate' r
+          lt <- recur l
+          rt <- recur r
           associateVar lt rt
           pure $ ArrTypeP ZeroTypeP lt
         LeftF x -> do
-          xt <- annotate' x
-          (la, _) <- withNewEnv $ pure ()
+          xt <- recur x
+          la <- freshTypeVariable
           associateVar (PairTypeP la AnyType) xt
           pure la
         RightF x -> do
-          xt <- annotate' x
-          (ra, _) <- withNewEnv $ pure ()
+          xt <- recur x
+          ra <- freshTypeVariable
           associateVar (PairTypeP AnyType ra) xt
           pure ra
-        TraceF -> (\(t, _, _) -> t) <$> State.get
+        TraceF -> pure env
         --(v8 -> ((A,(((v17,v19) -> v7,A),A)) -> v7,v8),Z)
         AuxF UnsizedRecursion -> do -- ugh... just trust this?
-          (ta, (tb, (tc, (td, _)))) <- withNewEnv . withNewEnv . withNewEnv . withNewEnv $ pure ()
+          ta <- freshTypeVariable
+          tb <- freshTypeVariable
+          tc <- freshTypeVariable
+          td <- freshTypeVariable
           let it = PairTypeP AnyType (PairTypeP (PairTypeP (ArrTypeP (PairTypeP tc td) ta) AnyType) AnyType)
           pure $ PairTypeP (ArrTypeP tb (PairTypeP (ArrTypeP it ta) tb)) ZeroTypeP
-      initInputType :: FragIndex -> AnnotateState ()
-      initInputType fi = let (ArrTypeP it _) = getFragType fi in State.modify (\(_, s, i) -> (it, s, i))
+      getInputType fi = let (ArrTypeP it _) = getFragType fi in it
       associateOutType fi ot = let (ArrTypeP _ ot2) = getFragType fi in associateVar ot ot2
-      rootType = initInputType (FragIndex 0) >> annotate' (rootFrag termMap)
-  in sequence_ (Map.mapWithKey (\k v -> initInputType k >> annotate' v >>= associateOutType k) termMap) >> rootType
+  in sequence_ (Map.mapWithKey (\k v -> annotate' (getInputType k) v >>= associateOutType k) termMap)
 
-partiallyAnnotate :: Term3 -> Either TypeCheckError (PartialType, Int -> Maybe PartialType)
-partiallyAnnotate term =
-  let runner :: State (PartialType, Set TypeAssociation, Int) (Either TypeCheckError PartialType)
+rootFragType :: PartialType
+--rootFragType = PairTypeP (getFragType (FragIndex 0)) ZeroTypeP
+rootFragType = TypeVariable 1
+
+partiallyAnnotate :: Term3 -> Either TypeCheckError (Int -> Maybe PartialType)
+partiallyAnnotate term@(Term3 termMap) =
+  let runner :: State (Set TypeAssociation, Int) (Either TypeCheckError ())
       runner = runExceptT $ annotate term
-      (rt, (_, s, _)) = State.runState runner (initState term)
-  in (,) <$> rt <*> (flip Map.lookup <$> buildTypeMap s)
+      (_, (s, _)) = State.runState runner (initState term)
+      nakedEnv = \case
+        EnvF -> True
+        PairF a b -> nakedEnv a || nakedEnv b
+        SetEnvF x -> nakedEnv x
+        GateF l r -> nakedEnv l || nakedEnv r
+        LeftF x -> nakedEnv x
+        RightF x -> nakedEnv x
+        _ -> False
+  in if False -- nakedEnv (rootFrag termMap) -- Not sure if there's value in this. Leave commented out for now
+     then Left UnboundEnvironment
+     else flip Map.lookup <$> buildTypeMap s
 
 inferType :: Term3 -> Either TypeCheckError PartialType
 inferType tm = lookupFully <$> partiallyAnnotate tm where
-  lookupFully (ty, resolver) = fullyResolve resolver ty
+  lookupFully resolver = fullyResolve resolver rootFragType
 
 typeCheck :: PartialType -> Term3 -> Maybe TypeCheckError
 typeCheck t tm@(Term3 typeMap) = convert (partiallyAnnotate tm >>= associate) where
-  associate (ty, resolver) = debugTrace ("COMPARING TYPES " <> show (t, fullyResolve resolver ty) <> "\n" <> debugMap ty resolver)
-    . traceAgain $ makeAssociations (fullyResolve resolver ty) t
+  associate resolver =
+    let ty = rootFragType in
+      debugTrace ("COMPARING TYPES " <> show (t, fullyResolve resolver ty) <> "\n" <> debugMap ty resolver)
+      . traceAgain $ makeAssociations (fullyResolve resolver ty) t
   debugMap ty resolver = showTypeDebugInfo (TypeDebugInfo tm (fullyResolve resolver . getFragType)
                                             (fullyResolve resolver ty))
   traceAgain s = debugTrace ("Resulting thing " <> show s) s

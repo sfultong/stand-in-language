@@ -167,6 +167,7 @@ dropUntil p x@(x1:_) =
 
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 
+-- broken up version of IExpr AST, where each fragment is the contents of a Defer
 data FragExpr a
   = ZeroF
   | PairF (FragExpr a) (FragExpr a)
@@ -546,7 +547,7 @@ toChurch :: Int -> IExpr
 toChurch x =
   let inner 0 = PLeft Env
       inner x = app (PLeft $ PRight Env) (inner (x - 1))
-  in lam (lam (inner x))
+  in completeLam (lam (inner x))
 
 i2gF :: Int -> BreakState' a
 i2gF 0 = pure ZeroF
@@ -563,6 +564,13 @@ isNum :: IExpr -> Bool
 isNum Zero = True
 isNum (Pair n Zero) = isNum n
 isNum _ = False
+
+-- only data if AST doesn't contain any functions
+isData :: IExpr -> Bool
+isData = \case
+  Zero -> True
+  Pair a b -> isData a && isData b
+  _ -> False
 
 nextI :: State EIndex EIndex
 nextI = State.state $ \(EIndex n) -> (EIndex n, EIndex (n + 1))

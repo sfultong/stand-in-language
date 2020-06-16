@@ -120,6 +120,37 @@ iEval f env g = let f' = f env in case g of
   Abort -> pure Abort
   Defer x -> pure $ Defer x
 
+strictEval :: IExpr -> IExpr -> Either RunTimeError IExpr
+strictEval env = let recur = strictEval env in \case
+  Zero -> pure Zero
+  Pair a b -> Pair <$> recur a <*> recur b
+  Env -> pure env
+  PLeft x -> recur x >>= \case
+    Pair l _ -> pure l
+    Zero -> pure Zero
+    z -> Left $ GenericRunTimeError "pleft found non-pair: " z
+  PRight x -> recur x >>= \case
+    Pair _ r -> pure r
+    Zero -> pure Zero
+    z -> Left $ GenericRunTimeError "pright found non-pair: " z
+  Trace -> pure env
+  Gate a b -> pure $ Gate a b
+  Abort -> pure Abort
+  Defer x -> pure $ Defer x
+  SetEnv x -> recur x >>= \case
+    Pair cf nenv -> case cf of
+      Defer c -> strictEval nenv c
+      Gate a b -> case nenv of
+        Zero -> recur a
+        x | isData x -> recur b
+        z -> Left $ GenericRunTimeError "gate found non-num: " z
+      Abort -> case nenv of
+        Zero -> pure $ Defer Env
+        x | isData x -> Left $ AbortRunTime x
+        z -> Left $ GenericRunTimeError "abort found non-num: " z
+      z -> Left $ SetEnvError z
+    z -> Left $ SetEnvError z
+
 data PExpr
   = PPair PExpr PExpr
   | PDefer PExpr

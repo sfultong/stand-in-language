@@ -34,7 +34,7 @@ shrinkComplexCase test a =
       (recurseable, nonRecursable) = partition (not . null . snd) shrinksWithNextLevel
   in shrinkComplexCase test (concat $ map snd recurseable) ++ map fst nonRecursable
 
-three_succ = app (app (toChurch 3) (lam (pair (varN 0) zero))) zero
+three_succ = app (app (toChurch 3) (completeLam (pair (varN 0) zero))) zero
 
 one_succ = app (app (toChurch 1) (lam (pair (varN 0) zero))) zero
 
@@ -42,7 +42,7 @@ two_succ = app (app (toChurch 2) (lam (pair (varN 0) zero))) zero
 
 church_type = pair (pair zero zero) (pair zero zero)
 
-c2d = lam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)
+c2d = completeLam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)
 
 h2c i =
   let layer recurf i churchf churchbase =
@@ -72,11 +72,11 @@ foldr_h =
         else accum
 -}
 
-test_toChurch = app (app (toChurch 2) (lam (pair (varN 0) zero))) zero
+test_toChurch = app (app (toChurch 2) (completeLam (pair (varN 0) zero))) zero
 
 map_ =
   -- layer recurf f l = pair (f (pleft l)) (recurf f (pright l))
-  let layer = lam (lam (lam
+  let layer = completeLam (lam (lam
                             (ite (varN 0)
                             (pair
                              (app (varN 1) (pleft $ varN 0))
@@ -88,7 +88,7 @@ map_ =
   in app (app (toChurch 255) layer) base
 
 foldr_ =
-  let layer = lam (lam (lam (lam
+  let layer = completeLam (lam (lam (lam
                                  (ite (varN 0)
                                  (app (app (app (varN 3) (varN 2))
 
@@ -102,7 +102,7 @@ foldr_ =
   in app (app (toChurch 255) layer) base
 
 zipWith_ =
-  let layer = lam (lam (lam (lam
+  let layer = completeLam (lam (lam (lam
                                   (ite (varN 1)
                                    (ite (varN 0)
                                     (pair
@@ -115,7 +115,7 @@ zipWith_ =
                                     zero)
                                    zero)
                                  )))
-      base = lam (lam (lam zero))
+      base = completeLam (lam (lam zero))
   in app (app (toChurch 255) layer) base
 
 -- layer recurf i churchf churchbase
@@ -170,9 +170,9 @@ list_equality =
                      (app list_length (varN 0))
       and_ = lam (lam (ite (varN 1) (varN 0) zero))
       folded = app (app (app foldr_ and_) (i2g 1)) (pair length_equal pairs_equal)
-  in lam (lam folded)
+  in completeLam (lam folded)
 
-list_length = lam (app (app (app foldr_ (lam (lam (pair (varN 0) zero))))
+list_length = completeLam (app (app (app foldr_ (lam (lam (pair (varN 0) zero))))
                                   zero)
   (varN 0))
 
@@ -182,17 +182,17 @@ plus_ x y =
       plus = lam (lam (lam (lam plus_app)))
   in app (app plus x) y
 
-d_plus = lam (lam (app c2d (plus_
+d_plus = completeLam (lam (app c2d (plus_
                                    (app (d2c 255) (varN 1))
                                    (app (d2c 255) (varN 0))
                                    )))
 
-d_plus2 = lam (lam (app c2d (plus_
+d_plus2 = completeLam (lam (app c2d (plus_
                                    (app (d2c 6) (varN 1))
                                    (app (d2c 6) (varN 0))
                                    )))
 
-d_plus3 = lam (app c2d (plus_
+d_plus3 = completeLam (app c2d (plus_
                                    (toChurch 2)
                                    (app (d2c 6) (varN 0))
                                    ))
@@ -215,8 +215,8 @@ d2c_test =
 d2c2_test = ite zero (pleft (i2g 1)) (pleft (i2g 2))
 
 c2d_test = app c2d (toChurch 2)
-c2d_test2 = app (lam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)) (toChurch 2)
-c2d_test3 = app (lam (app (varN 0) zero)) (lam (pair (varN 0) zero))
+c2d_test2 = app (completeLam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)) (toChurch 2)
+c2d_test3 = app (completeLam (app (varN 0) zero)) (lam (pair (varN 0) zero))
 
 double_app = app (app (lam (lam (pair (varN 0) (varN 1)))) zero) zero
 
@@ -256,7 +256,7 @@ three_plus_two =
 three_times_two =
   let succ = lam (pair (varN 0) zero)
       times_app = app (app (varN 3) (app (varN 2) (varN 1))) (varN 0)
-      times = lam (lam (lam (lam times_app)))
+      times = completeLam (lam (lam (lam times_app)))
   in app (app (app (app times (toChurch 3)) (toChurch 2)) succ) zero
 
 -- m n
@@ -264,7 +264,7 @@ three_times_two =
 three_pow_two =
   let succ = lam (pair (varN 0) zero)
       pow_app = app (app (app (varN 3) (varN 2)) (varN 1)) (varN 0)
-      pow = lam (lam (lam (lam pow_app)))
+      pow = completeLam (lam (lam (lam pow_app)))
   in app (app (app (app pow (toChurch 2)) (toChurch 3)) succ) zero
 
 -- unbound type errors should be allowed for purposes of testing runtime
@@ -317,6 +317,12 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
        (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
        _ | iexpr == iexpr'-> True
        _ | otherwise -> False
+
+inferrableTypeShouldExecute :: ValidNoEnvTestIExpr -> Bool
+inferrableTypeShouldExecute expr = case strictEval Zero (getIExpr expr) of
+  Right _ -> True
+  Left (AbortRunTime _) -> True -- aborting is fine
+  Left _ -> False
 
 {-
 unitTestQC :: Testable p => String -> Int -> p -> Spec
@@ -409,6 +415,7 @@ unitTests_ parse = do
       unitTest2 = unitTest2' parse
       unitTestRuntime = unitTestRuntime' parse
       unitTestSameResult = unitTestSameResult' parse
+  {-
   unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
   unitTestType "main = \\x -> (x,0)" ZeroTypeP isInconsistentType
   unitTestType "main = succ 0" ZeroTypeP (== Nothing)
@@ -434,6 +441,16 @@ unitTests_ parse = do
     (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
   unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" ZeroTypeP (== Nothing)
   unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
+-}
+  
+  -- unitTestQC "inferrableTypeShouldExecute" 100000 inferrableTypeShouldExecute
+  {-
+  unitTestType2
+    (setenv (pair (setenv env) zero))
+    ZeroTypeP isRecursiveType
+-}
+  unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+    -- SetEnv (Pair (SetEnv (SetEnv (Pair (Defer Env) Env))) Zero)
   {-
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "(0,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
@@ -559,7 +576,7 @@ unitTests parse = do
     unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
     unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
   -- because of the way lists are represented, the last number will be prettyPrinted + 1
-    unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
+    unitTest "map" "(2,(3,5))" $ app (app map_ (completeLam (pair (varN 0) zero)))
                                      (ints2g [1,2,3])
   describe "refinement" $ do
     unitTestRefinement "minimal refinement success" True (check zero (completeLam (varN 0)))
@@ -631,8 +648,9 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
   -- warning: may be slow
-  -- describe "quickcheck" $ do
-  --   unitTestQC "builtinOptimizationDoesntBreakEvaluation" 100 quickcheckBuiltInOptimizedDoesNotChangeEval
+  describe "quickcheck" $ do
+    unitTestQC "builtinOptimizationDoesntBreakEvaluation" 1 quickcheckBuiltInOptimizedDoesNotChangeEval
+    -- unitTestQC "inferrableTypeShouldExecute" 100000 inferrableTypeShouldExecute -- TODO this really should work. Uncomment and fix soon
   -- ++ quickCheckTests unitTest2 unitTestType
 
 testExpr = concat

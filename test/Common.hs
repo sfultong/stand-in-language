@@ -5,6 +5,7 @@
 
 module Common where
 
+import Data.Maybe (catMaybes)
 import Test.QuickCheck
 import Test.QuickCheck.Gen
 
@@ -14,38 +15,23 @@ import SIL
 
 class TestableIExpr a where
   getIExpr :: a -> IExpr
+  refineIExpr :: IExpr -> Maybe a
 
-data TestIExpr = TestIExpr IExpr
+newtype TestIExpr = TestIExpr { unTestIExpr :: IExpr }
 
 data ValidTestIExpr = ValidTestIExpr TestIExpr
 
-data ZeroTypedTestIExpr = ZeroTypedTestIExpr TestIExpr
-
-data ArrowTypedTestIExpr = ArrowTypedTestIExpr TestIExpr
+newtype ValidNoEnvTestIExpr = ValidNoEnvTestIExpr { unValidNoEnvTestIExpr :: IExpr }
 
 instance TestableIExpr TestIExpr where
   getIExpr (TestIExpr x) = x
+  refineIExpr = Just . TestIExpr
 
 instance Show TestIExpr where
-  show (TestIExpr t) = show t
+  show = show . getIExpr
 
-instance TestableIExpr ValidTestIExpr where
-  getIExpr (ValidTestIExpr x) = getIExpr x
-
-instance Show ValidTestIExpr where
-  show (ValidTestIExpr v) = show v
-
-instance TestableIExpr ZeroTypedTestIExpr where
-  getIExpr (ZeroTypedTestIExpr x) = getIExpr x
-
-instance Show ZeroTypedTestIExpr where
-  show (ZeroTypedTestIExpr v) = show v
-
-instance TestableIExpr ArrowTypedTestIExpr where
-  getIExpr (ArrowTypedTestIExpr x) = getIExpr x
-
-instance Show ArrowTypedTestIExpr where
-  show (ArrowTypedTestIExpr x) = show x
+instance Show ValidNoEnvTestIExpr where
+  show = show . unValidNoEnvTestIExpr
 
 lift1Texpr :: (IExpr -> IExpr) -> TestIExpr -> TestIExpr
 lift1Texpr f (TestIExpr x) = TestIExpr $ f x
@@ -85,25 +71,39 @@ instance Arbitrary TestIExpr where
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 
-typeable x = case inferType (fromSIL $ getIExpr x) of
-  Left _ -> False
-  _ -> True
+{- TODO some type hackery to make this work?
+instance (TestableIExpr a) => Arbitrary a where
+  arbitrary = suchThatMap (unTestIExpr <$> arbitrary) refineIExpr
+  shrink = catMaybes . fmap (refineIExpr . unTestIExpr) . shrink . TestIExpr . getIExpr
+-}
+
+testArb :: TestableIExpr a => Gen a
+testArb = suchThatMap (unTestIExpr <$> arbitrary) refineIExpr
+
+testShrink :: TestableIExpr a => a -> [a]
+testShrink = catMaybes . fmap (refineIExpr . unTestIExpr) . shrink . TestIExpr . getIExpr
+
+instance TestableIExpr ValidTestIExpr where
+  getIExpr (ValidTestIExpr x) = unTestIExpr x
+  refineIExpr x = case inferType (fromSIL x) of
+    Left _ -> Nothing
+    _ -> pure . ValidTestIExpr $ TestIExpr x
+
+instance TestableIExpr ValidNoEnvTestIExpr where
+  getIExpr (ValidNoEnvTestIExpr x) = case x of
+    (SetEnv (Pair x' Zero)) -> x'
+    _ -> x
+  refineIExpr x = let wrappedX = SetEnv (Pair x Zero) in case inferType (fromSIL wrappedX) of
+    Left _ -> Nothing
+    _ -> pure $ ValidNoEnvTestIExpr wrappedX
 
 instance Arbitrary ValidTestIExpr where
-  arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
-  shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
+  arbitrary = testArb
+  shrink = testShrink
 
-zeroTyped x = inferType (fromSIL $ getIExpr x) == Right ZeroTypeP
-
-instance Arbitrary ZeroTypedTestIExpr where
-  arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
-  shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
-
-simpleArrowTyped x = inferType (fromSIL $ getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
-
-instance Arbitrary ArrowTypedTestIExpr where
-  arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped
-  shrink (ArrowTypedTestIExpr atte) = map ArrowTypedTestIExpr . filter simpleArrowTyped $ shrink atte
+instance Arbitrary ValidNoEnvTestIExpr where
+  arbitrary = testArb
+  shrink = testShrink
 
 instance Arbitrary UnprocessedParsedTerm where
   arbitrary = sized (genTree []) where
