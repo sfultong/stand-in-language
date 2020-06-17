@@ -196,7 +196,7 @@ partiallyAnnotate :: Term3 -> Either TypeCheckError (Int -> Maybe PartialType)
 partiallyAnnotate term@(Term3 termMap) =
   let runner :: State (Set TypeAssociation, Int) (Either TypeCheckError ())
       runner = runExceptT $ annotate term
-      (_, (s, _)) = State.runState runner (initState term)
+      (e, (s, _)) = State.runState runner (initState term)
       nakedEnv = \case
         EnvF -> True
         PairF a b -> nakedEnv a || nakedEnv b
@@ -205,9 +205,11 @@ partiallyAnnotate term@(Term3 termMap) =
         LeftF x -> nakedEnv x
         RightF x -> nakedEnv x
         _ -> False
-  in if False -- nakedEnv (rootFrag termMap) -- Not sure if there's value in this. Leave commented out for now
-     then Left UnboundEnvironment
-     else flip Map.lookup <$> buildTypeMap s
+  in case (e, nakedEnv (rootFrag termMap)) of
+       -- (_, True) -> Left UnboundEnvironment -- TODO Not sure if there's value in this. Leave commented out for now
+       (Left err, _) -> Left err
+       _ -> flip Map.lookup <$> buildTypeMap s
+
 
 inferType :: Term3 -> Either TypeCheckError PartialType
 inferType tm = lookupFully <$> partiallyAnnotate tm where
