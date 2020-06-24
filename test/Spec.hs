@@ -2,7 +2,9 @@
 module Main where
 
 import Control.Applicative (liftA2)
+import Control.Monad.IO.Class
 import Debug.Trace
+import Data.Bifunctor
 import Data.Char
 import Data.List (partition)
 import Data.Monoid
@@ -19,6 +21,7 @@ import System.Exit
 import System.IO
 import Test.Hspec
 import Test.QuickCheck
+import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
 import qualified System.IO.Strict as Strict
 
 -- Common datatypes for generating SIL AST.
@@ -271,7 +274,8 @@ allowedTypeCheck (Just (UnboundType _)) = True
 allowedTypeCheck _ = False
 
 testEval :: IExpr -> IO IExpr
-testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
+-- testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
+testEval iexpr = simpleEval (SetEnv (Pair (Defer deserialized) Zero))
     where serialized   = serialize iexpr
           deserialized = unsafeDeserialize serialized
 
@@ -301,6 +305,28 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
                           , show $ optimize2 iexpr])
   >> pure False
 -}
+quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
+quickcheckBuiltInOptimizedDoesNotChangeEval up =
+  let
+      makeSIL f = second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id . f . addBuiltins $ up)
+      iexpr :: Either String (Maybe IExpr)
+      iexpr = makeSIL id -- x. validateVariables id . optimizeBuiltinFunctions $ up)
+      iexpr' = makeSIL optimizeBuiltinFunctions -- second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up)
+  in
+    case (iexpr, iexpr') of
+       (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
+       _ | iexpr == iexpr'-> True
+       _ | otherwise -> False
+
+{-
+unitTestQC :: Testable p => String -> Int -> p -> Spec
+unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
+  (Success _ _ _ _ _ _) -> pure ()
+  x -> expectationFailure $ concat [name, " failed: ", show x]
+-}
+unitTestQC :: Testable p => String -> Int -> p -> Spec
+unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
+
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
@@ -353,6 +379,25 @@ debugPEIITO iexpr = do
            , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
 
 -}
+
+-- partiallyEvaluatedIsIsomorphicToOriginal :: ArrowTypedTestIExpr -> Bool
+-- --partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getIExpr vte) 0) == pureREval (app ())
+-- partiallyEvaluatedIsIsomorphicToOriginal vte =
+--   let iexpr = getIExpr vte
+--       sameError (GenericRunTimeError sa _) (GenericRunTimeError sb _) = sa == sb
+--       -- sameError (SetEnvError _) (SetEnvError _) = True
+--       sameError a b = a == b
+--   in case (\x -> pureREval (app x Zero)) <$> eval iexpr of
+--   Left (RTE e) -> Left e == pureREval (app iexpr Zero)
+--   Right x -> case (x, pureREval (app iexpr Zero)) of
+--     (Left a, Left b) -> sameError a b
+--     (a, b) -> a == b
+
+-- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
+-- quickcheckBuiltInOptimizedDoesNotChangeEval up =
+--   let iexpr = toSIL . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up
+--   in False
+
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
   , "       in $3 layer (\\x -> x) 0"
@@ -443,11 +488,6 @@ unitTestTypeP iexpr expected = if inferType (fromSIL iexpr) == expected
                     , " result ", show (inferType $ fromSIL iexpr)
                     ]
   pure False
-
-unitTestQC :: Testable p => String -> Int -> p -> IO Bool
-unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p >>= \result -> case result of
-  (Success _ _ _ _ _ _) -> pure True
-  x -> (putStrLn $ concat [name, " failed: ", show x]) >> pure False
 
 debugMark s = hPutStrLn stderr s >> pure True
 
@@ -573,6 +613,7 @@ unitTests parse = do
   {- TODO -- figure out why this broke
     unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
       "(1,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
+quickcheckBuiltInOptimizedDoesNotChangeEval up =
 -}
   -- , debugPEIITO (SetEnv (Twiddle (Twiddle (Pair (Defer Var) Zero))))
   -- , debugPEIITO (SetEnv (Pair (Defer Var) Zero))
@@ -589,15 +630,10 @@ unitTests parse = do
   , unitTestOptimization "listequal0" $ app (app list_equality (s2g "hey")) (s2g "he")
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
+  -- warning: may be slow
+  -- describe "quickcheck" $ do
+  --   unitTestQC "builtinOptimizationDoesntBreakEvaluation" 100 quickcheckBuiltInOptimizedDoesNotChangeEval
   -- ++ quickCheckTests unitTest2 unitTestType
-
--- slow, don't regularly run
-quickCheckTests unitTest2 unitTestType =
-  [
-  --[ unitTestQC "rEvaluationIsIsomorphicToIEvaluation" 100 rEvaluationIsomorphicToIEvaluation
-  -- too slow
-  -- , unitTestQC "partiallyEvaluatedIsIsomorphicToOriginal" 100 partiallyEvaluatedIsIsomorphicToOriginal
-  ]
 
 testExpr = concat
   [ "main = let a = 0\n"

@@ -1,10 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE DeriveFoldable #-} 
+{-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveTraversable #-} 
-{-# LANGUAGE DeriveGeneric#-}
-{-# LANGUAGE DeriveAnyClass#-}
-{-# LANGUAGE GeneralizedNewtypeDeriving#-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -15,7 +15,7 @@
 module SIL where
 
 import Control.DeepSeq
-
+import Control.Lens.Combinators
 import Control.Monad.Except
 import Control.Monad.State (State)
 import Data.Char
@@ -94,6 +94,8 @@ getA (PLeftA _ a) = a
 getA (PRightA _ a) = a
 getA (TraceA a) = a
 
+-- | Lambdas can be closed if it's expresion does not depend on any
+--   outer binding.
 data LamType l
   = Open l
   | Closed l
@@ -125,35 +127,43 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
     alg (TCheckF sl sr) = twoChildren "TCheck" sl sr
     alg (TITEF sx sy sz) = do
       i <- State.get
-      State.modify (+2)
+      State.put $ i + 2
       x <- sx
+      State.put $ i + 2
       y <- sy
+      State.put $ i + 2
       z <- sz
       pure $ indent i "TITE\n" <> x <> "\n" <> y <> "\n" <> z
     alg (TLeftF l) = oneChild "TLeft" l
     alg (TRightF r) = oneChild "TRight" r
     alg (TTraceF x) = oneChild "TTrace" x
-    alg (TLamF l sx) = do
-      i <- State.get
-      State.modify (+2)
-      x <- sx
-      pure $ indent i "TLam " <> show l <> "\n" <> x
+    alg (TLamF l x) = oneChild ("TLam " <> show l) x
     alg TLimitedRecursionF = sindent "TLimitedRecursion"
+    indent i str = replicate i ' ' <> str
     sindent :: String -> State Int String
     sindent str = State.get >>= (\i -> pure $ indent i str)
-    indent i str = replicate i ' ' <> str
     oneChild :: String -> State Int String -> State Int String
     oneChild str sx = do
       i <- State.get
+      State.put $ i + 2
       x <- sx
-      pure $ indent i str <> " " <> x
+      pure $ indent i (str <> "\n") <> x
     twoChildren :: String -> State Int String -> State Int String -> State Int String
     twoChildren str sl sr = do
       i <- State.get
-      State.modify (+2)
+      State.put $ i + 2
       l <- sl
+      State.put $ i + 2
       r <- sr
       pure $ indent i (str <> "\n") <> l <> "\n" <> r
+
+-- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
+dropUntil :: (a -> Bool) -> [a] -> [a]
+dropUntil _ [] = []
+dropUntil p x@(x1:_) =
+  case p x1 of
+    False -> dropUntil p (drop 1 x)
+    True -> x
 
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 
@@ -177,7 +187,7 @@ data BreakExtras
   = UnsizedRecursion
   deriving Show
 
-type Term1 = ParserTerm (Either () String) (Either Int String)
+type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
 
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
@@ -274,7 +284,6 @@ env = Env
 twiddle :: IExpr -> IExpr
 twiddle x = setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env))))) x)
 app :: IExpr -> IExpr -> IExpr
---app c i = setenv (twiddle (pair i c))
 app c i = setenv (setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env)))))
                           (pair i c)))
 check :: IExpr -> IExpr -> IExpr
@@ -436,12 +445,6 @@ pattern PlusA :: ExprA a -> ExprA a -> ExprA a
 pattern PlusA m n <- LamA (LamA (AppA (AppA m SecondArgA) (AppA (AppA n SecondArgA) FirstArgA)))
 pattern MultA :: ExprA a -> ExprA a -> ExprA a
 pattern MultA m n <- LamA (AppA m (AppA n FirstArgA))
-
-{-
-pattern AppF :: FragExpr a -> FragExpr a -> FragExpr a
-pattern AppF c i = SetEnvF (SetEnvF (PairF (DeferF (PairF (LeftF (RightF EnvF)) (PairF (LeftF EnvF) (RightF (RightF EnvF)))))
-                                    (PairF i c)))
--}
 
 data DataType
   = ZeroType
