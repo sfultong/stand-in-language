@@ -1,42 +1,42 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveFoldable      #-}
+{-# LANGUAGE DeriveFunctor       #-}
+{-# LANGUAGE DeriveTraversable   #-}
+{-# LANGUAGE KindSignatures      #-}
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 module SIL.Parser where
 
-import Control.Lens.Combinators
-import Control.Lens.Operators
-import Control.Monad
-import Data.Bifunctor
-import Data.Char
-import Data.Functor.Foldable
-import Data.Functor.Foldable.TH
-import Data.Maybe (fromJust)
-import Data.Map (Map)
-import qualified Data.Foldable as F
-import Data.List (elemIndex, delete, elem)
-import Data.Map (Map, fromList, toList)
-import qualified Data.Map as Map
-import Data.Set (Set, (\\))
-import qualified Data.Set as Set
-import Data.Void
-import Debug.Trace
-import Text.Read (readMaybe)
-import Text.Megaparsec hiding (State)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Debug
+import           Control.Lens.Combinators
+import           Control.Lens.Operators
+import           Control.Monad
+import           Control.Monad.State        (State)
+import qualified Control.Monad.State        as State
+import           Data.Bifunctor
+import           Data.Char
+import qualified Data.Foldable              as F
+import           Data.Functor.Foldable
+import           Data.Functor.Foldable.TH
+import           Data.List                  (delete, elem, elemIndex)
+import           Data.Map                   (Map)
+import           Data.Map                   (Map, fromList, toList)
+import qualified Data.Map                   as Map
+import           Data.Maybe                 (fromJust)
+import           Data.Set                   (Set, (\\))
+import qualified Data.Set                   as Set
+import           Data.Void
+import           Debug.Trace
+import           SIL
+import           SIL.TypeChecker
+import qualified System.IO.Strict           as Strict
+import           Text.Megaparsec            hiding (State)
+import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
-import Text.Megaparsec.Pos
-import qualified Control.Monad.State as State
-import Control.Monad.State (State)
-import qualified System.IO.Strict as Strict
-import SIL
-import SIL.TypeChecker
+import           Text.Megaparsec.Debug
+import           Text.Megaparsec.Pos
+import           Text.Read                  (readMaybe)
 
 data UnprocessedParsedTerm
   = VarUP String
@@ -111,7 +111,7 @@ debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (TZero) = pure $ TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize vl (TVar n) = case elemIndex n vl of
-                             Just i -> pure $ TVar i
+                             Just i  -> pure $ TVar i
                              Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
@@ -203,7 +203,7 @@ lexeme = L.lexeme sc
 symbol :: String -> SILParser String
 symbol = L.symbol sc
 
--- |This is to parse reserved words. 
+-- |This is to parse reserved words.
 reserved :: String -> SILParser ()
 reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
@@ -289,7 +289,7 @@ parseApplied = do
   fargs <- L.lineFold scn $ \sc' ->
     parseSingleExpr `sepBy` try sc'
   case fargs of
-    (f:args) -> 
+    (f:args) ->
       pure $ foldl AppUP f args
     _ -> fail "expected expression"
 
@@ -308,14 +308,14 @@ parseSameLvl :: Pos -> SILParser a -> SILParser a
 parseSameLvl pos parser = do
   lvl <- L.indentLevel
   case pos == lvl of
-    True -> parser
+    True  -> parser
     False -> fail "Expected same indentation."
 
 -- |`applyUntilNoChange f x` returns the fix point of `f` with `x` the starting point.
 -- This function will loop if there is no fix point exists.
 applyUntilNoChange :: Eq a => (a -> a) -> a -> a
 applyUntilNoChange f x = case x == (f x) of
-                           True -> x
+                           True  -> x
                            False -> applyUntilNoChange f $ f x
 
 -- |Parse let expression.
@@ -390,19 +390,20 @@ runSILParser :: Monad m => SILParser a -> String -> m a
 runSILParser parser str =
   case runParser parser "" str of
     Right x -> pure x
-    Left e -> error $ errorBundlePretty e
+    Left e  -> error $ errorBundlePretty e
 
 -- |Helper function to test if parser was successful.
 parseSuccessful :: Monad m => SILParser a -> String -> m Bool
 parseSuccessful parser str =
   case runParser parser "" str of
     Right _ -> pure True
-    Left _ -> pure False
+    Left _  -> pure False
 
--- |Parse with specified prelude and getting main.
-parseWithPrelude :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+-- |Parse with specified prelude and g-> UnprocessedParsedTerm)
+parseWithPrelude :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+                 -> String
                  -> Either String UnprocessedParsedTerm
-parseWithPrelude str prelude = let result = prelude <$> runParser parseTopLevel "" str
+parseWithPrelude prelude str = let result = prelude <$> runParser parseTopLevel "" str
                                in first errorBundlePretty result
 
 addBuiltins :: UnprocessedParsedTerm -> UnprocessedParsedTerm
@@ -419,21 +420,21 @@ addBuiltins = LetUP
 parsePrelude :: String -> Either ErrorString (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parsePrelude str = case runParser parseDefinitions "" str of
   Right pd -> Right (addBuiltins . pd)
-  Left x -> Left $ MkES $ errorBundlePretty x
+  Left x   -> Left $ MkES $ errorBundlePretty x
 
 -- |Collect all variable names in a `Term1` expresion excluding terms binded
 --  to lambda args
 vars :: Term1 -> Set String
 vars = cata alg where
   alg :: Base Term1 (Set String) -> Set String
-  alg (TVarF n) = Set.singleton n
-  alg (TLamF (Open n) x) = del n x
+  alg (TVarF n)            = Set.singleton n
+  alg (TLamF (Open n) x)   = del n x
   alg (TLamF (Closed n) x) = del n x
-  alg e = F.fold e
+  alg e                    = F.fold e
   del :: String -> Set String -> Set String
   del n x = case Set.member n x of
               False -> x
-              True -> Set.delete n x
+              True  -> Set.delete n x
 
 -- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
 -- Automatic recognition of Close or Open type of `TLam`.
@@ -444,7 +445,7 @@ makeLambda :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -- ^Bindings
 makeLambda bindings str term1 =
   case unbound == Set.empty of
     True -> TLam (Closed str) term1
-    _ -> TLam (Open str) term1
+    _    -> TLam (Open str) term1
   where bindings' = Set.fromList $ fst <$> extractBindingsList bindings
         v = vars term1
         unbound = ((v \\ bindings') \\ Set.singleton str)
@@ -464,7 +465,7 @@ validateVariables bindings term =
           definitionsMap <- State.get
           case Map.lookup n definitionsMap of
             Just v -> pure v
-            _ -> State.lift . Left  $ "No definition found for " <> n
+            _      -> State.lift . Left  $ "No definition found for " <> n
         --TODO add in Daniel's code
         LetUP bindingsMap inner -> do
           oldBindings <- State.get
@@ -498,16 +499,16 @@ optimizeBuiltinFunctions = endoMap optimize where
     twoApp@(AppUP (AppUP f x) y) ->
       case f of
         VarUP "pair" -> PairUP x y
-        VarUP "app" -> AppUP x y
-        _ -> twoApp
+        VarUP "app"  -> AppUP x y
+        _            -> twoApp
     oneApp@(AppUP f x) ->
       case f of
-        VarUP "left" -> LeftUP x
+        VarUP "left"  -> LeftUP x
         VarUP "right" -> RightUP x
         VarUP "trace" -> TraceUP x
-        VarUP "pair" -> LamUP "y" (PairUP x . VarUP $ "y")
-        VarUP "app" -> LamUP "y" (AppUP x . VarUP $ "y")
-        _ -> oneApp
+        VarUP "pair"  -> LamUP "y" (PairUP x . VarUP $ "y")
+        VarUP "app"   -> LamUP "y" (AppUP x . VarUP $ "y")
+        _             -> oneApp
         -- VarUP "check" TODO
     x -> x
 
@@ -517,4 +518,4 @@ process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bi
 
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
-parseMain prelude s = parseWithPrelude s prelude >>= process prelude
+parseMain prelude s = parseWithPrelude prelude s >>= process prelude

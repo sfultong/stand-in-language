@@ -2,34 +2,42 @@
 
 module Main where
 
-import SIL
-import SIL.Eval
-import SIL.Parser
-import SIL.RunTime
-import Test.Tasty
-import Test.Tasty.HUnit
-import Test.QuickCheck
-import Text.Megaparsec.Error
-import Text.Megaparsec
-import Text.Megaparsec.Debug
-import Data.Bifunctor
-import Data.Either (fromRight)
-import Data.Map (Map, fromList, toList)
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-import Data.Functor.Foldable
-import Debug.Trace (trace)
-import qualified System.IO.Strict as Strict
-import Control.Monad
-import qualified Control.Monad.State as State
-import qualified Data.Semigroup as Semigroup
-import Common
+import           Common
+import           Control.Monad
+import           Control.Monad.Except      (ExceptT, MonadError, runExceptT)
+import           Control.Monad.Fix         (fix)
+import           Control.Monad.IO.Class    (liftIO)
+import qualified Control.Monad.State       as State
+import           Data.Algorithm.Diff       (getGroupedDiff)
+import           Data.Algorithm.DiffOutput (ppDiff)
+import           Data.Bifunctor
+import           Data.Either               (fromRight)
+import           Data.Functor.Foldable
+import           Data.Map                  (Map, fromList, toList)
+import qualified Data.Map                  as Map
+import qualified Data.Semigroup            as Semigroup
+import qualified Data.Set                  as Set
+import           Debug.Trace               (trace)
+import           SIL
+import           SIL.Eval
+import           SIL.Parser
+import           SIL.RunTime
+import qualified System.IO.Strict          as Strict
+import           Test.QuickCheck
+import           Test.Tasty
+import           Test.Tasty.HUnit
+import           Text.Megaparsec
+import           Text.Megaparsec.Debug
+import           Text.Megaparsec.Error
+import           Text.Show.Pretty          (ppShow)
 
+main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Tests" [unitTests]
 
+unitTests :: TestTree
 unitTests = testGroup "Unit tests"
   [ testCase "test Pair 0" $ do
       res <- parseSuccessful (parsePair >> eof) testPair0
@@ -229,7 +237,7 @@ testWtictactoe = do
                 Left pe -> error . getErrorString $ pe
   case parseMain prelude tictactoe of
     Right _ -> return True
-    Left _ -> return False
+    Left _  -> return False
 
 {-
 runTictactoe = do
@@ -287,7 +295,7 @@ runTictactoe = do
   -- case parseWithPrelude prelude' dependantTopLevelBindings of
   --   Right x -> do
   --     -- expected :: Term1 <- runSILParser (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
-  --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ 
+  --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ
   --   Left err -> error . show $ err
 
 letExpr = unlines $
@@ -497,7 +505,7 @@ runTestParsePrelude = do
   preludeFile <- Strict.readFile "Prelude.sil"
   case parsePrelude preludeFile of
     Right _ -> return True
-    Left _ -> return False
+    Left _  -> return False
 
 testParseAssignmentwCLwITEwPair2 = unlines $
   [ "main = \\input -> if 1"
@@ -588,7 +596,7 @@ runTestMainwCLwITEwPair = do
       Right p -> p
       Left pe -> error . getErrorString $ pe
   case parseMain prelude testMainwCLwITEwPair of
-    Right x -> return True
+    Right x  -> return True
     Left err -> return False
 
 testMain2 = "main : (\\x -> if x then \"fail\" else 0) = 0"
@@ -600,7 +608,7 @@ runTestMainWType = do
       Right p -> p
       Left pe -> error . getErrorString $ pe
   case parseMain prelude $ testMain2 of
-    Right x -> return True
+    Right x  -> return True
     Left err -> return False
 
 testList0 = unlines $
@@ -782,3 +790,74 @@ fiveApp = concat
   [ "main = let fiveApp = $5\n"
   , "       in fiveApp (\\x -> (x,0)) 0"
   ]
+
+showAllTransformations :: String -- ^ SIL code
+                       -> IO ()
+showAllTransformations input = do
+  preludeFile <- Strict.readFile "Prelude.sil"
+  let section description body = do
+        putStrLn "\n-----------------------------------------------------------------"
+        putStrLn $ "----" <> description <> ":\n"
+        putStrLn $ body
+      prelude = case parsePrelude preludeFile of
+                  Right x  -> x
+                  Left err -> error . getErrorString $ err
+      upt = case parseWithPrelude prelude input of
+              Right x -> x
+              Left x  -> error x
+  section "Input" input
+  section "UnprocessedParsedTerm" $ show upt
+  section "optimizeBuiltinFunctions" $ show . optimizeBuiltinFunctions $ upt
+  let optimizeBuiltinFunctionsVar = optimizeBuiltinFunctions upt
+      str1 = lines . show $ optimizeBuiltinFunctionsVar
+      str0 = lines . show $ upt
+      diff = getGroupedDiff str0 str1
+  section "Diff optimizeBuiltinFunctions" $ ppDiff diff
+  -- let optimizeBindingsReferenceVar = optimizeBindingsReference optimizeBuiltinFunctionsVar
+  --     str2 = lines . show $ optimizeBindingsReferenceVar
+  --     diff = getGroupedDiff str1 str2
+  -- section "optimizeBindingsReference" . show $ optimizeBindingsReferenceVar
+  -- section "Diff optimizeBindingsReference" $ ppDiff diff
+  let validateVariablesVar = validateVariables prelude optimizeBuiltinFunctionsVar
+      str3 = lines . show $ validateVariablesVar
+      diff = getGroupedDiff str3 str1
+  section "validateVariables" . show $ validateVariablesVar
+  section "Diff validateVariables" $ ppDiff diff
+  let Right debruijinizeVar = (>>= debruijinize []) validateVariablesVar
+      str4 = lines . show $ debruijinizeVar
+      diff = getGroupedDiff str4 str3
+  section "debruijinize" . show $ debruijinizeVar
+  section "Diff debruijinize" $ ppDiff diff
+  let splitExprVar = splitExpr debruijinizeVar
+      str5 = lines . ppShow $ splitExprVar
+      diff = getGroupedDiff str5 str4
+  section "splitExpr" . ppShow $ splitExprVar
+  section "Diff splitExpr" $ ppDiff diff
+  let Just toSILVar = toSIL . findChurchSize $ splitExprVar
+      str6 = lines . show $ toSILVar
+      diff = getGroupedDiff str6 str5
+  section "toSIL" . show $ toSILVar
+  section "Diff toSIL" $ ppDiff diff
+  putStrLn "\n-----------------------------------------------------------------"
+  putStrLn $ "---- stepEval:\n"
+  x <- stepEval toSILVar
+  putStrLn .show $ x
+  -- let iEvalVar0 = iEval () Zero toSILVar
+
+stepEval :: IExpr -> IO IExpr
+stepEval g = do
+  x <- runExceptT $ fix myEval Zero g
+  case x of
+    Left e  -> error . show $ e
+    Right a -> pure a
+
+-- TODO: Remove
+-- iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
+
+-- |EvalStep :: * -> *
+type EvalStep = ExceptT RunTimeError IO
+
+myEval :: (IExpr -> IExpr -> EvalStep IExpr) -> IExpr -> IExpr -> EvalStep IExpr
+myEval f e g = do
+  liftIO $ putStrLn . show $ (e, g)
+  iEval f e g
