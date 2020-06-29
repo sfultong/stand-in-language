@@ -841,11 +841,12 @@ showAllTransformations input = do
   putStrLn "\n-----------------------------------------------------------------"
   putStrLn $ "---- stepEval:\n"
   x <- stepEval toSILVar
-  putStrLn .show $ x
+  print x
   -- let iEvalVar0 = iEval () Zero toSILVar
 
 stepEval :: IExpr -> IO IExpr
 stepEval g = do
+  -- print g
   x <- runExceptT $ fix myEval Zero g
   case x of
     Left e  -> error . show $ e
@@ -859,5 +860,5 @@ type EvalStep = ExceptT RunTimeError IO
 
 myEval :: (IExpr -> IExpr -> EvalStep IExpr) -> IExpr -> IExpr -> EvalStep IExpr
 myEval f e g = do
-  liftIO $ putStrLn . show $ (e, g)
+  liftIO $ print (e, g)
   iEval f e g

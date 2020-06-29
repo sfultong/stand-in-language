@@ -1,24 +1,26 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
+
 module SIL.RunTime where
 
-import Data.Foldable
-import Data.Functor.Identity
-import Data.Set (Set)
-import Debug.Trace
-import Control.Exception
-import Control.Monad.Except
-import Control.Monad.Fix
+import           Control.Exception
+import           Control.Monad.Except
+import           Control.Monad.Fix
+import           Data.Foldable
+import           Data.Functor.Foldable hiding (fold)
+import           Data.Functor.Identity
+import           Data.Set              (Set)
+import           Debug.Trace
 --import GHC.Exts (IsList(..))
-import GHC.Exts (fromList)
-import System.IO (hPutStrLn, stderr, hPrint)
+import           GHC.Exts              (fromList)
+import           System.IO             (hPrint, hPutStrLn, stderr)
 
-import SIL
-import Naturals hiding (debug, debugTrace)
-import PrettyPrint
-import qualified Data.Map as Map
-import qualified Data.Set as Set
+import qualified Data.Map              as Map
+import qualified Data.Set              as Set
+import           Naturals              hiding (debug, debugTrace)
+import           PrettyPrint
+import           SIL
 -- import qualified SIL.Llvm as LLVM
 
 debug :: Bool
@@ -44,8 +46,8 @@ nEval (NExprs m) =
           z -> error ("nleft on " ++ show z ++ " before " ++ show x)
         (NRight x) -> recur x >>= \y -> case y of
           (NPair _ r) -> pure r
-          NZero -> pure NZero
-          z -> error ("nright on " ++ show z)
+          NZero       -> pure NZero
+          z           -> error ("nright on " ++ show z)
         (NDefer ind) -> case Map.lookup ind m of
           (Just x) -> pure x
           _ -> throwError $ GenericRunTimeError ("nEval bad index for function: " ++ show ind) Zero
@@ -54,7 +56,7 @@ nEval (NExprs m) =
           (NPair c i) -> case c of
             NGate a b -> case i of
               NZero -> recur a
-              _ -> recur b
+              _     -> recur b
             NAbort -> case i of
               NZero -> pure NEnv
               z -> case toSIL (NExprs $ Map.insert resultIndex z m) of
@@ -70,7 +72,7 @@ nEval (NExprs m) =
           case nc of
             p@(NPair _ _) -> appl p ni
             (NLamNum n e) -> pure $ case ni of
-              (NLamNum m _) -> NPair (NPair (NNum (n ^ m)) NEnv) e
+              (NLamNum m _)     -> NPair (NPair (NNum (n ^ m)) NEnv) e
               (NPartialNum m f) -> NPair (NNum (n * m)) f
             NToNum -> pure $ NApp NToNum ni
             (NApp NToNum (NPair (NPair (NNum nn) NEnv) nenv)) ->
@@ -90,35 +92,112 @@ nEval (NExprs m) =
         z -> pure z
   in case Map.lookup (FragIndex 0) m of
     (Just f) -> eval NZero f
-    _ -> throwError $ GenericRunTimeError "nEval: no root frag" Zero
+    _        -> throwError $ GenericRunTimeError "nEval: no root frag" Zero
+
+
+-- main = (\ x y -> [x, y, 0]) 0
+-- (Zero,SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero)))))
+-- (Zero,        SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero))))
+-- (Zero,                Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero)))
+-- (Zero,                      Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env)))))
+-- (Zero,                                                                                                   Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero))
+-- (Zero,Zero)
+-- (Zero,Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero)
+-- (Zero,Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env))
+-- (Zero,Zero)
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),      PLeft (PRight Env))
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),             PRight Env)
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),                    Env)
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),                           Pair (PLeft Env) (PRight (PRight Env)))
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),PLeft Env)
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),Env)
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),PRight (PRight Env))
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),PRight Env)
+-- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),Env)
+-- (Pair Zero Zero,Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)
+-- (Pair Zero Zero,Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero))))
+-- (Pair Zero Zero,Env)
+-- Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) (Pair Zero Zero)
+
+
+
+rEval :: IExpr -> IExpr -> Either RunTimeError IExpr
+rEval e = para alg where
+  alg :: (Base IExpr) (IExpr, Either RunTimeError IExpr) -> Either RunTimeError IExpr
+  alg = \case
+    TraceF            -> Right $ trace (show e) e
+    ZeroF             -> Right Zero
+    (DeferF (ie, _))  -> Right . Defer $ ie
+    (SetEnvF (ie, _)) ->
+      case ie of
+        Pair cf nenv  ->
+          case cf of
+            Defer c -> rEval nenv c
+            Gate a b -> case nenv of
+                          Zero -> rEval env a
+                          _    -> rEval env b
+            Abort -> case nenv of
+                       Zero -> Right $ Defer Env
+                       z    -> throwError $ AbortRunTime z
+            z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
+        bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
+    (PairF (ie1, _) (ie2, _)) -> Pair <$> rEval e ie1 <*> rEval e ie2
+    AbortF -> Right Abort
+    (GateF (ie1, _) (ie2, _)) -> Right $ Gate ie1 ie2
+    EnvF -> Right Env
+    (PLeftF (ie, _)) -> rEval e ie >>= \case
+      (Pair l _) -> Right l
+      _ -> Right Zero
+    (PRightF (ie, _)) -> rEval e ie >>= \case
+      (Pair _ r) -> Right r
+      _ -> Right Zero
+
 
 iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
 iEval f env g = let f' = f env in case g of
-  Pair a b -> Pair <$> f' a <*> f' b
-  Env -> pure env
   SetEnv x -> (f' x >>=) $ \case
     Pair cf nenv -> case cf of
       Defer c -> f nenv c
       -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
       Gate a b -> case nenv of
         Zero -> f' a
-        _ -> f' b
+        _    -> f' b
       Abort -> case nenv of
         Zero -> pure $ Defer Env
-        z -> throwError $ AbortRunTime z
+        z    -> throwError $ AbortRunTime z
       z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
+  Trace -> pure $ trace (show env) env
+  Zero -> pure Zero
+  Abort -> pure Abort
+  Defer x -> pure $ Defer x
+  Pair a b -> Pair <$> f' a <*> f' b
+  Gate a b -> pure $ Gate a b
+  Env -> pure env
   PLeft g -> f' g >>= \case
     (Pair a _) -> pure a
     _ -> pure Zero
   PRight g -> f' g >>= \case
     (Pair _ x) -> pure x
     _ -> pure Zero
-  Trace -> pure $ trace (show env) env
-  Zero -> pure Zero
-  Gate a b -> pure $ Gate a b
-  Abort -> pure Abort
-  Defer x -> pure $ Defer x
+
+
+
+pureREval :: IExpr -> Either RunTimeError IExpr
+pureREval = rEval Zero
+
+pureEval :: IExpr -> Either RunTimeError IExpr
+pureEval = rEval Zero
+-- pureEval g = runExcept $ fix iEval Zero g
+
+-- left (\x y z -> [x, y, z, 0], 0) 1 2 3
+
+auxEval :: IExpr -> Except RunTimeError IExpr
+auxEval = fix iEval Zero
+
+aux :: MonadError RunTimeError m => IExpr -> IExpr -> m IExpr
+aux = fix iEval
 
 data PExpr
   = PPair PExpr PExpr
@@ -193,10 +272,10 @@ pEval f env g =
         PDefer c -> f nenv c
         PGate l r -> case nenv of
           PZero -> f' l
-          _ -> f' r
+          _     -> f' r
         PAbort -> case nenv of
           PZero -> singleResult $ PDefer PEnv
-          _ -> PResult (mempty, True)
+          _     -> PResult (mempty, True)
         _ -> error "should not be here in pEval setenv (bad cf)"
       _ -> error "should not be here in pEval setenv non pair"
     x -> singleResult x
@@ -212,18 +291,18 @@ instance SILLike NExprs where
   fromSIL = (NExprs . fragsToNExpr) . fragmentExpr
   toSIL (NExprs m) =
     let fromNExpr x = case x of
-          NZero -> pure Zero
-          (NPair a b) -> Pair <$> fromNExpr a <*> fromNExpr b
-          NEnv -> pure Env
-          (NSetEnv x) -> SetEnv <$> fromNExpr x
-          NAbort -> pure Abort
-          NGate a b -> Gate <$> fromNExpr a <*> fromNExpr b
-          (NLeft x) -> PLeft <$> fromNExpr x
-          (NRight x) -> PRight <$> fromNExpr x
-          NTrace -> pure Trace
-          (NDefer i) -> Map.lookup i m >>= (fmap Defer . fromNExpr)
+          NZero         -> pure Zero
+          (NPair a b)   -> Pair <$> fromNExpr a <*> fromNExpr b
+          NEnv          -> pure Env
+          (NSetEnv x)   -> SetEnv <$> fromNExpr x
+          NAbort        -> pure Abort
+          NGate a b     -> Gate <$> fromNExpr a <*> fromNExpr b
+          (NLeft x)     -> PLeft <$> fromNExpr x
+          (NRight x)    -> PRight <$> fromNExpr x
+          NTrace        -> pure Trace
+          (NDefer i)    -> Map.lookup i m >>= (fmap Defer . fromNExpr)
           (NOldDefer x) -> Defer <$> fromNExpr x
-          _ -> Nothing
+          _             -> Nothing
     in Map.lookup resultIndex m >>= fromNExpr
 instance AbstractRunTime NExprs where
   eval x@(NExprs m) = (\r -> NExprs $ Map.insert resultIndex r m) <$> nEval x
@@ -237,7 +316,7 @@ evalAndConvert x = let ar = eval x in (toSIL <$> ar) >>= \r -> case r of
 
 simpleEval :: IExpr -> IO IExpr
 simpleEval x = runExceptT (eval x) >>= \r -> case r of
-  Left e -> fail (show e)
+  Left e  -> fail (show e)
   Right i -> pure i
 
 fastInterpretEval :: IExpr -> IO IExpr
@@ -247,11 +326,10 @@ fastInterpretEval e = do
       nExpr = traceShow $ fromSIL e
   result <- runExceptT $ evalAndConvert nExpr
   case result of
-    Left e -> error ("runtime error: " ++ show e)
+    Left e  -> error ("runtime error: " ++ show e)
     Right r -> pure r
 
 {- commenting out until fixed
-
 llvmEval :: NExpr -> IO LLVM.RunResult
 llvmEval nexpr = do
   let lmod = LLVM.makeModule nexpr
@@ -270,15 +348,12 @@ llvmEval nexpr = do
 optimizedEval :: IExpr -> IO IExpr
 optimizedEval = fastInterpretEval
 
-pureEval :: IExpr -> Either RunTimeError IExpr
-pureEval g = runIdentity . runExceptT $ fix iEval Zero g
-
 showPass :: (Show a, MonadIO m) => m a -> m a
 showPass a = a >>= (liftIO . print) >> a
 
 tEval :: IExpr -> IO IExpr
 tEval x = runExceptT (fix (\f e g -> showPass $ iEval f e g) Zero x) >>= \r -> case r of
-  Left e -> fail (show e)
+  Left e  -> fail (show e)
   Right i -> pure i
 
 typedEval :: (IExpr -> DataType -> Bool) -> IExpr -> (IExpr -> IO ()) -> IO ()
