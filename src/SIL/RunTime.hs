@@ -94,80 +94,42 @@ nEval (NExprs m) =
     (Just f) -> eval NZero f
     _        -> throwError $ GenericRunTimeError "nEval: no root frag" Zero
 
-
--- main = (\ x y -> [x, y, 0]) 0
--- (Zero,SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero)))))
--- (Zero,        SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero))))
--- (Zero,                Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero)))
--- (Zero,                      Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env)))))
--- (Zero,                                                                                                   Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero))
--- (Zero,Zero)
--- (Zero,Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero)
--- (Zero,Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env))
--- (Zero,Zero)
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),      PLeft (PRight Env))
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),             PRight Env)
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),                    Env)
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),                           Pair (PLeft Env) (PRight (PRight Env)))
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),PLeft Env)
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),Env)
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),PRight (PRight Env))
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),PRight Env)
--- (Pair Zero (Pair (Defer (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)) Zero),Env)
--- (Pair Zero Zero,Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) Env)
--- (Pair Zero Zero,Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero))))
--- (Pair Zero Zero,Env)
--- Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (Pair Zero Zero)))) (Pair Zero Zero)
-
-
-
+-- |IExpr evaluation with a given enviroment `e`
+-- (as in the second element of a closure).
 rEval :: IExpr -> IExpr -> Either RunTimeError IExpr
 rEval e = para alg where
-  alg :: (Base IExpr) (IExpr, Either RunTimeError IExpr) -> Either RunTimeError IExpr
+  alg :: (Base IExpr) (IExpr, Either RunTimeError IExpr)
+      -> Either RunTimeError IExpr
   alg = \case
-    TraceF            -> Right $ trace (show e) e
-    ZeroF             -> Right Zero
-    (DeferF (ie, _))  -> Right . Defer $ ie
-    (SetEnvF (ie, _)) ->
-      case ie of
-        Pair cf nenv  ->
-          case cf of
-            Defer c -> rEval nenv c
-            Gate a b -> case nenv of
-                          Zero -> rEval env a
-                          _    -> rEval env b
-            Abort -> case nenv of
-                       Zero -> Right $ Defer Env
-                       z    -> throwError $ AbortRunTime z
-            z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
-        bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
-    (PairF (ie1, _) (ie2, _)) -> Pair <$> rEval e ie1 <*> rEval e ie2
+    ZeroF -> Right Zero
     AbortF -> Right Abort
-    (GateF (ie1, _) (ie2, _)) -> Right $ Gate ie1 ie2
     EnvF -> Right Env
-    (PLeftF (ie, _)) -> rEval e ie >>= \case
-      (Pair l _) -> Right l
-      _ -> Right Zero
-    (PRightF (ie, _)) -> rEval e ie >>= \case
+    (DeferF (ie, _)) -> Right . Defer $ ie
+    TraceF -> Right $ trace (show e) e
+    (GateF (ie1, _) (ie2, _)) -> Right $ Gate ie1 ie2
+    (PairF (_, l) (_, r)) -> Pair <$> l
+                                  <*> r
+    (PRightF (_, x)) -> x >>= \case
       (Pair _ r) -> Right r
       _ -> Right Zero
+    (PLeftF (_, x)) -> x >>= \case
+      (Pair l _) -> Right l
+      _ -> Right Zero
+    (SetEnvF (ie, _)) ->
+      case ie of
+        Pair (Defer c) nenv  -> rEval nenv c
+        Pair (Gate a _) Zero -> rEval e a
+        Pair (Gate _ b) _    -> rEval e b
+        Pair Abort Zero      -> Right $ Defer Env
+        Pair Abort z         -> throwError $ AbortRunTime z
+        -- The next case should never actually occur,
+        -- because it should be caught by `typeCheck`.
+        z                    -> throwError $ SetEnvError z
 
-
+-- |The fix point combinator of this function (of type `IExpr -> IExpr -> m IExpr`) yields a function that
+-- evaluates an `IExpr` with a given enviroment (another `IExpr`).
 iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
 iEval f env g = let f' = f env in case g of
-  SetEnv x -> (f' x >>=) $ \case
-    Pair cf nenv -> case cf of
-      Defer c -> f nenv c
-      -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
-      Gate a b -> case nenv of
-        Zero -> f' a
-        _    -> f' b
-      Abort -> case nenv of
-        Zero -> pure $ Defer Env
-        z    -> throwError $ AbortRunTime z
-      z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
-    bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
   Trace -> pure $ trace (show env) env
   Zero -> pure Zero
   Abort -> pure Abort
@@ -181,6 +143,18 @@ iEval f env g = let f' = f env in case g of
   PRight g -> f' g >>= \case
     (Pair _ x) -> pure x
     _ -> pure Zero
+  SetEnv x -> (f' x >>=) $ \case
+    Pair cf nenv -> case cf of
+      Defer c -> f nenv c
+      -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
+      Gate a b -> case nenv of
+        Zero -> f' a
+        _    -> f' b
+      Abort -> case nenv of
+        Zero -> pure $ Defer Env
+        z    -> throwError $ AbortRunTime z
+      z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
+    bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
 
 
 
