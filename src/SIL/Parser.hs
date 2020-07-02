@@ -116,9 +116,10 @@ splitExpr' = \case
   Fix (TLeft x) -> LeftF <$> splitExpr' x
   Fix (TRight x) -> RightF <$> splitExpr' x
   Fix (TTrace x) -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
-  Fix (TLam (Open ()) x) -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
-  Fix (TLam (Closed ()) x) -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
-  Fix TLimitedRecursion -> AuxF <$> nextBreakToken
+  Fix (TLam (Open ()) x) -> lamF $ splitExpr' x
+  Fix (TLam (Closed ()) x) -> clamF $ splitExpr' x
+  --Fix TLimitedRecursion -> AuxF <$> nextBreakToken
+  Fix TLimitedRecursion -> nextBreakToken >>= unsizedRecursionWrapper
 
 splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
@@ -127,7 +128,7 @@ splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragI
 convertPT :: Int -> Term3 -> Term4
 convertPT n (Term3 termMap) =
   let changeTerm = \case
-        AuxF (UnsizedRecursion _) -> partialFixF n
+        AuxF (UnsizedRecursion _) -> deferF $ innerChurchF n
         ZeroF -> pure ZeroF
         PairF a b -> PairF <$> changeTerm a <*> changeTerm b
         EnvF -> pure EnvF

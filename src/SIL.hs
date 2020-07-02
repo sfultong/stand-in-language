@@ -417,31 +417,32 @@ appF c i =
   let twiddleF = deferF $ pure (PairF (LeftF (RightF EnvF)) (PairF (LeftF EnvF) (RightF (RightF EnvF))))
   in (\tf p -> SetEnvF (SetEnvF (PairF tf p))) <$> twiddleF <*> (PairF <$> i <*> c)
 
+pairF :: BreakState' a b -> BreakState' a b -> BreakState' a b
+pairF = liftA2 PairF
+
 lamF :: BreakState' a b -> BreakState' a b
-lamF x = (\f -> PairF f EnvF) <$> deferF x
+lamF x = pairF (deferF x) $ pure EnvF
 
 clamF :: BreakState' a b -> BreakState' a b
-clamF x = (\f -> PairF f ZeroF) <$> deferF x
+clamF x = pairF (deferF x) $ pure ZeroF
 
-toChurchF :: Int -> BreakState' a b
-toChurchF x' =
-  let inner 0 = pure $ LeftF EnvF
-      inner x = appF (pure $ LeftF (RightF EnvF)) (inner (x - 1))
-  in lamF (lamF (inner x'))
-
-partialFixF :: Int -> BreakState' a b
-partialFixF i =
-  let firstArgF = pure $ LeftF EnvF
-      secondArgF = pure $ LeftF (RightF EnvF)
-      abortMessage = s2gF "recursion depth limit exceeded ~"
-      abrt = SetEnvF . PairF AbortF <$> abortMessage
-  in clamF (lamF (appF (appF (toChurchF i) secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
+innerChurchF :: Int -> BreakState' a b
+innerChurchF x = iterate (appF (pure $ LeftF (RightF EnvF))) (pure $ LeftF EnvF) !! x
 
 nextBreakToken :: Enum b => BreakState a b b
 nextBreakToken = do
   (token, fi, fm) <- State.get
   State.put (succ token, fi, fm)
   pure token
+
+unsizedRecursionWrapper :: BreakExtras -> BreakState' BreakExtras BreakExtras
+unsizedRecursionWrapper urToken =
+  let firstArgF = pure $ LeftF EnvF
+      secondArgF = pure $ LeftF (RightF EnvF)
+      abortMessage = s2gF "recursion depth limit exceeded ~"
+      abrt = SetEnvF . PairF AbortF <$> abortMessage
+      ur = clamF (pairF (pure $ AuxF urToken) (pure EnvF))
+  in clamF (lamF (appF (appF ur secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
 
 pattern FirstArgA :: ExprA a
 pattern FirstArgA <- PLeftA (EnvA _) _
