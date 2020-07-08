@@ -4,5 +4,5 @@
 -- Can add labels:
 -- "Adding bit bigger numbers"   "main = plus $30 $40 succ 0"
 -- Supports files
--- bench.telomare
--- tictactoe.telomare
+-- bench.tel
+-- tictactoe.tel

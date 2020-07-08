@@ -35,7 +35,7 @@ with rec {
       # llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
     };
   });
-  simpleShell = haskellPkgs.shellFor { packages = p: [p.telomare]; };
+  simpleShell = haskellPkgs.shellFor { packages = p: [p.tel]; };
 
 }; simpleShell.overrideAttrs (oldAttrs : rec
   { buildInputs = oldAttrs.buildInputs

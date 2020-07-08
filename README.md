@@ -45,7 +45,7 @@ To get arround it, you should copy `libgc.so.1` (provided by the `bohem` garbage
 1. Create your own file with the telomare code
 2. Modify the last uncommented line to reference your file.
    ```haskell
-   Strict.readFile "<your-telomare-code-file>.telomare" >>= runMain
+   Strict.readFile "<your-telomare-code-file>.tel" >>= runMain
    ```
 3. Run:
    ```

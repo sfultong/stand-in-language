@@ -11,7 +11,7 @@ import Telomare.Eval
 import qualified System.IO.Strict as Strict
 
 main = do
-  preludeFile <- Strict.readFile "Prelude.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
 
   let
     prelude = case parsePrelude preludeFile of
@@ -33,8 +33,8 @@ main = do
 -}
 
   -- printBindingTypes prelude
-  Strict.readFile "tictactoe.telomare" >>= runMain
-  -- Strict.readFile "hello.telomare" >>= runMain
+  Strict.readFile "tictactoe.tel" >>= runMain
+  -- Strict.readFile "hello.tel" >>= runMain
   --runMain "main = \\x -> 0"
   --runMain "main = \\x -> if x then 0 else (\"Test message\", 0)"
   --runMain "main = \\x -> if listEqual (left x) \"quit\" then 0 else (\"type quit to exit\", 1)"

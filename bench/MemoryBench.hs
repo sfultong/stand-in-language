@@ -80,7 +80,7 @@ config = Config [Weigh.Case, Allocated, GCs, Live] "" Plain
 main = do
   gcInit
   gcAllowRegisterThreads
-  preludeFile <- Strict.readFile "Prelude.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
 
   let
     e_prelude = parsePrelude preludeFile

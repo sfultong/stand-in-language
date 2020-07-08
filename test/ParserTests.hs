@@ -18,11 +18,11 @@ import qualified Data.Map                  as Map
 import qualified Data.Semigroup            as Semigroup
 import qualified Data.Set                  as Set
 import           Debug.Trace               (trace)
+import qualified System.IO.Strict          as Strict
 import           Telomare
 import           Telomare.Eval
 import           Telomare.Parser
 import           Telomare.RunTime
-import qualified System.IO.Strict          as Strict
 import           Test.QuickCheck
 import           Test.Tasty
 import           Test.Tasty.HUnit
@@ -90,10 +90,10 @@ unitTests = testGroup "Unit tests"
   , testCase "testList5" $ do
       res <- parseSuccessful parseList testList5
       res `compare` True @?= EQ
-  , testCase "test parse Prelude.telomare" $ do
+  , testCase "test parse Prelude.tel" $ do
       res <- runTestParsePrelude
       res `compare` True @?= EQ
-  , testCase "test parse tictactoe.telomare" $ do
+  , testCase "test parse tictactoe.tel" $ do
       res <- testWtictactoe
       res `compare` True @?= EQ
   , testCase "test Main with Type" $ do
@@ -201,7 +201,7 @@ unitTests = testGroup "Unit tests"
   --                             expr8
   --     t1 `compare` expr9 @?= EQ
   -- , testCase "rename 2" $ do
-  --     preludeFile <- Strict.readFile "Prelude.telomare"
+  --     preludeFile <- Strict.readFile "Prelude.tel"
   --     let prelude = case parsePrelude preludeFile of
   --                     Right p -> p
   --                     Left pe -> error . getErrorString $ pe
@@ -225,12 +225,12 @@ dependantTopLevelBindings = unlines $
 --                               expr8
 --   putStrLn . show $ x Map.! "h"
 
--- |Usefull to see if tictactoe.telomare was correctly parsed
+-- |Usefull to see if tictactoe.tel was correctly parsed
 -- and was usefull to compare with the deprecated Telomare.Parser
 -- Parsec implementation
 testWtictactoe = do
-  preludeFile <- Strict.readFile "Prelude.telomare"
-  tictactoe <- Strict.readFile "hello.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
+  tictactoe <- Strict.readFile "hello.tel"
   let
     prelude = case parsePrelude preludeFile of
                 Right p -> p
@@ -241,8 +241,8 @@ testWtictactoe = do
 
 {-
 runTictactoe = do
-  preludeFile <- Strict.readFile "Prelude.telomare"
-  tictactoe <- Strict.readFile "hello.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
+  tictactoe <- Strict.readFile "hello.tel"
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
@@ -254,8 +254,8 @@ runTictactoe = do
   --   Left err -> putStrLn . getErrorString $ err
 
 -- parseWithPreludeFile = do
---   preludeFile <- Strict.readFile "Prelude.telomare"
---   file <- Strict.readFile "hello.telomare"
+--   preludeFile <- Strict.readFile "Prelude.tel"
+--   file <- Strict.readFile "hello.tel"
 --   let
 --     prelude = case parsePrelude preludeFile of
 --                 Right p -> p
@@ -273,7 +273,7 @@ runTictactoe = do
 
 
 -- myDebug = do
---   preludeFile <- Strict.readFile "Prelude.telomare"
+--   preludeFile <- Strict.readFile "Prelude.tel"
 --   let
 --     prelude = case parsePrelude preludeFile of
 --       Right p -> p
@@ -502,7 +502,7 @@ testLambdawITEwPair = unlines $
   ]
 
 runTestParsePrelude = do
-  preludeFile <- Strict.readFile "Prelude.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
   case parsePrelude preludeFile of
     Right _ -> return True
     Left _  -> return False
@@ -590,7 +590,7 @@ test7 = unlines $
 test8 = "if x then 1 else 0"
 
 runTestMainwCLwITEwPair = do
-  preludeFile <- Strict.readFile "Prelude.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
@@ -602,7 +602,7 @@ runTestMainwCLwITEwPair = do
 testMain2 = "main : (\\x -> if x then \"fail\" else 0) = 0"
 
 runTestMainWType = do
-  preludeFile <- Strict.readFile "Prelude.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
@@ -638,11 +638,11 @@ testList5 = unlines $
   , "  2 ]"
   ]
 
--- -- |Helper function to debug tictactoe.telomare
+-- -- |Helper function to debug tictactoe.tel
 -- debugTictactoe :: IO ()
 -- debugTictactoe  = do
---   preludeFile <- Strict.readFile "Prelude.telomare"
---   tictactoe <- Strict.readFile "tictactoe.telomare"
+--   preludeFile <- Strict.readFile "Prelude.tel"
+--   tictactoe <- Strict.readFile "tictactoe.tel"
 --   let prelude =
 --         case parsePrelude preludeFile of
 --           Right pf -> pf
@@ -655,8 +655,8 @@ testList5 = unlines $
 --     Left err -> putStr (errorBundlePretty err)
 
 -- runTictactoe = do
---   preludeFile <- Strict.readFile "Prelude.telomare"
---   tictactoe <- Strict.readFile "tictactoe.telomare"
+--   preludeFile <- Strict.readFile "Prelude.tel"
+--   tictactoe <- Strict.readFile "tictactoe.tel"
 --   let
 --     prelude = case parsePrelude preludeFile of
 --       Right p -> p
@@ -794,7 +794,7 @@ fiveApp = concat
 showAllTransformations :: String -- ^ Telomare code
                        -> IO ()
 showAllTransformations input = do
-  preludeFile <- Strict.readFile "Prelude.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
   let section description body = do
         putStrLn "\n-----------------------------------------------------------------"
         putStrLn $ "----" <> description <> ":\n"

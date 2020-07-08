@@ -714,7 +714,7 @@ unitTestSameResult' parse a b = it ("comparing to " <> a) $ case (parse a, parse
 main = do
   gcInit
   gcAllowRegisterThreads
-  preludeFile <- Strict.readFile "Prelude.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
 
   let
     prelude = case parsePrelude preludeFile of
@@ -775,7 +775,7 @@ main = do
   let isProblem (TestIExpr iexpr) = typeable (TestIExpr iexpr) && case eval iexpr of
         Left _ -> True
         _ -> False
-  (Right mainAST) <- parseMain prelude <$> Strict.readFile "tictactoe.telomare"
+  (Right mainAST) <- parseMain prelude <$> Strict.readFile "tictactoe.tel"
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}

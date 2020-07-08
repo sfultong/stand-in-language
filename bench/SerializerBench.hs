@@ -56,7 +56,7 @@ performTests iexpr = do
 
 
 main = do
-  preludeFile <- Strict.readFile "Prelude.telomare"
+  preludeFile <- Strict.readFile "Prelude.tel"
 
   let
     prelude = case parsePrelude preludeFile of
@@ -66,4 +66,4 @@ main = do
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> performTests g
 
-  Strict.readFile "tictactoe.telomare" >>= runMain
+  Strict.readFile "tictactoe.tel" >>= runMain

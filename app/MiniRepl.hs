@@ -244,7 +244,7 @@ startExpr eval bindings s_expr = do
         Right (ReplExpr binds) -> printLastExpr putStrLn eval binds
 
 main = do
-    e_prelude <- parsePrelude <$> Strict.readFile "Prelude.telomare" 
+    e_prelude <- parsePrelude <$> Strict.readFile "Prelude.tel" 
     settings  <- execParser opts
     eval <- case _backend settings of
         SimpleBackend -> return simpleEval
