@@ -1,7 +1,7 @@
 # Stand-in Language
 > A simple but robust virtual machine
 
-[![Join the chat at https://gitter.im/telomare/Lobby](https://badges.gitter.im/telomare/Lobby.svg)](https://gitter.im/telomare/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+[![Join the chat at https://gitter.im/telomare/Lobby](https://badges.gitter.im/telomare/Lobby.svg)](https://gitter.im/sil/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 A virtual machine with a simple grammar evolved from simply typed lambda calculus, that eventually will have powerful static checking and an optimizing backend.
 
