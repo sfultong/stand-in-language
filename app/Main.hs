@@ -1,23 +1,23 @@
 module Main where
 
 import Data.Char
-import SIL
---import SIL.Llvm
-import SIL.Parser
-import SIL.RunTime
-import SIL.TypeChecker (typeCheck, inferType)
-import SIL.Optimizer
-import SIL.Eval
+import Telomare
+--import Telomare.Llvm
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.TypeChecker (typeCheck, inferType)
+import Telomare.Optimizer
+import Telomare.Eval
 import qualified System.IO.Strict as Strict
 
 main = do
-  preludeFile <- Strict.readFile "Prelude.sil"
+  preludeFile <- Strict.readFile "Prelude.telomare"
 
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ getErrorString pe
-    runMain s = case toSIL . findChurchSize <$> parseMain prelude s of
+    runMain s = case toTelomare . findChurchSize <$> parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", e]
       Right (Just g) -> evalLoop g
     --testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
@@ -33,8 +33,8 @@ main = do
 -}
 
   -- printBindingTypes prelude
-  Strict.readFile "tictactoe.sil" >>= runMain
-  -- Strict.readFile "hello.sil" >>= runMain
+  Strict.readFile "tictactoe.telomare" >>= runMain
+  -- Strict.readFile "hello.telomare" >>= runMain
   --runMain "main = \\x -> 0"
   --runMain "main = \\x -> if x then 0 else (\"Test message\", 0)"
   --runMain "main = \\x -> if listEqual (left x) \"quit\" then 0 else (\"type quit to exit\", 1)"

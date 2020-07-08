@@ -12,7 +12,7 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE ViewPatterns               #-}
 
-module SIL where
+module Telomare where
 
 import           Control.DeepSeq
 import           Control.Lens.Combinators
@@ -294,11 +294,11 @@ instance Show RunTimeError where
 
 type RunResult = ExceptT RunTimeError IO
 
-class SILLike a where
-  fromSIL :: IExpr -> a
-  toSIL :: a -> Maybe IExpr
+class TelomareLike a where
+  fromTelomare :: IExpr -> a
+  toTelomare :: a -> Maybe IExpr
 
-class SILLike a => AbstractRunTime a where
+class TelomareLike a => AbstractRunTime a where
   eval :: a -> RunResult a
 
 rootFrag :: Map FragIndex a -> a
@@ -614,33 +614,33 @@ toIndExpr Trace      = TraceA <$> nextI
 toIndExpr' :: IExpr -> IndExpr
 toIndExpr' x = State.evalState (toIndExpr x) (EIndex 0)
 
-instance SILLike (ExprT a) where
-  fromSIL = \case
+instance TelomareLike (ExprT a) where
+  fromTelomare = \case
     Zero -> ZeroT
-    Pair a b -> PairT (fromSIL a) (fromSIL b)
+    Pair a b -> PairT (fromTelomare a) (fromTelomare b)
     Env -> EnvT
-    SetEnv x -> SetEnvT $ fromSIL x
-    Defer x -> DeferT $ fromSIL x
+    SetEnv x -> SetEnvT $ fromTelomare x
+    Defer x -> DeferT $ fromTelomare x
     Abort -> AbortT
-    Gate l r -> GateT (fromSIL l) (fromSIL r)
-    PLeft x -> LeftT $ fromSIL x
-    PRight x -> RightT $ fromSIL x
+    Gate l r -> GateT (fromTelomare l) (fromTelomare r)
+    PLeft x -> LeftT $ fromTelomare x
+    PRight x -> RightT $ fromTelomare x
     Trace -> TraceT
-  toSIL = \case
+  toTelomare = \case
     ZeroT -> pure Zero
-    PairT a b -> Pair <$> toSIL a <*> toSIL b
+    PairT a b -> Pair <$> toTelomare a <*> toTelomare b
     EnvT -> pure Env
-    SetEnvT x -> SetEnv <$> toSIL x
-    DeferT x -> Defer <$> toSIL x
+    SetEnvT x -> SetEnv <$> toTelomare x
+    DeferT x -> Defer <$> toTelomare x
     AbortT -> pure Abort
-    GateT l r -> Gate <$> toSIL l <*> toSIL r
-    LeftT x -> PLeft <$> toSIL x
-    RightT x -> PRight <$> toSIL x
+    GateT l r -> Gate <$> toTelomare l <*> toTelomare r
+    LeftT x -> PLeft <$> toTelomare x
+    RightT x -> PRight <$> toTelomare x
     TraceT -> pure Trace
-    TagT x _ -> toSIL x -- just elide tags
+    TagT x _ -> toTelomare x -- just elide tags
 
-silToFragmap :: IExpr -> Map FragIndex (FragExpr a)
-silToFragmap expr = Map.insert (FragIndex 0) bf m where
+telomareToFragmap :: IExpr -> Map FragIndex (FragExpr a)
+telomareToFragmap expr = Map.insert (FragIndex 0) bf m where
     (bf, (_,m)) = State.runState (convert expr) (FragIndex 1, Map.empty)
     convert = \case
       Zero -> pure ZeroF
@@ -658,8 +658,8 @@ silToFragmap expr = Map.insert (FragIndex 0) bf m where
       PRight x -> RightF <$> convert x
       Trace -> pure TraceF
 
-fragmapToSIL :: Map FragIndex (FragExpr a) -> Maybe IExpr
-fragmapToSIL fragMap = convert (rootFrag fragMap) where
+fragmapToTelomare :: Map FragIndex (FragExpr a) -> Maybe IExpr
+fragmapToTelomare fragMap = convert (rootFrag fragMap) where
     convert = \case
       ZeroF -> pure Zero
       PairF a b -> Pair <$> convert a <*> convert b
@@ -673,10 +673,10 @@ fragmapToSIL fragMap = convert (rootFrag fragMap) where
       TraceF -> pure Trace
       AuxF _ -> Nothing
 
-instance SILLike Term3 where
-  fromSIL = Term3 . silToFragmap
-  toSIL (Term3 fragMap) = fragmapToSIL fragMap
+instance TelomareLike Term3 where
+  fromTelomare = Term3 . telomareToFragmap
+  toTelomare (Term3 fragMap) = fragmapToTelomare fragMap
 
-instance SILLike Term4 where
-  fromSIL = Term4 . silToFragmap
-  toSIL (Term4 fragMap) = fragmapToSIL fragMap
+instance TelomareLike Term4 where
+  fromTelomare = Term4 . telomareToFragmap
+  toTelomare (Term4 fragMap) = fragmapToTelomare fragMap

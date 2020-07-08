@@ -3,7 +3,7 @@
 {-#LANGUAGE DeriveAnyClass #-}
 --{-# OPTIONS_GHC -fplugin=Foreign.Storable.Generic.Plugin #-}
 --{-# OPTIONS_GHC -fplugin-opt=Foreign.Storable.Generic.Plugin:-v0 #-} 
-module SIL.Serializer.C (
+module Telomare.Serializer.C (
     -- Types
       CTypeId
     , zero_type
@@ -38,12 +38,12 @@ module SIL.Serializer.C (
     , serializedFromC
     , serializedToC
     -- C calls
-    , sil_serialize
-    , sil_deserialize
-    , sil_free
+    , telomare_serialize
+    , telomare_deserialize
+    , telomare_free
 ) where
 
-import SIL (IExpr(..))
+import Telomare (IExpr(..))
 
 import Data.Word
 import           Data.Vector.Storable (Vector, fromList, (!))
@@ -90,7 +90,7 @@ data CRep
 -- | Root node, contains the whole tree.
 data CRoot = CRoot CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
 
--- SIL nodes. Correspond to C structs from SIL.h files.
+-- Telomare nodes. Correspond to C structs from Telomare.h files.
 -- General philosophy is: Contain the tag and pointer to next node in the tree. If the node is a leaf, set pointer to null.
 
 data CZero = CZero deriving(Show, Generic) 
@@ -145,7 +145,7 @@ fromC' type_id ptr = case type_id of
         (CPRight t v) <- peek $ castPtr ptr
         PRight <$> fromC' t v
     9    -> return Trace
-    otherwise -> error "SIL.Serializer.fromC': Invalid type id - possibly corrupted data."
+    otherwise -> error "Telomare.Serializer.fromC': Invalid type id - possibly corrupted data."
     
     
 
@@ -228,7 +228,7 @@ toC' Trace ptr_type ptr_value = poke ptr_type trace_type >> poke ptr_value nullP
 -- | Tag for CSerialized structs
 data CSerialized 
 
--- | Convert serialized version to SIL_Serialized 
+-- | Convert serialized version to Telomare_Serialized 
 -- Copies the memory underneath.
 serializedToC :: Vector Word8 -> IO (Ptr CSerialized)
 serializedToC vec = do 
@@ -240,7 +240,7 @@ serializedToC vec = do
     S.unsafeWith vec (\ptr_vec -> copyArray (ptr `plusPtr` max_align) ptr_vec len) 
     return $ castPtr ptr
 
--- | Convert SIL_Serialized version to Vector of Word8.
+-- | Convert Telomare_Serialized version to Vector of Word8.
 -- Copies the memory underneath.
 serializedFromC :: Ptr CSerialized -> IO (Vector Word8)
 serializedFromC ptr = do
@@ -253,9 +253,9 @@ serializedFromC ptr = do
 
 -- Foreign calls from C code
  
-foreign import ccall sil_serialize   :: Ptr CRoot       -> IO (Ptr CSerialized)
-foreign import ccall sil_deserialize :: Ptr CSerialized -> IO (Ptr CRoot)
+foreign import ccall telomare_serialize   :: Ptr CRoot       -> IO (Ptr CSerialized)
+foreign import ccall telomare_deserialize :: Ptr CSerialized -> IO (Ptr CRoot)
 -- | Free the memory reserved for C dynamic representation
-foreign import ccall sil_free        :: Ptr CRoot       
+foreign import ccall telomare_free        :: Ptr CRoot       
                                      -> IO ()
 

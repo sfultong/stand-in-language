@@ -15,7 +15,7 @@ void w_longjmp (int64_t x) {
   longjmp(buf,x);
 }
 
-void SIL_register_my_thread(void) {
+void Telomare_register_my_thread(void) {
     struct GC_stack_base sb;
     GC_get_stack_base(&sb);
     GC_register_my_thread(&sb);

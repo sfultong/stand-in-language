@@ -1,17 +1,17 @@
 {-# LANGUAGE LambdaCase #-}
-module SIL.Eval where
+module Telomare.Eval where
 
 import Control.Monad.Except
 import Data.Map (Map)
 import Debug.Trace
 import qualified Data.Map as Map
 
-import SIL
-import SIL.Parser
-import SIL.RunTime
-import SIL.TypeChecker
-import SIL.Optimizer
-import SIL.Serializer
+import Telomare
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.TypeChecker
+import Telomare.Optimizer
+import Telomare.Serializer
 
 data ExpP
   = ZeroP
@@ -75,9 +75,9 @@ fromFullEnv f (LeftP x) = PLeft <$> f x
 fromFullEnv f (RightP x) = PRight <$> f x
 fromFullEnv _ TraceP = pure Trace
 
-instance SILLike ExpP where
-  fromSIL = snd . annotateEnv
-  toSIL = fix fromFullEnv
+instance TelomareLike ExpP where
+  fromTelomare = snd . annotateEnv
+  toTelomare = fix fromFullEnv
 
 partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
 partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
@@ -89,7 +89,7 @@ eval' = pure
 findChurchSize :: Term3 -> Term4
 {-
 findChurchSize term =
-  let abortsAt i = (\(PResult (_, b)) -> b) . fix pEval PZero . fromSIL $ convertPT i term
+  let abortsAt i = (\(PResult (_, b)) -> b) . fix pEval PZero . fromTelomare $ convertPT i term
       -- evaluating large church numbers is currently impractical, just fail if found
       (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
       findC b e | b > e = b

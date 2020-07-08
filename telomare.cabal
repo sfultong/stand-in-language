@@ -1,8 +1,8 @@
-name:                sil
+name:                telomare
 version:             0.1.0.0
 synopsis:            A simple but robust virtual machine
 description:         Please see README.md
-homepage:            https://github.com/sfultong/sil#readme
+homepage:            https://github.com/sfultong/stand-in-language#readme
 license:             Apache-2.0
 license-file:        LICENSE
 author:              Sam Griffin
@@ -19,7 +19,7 @@ library
   hs-source-dirs:      src
                      , test
   include-dirs:        cbits/include
-  c-sources:           cbits/SIL.c
+  c-sources:           cbits/Telomare.c
   other-extensions:    GADTs
                      , EmptyDataDecls
                      , DeriveFunctor
@@ -29,15 +29,15 @@ library
                      , RecursiveDo
   exposed-modules:     Naturals
                      , PrettyPrint
-                     , SIL
-                     , SIL.Eval
-                     , SIL.Llvm
-                     , SIL.Optimizer
-                     , SIL.Parser
-                     , SIL.RunTime
-                     , SIL.TypeChecker
-                     , SIL.Serializer
-                     , SIL.Serializer.C
+                     , Telomare
+                     , Telomare.Eval
+                     , Telomare.Llvm
+                     , Telomare.Optimizer
+                     , Telomare.Parser
+                     , Telomare.RunTime
+                     , Telomare.TypeChecker
+                     , Telomare.Serializer
+                     , Telomare.Serializer.C
                      , Common
   build-depends:       base
                      , base16-bytestring
@@ -68,28 +68,28 @@ library
   extra-libraries:     gc
                      , jumper
   -- uncomment this line to get a cabal repl. Use appropiate complete path.
-  extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
+  extra-lib-dirs:      /home/hhefesto/src/telomare/lib
 
   default-language:    Haskell2010
   ghc-options:         -ddump-to-file -ddump-splices
 
-executable sil-exe
+executable telomare-exe
   hs-source-dirs:      app
   main-is:             Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , containers
-                     , sil
+                     , telomare
                      , strict
   default-language:    Haskell2010
 
-executable sil-mini-repl
+executable telomare-mini-repl
   hs-source-dirs:      app
   main-is:             MiniRepl.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , containers
-                     , sil
+                     , telomare
                      , haskeline
                      , strict
                      , optparse-applicative
@@ -97,7 +97,7 @@ executable sil-mini-repl
                      , mtl
   default-language:    Haskell2010
 
-test-suite sil-test
+test-suite telomare-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
@@ -105,19 +105,19 @@ test-suite sil-test
   build-depends:       base
                      , hspec
 		     , hspec-core
-                     , sil
+                     , telomare
                      , strict
                      , QuickCheck
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
-test-suite sil-parser-test
+test-suite telomare-parser-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             ParserTests.hs
   other-modules:       Common
   build-depends:       base
-                     , sil
+                     , telomare
                      , strict
                      , QuickCheck
                      , tasty
@@ -132,39 +132,39 @@ test-suite sil-parser-test
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
-test-suite sil-serializer-test
+test-suite telomare-serializer-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test/
   main-is:             SerializerSpec.hs
   other-modules:       Common
   build-depends:       base
-                     , sil
+                     , telomare
                      , strict
                      , hspec
                      , QuickCheck
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
-benchmark sil-serializer-benchmark
+benchmark telomare-serializer-benchmark
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench/
   default-language:    Haskell2010
   Main-is:             SerializerBench.hs
-  build-depends:       base, sil, deepseq, strict, vector, criterion
+  build-depends:       base, telomare, deepseq, strict, vector, criterion
   ghc-options:         -with-rtsopts=-T
 
 
-benchmark sil-memory-benchmark
+benchmark telomare-memory-benchmark
   type:                exitcode-stdio-1.0
   hs-source-dirs:      bench/
   default-language:    Haskell2010
   Main-is:             MemoryBench.hs
   other-modules:       MemoryBench.Cases
                      , MemoryBench.LLVM
-                     , Paths_sil
-  build-depends:       base, sil, deepseq, strict, weigh, parsec, mtl
+                     , Paths_telomare
+  build-depends:       base, telomare, deepseq, strict, weigh, parsec, mtl
                      , containers, bytestring ,llvm-hs-pure, llvm-hs
 
 source-repository head
   type:     git
-  location: https://github.com/sfultong/sil
+  location: https://github.com/sfultong/stand-in-language

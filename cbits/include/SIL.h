@@ -1,7 +1,7 @@
-#ifndef SIL_GUARD
-#define SIL_GUARD
+#ifndef Telomare_GUARD
+#define Telomare_GUARD
 /**
- * @file SIL.h
+ * @file Telomare.h
  * @author Mateusz Kłoczko
  * @date 27 Apr 2018
  * @brief Stand-in-language C representation.
@@ -11,143 +11,143 @@
 extern "C" {
 #endif
 
-// Tags for SIL grammar
-#define SIL_ZERO    (0)
-#define SIL_PAIR    (1)
-#define SIL_ENV     (2)
-#define SIL_SETENV  (3)
-#define SIL_DEFER   (4)
-#define SIL_ABORT   (5)
-#define SIL_GATE    (6)
-#define SIL_PLEFT   (7)
-#define SIL_PRIGHT  (8)
-#define SIL_TRACE   (9)
+// Tags for Telomare grammar
+#define Telomare_ZERO    (0)
+#define Telomare_PAIR    (1)
+#define Telomare_ENV     (2)
+#define Telomare_SETENV  (3)
+#define Telomare_DEFER   (4)
+#define Telomare_ABORT   (5)
+#define Telomare_GATE    (6)
+#define Telomare_PLEFT   (7)
+#define Telomare_PRIGHT  (8)
+#define Telomare_TRACE   (9)
 
-typedef unsigned char sil_type;
+typedef unsigned char telomare_type;
 
 //Representation for dynamic construction
 
-/* Note [C AST and SIL_Root]
+/* Note [C AST and Telomare_Root]
  * ~~~~~~~~~~~~~~~~~~~~~~~~~
  * 
  * The C AST representation is designed to be somewhat memory efficient.
  * Each expression is a struct, which contains the type and pointer
  * to next expressions.
  *
- * That's why we needed to have SIL_Root - initial entry point,
+ * That's why we needed to have Telomare_Root - initial entry point,
  * pointing to the top-most node.
  */
 
 /**
  * @brief Stores the top-most expression. Does not exist in grammar.
  */
-typedef struct SIL_Root{
-    sil_type type;
+typedef struct Telomare_Root{
+    telomare_type type;
     void * value;
-} SIL_Root;
+} Telomare_Root;
 
-typedef struct SIL_Zero{} SIL_Zero;
-typedef struct SIL_Pair{
-    sil_type left_type;
-    sil_type right_type;
+typedef struct Telomare_Zero{} Telomare_Zero;
+typedef struct Telomare_Pair{
+    telomare_type left_type;
+    telomare_type right_type;
     void * left_value;
     void * right_value; 
-} SIL_Pair;
-typedef struct SIL_Env{} SIL_Env;
-typedef struct SIL_SetEnv{
-    sil_type type;
+} Telomare_Pair;
+typedef struct Telomare_Env{} Telomare_Env;
+typedef struct Telomare_SetEnv{
+    telomare_type type;
     void * value; 
-} SIL_SetEnv;
-typedef struct SIL_Defer{
-    sil_type type;
+} Telomare_SetEnv;
+typedef struct Telomare_Defer{
+    telomare_type type;
     void * value; 
-} SIL_Defer;
-typedef struct SIL_Abort{} SIL_Abort;
-typedef struct SIL_Gate{
-  sil_type left_type;
-  sil_type right_type;
+} Telomare_Defer;
+typedef struct Telomare_Abort{} Telomare_Abort;
+typedef struct Telomare_Gate{
+  telomare_type left_type;
+  telomare_type right_type;
   void * left_value;
   void * right_value;
-} SIL_Gate;
-typedef struct SIL_PLeft{
-    sil_type type;
+} Telomare_Gate;
+typedef struct Telomare_PLeft{
+    telomare_type type;
     void * value; 
-} SIL_PLeft;
-typedef struct SIL_PRight{
-    sil_type type;
+} Telomare_PLeft;
+typedef struct Telomare_PRight{
+    telomare_type type;
     void * value; 
-} SIL_PRight;
-typedef struct SIL_Trace{} SIL_Trace;
+} Telomare_PRight;
+typedef struct Telomare_Trace{} Telomare_Trace;
 
 /**
- * @brief SIL_Stack nodes.
+ * @brief Telomare_Stack nodes.
  *
- * Used in sil_traverse, sil_serialize and sil_deserialize
+ * Used in telomare_traverse, telomare_serialize and telomare_deserialize
  */
-typedef struct SIL_Stack{
-    struct SIL_Stack * next;
-    sil_type  type;
+typedef struct Telomare_Stack{
+    struct Telomare_Stack * next;
+    telomare_type  type;
     void * value;
-} SIL_Stack;
+} Telomare_Stack;
 
-SIL_Stack* sil_stack_new(sil_type type, void * val);
-void sil_stack_add(SIL_Stack ** stack, sil_type type, void * val);
-void sil_stack_pop(SIL_Stack ** stack);
+Telomare_Stack* telomare_stack_new(telomare_type type, void * val);
+void telomare_stack_add(Telomare_Stack ** stack, telomare_type type, void * val);
+void telomare_stack_pop(Telomare_Stack ** stack);
 
 /**
  * @brief Traverse each node and perform a computation based on the node type. Does not change the AST.
  */
-void sil_traverse(SIL_Root * root, void (*fn)(sil_type, void*), void * state);
+void telomare_traverse(Telomare_Root * root, void (*fn)(telomare_type, void*), void * state);
 
 /**
  * @brief Checks for equality between two ASTs.
  */
-unsigned char sil_equal(SIL_Root * root1, SIL_Root *root2);
+unsigned char telomare_equal(Telomare_Root * root1, Telomare_Root *root2);
 
 /**
  * @brief Count the number of nodes in AST.
  */
-unsigned long sil_count(SIL_Root * root);
+unsigned long telomare_count(Telomare_Root * root);
 
 /**
- * @brief Delete the memory under SIL AST
+ * @brief Delete the memory under Telomare AST
  */
-void sil_free(SIL_Root * root);
+void telomare_free(Telomare_Root * root);
 
 /**
- * @brief Serialized representation of SIL.
+ * @brief Serialized representation of Telomare.
  * 
  * The representation is somewhat static - it's not possible to
  * add new nodes.
  */
-typedef struct SIL_Serialized{
+typedef struct Telomare_Serialized{
     unsigned long      size;
-    sil_type      storage[];
-} SIL_Serialized;
+    telomare_type      storage[];
+} Telomare_Serialized;
 
 
 /**
- * @brief Serializer state, modified through sil_traverse. Used by sil_serialize.
+ * @brief Serializer state, modified through telomare_traverse. Used by telomare_serialize.
  */
-typedef struct SIL_Serializer_State{
+typedef struct Telomare_Serializer_State{
     unsigned long count;
-    SIL_Serialized * serialized;
-} SIL_Serializer_State;
+    Telomare_Serialized * serialized;
+} Telomare_Serializer_State;
 
-SIL_Serialized * sil_serialize(SIL_Root * root);
+Telomare_Serialized * telomare_serialize(Telomare_Root * root);
 
 /**
- * @brief Deserialize into SIL AST.
+ * @brief Deserialize into Telomare AST.
  * 
  * Assumes correct input. Undefined behaviour otherwise.
  */
-SIL_Root * sil_deserialize(SIL_Serialized * serialized);
+Telomare_Root * telomare_deserialize(Telomare_Serialized * serialized);
 
 
 /**
  * @brief Count the number of nodes in AST.
  */
-unsigned long sil_count_old(SIL_Root * root);
+unsigned long telomare_count_old(Telomare_Root * root);
 
 #ifdef __cplusplus
 }

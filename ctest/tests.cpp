@@ -4,49 +4,49 @@
 #include <tuple>
 #include <functional>
 
-#include "SIL.h"
+#include "Telomare.h"
 
 using namespace std;
 
 
 bool unit_tests(){
-   SIL_Root root;
-   SIL_Pair pair;
-   SIL_Zero zero;
-   SIL_SetEnv setenv;
-   SIL_Env  env;
+   Telomare_Root root;
+   Telomare_Pair pair;
+   Telomare_Zero zero;
+   Telomare_SetEnv setenv;
+   Telomare_Env  env;
 
-   root.type = SIL_PAIR;
+   root.type = Telomare_PAIR;
    root.value = &pair;
 
-   pair.left_type   = SIL_SETENV;
+   pair.left_type   = Telomare_SETENV;
    pair.left_value  = &setenv;
-   pair.right_type  = SIL_ZERO;
+   pair.right_type  = Telomare_ZERO;
    pair.right_value = &zero;
 
-   setenv.type  = SIL_ENV;
+   setenv.type  = Telomare_ENV;
    setenv.value = 0;
 
-   unsigned long no_nodes  = sil_count(&root);
-   unsigned long no_nodes2 = sil_count_old(&root);
+   unsigned long no_nodes  = telomare_count(&root);
+   unsigned long no_nodes2 = telomare_count_old(&root);
    printf("%d %d\n",no_nodes, no_nodes2);
 
-   unsigned char eq = sil_equal(&root,&root);
+   unsigned char eq = telomare_equal(&root,&root);
    printf("equality: %d\n", eq);
 
-   SIL_Serialized * serialized = sil_serialize(&root);
+   Telomare_Serialized * serialized = telomare_serialize(&root);
    for(int i = 0; i < serialized->size; i++){
         printf("%d ",serialized->storage[i]);
    }
    printf("\n");
-   serialized->storage[1] = SIL_ZERO;
+   serialized->storage[1] = Telomare_ZERO;
    serialized->size =2;
-   //serialized.storage[2] = SIL_ZERO;
-   //serialized.storage[3] = SIL_ENV;
-   SIL_Root * deserialized = sil_deserialize(serialized);
+   //serialized.storage[2] = Telomare_ZERO;
+   //serialized.storage[3] = Telomare_ENV;
+   Telomare_Root * deserialized = telomare_deserialize(serialized);
 
-   printf("Is serialized and deserialized tree okay: %d\n", sil_equal(&root,deserialized));
-   SIL_Serialized * serialized2 = sil_serialize(deserialized);
+   printf("Is serialized and deserialized tree okay: %d\n", telomare_equal(&root,deserialized));
+   Telomare_Serialized * serialized2 = telomare_serialize(deserialized);
    for(int i = 0; i < serialized2->size; i++){
         printf("%d ",serialized2->storage[i]);
    }
@@ -58,13 +58,13 @@ bool unit_tests(){
 
 int main(){
     //@TODO Learn how to build generators.
-    using NodeGenFn = function<void(sil_type&, void*&, unsigned long)>;
-    NodeGenFn huh = [&](sil_type &type, void *& value, unsigned long nodes_left){
-        const vector<sil_type> leafs = {SIL_ZERO, SIL_ENV}; 
-        const vector<sil_type> nodes = {SIL_PAIR, SIL_SETENV,SIL_DEFER, SIL_TWIDDLE, SIL_ABORT
-                                       ,SIL_GATE, SIL_PLEFT, SIL_PRIGHT, SIL_TRACE}; 
-        const vector<sil_type> non_pair = {SIL_SETENV,SIL_DEFER, SIL_TWIDDLE, SIL_ABORT
-                                          ,SIL_GATE, SIL_PLEFT, SIL_PRIGHT, SIL_TRACE}; 
+    using NodeGenFn = function<void(telomare_type&, void*&, unsigned long)>;
+    NodeGenFn huh = [&](telomare_type &type, void *& value, unsigned long nodes_left){
+        const vector<telomare_type> leafs = {Telomare_ZERO, Telomare_ENV}; 
+        const vector<telomare_type> nodes = {Telomare_PAIR, Telomare_SETENV,Telomare_DEFER, Telomare_TWIDDLE, Telomare_ABORT
+                                       ,Telomare_GATE, Telomare_PLEFT, Telomare_PRIGHT, Telomare_TRACE}; 
+        const vector<telomare_type> non_pair = {Telomare_SETENV,Telomare_DEFER, Telomare_TWIDDLE, Telomare_ABORT
+                                          ,Telomare_GATE, Telomare_PLEFT, Telomare_PRIGHT, Telomare_TRACE}; 
         //No more nodes create.
         if(nodes_left == 0){
             return;
@@ -80,50 +80,50 @@ int main(){
         }
         nodes_left--;
         switch(type){
-            case SIL_PAIR:{
+            case Telomare_PAIR:{
                 unsigned long nodes_right = *rc::gen::inRange((unsigned long)1,nodes_left);
-                SIL_Pair * node = new SIL_Pair();
+                Telomare_Pair * node = new Telomare_Pair();
                 value = node;
                 huh(node->left_type, node->left_value, nodes_left-nodes_right);
                 huh(node->right_type, node->right_value, nodes_right);
                 } break;
-            case SIL_SETENV:{
-                SIL_SetEnv * node = new SIL_SetEnv();
+            case Telomare_SETENV:{
+                Telomare_SetEnv * node = new Telomare_SetEnv();
                 value = node;
                 huh(node->type, node->value, nodes_left);
                 }break;
-            case SIL_DEFER:{
-                SIL_Defer * node = new SIL_Defer();
+            case Telomare_DEFER:{
+                Telomare_Defer * node = new Telomare_Defer();
                 value = node;
                 huh(node->type, node->value, nodes_left);
                 }break;
-            case SIL_TWIDDLE:{
-                SIL_Twiddle * node = new SIL_Twiddle();
+            case Telomare_TWIDDLE:{
+                Telomare_Twiddle * node = new Telomare_Twiddle();
                 value = node;
                 huh(node->type, node->value, nodes_left);
                 }break;
-            case SIL_ABORT:{
-                SIL_Abort * node = new SIL_Abort();
+            case Telomare_ABORT:{
+                Telomare_Abort * node = new Telomare_Abort();
                 value = node;
                 huh(node->type, node->value, nodes_left);
                 }break;
-            case SIL_GATE:{
-                SIL_Gate * node = new SIL_Gate();
+            case Telomare_GATE:{
+                Telomare_Gate * node = new Telomare_Gate();
                 value = node;
                 huh(node->type, node->value, nodes_left);
                 }break;
-            case SIL_PLEFT:{
-                SIL_PLeft * node = new SIL_PLeft();
+            case Telomare_PLEFT:{
+                Telomare_PLeft * node = new Telomare_PLeft();
                 value = node;
                 huh(node->type, node->value, nodes_left);
                 }break;
-            case SIL_PRIGHT:{
-                SIL_PRight * node = new SIL_PRight();
+            case Telomare_PRIGHT:{
+                Telomare_PRight * node = new Telomare_PRight();
                 value = node;
                 huh(node->type, node->value, nodes_left);
                 }break;
-            case SIL_TRACE:{
-                SIL_Trace * node = new SIL_Trace();
+            case Telomare_TRACE:{
+                Telomare_Trace * node = new Telomare_Trace();
                 value = node;
                 huh(node->type, node->value, nodes_left);
                 }break;
@@ -132,7 +132,7 @@ int main(){
 
     //Generates AST.
     auto genAST = [&](unsigned long size){
-        SIL_Root ret;
+        Telomare_Root ret;
         huh(ret.type, ret.value, size);
         return ret;
     };
@@ -140,13 +140,13 @@ int main(){
     rc::check("can generate tree of specified size",
         [&]() {
             unsigned long size = *rc::gen::inRange(1,1000);
-            SIL_Root root = genAST(size);
-            unsigned long ast_size = sil_count(&root);
+            Telomare_Root root = genAST(size);
+            unsigned long ast_size = telomare_count(&root);
             bool ok = ast_size == size;
             if(!ok){
                 cerr << ast_size << " vs " << size << endl;
                 cerr << (int)root.type << " and " << root.value << endl;
-                SIL_Serialized * serialized = sil_serialize(&root);
+                Telomare_Serialized * serialized = telomare_serialize(&root);
                 for(unsigned int i = 0; i < serialized->size; i++){
                     cerr << (int)serialized->storage[i] << " ";
                 }
@@ -158,10 +158,10 @@ int main(){
     rc::check("the tree is equal to itself",
         [&]() {
             unsigned long size = *rc::gen::inRange(1,1000);
-            SIL_Root root = genAST(size);
-            bool ok = sil_equal(&root, &root);
+            Telomare_Root root = genAST(size);
+            bool ok = telomare_equal(&root, &root);
             if(!ok){
-                SIL_Serialized * serialized = sil_serialize(&root);
+                Telomare_Serialized * serialized = telomare_serialize(&root);
                 for(unsigned int i = 0; i < serialized->size; i++){
                     cerr << (int)serialized->storage[i] << " ";
                 }
@@ -174,12 +174,12 @@ int main(){
             unsigned long size1 = *rc::gen::inRange(1,1000);
             unsigned long size2 = *rc::gen::suchThat(rc::gen::inRange(1,1000),[&](unsigned long x){
                             return x != size1;});
-            SIL_Root root1 = genAST(size1);
-            SIL_Root root2 = genAST(size2);
-            bool ok = !sil_equal(&root1, &root2);
+            Telomare_Root root1 = genAST(size1);
+            Telomare_Root root2 = genAST(size2);
+            bool ok = !telomare_equal(&root1, &root2);
             if(!ok){
-                SIL_Serialized * serialized1 = sil_serialize(&root1);
-                SIL_Serialized * serialized2 = sil_serialize(&root2);
+                Telomare_Serialized * serialized1 = telomare_serialize(&root1);
+                Telomare_Serialized * serialized2 = telomare_serialize(&root2);
                 for(unsigned int i = 0; i < serialized1->size; i++){
                     cerr << (int)serialized1->storage[i] << " ";
                 }
@@ -194,10 +194,10 @@ int main(){
     rc::check("(serializing -> deserializing) => equal pre-serialized and deserialized versions",
         [&]() {
             unsigned long        size = *rc::gen::inRange(1,1000);
-            SIL_Root             root = genAST(size);
-            SIL_Serialized * serialized = sil_serialize(&root);
-            SIL_Root    *deserialized = sil_deserialize(serialized);
-            bool ok = sil_equal(&root, deserialized);
+            Telomare_Root             root = genAST(size);
+            Telomare_Serialized * serialized = telomare_serialize(&root);
+            Telomare_Root    *deserialized = telomare_deserialize(serialized);
+            bool ok = telomare_equal(&root, deserialized);
             if(!ok){
                 cerr << "Size: " << size << endl;
                 for(unsigned int i = 0; i < serialized->size; i++){
@@ -210,10 +210,10 @@ int main(){
     rc::check("(serializing -> deserializing -> serializing) => equal serializations",
         [&]() {
             unsigned long        size = *rc::gen::inRange(1,1000);
-            SIL_Root             root = genAST(size);
-            SIL_Serialized * serialized = sil_serialize(&root);
-            SIL_Root    *deserialized = sil_deserialize(serialized);
-            SIL_Serialized * serialized2 = sil_serialize(deserialized);
+            Telomare_Root             root = genAST(size);
+            Telomare_Serialized * serialized = telomare_serialize(&root);
+            Telomare_Root    *deserialized = telomare_deserialize(serialized);
+            Telomare_Serialized * serialized2 = telomare_serialize(deserialized);
 
             bool ok = serialized->size == serialized2->size;
             for(unsigned long i = 0; i < serialized->size && ok; i++){

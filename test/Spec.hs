@@ -8,15 +8,15 @@ import Data.Bifunctor
 import Data.Char
 import Data.List (partition)
 import Data.Monoid
-import SIL
-import SIL.Eval
-import SIL.Llvm (RunResult(..))
+import Telomare
+import Telomare.Eval
+import Telomare.Llvm (RunResult(..))
 import Naturals
-import SIL.Parser
-import SIL.RunTime
-import SIL.TypeChecker
-import SIL.Optimizer
-import SIL.Serializer
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.TypeChecker
+import Telomare.Optimizer
+import Telomare.Serializer
 import System.Exit
 import System.IO
 import Test.Hspec
@@ -24,7 +24,7 @@ import Test.QuickCheck
 import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
 import qualified System.IO.Strict as Strict
 
--- Common datatypes for generating SIL AST.
+-- Common datatypes for generating Telomare AST.
 import Common
 
 -- recursively finds shrink matching invariant, ordered simplest to most complex
@@ -280,14 +280,14 @@ testEval iexpr = simpleEval (SetEnv (Pair (Defer deserialized) Zero))
           deserialized = unsafeDeserialize serialized
 
 unitTest :: String -> String -> IExpr -> Spec
-unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroTypeP (fromSIL iexpr))
+unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroTypeP (fromTelomare iexpr))
   then do
     result <- (show . PrettyIExpr) <$> testEval iexpr
     result `shouldBe` expected
-  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroTypeP (fromSIL iexpr))])
+  else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroTypeP (fromTelomare iexpr))])
 
 unitTestRefinement :: String -> Bool -> IExpr -> Spec
-unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromSIL iexpr) of
+unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromTelomare iexpr) of
   Right t -> case (pureEval iexpr, shouldSucceed) of
     (Left err, True) -> do
       expectationFailure $ concat [name, ": failed refinement type -- ", show err]
@@ -308,10 +308,10 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
 quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
 quickcheckBuiltInOptimizedDoesNotChangeEval up =
   let
-      makeSIL f = second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id . f . addBuiltins $ up)
+      makeTelomare f = second (toTelomare . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id . f . addBuiltins $ up)
       iexpr :: Either String (Maybe IExpr)
-      iexpr = makeSIL id -- x. validateVariables id . optimizeBuiltinFunctions $ up)
-      iexpr' = makeSIL optimizeBuiltinFunctions -- second (toSIL . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up)
+      iexpr = makeTelomare id -- x. validateVariables id . optimizeBuiltinFunctions $ up)
+      iexpr' = makeTelomare optimizeBuiltinFunctions -- second (toTelomare . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up)
   in
     case (iexpr, iexpr') of
        (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
@@ -395,7 +395,7 @@ debugPEIITO iexpr = do
 
 -- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
 -- quickcheckBuiltInOptimizedDoesNotChangeEval up =
---   let iexpr = toSIL . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up
+--   let iexpr = toTelomare . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up
 --   in False
 
 testRecur = concat
@@ -481,11 +481,11 @@ isRecursiveType (Just (RecursiveType _)) = True
 isRecursiveType _ = False
 
 unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
-unitTestTypeP iexpr expected = if inferType (fromSIL iexpr) == expected
+unitTestTypeP iexpr expected = if inferType (fromTelomare iexpr) == expected
   then pure True
   else do
   putStrLn $ concat ["type inference error ", show iexpr, " expected ", show expected
-                    , " result ", show (inferType $ fromSIL iexpr)
+                    , " result ", show (inferType $ fromTelomare iexpr)
                     ]
   pure False
 
@@ -684,14 +684,14 @@ unitTest2' parse s r = it s $ case parse s of
 
 unitTestType' parse s t tef = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> let apt = typeCheck t $ fromSIL g
+  Right g -> let apt = typeCheck t $ fromTelomare g
              in if tef apt
                 then pure ()
                 else expectationFailure $
                       concat [s, " failed typecheck, result ", show apt]
 
 unitTestType2 i t tef = it ("type check " <> show i) $
-  let apt = typeCheck t $ fromSIL i
+  let apt = typeCheck t $ fromTelomare i
   in if tef apt
      then pure ()
      else expectationFailure $ concat [show i, " failed typecheck, result ", show apt]
@@ -704,7 +704,7 @@ unitTestRuntime' parse s = it s $ case parse s of
 
 unitTestSameResult' parse a b = it ("comparing to " <> a) $ case (parse a, parse b) of
   (Right ga, Right gb) -> do
-    ra <- testNEval ga -- runExceptT . eval $ (fromSIL ga :: NExprs)
+    ra <- testNEval ga -- runExceptT . eval $ (fromTelomare ga :: NExprs)
     rb <- testNEval gb
     if (show ra == show rb)
       then pure ()
@@ -714,14 +714,14 @@ unitTestSameResult' parse a b = it ("comparing to " <> a) $ case (parse a, parse
 main = do
   gcInit
   gcAllowRegisterThreads
-  preludeFile <- Strict.readFile "Prelude.sil"
+  preludeFile <- Strict.readFile "Prelude.telomare"
 
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
     -- parse = fmap findChurchSize . parseMain prelude
-    parse term = case fmap (toSIL . findChurchSize) (parseMain prelude term) of
+    parse term = case fmap (toTelomare . findChurchSize) (parseMain prelude term) of
       Right (Just term) -> pure term
       Right Nothing -> Left "grammar conversion error"
       Left x -> Left $ show x
@@ -765,7 +765,7 @@ main = do
                           concat [s, " failed typecheck, result ", show apt]
 -}
   {-
-    parseSIL s = case parseMain prelude s of
+    parseTelomare s = case parseMain prelude s of
       Left e -> concat ["failed to parse ", s, " ", show e]
       Right g -> show g
 -}
@@ -775,7 +775,7 @@ main = do
   let isProblem (TestIExpr iexpr) = typeable (TestIExpr iexpr) && case eval iexpr of
         Left _ -> True
         _ -> False
-  (Right mainAST) <- parseMain prelude <$> Strict.readFile "tictactoe.sil"
+  (Right mainAST) <- parseMain prelude <$> Strict.readFile "tictactoe.telomare"
   print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
   result <- pure False
 -}

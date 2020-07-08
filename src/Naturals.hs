@@ -24,7 +24,7 @@ import qualified Control.Monad.State.Lazy as State
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-import SIL
+import Telomare
 
 debug :: Bool
 debug = True
