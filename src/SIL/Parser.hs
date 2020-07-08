@@ -472,8 +472,8 @@ validateVariables bindings term =
         LetUP bindingsMap inner -> do
           oldBindings <- State.get
           let addBinding (k,v) = do
-                term <- validateWithEnvironment v
-                State.modify (Map.insert k term)
+                newTerm <- validateWithEnvironment v
+                State.modify (Map.insert k newTerm)
           mapM_ addBinding bindingsMap
           result <- validateWithEnvironment inner
           State.put oldBindings

@@ -115,8 +115,8 @@ rEval e = para alg where
     (PLeftF (_, x)) -> x >>= \case
       (Pair l _) -> Right l
       _ -> Right Zero
-    (SetEnvF (ie, _)) ->
-      case ie of
+    (SetEnvF s@(_, x)) -> trace ("rEval SetEnv !!!!!!!!!!!!!!!!:" <> show s) $
+      x >>= \case
         Pair (Defer c) nenv  -> rEval nenv c
         Pair (Gate a _) Zero -> rEval e a
         Pair (Gate _ b) _    -> rEval e b
@@ -143,7 +143,7 @@ iEval f env g = let f' = f env in case g of
   PRight g -> f' g >>= \case
     (Pair _ x) -> pure x
     _ -> pure Zero
-  SetEnv x -> (f' x >>=) $ \case
+  SetEnv x -> (f' x >>=) $ trace "---------------- iEval SetEnv HERE!!!!!!!!!!!!" $ \case
     Pair cf nenv -> case cf of
       Defer c -> f nenv c
       -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
@@ -162,8 +162,8 @@ pureREval :: IExpr -> Either RunTimeError IExpr
 pureREval = rEval Zero
 
 pureEval :: IExpr -> Either RunTimeError IExpr
-pureEval = rEval Zero
--- pureEval g = runExcept $ fix iEval Zero g
+-- pureEval = rEval Zero
+pureEval g = runExcept $ fix iEval Zero g
 
 -- left (\x y z -> [x, y, z, 0], 0) 1 2 3
 

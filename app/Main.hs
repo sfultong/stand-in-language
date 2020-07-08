@@ -30,7 +30,7 @@ main = do
   runJIT (makeModule testData) >>= \result -> case result of
     Left err -> putStrLn $ concat ["JIT error: ", err]
     Right mod -> putStrLn "JIT seemed to finish ok"
--}
+  -}
 
   -- printBindingTypes prelude
   Strict.readFile "tictactoe.sil" >>= runMain

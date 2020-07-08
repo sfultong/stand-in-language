@@ -840,14 +840,14 @@ showAllTransformations input = do
   section "Diff toSIL" $ ppDiff diff
   putStrLn "\n-----------------------------------------------------------------"
   putStrLn $ "---- stepEval:\n"
-  x <- stepEval toSILVar
+  x <- stepIEval toSILVar
   print x
   -- let iEvalVar0 = iEval () Zero toSILVar
 
-stepEval :: IExpr -> IO IExpr
-stepEval g = do
+stepIEval :: IExpr -> IO IExpr
+stepIEval g = do
   -- print g
-  x <- runExceptT $ fix myEval Zero g
+  x <- runExceptT $ fix myIEval Zero g
   case x of
     Left e  -> error . show $ e
     Right a -> pure a
@@ -858,7 +858,30 @@ stepEval g = do
 -- |EvalStep :: * -> *
 type EvalStep = ExceptT RunTimeError IO
 
-myEval :: (IExpr -> IExpr -> EvalStep IExpr) -> IExpr -> IExpr -> EvalStep IExpr
-myEval f e g = do
-  liftIO $ print (e, g)
+myIEval :: (IExpr -> IExpr -> EvalStep IExpr) -> IExpr -> IExpr -> EvalStep IExpr
+myIEval f e g = do
+  liftIO $ print (g, e)
   iEval f e g
+
+-- Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env)))))
+--   ,Left Can't SetEnv: Pair Zero (Pair Zero Zero))
+
+
+-- Main> pureREval (check zero (completeLam (varN 0)))
+-- (Pair (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env)))) (Pair (Pair (Defer (PLeft Env)) Zero) Zero),Right (Pair (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env)))) (Pair (Pair (Defer (PLeft Env)) Zero) Zero)))
+-- (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env)),Right (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero Zero)))
+-- (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))),Right (Pair Zero (Pair Zero Zero)))
+-- (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))),Left Can't SetEnv: Pair Zero (Pair Zero Zero))
+-- (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env),Left Can't SetEnv: Pair Zero (Pair Zero Zero))
+-- Left Can't SetEnv: Pair Zero (Pair Zero Zero)
+
+
+-- Main> stepIEval (check zero (completeLam (varN 0)))
+-- (SetEnv (Pair (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env)))) (Pair (Pair (Defer (PLeft Env)) Zero) Zero)),Zero)
+-- (Pair (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env)))) (Pair (Pair (Defer (PLeft Env)) Zero) Zero),Zero)
+-- (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env))),Zero)
+-- (Pair (Pair (Defer (PLeft Env)) Zero) Zero,Zero)
+-- (Pair (Defer (PLeft Env)) Zero,Zero)
+-- (Defer (PLeft Env),Zero)
+-- (Zero,Zero)
+-- (Zero,Zero)
