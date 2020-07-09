@@ -6,7 +6,7 @@
 A virtual machine with a simple grammar evolved from simply typed lambda calculus, that eventually will have powerful static checking and an optimizing backend.
 
 ## Warning
-This proyect is in active development. Do expect bugs and general trouble, and please let us know if you run into any by creating a new issue if one does not already exist.
+This project is in active development. Do expect bugs and general trouble, and please let us know if you run into any by creating a new issue if one does not already exist.
 
 ## Quick Start
 
@@ -19,11 +19,11 @@ This proyect is in active development. Do expect bugs and general trouble, and p
    ```
    $ curl https://nixos.org/nix/install | sh
    ```
-3. Enter a Nix shell. This will setup an enviroment where all external dependancies will be available (such as `cabal` for building):
+3. Enter a Nix shell. This will setup an environment where all external dependencies will be available (such as `cabal` for building):
    ```
    $ nix-shell shell.nix
    ```
-4. Build the proyect:
+4. Build the project:
    ```
    $ cabal new-build
    ```
@@ -36,7 +36,7 @@ This proyect is in active development. Do expect bugs and general trouble, and p
 
 There is a known issue (#7) for getting a repl.
 
-To get arround it, you should copy `libgc.so.1` (provided by the `bohem` garbage collector) into your repository (telomare/lib is a good choice) and rename it to `libgc.so`. You will also need to reference it on `telomare.cabal` under the `library` stanza. Be sure to use the complete path for `libgc.so` on `telomare.cabal` (a commented version on `telomare.cabal` is provided as an example).
+To get around it, you should copy `libgc.so.1` (provided by the `bohem` garbage collector) into your repository (telomare/lib is a good choice) and rename it to `libgc.so`. You will also need to reference it on `telomare.cabal` under the `library` stanza. Be sure to use the complete path for `libgc.so` on `telomare.cabal` (a commented version on `telomare.cabal` is provided as an example).
 
 
 ## Running your own Telomare code
