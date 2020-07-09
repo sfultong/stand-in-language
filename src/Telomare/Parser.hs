@@ -1,42 +1,42 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DeriveFoldable      #-}
+{-# LANGUAGE DeriveFunctor       #-}
+{-# LANGUAGE DeriveTraversable   #-}
+{-# LANGUAGE KindSignatures      #-}
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeFamilies        #-}
 
-module SIL.Parser where
+module Telomare.Parser where
 
-import Control.Lens.Combinators
-import Control.Lens.Operators
-import Control.Monad
-import Data.Bifunctor
-import Data.Char
-import Data.Functor.Foldable
-import Data.Functor.Foldable.TH
-import Data.Maybe (fromJust)
-import Data.Map (Map)
-import qualified Data.Foldable as F
-import Data.List (elemIndex, delete, elem)
-import Data.Map (Map, fromList, toList)
-import qualified Data.Map as Map
-import Data.Set (Set, (\\))
-import qualified Data.Set as Set
-import Data.Void
-import Debug.Trace
-import Text.Read (readMaybe)
-import Text.Megaparsec hiding (State)
-import Text.Megaparsec.Char
-import Text.Megaparsec.Debug
+import           Control.Lens.Combinators
+import           Control.Lens.Operators
+import           Control.Monad
+import           Control.Monad.State        (State)
+import qualified Control.Monad.State        as State
+import           Data.Bifunctor
+import           Data.Char
+import qualified Data.Foldable              as F
+import           Data.Functor.Foldable
+import           Data.Functor.Foldable.TH
+import           Data.List                  (delete, elem, elemIndex)
+import           Data.Map                   (Map)
+import           Data.Map                   (Map, fromList, toList)
+import qualified Data.Map                   as Map
+import           Data.Maybe                 (fromJust)
+import           Data.Set                   (Set, (\\))
+import qualified Data.Set                   as Set
+import           Data.Void
+import           Debug.Trace
+import           Telomare
+import           Telomare.TypeChecker
+import qualified System.IO.Strict           as Strict
+import           Text.Megaparsec            hiding (State)
+import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
-import Text.Megaparsec.Pos
-import qualified Control.Monad.State as State
-import Control.Monad.State (State)
-import qualified System.IO.Strict as Strict
-import SIL
-import SIL.TypeChecker
+import           Text.Megaparsec.Debug
+import           Text.Megaparsec.Pos
+import           Text.Read                  (readMaybe)
 
 data UnprocessedParsedTerm
   = VarUP String
@@ -77,9 +77,9 @@ instance EndoMapper UnprocessedParsedTerm where
 
 type VarList = [String]
 
--- |SILParser :: * -> *
---type SILParser = State.StateT ParserState (Parsec Void String)
-type SILParser = Parsec Void String
+-- |TelomareParser :: * -> *
+--type TelomareParser = State.StateT ParserState (Parsec Void String)
+type TelomareParser = Parsec Void String
 
 newtype ErrorString = MkES { getErrorString :: String } deriving Show
 
@@ -111,7 +111,7 @@ debruijinize :: Monad m => VarList -> Term1 -> m Term2
 debruijinize _ (TZero) = pure $ TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize vl (TVar n) = case elemIndex n vl of
-                             Just i -> pure $ TVar i
+                             Just i  -> pure $ TVar i
                              Nothing -> fail $ "undefined identifier " ++ n
 debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
@@ -169,13 +169,13 @@ convertPT n (Term3 termMap) =
   in Term4 newMap
 
 -- |Parse a variable.
-parseVariable :: SILParser UnprocessedParsedTerm
+parseVariable :: TelomareParser UnprocessedParsedTerm
 parseVariable = do
   varName <- identifier
   pure $ VarUP varName
 
 -- |Line comments start with "--".
-lineComment :: SILParser ()
+lineComment :: TelomareParser ()
 lineComment = L.skipLineComment "--"
 
 -- |A block comment starts with "{-" and ends at "-}".
@@ -183,28 +183,28 @@ lineComment = L.skipLineComment "--"
 blockComment = L.skipBlockCommentNested "{-" "-}"
 
 -- |Space Consumer: Whitespace and comment parser that does not consume new-lines.
-sc :: SILParser ()
+sc :: TelomareParser ()
 sc = L.space
   (void $ some (char ' ' <|> char '\t'))
   lineComment
   blockComment
 
 -- |Space Consumer: Whitespace and comment parser that does consume new-lines.
-scn :: SILParser ()
+scn :: TelomareParser ()
 scn = L.space space1 lineComment blockComment
 
 -- |This is a wrapper for lexemes that picks up all trailing white space
 -- using sc
-lexeme :: SILParser a -> SILParser a
+lexeme :: TelomareParser a -> TelomareParser a
 lexeme = L.lexeme sc
 
 -- |A parser that matches given text using string internally and then similarly
 -- picks up all trailing white space.
-symbol :: String -> SILParser String
+symbol :: String -> TelomareParser String
 symbol = L.symbol sc
 
--- |This is to parse reserved words. 
-reserved :: String -> SILParser ()
+-- |This is to parse reserved words.
+reserved :: String -> TelomareParser ()
 reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
@@ -213,7 +213,7 @@ rws = ["let", "in", "if", "then", "else"]
 
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
-identifier :: SILParser String
+identifier :: TelomareParser String
 identifier = (lexeme . try) $ p >>= check
     where
       p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
@@ -222,31 +222,31 @@ identifier = (lexeme . try) $ p >>= check
                 else pure x
 
 -- |Parser for parenthesis.
-parens :: SILParser a -> SILParser a
+parens :: TelomareParser a -> TelomareParser a
 parens = between (symbol "(") (symbol ")")
 
 -- |Parser for brackets.
-brackets :: SILParser a -> SILParser a
+brackets :: TelomareParser a -> TelomareParser a
 brackets = between (symbol "[") (symbol "]")
 
--- |Comma sepparated SILParser that will be useful for lists
-commaSep :: SILParser a -> SILParser [a]
+-- |Comma sepparated TelomareParser that will be useful for lists
+commaSep :: TelomareParser a -> TelomareParser [a]
 commaSep p = p `sepBy` (symbol ",")
 
--- |Integer SILParser used by `parseNumber` and `parseChurch`
-integer :: SILParser Integer
+-- |Integer TelomareParser used by `parseNumber` and `parseChurch`
+integer :: TelomareParser Integer
 integer = toInteger <$> lexeme L.decimal
 
 -- |Parse string literal.
-parseString :: SILParser UnprocessedParsedTerm
+parseString :: TelomareParser UnprocessedParsedTerm
 parseString = StringUP <$> (char '\"' *> manyTill L.charLiteral (char '\"'))
 
 -- |Parse number (Integer).
-parseNumber :: SILParser UnprocessedParsedTerm
+parseNumber :: TelomareParser UnprocessedParsedTerm
 parseNumber = (IntUP . fromInteger) <$> integer
 
 -- |Parse a pair.
-parsePair :: SILParser UnprocessedParsedTerm
+parsePair :: TelomareParser UnprocessedParsedTerm
 parsePair = parens $ do
   a <- scn *> parseLongExpr <* scn
   symbol "," <* scn
@@ -254,14 +254,14 @@ parsePair = parens $ do
   pure $ PairUP a b
 
 -- |Parse a list.
-parseList :: SILParser UnprocessedParsedTerm
+parseList :: TelomareParser UnprocessedParsedTerm
 parseList = do
   exprs <- brackets (commaSep (scn *> parseLongExpr <*scn))
   pure $ ListUP exprs
 
 -- TODO: make error more descriptive
 -- |Parse ITE (which stands for "if then else").
-parseITE :: SILParser UnprocessedParsedTerm
+parseITE :: TelomareParser UnprocessedParsedTerm
 parseITE = do
   reserved "if" <* scn
   cond <- (parseLongExpr <|> parseSingleExpr) <* scn
@@ -272,7 +272,7 @@ parseITE = do
   pure $ ITEUP cond thenExpr elseExpr
 
 -- |Parse a single expression.
-parseSingleExpr :: SILParser UnprocessedParsedTerm
+parseSingleExpr :: TelomareParser UnprocessedParsedTerm
 parseSingleExpr = choice $ try <$> [ parseString
                                    , parseNumber
                                    , parsePair
@@ -284,17 +284,17 @@ parseSingleExpr = choice $ try <$> [ parseString
                                    ]
 
 -- |Parse application of functions.
-parseApplied :: SILParser UnprocessedParsedTerm
+parseApplied :: TelomareParser UnprocessedParsedTerm
 parseApplied = do
   fargs <- L.lineFold scn $ \sc' ->
     parseSingleExpr `sepBy` try sc'
   case fargs of
-    (f:args) -> 
+    (f:args) ->
       pure $ foldl AppUP f args
     _ -> fail "expected expression"
 
 -- |Parse lambda expression.
-parseLambda :: SILParser UnprocessedParsedTerm
+parseLambda :: TelomareParser UnprocessedParsedTerm
 parseLambda = do
   symbol "\\" <* scn
   variables <- some identifier <* scn
@@ -304,22 +304,22 @@ parseLambda = do
   pure $ foldr LamUP term1expr variables
 
 -- |Parser that fails if indent level is not `pos`.
-parseSameLvl :: Pos -> SILParser a -> SILParser a
+parseSameLvl :: Pos -> TelomareParser a -> TelomareParser a
 parseSameLvl pos parser = do
   lvl <- L.indentLevel
   case pos == lvl of
-    True -> parser
+    True  -> parser
     False -> fail "Expected same indentation."
 
 -- |`applyUntilNoChange f x` returns the fix point of `f` with `x` the starting point.
 -- This function will loop if there is no fix point exists.
 applyUntilNoChange :: Eq a => (a -> a) -> a -> a
 applyUntilNoChange f x = case x == (f x) of
-                           True -> x
+                           True  -> x
                            False -> applyUntilNoChange f $ f x
 
 -- |Parse let expression.
-parseLet :: SILParser UnprocessedParsedTerm
+parseLet :: TelomareParser UnprocessedParsedTerm
 parseLet = do
   reserved "let" <* scn
   lvl <- L.indentLevel
@@ -337,7 +337,7 @@ extractBindingsList bindings = case bindings $ IntUP 0 of
                                    ]
 
 -- |Parse long expression.
-parseLongExpr :: SILParser UnprocessedParsedTerm
+parseLongExpr :: TelomareParser UnprocessedParsedTerm
 parseLongExpr = choice $ try <$> [ parseLet
                                  , parseITE
                                  , parseLambda
@@ -346,18 +346,18 @@ parseLongExpr = choice $ try <$> [ parseLet
                                  ]
 
 -- |Parse church numerals (church numerals are a "$" appended to an integer, without any whitespace separation).
-parseChurch :: SILParser UnprocessedParsedTerm
+parseChurch :: TelomareParser UnprocessedParsedTerm
 parseChurch = (ChurchUP . fromInteger) <$> (symbol "$" *> integer)
 
-parsePartialFix :: SILParser UnprocessedParsedTerm
+parsePartialFix :: TelomareParser UnprocessedParsedTerm
 parsePartialFix = symbol "?" *> pure UnsizedRecursionUP
 
 -- |Parse refinement check.
-parseRefinementCheck :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+parseRefinementCheck :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseRefinementCheck = pure id <* (symbol ":" *> parseLongExpr)
 
 -- |Parse assignment add adding binding to ParserState.
-parseAssignment :: SILParser (String, UnprocessedParsedTerm)
+parseAssignment :: TelomareParser (String, UnprocessedParsedTerm)
 parseAssignment = do
   var <- identifier <* scn
   annotation <- optional . try $ parseRefinementCheck
@@ -366,43 +366,44 @@ parseAssignment = do
   pure (var, expr)
 
  -- |Parse top level expressions.
-parseTopLevel :: SILParser UnprocessedParsedTerm
+parseTopLevel :: TelomareParser UnprocessedParsedTerm
 parseTopLevel = do
   bindingList <- scn *> many parseAssignment <* eof
   pure $ LetUP bindingList (fromJust $ lookup "main" bindingList)
 
-parseDefinitions :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+parseDefinitions :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseDefinitions = do
   bindingList <- scn *> many parseAssignment <* eof
   pure $ LetUP bindingList
 
 -- |Helper function to test parsers without a result.
-runSILParser_ :: Show a => SILParser a -> String -> IO ()
-runSILParser_ parser str = show <$> runSILParser parser str >>= putStrLn
+runTelomareParser_ :: Show a => TelomareParser a -> String -> IO ()
+runTelomareParser_ parser str = show <$> runTelomareParser parser str >>= putStrLn
 
 -- |Helper function to debug parsers without a result.
-runSILParserWDebug :: Show a => SILParser a -> String -> IO ()
-runSILParserWDebug parser str = show <$> runSILParser (dbg "debug" parser) str >>= putStrLn
+runTelomareParserWDebug :: Show a => TelomareParser a -> String -> IO ()
+runTelomareParserWDebug parser str = show <$> runTelomareParser (dbg "debug" parser) str >>= putStrLn
 
 
--- |Helper function to test SIL parsers with any result.
-runSILParser :: Monad m => SILParser a -> String -> m a
-runSILParser parser str =
+-- |Helper function to test Telomare parsers with any result.
+runTelomareParser :: Monad m => TelomareParser a -> String -> m a
+runTelomareParser parser str =
   case runParser parser "" str of
     Right x -> pure x
-    Left e -> error $ errorBundlePretty e
+    Left e  -> error $ errorBundlePretty e
 
 -- |Helper function to test if parser was successful.
-parseSuccessful :: Monad m => SILParser a -> String -> m Bool
+parseSuccessful :: Monad m => TelomareParser a -> String -> m Bool
 parseSuccessful parser str =
   case runParser parser "" str of
     Right _ -> pure True
-    Left _ -> pure False
+    Left _  -> pure False
 
--- |Parse with specified prelude and getting main.
-parseWithPrelude :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+-- |Parse with specified prelude and g-> UnprocessedParsedTerm)
+parseWithPrelude :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+                 -> String
                  -> Either String UnprocessedParsedTerm
-parseWithPrelude str prelude = let result = prelude <$> runParser parseTopLevel "" str
+parseWithPrelude prelude str = let result = prelude <$> runParser parseTopLevel "" str
                                in first errorBundlePretty result
 
 addBuiltins :: UnprocessedParsedTerm -> UnprocessedParsedTerm
@@ -419,21 +420,21 @@ addBuiltins = LetUP
 parsePrelude :: String -> Either ErrorString (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parsePrelude str = case runParser parseDefinitions "" str of
   Right pd -> Right (addBuiltins . pd)
-  Left x -> Left $ MkES $ errorBundlePretty x
+  Left x   -> Left $ MkES $ errorBundlePretty x
 
 -- |Collect all variable names in a `Term1` expresion excluding terms binded
 --  to lambda args
 vars :: Term1 -> Set String
 vars = cata alg where
   alg :: Base Term1 (Set String) -> Set String
-  alg (TVarF n) = Set.singleton n
-  alg (TLamF (Open n) x) = del n x
+  alg (TVarF n)            = Set.singleton n
+  alg (TLamF (Open n) x)   = del n x
   alg (TLamF (Closed n) x) = del n x
-  alg e = F.fold e
+  alg e                    = F.fold e
   del :: String -> Set String -> Set String
   del n x = case Set.member n x of
               False -> x
-              True -> Set.delete n x
+              True  -> Set.delete n x
 
 -- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
 -- Automatic recognition of Close or Open type of `TLam`.
@@ -444,7 +445,7 @@ makeLambda :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -- ^Bindings
 makeLambda bindings str term1 =
   case unbound == Set.empty of
     True -> TLam (Closed str) term1
-    _ -> TLam (Open str) term1
+    _    -> TLam (Open str) term1
   where bindings' = Set.fromList $ fst <$> extractBindingsList bindings
         v = vars term1
         unbound = ((v \\ bindings') \\ Set.singleton str)
@@ -464,7 +465,7 @@ validateVariables bindings term =
           definitionsMap <- State.get
           case Map.lookup n definitionsMap of
             Just v -> pure v
-            _ -> State.lift . Left  $ "No definition found for " <> n
+            _      -> State.lift . Left  $ "No definition found for " <> n
         --TODO add in Daniel's code
         LetUP bindingsMap inner -> do
           oldBindings <- State.get
@@ -498,16 +499,16 @@ optimizeBuiltinFunctions = endoMap optimize where
     twoApp@(AppUP (AppUP f x) y) ->
       case f of
         VarUP "pair" -> PairUP x y
-        VarUP "app" -> AppUP x y
-        _ -> twoApp
+        VarUP "app"  -> AppUP x y
+        _            -> twoApp
     oneApp@(AppUP f x) ->
       case f of
-        VarUP "left" -> LeftUP x
+        VarUP "left"  -> LeftUP x
         VarUP "right" -> RightUP x
         VarUP "trace" -> TraceUP x
-        VarUP "pair" -> LamUP "y" (PairUP x . VarUP $ "y")
-        VarUP "app" -> LamUP "y" (AppUP x . VarUP $ "y")
-        _ -> oneApp
+        VarUP "pair"  -> LamUP "y" (PairUP x . VarUP $ "y")
+        VarUP "app"   -> LamUP "y" (AppUP x . VarUP $ "y")
+        _             -> oneApp
         -- VarUP "check" TODO
     x -> x
 
@@ -517,4 +518,4 @@ process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bi
 
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
-parseMain prelude s = parseWithPrelude s prelude >>= process prelude
+parseMain prelude s = parseWithPrelude prelude s >>= process prelude

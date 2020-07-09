@@ -13,15 +13,15 @@ import Criterion.Types
 import Criterion.Measurement
 
 
-import SIL
---import SIL.Llvm
-import SIL.Parser
-import SIL.RunTime
-import SIL.TypeChecker (typeCheck, inferType)
-import SIL.Optimizer
-import SIL.Eval
-import SIL.Serializer
-import SIL.Serializer.C
+import Telomare
+--import Telomare.Llvm
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.TypeChecker (typeCheck, inferType)
+import Telomare.Optimizer
+import Telomare.Eval
+import Telomare.Serializer
+import Telomare.Serializer.C
 import qualified System.IO.Strict as Strict
 
 import System.Mem
@@ -46,17 +46,17 @@ performTests iexpr = do
         [ bench "serialization"   $ nfIO (toC   iexpr)
         , bench "deserialization" $ nfIO (fromC c_rep)
         ] 
-      , bgroup "SIL_Serialized"
+      , bgroup "Telomare_Serialized"
         [ bench "from Vector"   $ nfIO (free =<< serializedToC   serialized)
         , bench "to Vector" $ nfIO (serializedFromC c_serialized)
-        , bench "from CRep" $ nfIO (free =<< sil_serialize c_rep)
-        , bench "to CRep" $ nfIO (sil_deserialize c_serialized)
+        , bench "from CRep" $ nfIO (free =<< telomare_serialize c_rep)
+        , bench "to CRep" $ nfIO (telomare_deserialize c_serialized)
         ]
       ]
 
 
 main = do
-  preludeFile <- Strict.readFile "Prelude.sil"
+  preludeFile <- Strict.readFile "Prelude.tel"
 
   let
     prelude = case parsePrelude preludeFile of
@@ -66,4 +66,4 @@ main = do
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> performTests g
 
-  Strict.readFile "tictactoe.sil" >>= runMain
+  Strict.readFile "tictactoe.tel" >>= runMain

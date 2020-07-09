@@ -6,62 +6,62 @@
 A virtual machine with a simple grammar evolved from simply typed lambda calculus, that eventually will have powerful static checking and an optimizing backend.
 
 ## Warning
-This proyect is in active development. Do expect bugs and general trouble, and please let us know if you run into any by creating a new issue if one does not already exist.
+This project is in active development. Do expect bugs and general trouble, and please let us know if you run into any by creating a new issue if one does not already exist.
 
 ## Quick Start
 
 1. Clone this repository and change directory to it:
    ```
-   $ git clone https://github.com/sfultong/stand-in-language.git
+   $ git clone https://github.com/Stand-In-Language/stand-in-language.git
    $ cd stand-in-language
    ```
 2. [Install Nix](https://nixos.org/nix/download.html):
    ```
    $ curl https://nixos.org/nix/install | sh
    ```
-3. Enter a Nix shell. This will setup an enviroment where all external dependancies will be available (such as `cabal` for building):
+3. Enter a Nix shell. This will setup an environment where all external dependencies will be available (such as `cabal` for building):
    ```
    $ nix-shell shell.nix
    ```
-4. Build the proyect:
+4. Build the project:
    ```
    $ cabal new-build
    ```
 5. Run the tictactoe example and start playing with a friend:
    ```
-   $ cabal new-run sil-exe
+   $ cabal new-run telomare-exe
    ```
 
 ## Running `cabal new-repl`
 
 There is a known issue (#7) for getting a repl.
 
-To get arround it, you should copy `libgc.so.1` (provided by the `bohem` garbage collector) into your repository (stand-in-language/lib is a good choice) and rename it to `libgc.so`. You will also need to reference it on `sil.cabal` under the `library` stanza. Be sure to use the complete path for `libgc.so` on `sil.cabal` (a commented version on `sil.cabal` is provided as an example).
+To get around it, you should copy `libgc.so.1` (provided by the `bohem` garbage collector) into your repository (telomare/lib is a good choice) and rename it to `libgc.so`. You will also need to reference it on `telomare.cabal` under the `library` stanza. Be sure to use the complete path for `libgc.so` on `telomare.cabal` (a commented version on `telomare.cabal` is provided as an example).
 
 
-## Running your own SIL code
+## Running your own Telomare code
 
-### Your own SIL file
-1. Create your own file with the sil code
+### Your own Telomare file
+1. Create your own file with the telomare code
 2. Modify the last uncommented line to reference your file.
    ```haskell
-   Strict.readFile "<your-sil-code-file>.sil" >>= runMain
+   Strict.readFile "<your-telomare-code-file>.tel" >>= runMain
    ```
 3. Run:
    ```
-   $ cd <your/local/proyect/location>/stand-in-language
+   $ cd <your/local/proyect/location>/telomare
    $ nix-shell shell.nix
    $ cabal new-build
-   $ cabal new-run sil-exe
+   $ cabal new-run telomare-exe
    ```
 4. Profit!
 ### REPL
 1. Run:
    ```
-   $ cd <your/local/proyect/location>/stand-in-language
+   $ cd <your/local/proyect/location>/telomare
    $ nix-shell shell.nix
    $ cabal new-build
-   $ cabal new-run sil-mini-repl -- --haskell
+   $ cabal new-run telomare-mini-repl -- --haskell
    ```
 2. Profit!
    
@@ -76,4 +76,4 @@ If you'd like to contribute, please fork the repository and use a feature branch
 
 
 ## Licensing
-The code in this project is licensed under the Apache License 2.0. For more information, please refer to the [LICENSE file](https://github.com/sfultong/stand-in-language/blob/master/LICENSE).
+The code in this project is licensed under the Apache License 2.0. For more information, please refer to the [LICENSE file](https://github.com/Stand-In-Language/stand-in-language/blob/master/LICENSE).

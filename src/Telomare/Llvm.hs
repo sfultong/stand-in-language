@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-module SIL.Llvm where
+module Telomare.Llvm where
 
 import Control.Monad.Except
 import Control.Monad.State.Strict
@@ -48,7 +48,7 @@ import qualified LLVM.Relocation as Reloc
 import qualified LLVM.Target as Target
 
 import Naturals
-import SIL (FragIndex)
+import Telomare (FragIndex)
 
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
@@ -82,7 +82,7 @@ convertPairs (RunResult x _) = go x
       NPair <$> go l <*> go r
 
 makeModule :: NExpr -> AST.Module
-makeModule iexpr = flip evalState (Map.empty, 0) . buildModuleT "SILModule" $ do
+makeModule iexpr = flip evalState (Map.empty, 0) . buildModuleT "TelomareModule" $ do
   _ <- emitDefn
     (GlobalDefinition (functionDefaults {
                           name = "GC_malloc",
@@ -90,7 +90,7 @@ makeModule iexpr = flip evalState (Map.empty, 0) . buildModuleT "SILModule" $ do
                           G.returnAttributes = [PA.NoAlias],
                           parameters = ([Parameter intT "" []], False)
                           }))
-  gcRegisterMyThread <- extern "SIL_register_my_thread" [] T.void
+  gcRegisterMyThread <- extern "Telomare_register_my_thread" [] T.void
   mapM_ emitDefn [heapIndex, resultStructure]
 
   _ <- goLeft
@@ -319,10 +319,10 @@ two32 :: Operand
 two32 = ConstantOperand (C.Int 32 2)
 
 type BuilderInternal = State (Map ByteString Operand, Int)
-type SILBuilder = IRBuilderT (ModuleBuilderT BuilderInternal)
+type TelomareBuilder = IRBuilderT (ModuleBuilderT BuilderInternal)
 
 -- | Wrap the argument in a function that accepts an integer (index to environment) as its argument.
-doFunction :: NExpr -> SILBuilder Operand
+doFunction :: NExpr -> TelomareBuilder Operand
 doFunction body = do
   (functions, _) <- get
   case Map.lookup h functions of
@@ -339,7 +339,7 @@ doFunction body = do
       pure r
   where h = hashlazy (encode body)
 
-doAnonFunction :: SILBuilder Operand -> SILBuilder Operand
+doAnonFunction :: TelomareBuilder Operand -> TelomareBuilder Operand
 doAnonFunction doBody = do
   (_, fn) <- get
   let name = Name $ fromString ("anonFunction_" ++ show fn)
@@ -427,7 +427,7 @@ envC = LocalReference intT "env"
 lComment :: a -> (a, MDRef MDNode)
 lComment s = (s, MDInline (MDTuple []))
 
-toLLVM :: Map FragIndex ExprFrag -> ExprFrag -> SILBuilder Operand
+toLLVM :: Map FragIndex ExprFrag -> ExprFrag -> TelomareBuilder Operand
 toLLVM = undefined
 -- chunks of AST that can be translated to optimized instructions
 -- single instruction translation

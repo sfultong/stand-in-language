@@ -1,9 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 module PrettyPrint where
 
-import SIL
-import Naturals
-import Data.Map (Map)
+import           Data.Map (Map)
+import           Naturals
+import           Telomare      hiding (indent)
 
 import qualified Data.Map as Map
 
@@ -32,12 +32,12 @@ showTPIExpr typeMap l i expr =
   let recur = showTPIExpr typeMap l i
       indented x = concat [indent i, showTPIExpr typeMap l (i + 1) x]
   in case expr of
-    Zero -> "Z"
-    Env -> "E"
+    Zero       -> "Z"
+    Env        -> "E"
     (Pair a b) -> concat ["P\n", indented a, "\n", indented b]
-    Abort -> "A"
-    Gate a b -> "G\n" <> indented a <> "\n" <> indented b
-    Trace -> "T"
+    Abort      -> "A"
+    Gate a b   -> "G\n" <> indented a <> "\n" <> indented b
+    Trace      -> "T"
 
 showNExpr :: Map FragIndex NResult -> Int -> Int -> NExpr -> String
 showNExpr nMap l i expr =
@@ -53,7 +53,7 @@ showNExpr nMap l i expr =
   NTrace -> "T"
   (NDefer ind) -> case Map.lookup ind nMap of
     (Just n) -> concat ["D ", recur n]
-    _ -> "NDefer error: no function found for " ++ show ind
+    _        -> "NDefer error: no function found for " ++ show ind
   (NLeft x) -> concat ["L ", recur x]
   (NRight x) -> concat ["R ", recur x]
   (NSetEnv x) -> concat ["S ", recur x]
@@ -68,7 +68,7 @@ showNExpr nMap l i expr =
 
 showNIE (NExprs m) = case Map.lookup (FragIndex 0) m of
   Just f -> showNExpr m 80 1 f
-  _ -> "error: no root nexpr"
+  _      -> "error: no root nexpr"
 
 showFragInds inds = let showInd (FragIndex i) = i in show (map showInd inds)
 
@@ -78,25 +78,25 @@ showOneNExpr l i expr =
       showTwo c a b =
         concat [c, "\n", indent i, showOneNExpr l (i + 1) a, "\n", indent i, showOneNExpr l (i + 1) b]
   in case expr of
-      NZero -> "Z"
-      NEnv -> "E"
-      (NPair a b) -> showTwo "P" a b
-      NAbort -> "A"
-      NGate a b -> showTwo "G" a b
-      NTrace -> "T"
+      NZero                    -> "Z"
+      NEnv                     -> "E"
+      (NPair a b)              -> showTwo "P" a b
+      NAbort                   -> "A"
+      NGate a b                -> showTwo "G" a b
+      NTrace                   -> "T"
       (NDefer (FragIndex ind)) -> concat ["[", show ind, "]"]
-      (NLeft x) -> concat ["L ", recur x]
-      (NRight x) -> concat ["R ", recur x]
-      (NSetEnv x) -> concat ["S ", recur x]
-      (NAdd a b) -> showTwo "+" a b
-      (NMult a b) -> showTwo "X" a b
-      (NPow a b) -> showTwo "^" a b
-      (NApp c i) -> showTwo "$" c i
-      (NNum n) -> show n --concat ["()"]
-      (NToChurch c i) -> showTwo "<" c i
-      (NOldDefer x) -> concat ["% ", recur x]
-      (NTwiddle x) -> concat ["W ", recur x]
-      NToNum -> "["
+      (NLeft x)                -> concat ["L ", recur x]
+      (NRight x)               -> concat ["R ", recur x]
+      (NSetEnv x)              -> concat ["S ", recur x]
+      (NAdd a b)               -> showTwo "+" a b
+      (NMult a b)              -> showTwo "X" a b
+      (NPow a b)               -> showTwo "^" a b
+      (NApp c i)               -> showTwo "$" c i
+      (NNum n)                 -> show n --concat ["()"]
+      (NToChurch c i)          -> showTwo "<" c i
+      (NOldDefer x)            -> concat ["% ", recur x]
+      (NTwiddle x)             -> concat ["W ", recur x]
+      NToNum                   -> "["
 
 showNExprs :: NExprs -> String
 showNExprs (NExprs m) = concatMap

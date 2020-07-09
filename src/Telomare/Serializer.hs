@@ -1,4 +1,4 @@
-module SIL.Serializer (
+module Telomare.Serializer (
     serialize
   , deserialize
   , unsafeDeserialize
@@ -10,30 +10,30 @@ import           Data.Vector.Storable (Vector, fromList, (!))
 import qualified Data.Vector.Storable         as S
 import qualified Data.Vector.Storable.Mutable as SM
 
-import SIL.Serializer.C
-import SIL (IExpr(..))
+import Telomare.Serializer.C
+import Telomare (IExpr(..))
 
 
 serialize :: IExpr -> Vector Word8
 serialize iexpr = S.create $ do 
-    vec <- SM.new $ silSize iexpr
+    vec <- SM.new $ telomareSize iexpr
     serialize_loop 0 vec iexpr
     return vec
 
-silSize :: IExpr -> Int
-silSize iexpr = silSize' iexpr 0
+telomareSize :: IExpr -> Int
+telomareSize iexpr = telomareSize' iexpr 0
 
-silSize' :: IExpr -> Int -> Int
-silSize' Zero         acc = acc + 1
-silSize' (Pair e1 e2) acc = silSize' e1 (silSize' e2 (acc + 1)) 
-silSize' Env          acc = acc + 1
-silSize' (SetEnv  e)  acc = silSize' e (acc + 1)
-silSize' (Defer   e)  acc = silSize' e (acc + 1)
-silSize' Abort        acc = acc + 1
-silSize' (Gate e1 e2) acc = silSize' e1 (silSize' e2 (acc + 1))
-silSize' (PLeft   e)  acc = silSize' e (acc + 1)
-silSize' (PRight  e)  acc = silSize' e (acc + 1)
-silSize' Trace        acc = acc + 1
+telomareSize' :: IExpr -> Int -> Int
+telomareSize' Zero         acc = acc + 1
+telomareSize' (Pair e1 e2) acc = telomareSize' e1 (telomareSize' e2 (acc + 1)) 
+telomareSize' Env          acc = acc + 1
+telomareSize' (SetEnv  e)  acc = telomareSize' e (acc + 1)
+telomareSize' (Defer   e)  acc = telomareSize' e (acc + 1)
+telomareSize' Abort        acc = acc + 1
+telomareSize' (Gate e1 e2) acc = telomareSize' e1 (telomareSize' e2 (acc + 1))
+telomareSize' (PLeft   e)  acc = telomareSize' e (acc + 1)
+telomareSize' (PRight  e)  acc = telomareSize' e (acc + 1)
+telomareSize' Trace        acc = acc + 1
 
 
 serialize_loop ix vec ie@Zero = SM.write vec ix (fromIntegral $ typeId ie) >> return ix
@@ -66,8 +66,8 @@ deserialize vec = if S.length vec == 0
 unsafeDeserialize :: Vector Word8 
                   -> IExpr
 unsafeDeserialize vec = case S.foldl' deserializer_inside (Call1 id) vec of
-    Call1 c -> c (error "SIL.Serializer.unsafeDeserialize: I'm being evaluated. That means I was called on an empty vector.")
-    CallN c -> error "SIL.Serializer.unsafeDeserialize: Could not reduce the CPS stack. Possibly wrong input arguments."
+    Call1 c -> c (error "Telomare.Serializer.unsafeDeserialize: I'm being evaluated. That means I was called on an empty vector.")
+    CallN c -> error "Telomare.Serializer.unsafeDeserialize: Could not reduce the CPS stack. Possibly wrong input arguments."
 
 -- | Continuation-passing-style function stack.
 data FunStack = Call1 (IExpr -> IExpr)

@@ -68,8 +68,8 @@ import Data.Foldable
 import Foreign.Ptr
 import Foreign.C.String
 
-import           SIL
-import qualified SIL.Llvm as LLVM
+import           Telomare
+import qualified Telomare.Llvm as LLVM
 import           Naturals
 
 import Weigh

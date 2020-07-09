@@ -2,34 +2,42 @@
 
 module Main where
 
-import SIL
-import SIL.Eval
-import SIL.Parser
-import SIL.RunTime
-import Test.Tasty
-import Test.Tasty.HUnit
-import Test.QuickCheck
-import Text.Megaparsec.Error
-import Text.Megaparsec
-import Text.Megaparsec.Debug
-import Data.Bifunctor
-import Data.Either (fromRight)
-import Data.Map (Map, fromList, toList)
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-import Data.Functor.Foldable
-import Debug.Trace (trace)
-import qualified System.IO.Strict as Strict
-import Control.Monad
-import qualified Control.Monad.State as State
-import qualified Data.Semigroup as Semigroup
-import Common
+import           Common
+import           Control.Monad
+import           Control.Monad.Except      (ExceptT, MonadError, runExceptT)
+import           Control.Monad.Fix         (fix)
+import           Control.Monad.IO.Class    (liftIO)
+import qualified Control.Monad.State       as State
+import           Data.Algorithm.Diff       (getGroupedDiff)
+import           Data.Algorithm.DiffOutput (ppDiff)
+import           Data.Bifunctor
+import           Data.Either               (fromRight)
+import           Data.Functor.Foldable
+import           Data.Map                  (Map, fromList, toList)
+import qualified Data.Map                  as Map
+import qualified Data.Semigroup            as Semigroup
+import qualified Data.Set                  as Set
+import           Debug.Trace               (trace)
+import qualified System.IO.Strict          as Strict
+import           Telomare
+import           Telomare.Eval
+import           Telomare.Parser
+import           Telomare.RunTime
+import           Test.QuickCheck
+import           Test.Tasty
+import           Test.Tasty.HUnit
+import           Text.Megaparsec
+import           Text.Megaparsec.Debug
+import           Text.Megaparsec.Error
+import           Text.Show.Pretty          (ppShow)
 
+main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Tests" [unitTests]
 
+unitTests :: TestTree
 unitTests = testGroup "Unit tests"
   [ testCase "test Pair 0" $ do
       res <- parseSuccessful (parsePair >> eof) testPair0
@@ -82,10 +90,10 @@ unitTests = testGroup "Unit tests"
   , testCase "testList5" $ do
       res <- parseSuccessful parseList testList5
       res `compare` True @?= EQ
-  , testCase "test parse Prelude.sil" $ do
+  , testCase "test parse Prelude.tel" $ do
       res <- runTestParsePrelude
       res `compare` True @?= EQ
-  , testCase "test parse tictactoe.sil" $ do
+  , testCase "test parse tictactoe.tel" $ do
       res <- testWtictactoe
       res `compare` True @?= EQ
   , testCase "test Main with Type" $ do
@@ -167,25 +175,25 @@ unitTests = testGroup "Unit tests"
   --     let fv = vars expr1
   --     fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
+      res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
       (fromRight TZero $ validateVariables (LetUP []) res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
+      res <- runTelomareParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
       (fromRight TZero $ validateVariables (LetUP []) res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 3" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
+      res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
       (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr6 @?= EQ
   , testCase "test automatic open close lambda 4" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> (x, x)"
+      res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> (x, x)"
       (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr5 @?= EQ
   , testCase "test automatic open close lambda 5" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
+      res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
       (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr4 @?= EQ
   , testCase "test automatic open close lambda 6" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
+      res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
       (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr3 @?= EQ
   , testCase "test automatic open close lambda 7" $ do
-      res <- runSILParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
+      res <- runTelomareParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
       (fromRight TZero $ validateVariables (LetUP []) res) `compare` expr2 @?= EQ
   -- , testCase "rename" $ do
   --     let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
@@ -193,13 +201,13 @@ unitTests = testGroup "Unit tests"
   --                             expr8
   --     t1 `compare` expr9 @?= EQ
   -- , testCase "rename 2" $ do
-  --     preludeFile <- Strict.readFile "Prelude.sil"
+  --     preludeFile <- Strict.readFile "Prelude.tel"
   --     let prelude = case parsePrelude preludeFile of
   --                     Right p -> p
   --                     Left pe -> error . getErrorString $ pe
   --     case parseWithPrelude prelude dependantTopLevelBindings of
   --       Right x -> do
-  --         expected :: Term1 <- runSILParser (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) (0, 0) (0, 0) (0, 0)"
+  --         expected :: Term1 <- runTelomareParser (parseApplied <* scn <* eof) "(\\f1 g2 f3 -> [f1,g2,f3]) (0, 0) (0, 0) (0, 0)"
   --         (x Map.! "h") `compare` expected @?= EQ
   --       Left err -> assertFailure . show $ err
   ]
@@ -217,37 +225,37 @@ dependantTopLevelBindings = unlines $
 --                               expr8
 --   putStrLn . show $ x Map.! "h"
 
--- |Usefull to see if tictactoe.sil was correctly parsed
--- and was usefull to compare with the deprecated SIL.Parser
+-- |Usefull to see if tictactoe.tel was correctly parsed
+-- and was usefull to compare with the deprecated Telomare.Parser
 -- Parsec implementation
 testWtictactoe = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  tictactoe <- Strict.readFile "hello.sil"
+  preludeFile <- Strict.readFile "Prelude.tel"
+  tictactoe <- Strict.readFile "hello.tel"
   let
     prelude = case parsePrelude preludeFile of
                 Right p -> p
                 Left pe -> error . getErrorString $ pe
   case parseMain prelude tictactoe of
     Right _ -> return True
-    Left _ -> return False
+    Left _  -> return False
 
 {-
 runTictactoe = do
-  preludeFile <- Strict.readFile "Prelude.sil"
-  tictactoe <- Strict.readFile "hello.sil"
+  preludeFile <- Strict.readFile "Prelude.tel"
+  tictactoe <- Strict.readFile "hello.tel"
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error . getErrorString $ pe
-  runSILParser_ parseTopLevel tictactoe
+  runTelomareParser_ parseTopLevel tictactoe
 -}
   -- case parseWithPrelude prelude tictactoe of
   --   Right x -> putStrLn . show $ x
   --   Left err -> putStrLn . getErrorString $ err
 
 -- parseWithPreludeFile = do
---   preludeFile <- Strict.readFile "Prelude.sil"
---   file <- Strict.readFile "hello.sil"
+--   preludeFile <- Strict.readFile "Prelude.tel"
+--   file <- Strict.readFile "hello.tel"
 --   let
 --     prelude = case parsePrelude preludeFile of
 --                 Right p -> p
@@ -265,7 +273,7 @@ runTictactoe = do
 
 
 -- myDebug = do
---   preludeFile <- Strict.readFile "Prelude.sil"
+--   preludeFile <- Strict.readFile "Prelude.tel"
 --   let
 --     prelude = case parsePrelude preludeFile of
 --       Right p -> p
@@ -286,8 +294,8 @@ runTictactoe = do
 
   -- case parseWithPrelude prelude' dependantTopLevelBindings of
   --   Right x -> do
-  --     -- expected :: Term1 <- runSILParser (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
-  --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ 
+  --     -- expected :: Term1 <- runTelomareParser (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
+  --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ
   --   Left err -> error . show $ err
 
 letExpr = unlines $
@@ -297,7 +305,7 @@ letExpr = unlines $
   , "in f"
   ]
 
--- | SIL Parser AST representation of: \x -> \y -> \z -> [zz1, yy3, yy4, z, zz6]
+-- | Telomare Parser AST representation of: \x -> \y -> \z -> [zz1, yy3, yy4, z, zz6]
 expr9 = TLam (Closed ("x"))
           (TLam (Open ("y"))
             (TLam (Open ("z"))
@@ -313,7 +321,7 @@ expr9 = TLam (Closed ("x"))
                         (TVar ("zz6"))
                         TZero)))))))
 
--- | SIL Parser AST representation of: \x -> \y -> \z -> [zz, yy0, yy0, z, zz]
+-- | Telomare Parser AST representation of: \x -> \y -> \z -> [zz, yy0, yy0, z, zz]
 expr8 = TLam (Closed ("x"))
           (TLam (Open ("y"))
             (TLam (Open ("z"))
@@ -329,7 +337,7 @@ expr8 = TLam (Closed ("x"))
                         (TVar ("zz"))
                         TZero)))))))
 
--- | SIL Parser AST representation of: "\z -> [x,x,y,x,z,y,z]"
+-- | Telomare Parser AST representation of: "\z -> [x,x,y,x,z,y,z]"
 expr7 = TLam (Open ("z"))
           (TPair
             (TVar ("x"))
@@ -347,26 +355,26 @@ expr7 = TLam (Open ("z"))
                         (TVar ("z"))
                         TZero)))))))
 
--- | SIL Parser AST representation of: \x -> \y -> \z -> z
+-- | Telomare Parser AST representation of: \x -> \y -> \z -> z
 expr6 :: Term1
 expr6 = TLam (Closed ("x"))
           (TLam (Closed ("y"))
             (TLam (Closed ("z"))
               (TVar ("z"))))
 
--- | SIL Parser AST representation of: \x -> (x, x)
+-- | Telomare Parser AST representation of: \x -> (x, x)
 expr5 = TLam (Closed ("x"))
           (TPair
             (TVar ("x"))
             (TVar ("x")))
 
--- | SIL Parser AST representation of: \x -> \x -> \x -> x
+-- | Telomare Parser AST representation of: \x -> \x -> \x -> x
 expr4 = TLam (Closed ("x"))
           (TLam (Closed ("x"))
             (TLam (Closed ("x"))
               (TVar ("x"))))
 
--- | SIL Parser AST representation of: \x -> \y -> \z -> [x,y,z]
+-- | Telomare Parser AST representation of: \x -> \y -> \z -> [x,y,z]
 expr3 = TLam (Closed ("x"))
           (TLam (Open ("y"))
             (TLam (Open ("z"))
@@ -378,7 +386,7 @@ expr3 = TLam (Closed ("x"))
                     (TVar ("z"))
                     TZero)))))
 
--- | SIL Parser AST representation of: \a -> (a, (\a -> (a,0)))
+-- | Telomare Parser AST representation of: \a -> (a, (\a -> (a,0)))
 expr2 = TLam (Closed ("a"))
           (TPair
             (TVar ("a"))
@@ -388,7 +396,7 @@ expr2 = TLam (Closed ("a"))
                 TZero)))
 
 
--- | SIL Parser AST representation of: \x -> [x, x, x]
+-- | Telomare Parser AST representation of: \x -> [x, x, x]
 expr1 = TLam (Closed ("x"))
           (TPair
             (TVar ("x"))
@@ -494,10 +502,10 @@ testLambdawITEwPair = unlines $
   ]
 
 runTestParsePrelude = do
-  preludeFile <- Strict.readFile "Prelude.sil"
+  preludeFile <- Strict.readFile "Prelude.tel"
   case parsePrelude preludeFile of
     Right _ -> return True
-    Left _ -> return False
+    Left _  -> return False
 
 testParseAssignmentwCLwITEwPair2 = unlines $
   [ "main = \\input -> if 1"
@@ -582,25 +590,25 @@ test7 = unlines $
 test8 = "if x then 1 else 0"
 
 runTestMainwCLwITEwPair = do
-  preludeFile <- Strict.readFile "Prelude.sil"
+  preludeFile <- Strict.readFile "Prelude.tel"
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error . getErrorString $ pe
   case parseMain prelude testMainwCLwITEwPair of
-    Right x -> return True
+    Right x  -> return True
     Left err -> return False
 
 testMain2 = "main : (\\x -> if x then \"fail\" else 0) = 0"
 
 runTestMainWType = do
-  preludeFile <- Strict.readFile "Prelude.sil"
+  preludeFile <- Strict.readFile "Prelude.tel"
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error . getErrorString $ pe
   case parseMain prelude $ testMain2 of
-    Right x -> return True
+    Right x  -> return True
     Left err -> return False
 
 testList0 = unlines $
@@ -630,11 +638,11 @@ testList5 = unlines $
   , "  2 ]"
   ]
 
--- -- |Helper function to debug tictactoe.sil
+-- -- |Helper function to debug tictactoe.tel
 -- debugTictactoe :: IO ()
 -- debugTictactoe  = do
---   preludeFile <- Strict.readFile "Prelude.sil"
---   tictactoe <- Strict.readFile "tictactoe.sil"
+--   preludeFile <- Strict.readFile "Prelude.tel"
+--   tictactoe <- Strict.readFile "tictactoe.tel"
 --   let prelude =
 --         case parsePrelude preludeFile of
 --           Right pf -> pf
@@ -647,8 +655,8 @@ testList5 = unlines $
 --     Left err -> putStr (errorBundlePretty err)
 
 -- runTictactoe = do
---   preludeFile <- Strict.readFile "Prelude.sil"
---   tictactoe <- Strict.readFile "tictactoe.sil"
+--   preludeFile <- Strict.readFile "Prelude.tel"
+--   tictactoe <- Strict.readFile "tictactoe.tel"
 --   let
 --     prelude = case parsePrelude preludeFile of
 --       Right p -> p
@@ -782,3 +790,74 @@ fiveApp = concat
   [ "main = let fiveApp = $5\n"
   , "       in fiveApp (\\x -> (x,0)) 0"
   ]
+
+showAllTransformations :: String -- ^ Telomare code
+                       -> IO ()
+showAllTransformations input = do
+  preludeFile <- Strict.readFile "Prelude.tel"
+  let section description body = do
+        putStrLn "\n-----------------------------------------------------------------"
+        putStrLn $ "----" <> description <> ":\n"
+        putStrLn $ body
+      prelude = case parsePrelude preludeFile of
+                  Right x  -> x
+                  Left err -> error . getErrorString $ err
+      upt = case parseWithPrelude prelude input of
+              Right x -> x
+              Left x  -> error x
+  section "Input" input
+  section "UnprocessedParsedTerm" $ show upt
+  section "optimizeBuiltinFunctions" $ show . optimizeBuiltinFunctions $ upt
+  let optimizeBuiltinFunctionsVar = optimizeBuiltinFunctions upt
+      str1 = lines . show $ optimizeBuiltinFunctionsVar
+      str0 = lines . show $ upt
+      diff = getGroupedDiff str0 str1
+  section "Diff optimizeBuiltinFunctions" $ ppDiff diff
+  -- let optimizeBindingsReferenceVar = optimizeBindingsReference optimizeBuiltinFunctionsVar
+  --     str2 = lines . show $ optimizeBindingsReferenceVar
+  --     diff = getGroupedDiff str1 str2
+  -- section "optimizeBindingsReference" . show $ optimizeBindingsReferenceVar
+  -- section "Diff optimizeBindingsReference" $ ppDiff diff
+  let validateVariablesVar = validateVariables prelude optimizeBuiltinFunctionsVar
+      str3 = lines . show $ validateVariablesVar
+      diff = getGroupedDiff str3 str1
+  section "validateVariables" . show $ validateVariablesVar
+  section "Diff validateVariables" $ ppDiff diff
+  let Right debruijinizeVar = (>>= debruijinize []) validateVariablesVar
+      str4 = lines . show $ debruijinizeVar
+      diff = getGroupedDiff str4 str3
+  section "debruijinize" . show $ debruijinizeVar
+  section "Diff debruijinize" $ ppDiff diff
+  let splitExprVar = splitExpr debruijinizeVar
+      str5 = lines . ppShow $ splitExprVar
+      diff = getGroupedDiff str5 str4
+  section "splitExpr" . ppShow $ splitExprVar
+  section "Diff splitExpr" $ ppDiff diff
+  let Just toTelomareVar = toTelomare . findChurchSize $ splitExprVar
+      str6 = lines . show $ toTelomareVar
+      diff = getGroupedDiff str6 str5
+  section "toTelomare" . show $ toTelomareVar
+  section "Diff toTelomare" $ ppDiff diff
+  putStrLn "\n-----------------------------------------------------------------"
+  putStrLn $ "---- stepEval:\n"
+  x <- stepEval toTelomareVar
+  putStrLn .show $ x
+  -- let iEvalVar0 = iEval () Zero toTelomareVar
+
+stepEval :: IExpr -> IO IExpr
+stepEval g = do
+  x <- runExceptT $ fix myEval Zero g
+  case x of
+    Left e  -> error . show $ e
+    Right a -> pure a
+
+-- TODO: Remove
+-- iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
+
+-- |EvalStep :: * -> *
+type EvalStep = ExceptT RunTimeError IO
+
+myEval :: (IExpr -> IExpr -> EvalStep IExpr) -> IExpr -> IExpr -> EvalStep IExpr
+myEval f e g = do
+  liftIO $ putStrLn . show $ (e, g)
+  iEval f e g

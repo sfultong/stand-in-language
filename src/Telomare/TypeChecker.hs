@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE LambdaCase #-}
-module SIL.TypeChecker where
+module Telomare.TypeChecker where
 
 import Control.Applicative
 import Control.Monad.Except
@@ -14,7 +14,7 @@ import qualified Data.DList as DList
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-import SIL
+import Telomare
 import PrettyPrint
 
 debug :: Bool

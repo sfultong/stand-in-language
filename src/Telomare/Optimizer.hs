@@ -1,11 +1,11 @@
-module SIL.Optimizer where
+module Telomare.Optimizer where
 
 import Data.Map (Map)
 import Data.Set (Set)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-import SIL
+import Telomare
 
 -- TODO think about how removing var indexing will make it hard to figure out closure arity
 -- oh wait, closures will all take one argument and return one argument, and closure

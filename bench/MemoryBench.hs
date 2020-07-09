@@ -13,17 +13,17 @@ import Control.Exception
 import System.IO (hPutStrLn, stderr)
 import GHC.Generics (Generic)
 
-import SIL
-import SIL.Parser
-import SIL.RunTime
-import SIL.TypeChecker (typeCheck, inferType, TypeCheckError(..))
-import SIL.Optimizer
-import SIL.Eval
+import Telomare
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.TypeChecker (typeCheck, inferType, TypeCheckError(..))
+import Telomare.Optimizer
+import Telomare.Eval
 import qualified System.IO.Strict as Strict
 
 import MemoryBench.LLVM
 import MemoryBench.Cases
-import Paths_sil
+import Paths_telomare
 
 import Weigh hiding (Case, Max)
 import qualified Weigh as Weigh
@@ -80,7 +80,7 @@ config = Config [Weigh.Case, Allocated, GCs, Live] "" Plain
 main = do
   gcInit
   gcAllowRegisterThreads
-  preludeFile <- Strict.readFile "Prelude.sil"
+  preludeFile <- Strict.readFile "Prelude.tel"
 
   let
     e_prelude = parsePrelude preludeFile
