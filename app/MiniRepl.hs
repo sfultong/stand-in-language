@@ -9,11 +9,11 @@ import qualified Options.Applicative as O
 import System.Console.Haskeline
 import Text.Megaparsec
 import Text.Megaparsec.Char
-import SIL.Eval
-import SIL.Parser
-import SIL.RunTime
-import SIL.TypeChecker
-import SIL
+import Telomare.Eval
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.TypeChecker
+import Telomare
 import Naturals
 import PrettyPrint
 import qualified Control.Monad.State as State
@@ -34,18 +34,18 @@ foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: 
 -- to overwrite top-level bindings.
 --
 
--- | Add a SIL expression to the ParserState.
+-- | Add a Telomare expression to the ParserState.
 addReplBound :: String -> UnprocessedParsedTerm -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 addReplBound name expr = LetUP [(name, expr)]
 
 -- | Assignment parsing from the repl.
-parseReplAssignment :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+parseReplAssignment :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseReplAssignment = do
   (var, expr) <- parseAssignment <* eof
   pure $ addReplBound var expr
 
 -- | Parse only an expression
-parseReplExpr :: SILParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+parseReplExpr :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseReplExpr = do
   expr <- parseLongExpr <* eof
   pure $ addReplBound "_tmp_" expr
@@ -56,7 +56,7 @@ data ReplStep a = ReplAssignment a
                 deriving (Eq, Ord, Show, Functor)
 
 -- | Combination of `parseReplExpr` and `parseReplAssignment`
-parseReplStep :: SILParser (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
+parseReplStep :: TelomareParser (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
 parseReplStep = try (parseReplAssignment >>= (pure . ReplAssignment))
                 <|> (parseReplExpr >>= (pure . ReplExpr))
 
@@ -64,7 +64,7 @@ parseReplStep = try (parseReplAssignment >>= (pure . ReplAssignment))
 runReplParser :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
               -> String
               -> Either String (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
-runReplParser prelude str = (fmap . fmap) (. prelude) $ runSILParser parseReplStep str
+runReplParser prelude str = (fmap . fmap) (. prelude) $ runTelomareParser parseReplStep str
 
 -- Common functions 
 -- ~~~~~~~~~~~~~~~~
@@ -78,7 +78,7 @@ flattenOuterLetUP :: UnprocessedParsedTerm -> UnprocessedParsedTerm
 flattenOuterLetUP (LetUP l (LetUP l' x)) = LetUP (l' <> l) x
 flattenOuterLetUP x = x
 
--- |Extra processing (see `SIL.Parser.process`) useful for the MinRepl's context.
+-- |Extra processing (see `Telomare.Parser.process`) useful for the MinRepl's context.
 process' :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Maybe Term3
 process' bindings x = rightToMaybe . process bindings . applyUntilNoChange flattenOuterLetUP . bindings $ x
 
@@ -90,20 +90,20 @@ resolveBinding' name bindings = do
 
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
 resolveBinding :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> Maybe IExpr
-resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings >>= toSIL
+resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings >>= toTelomare
 
 -- |Print last expression bound to 
 -- the _tmp_ variable in the bindings
 printLastExpr :: (MonadIO m)
               => (String -> m ())    -- ^Printing function
-              -> (IExpr -> m IExpr) -- ^SIL backend
+              -> (IExpr -> m IExpr) -- ^Telomare backend
               -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
               -- ^ an unapplied `LetUP` holding al bindings
               -> m ()
 printLastExpr printer eval bindings = case lookup "_tmp_" (extractBindingsList bindings) of
     Nothing -> printer "Could not find _tmp_ in bindings"
     Just e -> do
-      let m_iexpr = findChurchSize <$> (process' bindings e) >>= toSIL
+      let m_iexpr = findChurchSize <$> (process' bindings e) >>= toTelomare
       case m_iexpr of
         Nothing -> printer "conversion error"
         Just iexpr' -> do
@@ -150,7 +150,7 @@ replMultiline buffer = do
 -- | Main loop for the REPL.
 replLoop :: ReplState -> InputT IO ()
 replLoop (ReplState bs eval) = do 
-    minput <- getInputLine "sil> "
+    minput <- getInputLine "telomare> "
     case minput of
         Nothing   -> return ()
         Just ":q" -> liftIO exitSuccess
@@ -161,8 +161,8 @@ replLoop (ReplState bs eval) = do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":dn" s of
                      Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
                        Just iexpr -> do
-                         putStrLn . showNExprs $ fromSIL iexpr
-                         putStrLn . showNIE $ fromSIL iexpr
+                         putStrLn . showNExprs $ fromTelomare iexpr
+                         putStrLn . showNIE $ fromTelomare iexpr
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
@@ -232,7 +232,7 @@ opts = info (settings <**> helper)
 startLoop :: ReplState -> IO ()
 startLoop state = runInputT defaultSettings $ replLoop state
 
--- | Compile and output a SIL expression.
+-- | Compile and output a Telomare expression.
 startExpr :: (IExpr -> IO IExpr)
           -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
           -> String
@@ -244,7 +244,7 @@ startExpr eval bindings s_expr = do
         Right (ReplExpr binds) -> printLastExpr putStrLn eval binds
 
 main = do
-    e_prelude <- parsePrelude <$> Strict.readFile "Prelude.sil" 
+    e_prelude <- parsePrelude <$> Strict.readFile "Prelude.tel" 
     settings  <- execParser opts
     eval <- case _backend settings of
         SimpleBackend -> return simpleEval

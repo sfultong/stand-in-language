@@ -2,7 +2,7 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module SIL.RunTime where
+module Telomare.RunTime where
 
 import           Control.Exception
 import           Control.Monad.Except
@@ -10,18 +10,17 @@ import           Control.Monad.Fix
 import           Data.Foldable
 import           Data.Functor.Foldable hiding (fold)
 import           Data.Functor.Identity
-import           Data.Set              (Set)
-import           Debug.Trace
---import GHC.Exts (IsList(..))
-import           GHC.Exts              (fromList)
-import           System.IO             (hPrint, hPutStrLn, stderr)
-
 import qualified Data.Map              as Map
+import           Data.Set              (Set)
 import qualified Data.Set              as Set
+import           Debug.Trace
+import           GHC.Exts              (fromList)
 import           Naturals              hiding (debug, debugTrace)
 import           PrettyPrint
-import           SIL
--- import qualified SIL.Llvm as LLVM
+import           System.IO             (hPrint, hPutStrLn, stderr)
+import           Telomare
+-- import qualified Telomare.Llvm as LLVM
+--import GHC.Exts (IsList(..))
 
 debug :: Bool
 debug = False
@@ -59,7 +58,7 @@ nEval (NExprs m) =
               _     -> recur b
             NAbort -> case i of
               NZero -> pure NEnv
-              z -> case toSIL (NExprs $ Map.insert resultIndex z m) of
+              z -> case toTelomare (NExprs $ Map.insert resultIndex z m) of
                 Just z' -> throwError . AbortRunTime $ z'
                 Nothing -> throwError $ GenericRunTimeError ("Could not convert abort value of: " <> show z) Zero
             _ -> eval i c
@@ -186,27 +185,27 @@ data PExpr
   | PAny
   deriving (Eq, Show, Ord)
 
-instance SILLike PExpr where
-  fromSIL = \case
+instance TelomareLike PExpr where
+  fromTelomare = \case
     Zero -> PZero
-    Pair a b -> PPair (fromSIL a) (fromSIL b)
-    Gate l r -> PGate (fromSIL l) (fromSIL r)
-    Defer x -> PDefer $ fromSIL x
-    SetEnv x -> PSetEnv $ fromSIL x
+    Pair a b -> PPair (fromTelomare a) (fromTelomare b)
+    Gate l r -> PGate (fromTelomare l) (fromTelomare r)
+    Defer x -> PDefer $ fromTelomare x
+    SetEnv x -> PSetEnv $ fromTelomare x
     Env -> PEnv
-    PLeft x -> PPLeft $ fromSIL x
-    PRight x -> PPRight $ fromSIL x
+    PLeft x -> PPLeft $ fromTelomare x
+    PRight x -> PPRight $ fromTelomare x
     Abort -> PAbort
     Trace -> PEnv
-  toSIL = \case
+  toTelomare = \case
     PZero -> pure Zero
-    PPair a b -> Pair <$> toSIL a <*> toSIL b
-    PGate l r -> Gate <$> toSIL l <*> toSIL r
-    PDefer x -> Defer <$> toSIL x
-    PSetEnv x -> SetEnv <$> toSIL x
+    PPair a b -> Pair <$> toTelomare a <*> toTelomare b
+    PGate l r -> Gate <$> toTelomare l <*> toTelomare r
+    PDefer x -> Defer <$> toTelomare x
+    PSetEnv x -> SetEnv <$> toTelomare x
     PEnv -> pure Env
-    PPLeft x -> PLeft <$> toSIL x
-    PPRight x -> PRight <$> toSIL x
+    PPLeft x -> PLeft <$> toTelomare x
+    PPRight x -> PRight <$> toTelomare x
     PAbort -> pure Abort
     PAny -> Nothing
 
@@ -254,16 +253,16 @@ pEval f env g =
       _ -> error "should not be here in pEval setenv non pair"
     x -> singleResult x
 
-instance SILLike IExpr where
-  fromSIL = id
-  toSIL = pure
+instance TelomareLike IExpr where
+  fromTelomare = id
+  toTelomare = pure
 instance AbstractRunTime IExpr where
   eval = fix iEval Zero
 
 resultIndex = FragIndex (-1)
-instance SILLike NExprs where
-  fromSIL = (NExprs . fragsToNExpr) . fragmentExpr
-  toSIL (NExprs m) =
+instance TelomareLike NExprs where
+  fromTelomare = (NExprs . fragsToNExpr) . fragmentExpr
+  toTelomare (NExprs m) =
     let fromNExpr x = case x of
           NZero         -> pure Zero
           (NPair a b)   -> Pair <$> fromNExpr a <*> fromNExpr b
@@ -282,7 +281,7 @@ instance AbstractRunTime NExprs where
   eval x@(NExprs m) = (\r -> NExprs $ Map.insert resultIndex r m) <$> nEval x
 
 evalAndConvert :: (Show a, AbstractRunTime a) => a -> RunResult IExpr
-evalAndConvert x = let ar = eval x in (toSIL <$> ar) >>= \r -> case r of
+evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
   Nothing -> do
     ar' <- ar
     throwError . ResultConversionError $ show ar'
@@ -297,7 +296,7 @@ fastInterpretEval :: IExpr -> IO IExpr
 fastInterpretEval e = do
   let traceShow x = if debug then trace ("toNExpr\n" ++ showNExprs x) x else x
       nExpr :: NExprs
-      nExpr = traceShow $ fromSIL e
+      nExpr = traceShow $ fromTelomare e
   result <- runExceptT $ evalAndConvert nExpr
   case result of
     Left e  -> error ("runtime error: " ++ show e)
@@ -347,7 +346,7 @@ prettyEval typeCheck i = typedEval typeCheck i (print . PrettyIExpr)
 verifyEval :: IExpr -> IO (Maybe (Either RunTimeError IExpr, Either RunTimeError IExpr))
 verifyEval expr =
   let nexpr :: NExprs
-      nexpr = fromSIL expr
+      nexpr = fromTelomare expr
   in do
     iResult <- runExceptT $ evalAndConvert expr
     nResult <- runExceptT $ evalAndConvert nexpr
@@ -355,4 +354,4 @@ verifyEval expr =
      then pure Nothing
      else pure $ pure (iResult, nResult)
 
-testNEval = runExceptT . eval . (fromSIL :: IExpr -> NExprs)
+testNEval = runExceptT . eval . (fromTelomare :: IExpr -> NExprs)

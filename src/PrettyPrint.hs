@@ -4,7 +4,7 @@ module PrettyPrint where
 
 import           Data.Map (Map)
 import           Naturals
-import           SIL      hiding (indent)
+import           Telomare      hiding (indent)
 
 import qualified Data.Map as Map
 

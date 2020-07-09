@@ -8,9 +8,9 @@ module Common where
 import Test.QuickCheck
 import Test.QuickCheck.Gen
 
-import SIL.TypeChecker
-import SIL.Parser
-import SIL
+import Telomare.TypeChecker
+import Telomare.Parser
+import Telomare
 
 class TestableIExpr a where
   getIExpr :: a -> IExpr
@@ -85,7 +85,7 @@ instance Arbitrary TestIExpr where
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 
-typeable x = case inferType (fromSIL $ getIExpr x) of
+typeable x = case inferType (fromTelomare $ getIExpr x) of
   Left _ -> False
   _ -> True
 
@@ -93,13 +93,13 @@ instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
   shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
 
-zeroTyped x = inferType (fromSIL $ getIExpr x) == Right ZeroTypeP
+zeroTyped x = inferType (fromTelomare $ getIExpr x) == Right ZeroTypeP
 
 instance Arbitrary ZeroTypedTestIExpr where
   arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
   shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
 
-simpleArrowTyped x = inferType (fromSIL $ getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
+simpleArrowTyped x = inferType (fromTelomare $ getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
 
 instance Arbitrary ArrowTypedTestIExpr where
   arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped

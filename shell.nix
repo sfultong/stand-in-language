@@ -19,8 +19,8 @@ with rec {
     })];
   };
   pkgs = import nixpkgs {};
-  sil_jumper = pkgs.stdenv.mkDerivation {
-    name = "silJumper";
+  telomare_jumper = pkgs.stdenv.mkDerivation {
+    name = "telomareJumper";
     src = ./cbits;
     buildInputs = [pkgs.boehmgc];
   };
@@ -30,12 +30,12 @@ with rec {
       sha256 = "1ycayni4pjmgki8cdhcg25bmw970289f89b62sbdzw5naw15rrb1";
     };
     overrides = self: super: {
-      sil = super.callCabal2nix "sil" ./. { gc = pkgs.boehmgc; jumper = sil_jumper; };
+      telomare = super.callCabal2nix "telomare" ./. { gc = pkgs.boehmgc; jumper = telomare_jumper; };
       # llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
       # llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
     };
   });
-  simpleShell = haskellPkgs.shellFor { packages = p: [p.sil]; };
+  simpleShell = haskellPkgs.shellFor { packages = p: [p.telomare]; };
 
 }; simpleShell.overrideAttrs (oldAttrs : rec
   { buildInputs = oldAttrs.buildInputs

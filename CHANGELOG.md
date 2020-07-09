@@ -1,4 +1,4 @@
-# Revision history for sil
+# Revision history for telomare
 
 ## 0.1.0.0 -- YYYY-mm-dd
 
