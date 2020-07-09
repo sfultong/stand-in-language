@@ -76,4 +76,4 @@ If you'd like to contribute, please fork the repository and use a feature branch
 
 
 ## Licensing
-The code in this project is licensed under the Apache License 2.0. For more information, please refer to the [LICENSE file](https://github.com/sfultong/telomare/blob/master/LICENSE).
+The code in this project is licensed under the Apache License 2.0. For more information, please refer to the [LICENSE file](https://github.com/Stand-In-Language/stand-in-language/blob/master/LICENSE).
