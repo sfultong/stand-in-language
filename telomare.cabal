@@ -2,7 +2,7 @@ name:                telomare
 version:             0.1.0.0
 synopsis:            A simple but robust virtual machine
 description:         Please see README.md
-homepage:            https://github.com/sfultong/stand-in-language#readme
+homepage:            https://github.com/Stand-In-Language/stand-in-language#readme
 license:             Apache-2.0
 license-file:        LICENSE
 author:              Sam Griffin
@@ -68,7 +68,7 @@ library
   extra-libraries:     gc
                      , jumper
   -- uncomment this line to get a cabal repl. Use appropiate complete path.
-  extra-lib-dirs:      /home/hhefesto/src/telomare/lib
+  -- extra-lib-dirs:      /home/hhefesto/src/stand-in-language/lib
 
   default-language:    Haskell2010
   ghc-options:         -ddump-to-file -ddump-splices
@@ -167,4 +167,4 @@ benchmark telomare-memory-benchmark
 
 source-repository head
   type:     git
-  location: https://github.com/sfultong/stand-in-language
+  location: https://github.com/Stand-In-Language/stand-in-language

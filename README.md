@@ -12,8 +12,8 @@ This proyect is in active development. Do expect bugs and general trouble, and p
 
 1. Clone this repository and change directory to it:
    ```
-   $ git clone https://github.com/sfultong/telomare.git
-   $ cd telomare
+   $ git clone https://github.com/Stand-In-Language/stand-in-language.git
+   $ cd stand-in-language
    ```
 2. [Install Nix](https://nixos.org/nix/download.html):
    ```
@@ -70,7 +70,7 @@ If you'd like to contribute, please fork the repository and use a feature branch
 
 ## Links
 1. [A Better Model of Computation](http://sfultong.blogspot.com/2016/12/a-better-model-of-computation.html?m=1) by Sfultong
-2. [Telomare: Explorations in non-Turing Completeness](http://sfultong.blogspot.com/2017/09/telomare-explorations-in-non-turing.html?m=1) by Sfultong
+2. [SIL: Explorations in non-Turing Completeness](http://sfultong.blogspot.com/2017/09/sil-explorations-in-non-turing.html?m=1) by Sfultong
 3. [Deconstructing Lambdas, Closures and Application](http://sfultong.blogspot.com/2018/04/deconstructing-lambdas-closures-and.html?m=1) by Sfultong
 4. [Join the community's chat](https://gitter.im/stand-in-language/Lobby)
 
