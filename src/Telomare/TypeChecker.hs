@@ -1,31 +1,20 @@
 {-# LANGUAGE DeriveFunctor #-}
-<<<<<<< HEAD:src/SIL/TypeChecker.hs
 {-# LANGUAGE LambdaCase    #-}
-module SIL.TypeChecker where
-=======
-{-# LANGUAGE LambdaCase #-}
+
 module Telomare.TypeChecker where
->>>>>>> 129a588c557f19e0eab03ee35f97786f2bb7b9b0:src/Telomare/TypeChecker.hs
 
 import           Control.Applicative
 import           Control.Monad.Except
 import           Control.Monad.State  (State)
-import           Data.Map             (Map)
-import           Data.Set             (Set)
-import           Debug.Trace
-
 import qualified Control.Monad.State  as State
 import qualified Data.DList           as DList
+import           Data.Map             (Map)
 import qualified Data.Map             as Map
+import           Data.Set             (Set)
 import qualified Data.Set             as Set
-
-<<<<<<< HEAD:src/SIL/TypeChecker.hs
+import           Debug.Trace
 import           PrettyPrint
-import           SIL
-=======
-import Telomare
-import PrettyPrint
->>>>>>> 129a588c557f19e0eab03ee35f97786f2bb7b9b0:src/Telomare/TypeChecker.hs
+import           Telomare
 
 debug :: Bool
 debug = False

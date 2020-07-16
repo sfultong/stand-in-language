@@ -28,9 +28,9 @@ import           Data.Set                   (Set, (\\))
 import qualified Data.Set                   as Set
 import           Data.Void
 import           Debug.Trace
+import qualified System.IO.Strict           as Strict
 import           Telomare
 import           Telomare.TypeChecker
-import qualified System.IO.Strict           as Strict
 import           Text.Megaparsec            hiding (State)
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -181,7 +181,7 @@ lineComment = L.skipLineComment "--"
 
 -- |A block comment starts with "{-" and ends at "-}".
 -- Nested block comments are also supported.
-blockComment :: SILParser ()
+blockComment :: TelomareParser ()
 blockComment = L.skipBlockCommentNested "{-" "-}"
 
 -- |Space Consumer: Whitespace and comment parser that does not consume new-lines.

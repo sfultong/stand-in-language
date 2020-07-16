@@ -840,15 +840,9 @@ showAllTransformations input = do
   section "Diff toTelomare" $ ppDiff diff
   putStrLn "\n-----------------------------------------------------------------"
   putStrLn $ "---- stepEval:\n"
-<<<<<<< HEAD
-  x <- stepIEval toSILVar
+  x <- stepIEval toTelomareVar
   print x
-  -- let iEvalVar0 = iEval () Zero toSILVar
-=======
-  x <- stepEval toTelomareVar
-  putStrLn .show $ x
   -- let iEvalVar0 = iEval () Zero toTelomareVar
->>>>>>> 129a588c557f19e0eab03ee35f97786f2bb7b9b0
 
 stepIEval :: IExpr -> IO IExpr
 stepIEval g = do

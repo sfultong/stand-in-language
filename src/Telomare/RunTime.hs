@@ -161,8 +161,8 @@ pureREval :: IExpr -> Either RunTimeError IExpr
 pureREval = rEval Zero
 
 pureEval :: IExpr -> Either RunTimeError IExpr
--- pureEval = rEval Zero
-pureEval g = runExcept $ fix iEval Zero g
+pureEval = rEval Zero
+-- pureEval g = runExcept $ fix iEval Zero g
 
 -- left (\x y z -> [x, y, z, 0], 0) 1 2 3
 
