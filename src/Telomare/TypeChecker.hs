@@ -199,4 +199,3 @@ typeCheck t tm@(Term3 typeMap) = convert (partiallyAnnotate tm >>= associate) wh
   convert = \case
     Left er -> Just er
     _ -> Nothing
-

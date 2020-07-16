@@ -847,7 +847,8 @@ showAllTransformations input = do
 stepIEval :: IExpr -> IO IExpr
 stepIEval g = do
   -- print g
-  x <- runExceptT $ fix myIEval Zero g
+  -- x <- runExceptT $ fix myIEval Zero g
+  x <- pureEval g
   case x of
     Left e  -> error . show $ e
     Right a -> pure a

@@ -1,14 +1,14 @@
 module Main where
 
-import Data.Char
-import Telomare
+import           Data.Char
+import qualified System.IO.Strict     as Strict
+import           Telomare
+import           Telomare.Eval
+import           Telomare.Optimizer
+import           Telomare.Parser
+import           Telomare.RunTime
+import           Telomare.TypeChecker (inferType, typeCheck)
 --import Telomare.Llvm
-import Telomare.Parser
-import Telomare.RunTime
-import Telomare.TypeChecker (typeCheck, inferType)
-import Telomare.Optimizer
-import Telomare.Eval
-import qualified System.IO.Strict as Strict
 
 main = do
   preludeFile <- Strict.readFile "Prelude.tel"
@@ -18,7 +18,7 @@ main = do
       Right p -> p
       Left pe -> error $ getErrorString pe
     runMain s = case toTelomare . findChurchSize <$> parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", e]
+      Left e         -> putStrLn $ concat ["failed to parse ", s, " ", e]
       Right (Just g) -> evalLoop g
     --testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
     --testData = PRight $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)

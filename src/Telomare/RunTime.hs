@@ -95,31 +95,34 @@ nEval (NExprs m) =
 
 -- |IExpr evaluation with a given enviroment `e`
 -- (as in the second element of a closure).
-rEval :: IExpr -> IExpr -> Either RunTimeError IExpr
+rEval :: (MonadError RunTimeError m, Show (m IExpr)) => IExpr -> IExpr -> m IExpr
 rEval e = para alg where
-  alg :: (Base IExpr) (IExpr, Either RunTimeError IExpr)
-      -> Either RunTimeError IExpr
+  alg :: (MonadError RunTimeError m, Show (m IExpr)) => (Base IExpr) (IExpr, m IExpr)
+      -> m IExpr
   alg = \case
-    ZeroF -> Right Zero
-    AbortF -> Right Abort
-    EnvF -> Right Env
-    (DeferF (ie, _)) -> Right . Defer $ ie
-    TraceF -> Right $ trace (show e) e
-    (GateF (ie1, _) (ie2, _)) -> Right $ Gate ie1 ie2
-    (PairF (_, l) (_, r)) -> Pair <$> l
-                                  <*> r
-    (PRightF (_, x)) -> x >>= \case
-      (Pair _ r) -> Right r
-      _ -> Right Zero
-    (PLeftF (_, x)) -> x >>= \case
-      (Pair l _) -> Right l
-      _ -> Right Zero
-    (SetEnvF s@(_, x)) -> trace ("rEval SetEnv !!!!!!!!!!!!!!!!:" <> show s) $
+    ZeroF -> trace "rEval Zero" $ pure Zero
+    AbortF -> trace "rEval Abort" $ pure Abort
+    EnvF -> trace "rEval Env" $ pure Env
+    (DeferF (ie, _)) -> trace ("rEval Defer: " <> show ie) $ pure . Defer $ ie
+    TraceF -> trace ("rEval Trace: " <> show e) $ pure $ trace (show e) e
+    (GateF (ie1, _) (ie2, _)) -> trace ("rEval Gate: " <> show (ie1,ie2)) $ pure $ Gate ie1 ie2
+    (PairF (_, l) (_, r)) -> trace ("rEval PRight: (" <> show l <> show ", " <> show r <> show ")" ) $
+                               Pair <$> l
+                                    <*> r
+    (PRightF (_, x)) -> trace ("rEval PRight: " <> show x) $
+      x >>= \case
+      (Pair _ r) -> pure r
+      _ -> pure Zero
+    (PLeftF (_, x)) -> trace ("rEval PLeft: " <> show x) $
+      x >>= \case
+      (Pair l _) -> pure l
+      _ -> pure Zero
+    (SetEnvF s@(_, x)) -> trace ("rEval SetEnv: " <> show s) $
       x >>= \case
         Pair (Defer c) nenv  -> rEval nenv c
         Pair (Gate a _) Zero -> rEval e a
         Pair (Gate _ b) _    -> rEval e b
-        Pair Abort Zero      -> Right $ Defer Env
+        Pair Abort Zero      -> pure $ Defer Env
         Pair Abort z         -> throwError $ AbortRunTime z
         -- The next case should never actually occur,
         -- because it should be caught by `typeCheck`.
@@ -142,17 +145,17 @@ iEval f env g = let f' = f env in case g of
   PRight g -> f' g >>= \case
     (Pair _ x) -> pure x
     _ -> pure Zero
-  SetEnv x -> (f' x >>=) $ trace "---------------- iEval SetEnv HERE!!!!!!!!!!!!" $ \case
+  SetEnv x -> (f' x >>=) $ \case
     Pair cf nenv -> case cf of
-      Defer c -> f nenv c
-      -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
-      Gate a b -> case nenv of
-        Zero -> f' a
-        _    -> f' b
-      Abort -> case nenv of
-        Zero -> pure $ Defer Env
-        z    -> throwError $ AbortRunTime z
-      z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
+        Defer c -> f nenv c
+        -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
+        Gate a b -> case nenv of
+          Zero -> f' a
+          _    -> f' b
+        Abort -> case nenv of
+          Zero -> pure $ Defer Env
+          z    -> throwError $ AbortRunTime z
+        z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
 
 
