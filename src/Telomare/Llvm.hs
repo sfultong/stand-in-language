@@ -1,59 +1,62 @@
 {-# OPTIONS_GHC -Wall -Wno-name-shadowing #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecursiveDo         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Telomare.Llvm where
 
-import Control.Monad.Except
-import Control.Monad.State.Strict
-import Crypto.Hash.SHA256 (hashlazy)
-import Data.Binary (encode)
-import Data.ByteString (ByteString)
-import Data.ByteString.Short (toShort)
-import Data.Int (Int64)
-import Data.Map.Strict (Map)
-import Data.String (fromString)
-import Foreign.Ptr (FunPtr, castPtrToFunPtr, wordPtrToPtr, Ptr, WordPtr(..), plusPtr, IntPtr(..), intPtrToPtr)
-import Foreign.Storable (peek)
-import System.Clock
-import System.IO (hPutStrLn, stderr)
-import Text.Printf
-import qualified Data.ByteString.Base16 as Base16
-import qualified Data.ByteString.Char8 as BSC
-import qualified Data.Map.Strict as Map
+import           Control.Monad.Except
+import           Control.Monad.State.Strict
+import           Crypto.Hash.SHA256          (hashlazy)
+import           Data.Binary                 (encode)
+import           Data.ByteString             (ByteString)
+import qualified Data.ByteString.Base16      as Base16
+import qualified Data.ByteString.Char8       as BSC
+import           Data.ByteString.Short       (toShort)
+import           Data.Int                    (Int64)
+import           Data.Map.Strict             (Map)
+import qualified Data.Map.Strict             as Map
+import           Data.String                 (fromString)
+import           Foreign.Ptr                 (FunPtr, IntPtr (..), Ptr,
+                                              WordPtr (..), castPtrToFunPtr,
+                                              intPtrToPtr, plusPtr,
+                                              wordPtrToPtr)
+import           Foreign.Storable            (peek)
+import           System.Clock
+import           System.IO                   (hPutStrLn, stderr)
+import           Text.Printf
 
-import LLVM.AST hiding (Monotonic)
-import LLVM.AST.Global as G
-import LLVM.Context
-import LLVM.IRBuilder.Constant (int64)
-import LLVM.IRBuilder.Module
-import LLVM.IRBuilder.Monad
-import LLVM.Module as Mod
-import LLVM.PassManager
+import           LLVM.AST                    hiding (Monotonic)
+import           LLVM.AST.Global             as G
+import           LLVM.Context
+import           LLVM.IRBuilder.Constant     (int64)
+import           LLVM.IRBuilder.Module
+import           LLVM.IRBuilder.Monad
+import           LLVM.Module                 as Mod
+import           LLVM.PassManager
 
-import qualified LLVM.AST as AST
-import qualified LLVM.AST.AddrSpace as AddrSpace
-import qualified LLVM.AST.Constant as C
-import qualified LLVM.AST.IntegerPredicate as IP
+import qualified LLVM.AST                    as AST
+import qualified LLVM.AST.AddrSpace          as AddrSpace
+import qualified LLVM.AST.Constant           as C
+import qualified LLVM.AST.IntegerPredicate   as IP
 import qualified LLVM.AST.ParameterAttribute as PA
-import qualified LLVM.AST.Type as T
-import qualified LLVM.CodeGenOpt as CodeGenOpt
-import qualified LLVM.CodeModel as CodeModel
-import qualified LLVM.IRBuilder.Instruction as IRI
-import qualified LLVM.IRBuilder.Module as IRM
-import qualified LLVM.Linking as Linking
-import qualified LLVM.OrcJIT as OJ
-import qualified LLVM.OrcJIT.CompileLayer as OJ
-import qualified LLVM.Relocation as Reloc
-import qualified LLVM.Target as Target
+import qualified LLVM.AST.Type               as T
+import qualified LLVM.CodeGenOpt             as CodeGenOpt
+import qualified LLVM.CodeModel              as CodeModel
+import qualified LLVM.IRBuilder.Instruction  as IRI
+import qualified LLVM.IRBuilder.Module       as IRM
+import qualified LLVM.Linking                as Linking
+import qualified LLVM.OrcJIT                 as OJ
+import qualified LLVM.OrcJIT.CompileLayer    as OJ
+import qualified LLVM.Relocation             as Reloc
+import qualified LLVM.Target                 as Target
 
-import Naturals
-import Telomare (FragIndex)
+import           Naturals
+import           Telomare                    (FragIndex)
 
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 
 data RunResult = RunResult
-  { resultValue :: Int64
+  { resultValue    :: Int64
   , resultNumPairs :: Int64
   }
 
@@ -69,7 +72,7 @@ run jitConfig fn = do
   pure (RunResult resultVal numPairs)
 
 
--- | Recursively follow all integers by interpreting them as indices
+-- |Recursively follow all integers by interpreting them as indices
 -- in the pair array until a 0 is found.
 convertPairs :: RunResult -> IO NExpr
 convertPairs (RunResult x _) = go x
@@ -81,6 +84,7 @@ convertPairs (RunResult x _) = go x
       r <- peek (ptr `plusPtr` 8)
       NPair <$> go l <*> go r
 
+-- |LLVM - Boehm linking
 makeModule :: NExpr -> AST.Module
 makeModule iexpr = flip evalState (Map.empty, 0) . buildModuleT "TelomareModule" $ do
   _ <- emitDefn
@@ -90,6 +94,7 @@ makeModule iexpr = flip evalState (Map.empty, 0) . buildModuleT "TelomareModule"
                           G.returnAttributes = [PA.NoAlias],
                           parameters = ([Parameter intT "" []], False)
                           }))
+  -- Initalize the Boehm GC
   gcRegisterMyThread <- extern "Telomare_register_my_thread" [] T.void
   mapM_ emitDefn [heapIndex, resultStructure]
 
@@ -170,8 +175,8 @@ optimizeModule jitConfig module' = do
     pure ()
 
 data JITConfig = JITConfig
-  { debugOutput :: !Bool
-  , timingOutput :: !Bool
+  { debugOutput    :: !Bool
+  , timingOutput   :: !Bool
   , optimizerLevel :: !OptimizerLevel
   }
 
@@ -187,20 +192,19 @@ data OptimizerLevel
 optimizerLevelToWord :: OptimizerLevel -> Word
 optimizerLevelToWord l =
   case l of
-    None -> 0
-    One -> 1
-    Two -> 2
+    None  -> 0
+    One   -> 1
+    Two   -> 2
     Three -> 3
 
 evalJIT :: JITConfig -> AST.Module -> IO (Either String RunResult)
-{-
 evalJIT jitConfig amod = do
   _ <- Linking.loadLibraryPermanently Nothing
   withContext $ \ctx -> do
     t0 <- getTime Monotonic
-    withExecutionSession $ \sesh ->
-      withModuleKey $ \key ->
-        withModuleFromAST ctx amod $ \mod -> do
+    OJ.withExecutionSession $ \sesh -> -- This function should be `IO (Either String RunResult)`, but is `(OJ.ModuleKey -> IO a3) -> IO a3`
+      OJ.withModuleKey $ \key ->
+        Mod.withModuleFromAST ctx amod $ \mod -> do
           t1 <- getTime Monotonic
           optimizeModule jitConfig mod
           t2 <- getTime Monotonic
@@ -229,8 +233,8 @@ evalJIT jitConfig amod = do
                       t6 <- getTime Monotonic
                       when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
                       pure . Right $ res
--}
-evalJIT _ _ = undefined
+
+-- evalJIT _ _ = undefined
 
 printTimings :: TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> IO ()
 printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer beforeAddingModule afterAddingModule beforeRun afterRun = do

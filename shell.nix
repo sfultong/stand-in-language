@@ -1,14 +1,22 @@
 { rev ? "78d05675a4186c3b7b2de214f3c3b245ba0d2fa5",
+  # rev ? "1a92d0abfcdbafc5c6e2fdc24abf2cc5e011ad5a",
   outputSha256 ? "0aam50m1w1kqfdhwnazzi6jdq422d3ib3ilvb1m5lcr5jn7nhf1f",
-  enableLLVMAssertions ? true
+  # enableLLVMAssertions ? true
+  enableLLVMAssertions ? false
 }:
 
 with rec {
+  # nixpkgs = (import <nixpkgs> { }).fetchFromGitHub {
   nixpkgs = builtins.fetchTarball {
+    # a = true;
+    # owner = "NixOS";
+    # repo = "nixpkgs";
+    # rev = rev1;
     url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
     sha256 = outputSha256;
   };
-  pkgs_not_used = import nixpkgs {
+  # pkgs_not_used = import nixpkgs {
+  pkgs = import nixpkgs {
     overlays = [(self: super: {
       llvm_8 = super.llvm_8.overrideAttrs (oldAttrs: {
           cmakeFlags =
@@ -18,7 +26,8 @@ with rec {
       });
     })];
   };
-  pkgs = import nixpkgs {};
+  # pkgs = import nixpkgs {};
+
   telomare_jumper = pkgs.stdenv.mkDerivation {
     name = "telomareJumper";
     src = ./cbits;
@@ -31,8 +40,8 @@ with rec {
     };
     overrides = self: super: {
       telomare = super.callCabal2nix "telomare" ./. { gc = pkgs.boehmgc; jumper = telomare_jumper; };
-      # llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
-      # llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
+      llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
+      llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
     };
   });
   simpleShell = haskellPkgs.shellFor { packages = p: [p.telomare]; };
