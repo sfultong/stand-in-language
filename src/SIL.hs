@@ -275,6 +275,10 @@ data RunTimeError
   | ResultConversionError String
   deriving (Eq, Ord)
 
+data CompileError
+  = ParseError String
+  | RecursionLimitError BreakExtras
+
 instance Show RunTimeError where
   show (AbortRunTime a) = "Abort: " <> (show $ g2s a)
   show (SetEnvError e) = "Can't SetEnv: " <> show e
@@ -426,6 +430,7 @@ lamF x = pairF (deferF x) $ pure EnvF
 clamF :: BreakState' a b -> BreakState' a b
 clamF x = pairF (deferF x) $ pure ZeroF
 
+-- for (\f x -> f (f x)), innerChurchF returns the (f (f x))
 innerChurchF :: Int -> BreakState' a b
 innerChurchF x = iterate (appF (pure $ LeftF (RightF EnvF))) (pure $ LeftF EnvF) !! x
 

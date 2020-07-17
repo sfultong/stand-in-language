@@ -125,10 +125,10 @@ splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
               in Term3 $ Map.insert (FragIndex 0) bf m
 
-convertPT :: Int -> Term3 -> Term4
-convertPT n (Term3 termMap) =
+convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
+convertPT limitLookup (Term3 termMap) =
   let changeTerm = \case
-        AuxF (UnsizedRecursion _) -> deferF $ innerChurchF n
+        AuxF n -> deferF . innerChurchF $ limitLookup n
         ZeroF -> pure ZeroF
         PairF a b -> PairF <$> changeTerm a <*> changeTerm b
         EnvF -> pure EnvF
