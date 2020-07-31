@@ -75,5 +75,9 @@ with rec {
          haskellPkgs.ghcid
          haskellPkgs.hasktags
          haskellPkgs.haddock
+         pkgs.gmp
+         pkgs.zlib
+         pkgs.ncurses
+         # pkgs.stack
       ];
   })

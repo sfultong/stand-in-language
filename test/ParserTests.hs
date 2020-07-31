@@ -5,6 +5,7 @@ module Main where
 import           Common
 import           Control.Monad
 import           Control.Monad.Except      (ExceptT, MonadError, runExceptT)
+import Control.Monad.Error
 import           Control.Monad.Fix         (fix)
 import           Control.Monad.IO.Class    (liftIO)
 import qualified Control.Monad.State       as State
@@ -845,13 +846,20 @@ showAllTransformations input = do
   -- let iEvalVar0 = iEval () Zero toTelomareVar
 
 stepIEval :: IExpr -> IO IExpr
-stepIEval g = do
+stepIEval = rEval Zero
+  -- do
   -- print g
   -- x <- runExceptT $ fix myIEval Zero g
-  x <- pureEval g
-  case x of
-    Left e  -> error . show $ e
-    Right a -> pure a
+  -- x <- rEval g
+  -- case x of
+  --   Left e  -> error . show $ e
+  --   Right a -> pure a
+
+data WrappedIO e a = WIO e (IO a)
+
+instance (MonadError e) (WrappedIO e) where
+  throwError = undefined
+  catchError = undefined
 
 -- TODO: Remove
 -- iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
