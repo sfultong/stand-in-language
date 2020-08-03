@@ -125,28 +125,6 @@ splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
               in Term3 $ Map.insert (FragIndex 0) bf m
 
-convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
-convertPT limitLookup (Term3 termMap) =
-  let changeTerm = \case
-        AuxF n -> deferF . innerChurchF $ limitLookup n
-        ZeroF -> pure ZeroF
-        PairF a b -> PairF <$> changeTerm a <*> changeTerm b
-        EnvF -> pure EnvF
-        SetEnvF x -> SetEnvF <$> changeTerm x
-        DeferF fi -> pure $ DeferF fi
-        AbortF -> pure AbortF
-        GateF l r -> GateF <$> changeTerm l <*> changeTerm r
-        LeftF x -> LeftF <$> changeTerm x
-        RightF x -> RightF <$> changeTerm x
-        TraceF -> pure TraceF
-      mmap = traverse changeTerm termMap
-      startKey = succ . fst $ Map.findMax termMap
-      newMapBuilder = do
-        changedTermMap <- mmap
-        State.modify (\(t,i,m) -> (t,i, Map.union changedTermMap m))
-      (_,_,newMap) = State.execState newMapBuilder (0,startKey, Map.empty)
-  in Term4 newMap
-
 resolve :: String -> ParserState -> Maybe Term1
 resolve name (ParserState bound) = if Map.member name bound
                                    then Map.lookup name bound

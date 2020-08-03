@@ -360,6 +360,9 @@ noContaminatedFunctions =
     PoisonedBy _ x -> testF x
     _ -> True
 
+instance Semigroup PoisonType where
+  (<>) = pCombine
+
 {--
  - Build a map of functions to convert individual `?` operators to sized church numerals
 -}
@@ -412,9 +415,14 @@ type TestMapBuilder = StateT (Map BreakExtras RecursionTest) (Reader Int)
 -- Two instances of using this:
 -- 1. Find out where SetEnv (poisoned) = not poisoned
 -- 2. Find out if SetEnv aborts
+{-
 fragToPoison :: Monad m => (FragIndex -> FragExpr BreakExtras)
   -> ((PoisonType -> FragExpr BreakExtras -> m PoisonType) -> (FragIndex -> FragExpr BreakExtras)
-      -> PoisonType -> m PoisonType -> m PoisonType -> m PoisonType)
+      -> PoisonType -> PoisonType -> PoisonType -> m PoisonType)
+  -> PoisonType -> FragExpr BreakExtras -> m PoisonType
+-}
+fragToPoison :: Monad m => (FragIndex -> FragExpr BreakExtras)
+  -> ((PoisonType -> FragExpr BreakExtras -> m PoisonType) -> PoisonType -> PoisonType -> PoisonType -> m PoisonType)
   -> PoisonType -> FragExpr BreakExtras -> m PoisonType
 fragToPoison fragLookup setEval env =
   let fragToPoison' = fragToPoison fragLookup setEval
@@ -442,7 +450,7 @@ fragToPoison fragLookup setEval env =
   SetEnvF x -> recur x >>=
     let processSet = \case
           PoisonedBy p px -> PoisonedBy p <$> processSet px
-          PairTypeN ft it -> setEval fragToPoison' fragLookup env ft it
+          PairTypeN ft it -> setEval fragToPoison' env ft it
           EitherTypeN a b -> pCombine <$> processSet a <*> processSet b
           z -> error $ "buildTestMap setenv not pair: " <> show z
     in processSet
@@ -453,14 +461,9 @@ fragToPoison fragLookup setEval env =
   TraceF -> pure env
 
 abortingSetEval :: (PoisonType -> FragExpr BreakExtras -> Maybe PoisonType)
-  -> PoisonType -> Maybe PoisonType -> Maybe PoisonType
-abortingSetEval sRecur env sx =
-  let processSet = \case
-          PoisonedBy p px -> PoisonedBy p <$> processSet px
-          PairTypeN ft it -> setEval ft it
-          EitherTypeN a b -> pCombine <$> processSet a <*> processSet b
-          z -> error $ "abortingSetEval setenv not pair: " <> show z
-      sRecur' = sRecur env
+  -> PoisonType -> PoisonType -> PoisonType -> Maybe PoisonType
+abortingSetEval sRecur env ft' it' =
+  let sRecur' = sRecur env
       setEval ft it = case ft of
         ArrTypeN af -> case af of
           GateF l r -> case it of
@@ -479,17 +482,12 @@ abortingSetEval sRecur env sx =
           -- From Defer
           x -> sRecur it x
         PoisonedBy _ nf -> setEval nf it
-  in sx >>= processSet
+  in setEval ft' it'
 
 buildingSetEval :: (PoisonType -> FragExpr BreakExtras -> TestMapBuilder PoisonType)
-  -> PoisonType -> TestMapBuilder PoisonType -> TestMapBuilder PoisonType
-buildingSetEval sRecur env sx =
-  let processSet = \case
-          PoisonedBy p px -> PoisonedBy p <$> processSet px
-          PairTypeN ft it -> setEval mempty ft it
-          EitherTypeN a b -> pCombine <$> processSet a <*> processSet b
-          z -> error $ "buildingSetEval setenv not pair: " <> show z
-      sRecur' = sRecur env
+  -> PoisonType -> PoisonType -> PoisonType -> TestMapBuilder PoisonType
+buildingSetEval sRecur env ft' it' =
+  let sRecur' = sRecur env
       setEval poisonedSet ft it = case ft of
         PoisonedBy p pf -> PoisonedBy p <$> setEval (Set.insert p poisonedSet) pf it
         ArrTypeN af -> case af of
@@ -514,63 +512,17 @@ buildingSetEval sRecur env sx =
                      Nothing -> pure v
                      Just e -> pure $ pCombine <$> e <*> v
                    addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
-                   usx = State.evalStateT sx Map.empty
                    conditionallyAddTests :: TestMapBuilder PoisonType -> TestMapBuilder PoisonType
                    conditionallyAddTests opt =
                      let truncatedResult = flip runReader (toEnum 1) $ State.evalStateT opt Map.empty -- force church numerals to 1 to evaluate poison typing
                      in do
                        when (hasContamination ft && noContaminatedFunctions truncatedResult) $
-                         mapM_ (flip addSizeTest (PairTypeN <$> usx <*> pure env)) poisonedSet
+                         mapM_ (flip addSizeTest (pure $ PairTypeN ft it)) poisonedSet
                        opt
                in conditionallyAddTests $ sRecur it x
-  in sx >>= processSet
-  {-
-  uf <- f
-  ui <- i
-  let sRecur' = sRecur env
-      iSetEval poisonedSet = \case
-        PoisonedBy p pf -> PoisonedBy p <$> iSetEval (Set.insert p poisonedSet) pf
-        ArrTypeN af -> case af of
-          AbortF -> pure $ ArrTypeN EnvF
-          GateF l r -> let doGate = \case
-                             PoisonedBy p pf -> PoisonedBy p <$> doGate pf
-                             ZeroTypeN -> sRecur' l
-                             PairTypeN _ _ -> sRecur' r
-                             zo | zeroOption zo -> pCombine <$> sRecur' l <*> sRecur' r -- this takes care of EitherTypeN with an embedded ZeroTypeN
-                             EitherTypeN _ _ -> sRecur' r
-                             AnyTypeN -> pCombine <$> sRecur' l <*> sRecur' r
-                             z -> error $ "buildingSetEval Gate unexpected input: " <> show z
-                       in doGate ui
-          AuxF _ -> do
-            cLimit <- lift ask
-            let (c,e,ii) = case ui of
-                  (PairTypeN i' (PairTypeN (PairTypeN c' e') _)) -> (c',e',i')
-                  z -> error $ "buildingSetEval AuxF app - bad environment: " <> show z
-                appP ii = sRecur (PairTypeN c (PairTypeN ii e)) $ SetEnvF EnvF -- simple hack to simulate function application
-            iterate (>>= appP) (pure ii) !! cLimit
-          x -> let alterSizeTest v = \case
-                     Nothing -> pure v
-                     Just e -> pure $ pCombine <$> e <*> v
-                   rf = State.evalStateT f Map.empty
-                   ri = State.evalStateT i Map.empty
-                   addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
-                   conditionallyAddTests :: TestMapBuilder PoisonType -> TestMapBuilder PoisonType
-                   conditionallyAddTests opt =
-                     let truncatedResult = flip runReader (toEnum 1) $ State.evalStateT opt Map.empty -- force church numerals to 1 to evaluate poison typing
-                     in do
-                       when (hasContamination uf && noContaminatedFunctions truncatedResult) $
-                         mapM_ (flip addSizeTest (PairTypeN <$> rf <*> ri)) poisonedSet
-                       opt
-               in conditionallyAddTests $ sRecur ui x
-  iSetEval mempty uf
--}
+  in setEval mempty ft' it'
 
-calculateRecursionLimits :: Term3 -> Either CompileError Term4
-calculateRecursionLimits t3@(Term3 termMap) =
-  let testMapBuilder = fragToPoison (termMap Map.!) buildingSetEval AnyTypeN (rootFrag termMap)
-      testMap = State.execStateT 
-  in undefined
-
+type TestMap = Map BreakExtras RecursionTest
 
 annotate :: Ord v => TypingSupport v -> Term3 -> AnnotateStateV v v
 annotate ts (Term3 termMap) =

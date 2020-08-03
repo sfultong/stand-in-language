@@ -2,9 +2,15 @@
 module SIL.Eval where
 
 import Control.Monad.Except
+import Control.Monad.Reader
+import Control.Monad.State (State, StateT)
+import Data.DList (DList)
 import Data.Map (Map)
 import Debug.Trace
+import qualified Control.Monad.State as State
+import qualified Data.DList as DList
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import SIL
 import SIL.Parser
@@ -43,6 +49,17 @@ data EvalError
   deriving (Eq, Ord, Show)
 
 type ExpFullEnv = ExprA Bool
+
+newtype BetterMap k v = BetterMap { unBetterMap :: Map k v}
+
+instance Functor (BetterMap k) where
+  fmap f (BetterMap x) = BetterMap $ fmap f x
+
+instance (Ord k, Semigroup m) => Semigroup (BetterMap k m) where
+  (<>) (BetterMap a) (BetterMap b) = BetterMap $ Map.unionWith (<>) a b
+
+instance (Ord k, Monoid m) => Monoid (BetterMap k m) where
+  mempty = BetterMap mempty
 
 annotateEnv :: IExpr -> (Bool, ExpP)
 annotateEnv Zero = (True, ZeroP)
@@ -85,6 +102,69 @@ partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 eval' :: IExpr -> Either String IExpr
 eval' = pure
 
+convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
+convertPT limitLookup (Term3 termMap) =
+  let changeTerm = \case
+        AuxF n -> deferF . innerChurchF $ limitLookup n
+        ZeroF -> pure ZeroF
+        PairF a b -> PairF <$> changeTerm a <*> changeTerm b
+        EnvF -> pure EnvF
+        SetEnvF x -> SetEnvF <$> changeTerm x
+        DeferF fi -> pure $ DeferF fi
+        AbortF -> pure AbortF
+        GateF l r -> GateF <$> changeTerm l <*> changeTerm r
+        LeftF x -> LeftF <$> changeTerm x
+        RightF x -> RightF <$> changeTerm x
+        TraceF -> pure TraceF
+      mmap = traverse changeTerm termMap
+      startKey = succ . fst $ Map.findMax termMap
+      newMapBuilder = do
+        changedTermMap <- mmap
+        State.modify (\(t,i,m) -> (t,i, Map.union changedTermMap m))
+      (_,_,newMap) = State.execState newMapBuilder (0,startKey, Map.empty)
+  in Term4 newMap
+
+-- map of contamination indices to test functions
+contaminationMap :: PoisonType -> BetterMap BreakExtras (DList (FragExpr BreakExtras, PoisonType))
+contaminationMap =
+  let makeMap cSet = \case
+        EitherTypeN a b -> makeMap cSet a <> makeMap cSet b
+        PoisonedBy p x -> makeMap (Set.insert p cSet) x
+        PairTypeN f i -> makeKeyVal cSet f i
+        z -> error $ "contaminationMap-makeMap unexpected value: " <> show z
+      makeKeyVal cSet f i = case f of
+        EitherTypeN a b -> makeKeyVal cSet a i <> makeKeyVal cSet b i
+        PoisonedBy p x -> makeKeyVal (Set.insert p cSet) x i
+        ArrTypeN frag -> BetterMap $ foldr (\k -> Map.insert k (pure (frag, i))) mempty cSet
+        z -> error $ "contaminationMap-makeKeyVal unexpected value: " <> show z
+  in makeMap Set.empty
+
+calculateRecursionLimits' :: Term3 -> Either CompileError Term4
+calculateRecursionLimits' t3@(Term3 termMap) =
+  let testMapBuilder :: StateT (Map BreakExtras RecursionTest) (Reader (Map BreakExtras Int)) PoisonType
+      testMapBuilder = undefined
+      step1 :: Reader (Map BreakExtras Int) (Map BreakExtras RecursionTest)
+      step1 = State.execStateT testMapBuilder mempty
+      findLimit :: BreakExtras -> RecursionTest -> Either BreakExtras Int
+      findLimit churchSizingIndex tests =
+        -- let abortsAt i = not . null . fragToPoison (termMap Map.!) abortingSetEval ZeroTypeN $ runReader tests i
+        let abortsAt i =
+              let (lMap, kTests, gMap) = Map.splitLookup churchSizingIndex . unBetterMap . contaminationMap $ runReader tests i
+                  otherMap = lMap <> gMap
+              in case Set.lookupMin $ Map.keysSet otherMap of
+                Just m -> Left m
+                -- Nothing -> 
+        in undefined
+      mapLimits :: Map BreakExtras RecursionTest -> Either BreakExtras (Map BreakExtras Int)
+      mapLimits = sequence . Map.mapWithKey findLimit
+      unwrappedReader :: Map BreakExtras Int -> Map BreakExtras RecursionTest
+      unwrappedReader = runReader step1
+      fixable :: Either BreakExtras (Map BreakExtras Int) -> Either BreakExtras (Map BreakExtras Int)
+      fixable =  join . fmap (mapLimits . unwrappedReader)
+  in case fix fixable of
+    Left be -> Left $ RecursionLimitError be
+    Right limits -> pure $ convertPT (limits Map.!) t3
+
 findChurchSize :: Term3 -> Term4
 {-
 findChurchSize term =
@@ -96,7 +176,7 @@ findChurchSize term =
                   in if abortsAt midpoint then findC (midpoint + 1) e else findC b midpoint
   in convertPT (findC ib ie) term
 -}
-findChurchSize = convertPT 255
+findChurchSize = convertPT (const 255)
 
 {-
 findAllSizes :: Term2 -> (Bool, Term3)
