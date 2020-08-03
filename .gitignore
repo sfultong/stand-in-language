@@ -10,3 +10,5 @@ cabal.project.local
 .dir-locals.el
 .#*
 libgc.so
+hie.yaml
+stack.yaml.lock

@@ -198,43 +198,42 @@ optimizerLevelToWord l =
     Three -> 3
 
 evalJIT :: JITConfig -> AST.Module -> IO (Either String RunResult)
-evalJIT jitConfig amod = do
-  _ <- Linking.loadLibraryPermanently Nothing
-  withContext $ \ctx -> do
-    t0 <- getTime Monotonic
-    OJ.withExecutionSession $ \sesh -> -- This function should be `IO (Either String RunResult)`, but is `(OJ.ModuleKey -> IO a3) -> IO a3`
-      OJ.withModuleKey $ \key ->
-        Mod.withModuleFromAST ctx amod $ \mod -> do
-          t1 <- getTime Monotonic
-          optimizeModule jitConfig mod
-          t2 <- getTime Monotonic
-          when (debugOutput jitConfig) $ do
-            asm <- moduleLLVMAssembly mod
-            BSC.putStrLn asm
-          withTargetMachine $ \tm ->
-            OJ.withObjectLinkingLayer $ \objectLayer -> do
-              debugLog jitConfig "in objectlinkinglayer"
-              OJ.withIRCompileLayer objectLayer tm $ \compileLayer -> do
-                debugLog jitConfig "in compilelayer"
-                t3 <- getTime Monotonic
-                OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
-                  t4 <- getTime Monotonic
-                  debugLog jitConfig "in modulelayer"
-                  mainSymbol <- OJ.mangleSymbol compileLayer "main"
-                  jitSymbolOrError <- OJ.findSymbol compileLayer mainSymbol True
-                  case jitSymbolOrError of
-                    Left err -> do
-                      debugLog jitConfig ("Could not find main: " <> show err)
-                      pure $ error "Couldn't find main"
-                    Right (OJ.JITSymbol mainFn _) -> do
-                      debugLog jitConfig "running main"
-                      t5 <- getTime Monotonic
-                      res <- run jitConfig mainFn
-                      t6 <- getTime Monotonic
-                      when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
-                      pure . Right $ res
-
--- evalJIT _ _ = undefined
+-- evalJIT jitConfig amod = do
+--   _ <- Linking.loadLibraryPermanently Nothing
+--   withContext $ \ctx -> do
+--     t0 <- getTime Monotonic
+--     OJ.withExecutionSession $ \sesh -> -- This function should be `IO (Either String RunResult)`, but is `(OJ.ModuleKey -> IO a3) -> IO a3`
+--       OJ.withModuleKey $ \key ->
+--         Mod.withModuleFromAST ctx amod $ \mod -> do
+--           t1 <- getTime Monotonic
+--           optimizeModule jitConfig mod
+--           t2 <- getTime Monotonic
+--           when (debugOutput jitConfig) $ do
+--             asm <- moduleLLVMAssembly mod
+--             BSC.putStrLn asm
+--           withTargetMachine $ \tm ->
+--             OJ.withObjectLinkingLayer $ \objectLayer -> do
+--               debugLog jitConfig "in objectlinkinglayer"
+--               OJ.withIRCompileLayer objectLayer tm $ \compileLayer -> do
+--                 debugLog jitConfig "in compilelayer"
+--                 t3 <- getTime Monotonic
+--                 OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
+--                   t4 <- getTime Monotonic
+--                   debugLog jitConfig "in modulelayer"
+--                   mainSymbol <- OJ.mangleSymbol compileLayer "main"
+--                   jitSymbolOrError <- OJ.findSymbol compileLayer mainSymbol True
+--                   case jitSymbolOrError of
+--                     Left err -> do
+--                       debugLog jitConfig ("Could not find main: " <> show err)
+--                       pure $ error "Couldn't find main"
+--                     Right (OJ.JITSymbol mainFn _) -> do
+--                       debugLog jitConfig "running main"
+--                       t5 <- getTime Monotonic
+--                       res <- run jitConfig mainFn
+--                       t6 <- getTime Monotonic
+--                       when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
+--                       pure . Right $ res
+evalJIT _ _ = undefined
 
 printTimings :: TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> IO ()
 printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer beforeAddingModule afterAddingModule beforeRun afterRun = do
