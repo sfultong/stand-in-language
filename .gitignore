@@ -12,3 +12,4 @@ cabal.project.local
 libgc.so
 hie.yaml
 stack.yaml.lock
+*.bak
