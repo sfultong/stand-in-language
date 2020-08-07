@@ -32,8 +32,6 @@ type Bindings = Map String Term1
 -- |SILParser :: * -> *
 type SILParser = State.StateT ParserState (Parsec Void String)
 
-newtype ErrorString = MkES { getErrorString :: String } deriving Show
-
 data ParserState = ParserState
   { bound :: Bindings -- *Bindings collected by parseAssignment
   } deriving Show
@@ -95,7 +93,7 @@ debruijinizedTerm parser str = do
   preludeFile <- Strict.readFile "Prelude.sil"
   let prelude = case parsePrelude preludeFile of
                   Right p -> p
-                  Left pe -> error . getErrorString $ pe
+                  Left pe -> error . show $ pe
       startState = ParserState prelude
       p = State.runStateT parser startState
       t1 = case runParser p "" str of
@@ -459,21 +457,21 @@ parseSuccessful parser str = do
     Left _ -> return False
 
 -- |Parse with specified prelude.
-parseWithPrelude :: Bindings -> String -> Either ErrorString Bindings
+parseWithPrelude :: Bindings -> String -> Either CompileError Bindings
 parseWithPrelude prelude str = do
   -- TODO: check what happens with overlaping definitions with initialMap
   let startState = ParserState $ prelude <> initialMap
       p          = State.runStateT parseTopLevel startState
   case runParser p "" str of
     Right (a, s) -> Right a
-    Left x       -> Left $ MkES $ errorBundlePretty x
+    Left x       -> Left $ ParseError $ errorBundlePretty x
 
 -- |Parse prelude.
-parsePrelude :: String -> Either ErrorString Bindings
+parsePrelude :: String -> Either CompileError Bindings
 parsePrelude = parseWithPrelude initialMap
 
 -- |Parse main.
-parseMain :: Bindings -> String -> Either ErrorString Term3
+parseMain :: Bindings -> String -> Either CompileError Term3
 parseMain prelude s = parseWithPrelude prelude s >>= getMain where
   getMain bound = case Map.lookup "main" bound of
     Nothing -> fail "no main method found"

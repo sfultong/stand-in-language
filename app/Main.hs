@@ -16,13 +16,10 @@ main = do
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
-      Left pe -> error $ getErrorString pe
-    runMain s = case toSIL . findChurchSize <$> parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", getErrorString $ e]
+      Left pe -> error $ show pe
+    runMain s = case toSIL <$> (parseMain prelude s >>= findChurchSize) of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show $ e]
       Right (Just g) -> evalLoop $ g
-    --testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
-    --testData = PRight $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
-    --testData = SetEnv $ Pair (Defer $ Pair Zero Env) Zero
     testData = ite (Pair Zero Zero) (Pair (Pair Zero Zero) Zero) (Pair Zero (Pair Zero Zero))
 
   --print $ makeModule testData

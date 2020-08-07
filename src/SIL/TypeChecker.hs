@@ -387,19 +387,9 @@ buildConverterMap (Term3 termMap) =
       unsizedIndices = fold $ fmap getUnsized termMap
   in Map.fromList . map (\i -> (i, changeMap i)) $ toList unsizedIndices
 
-{-
-type TestMapBuilder = StateT (Map BreakExtras PoisonType)
-
-type FakeTestMapBuilder = StateT (Map BreakExtras PoisonType) Maybe
-type TestMapBuilder' = StateT (Map BreakExtras PoisonType) (Reader Int)
--}
---type RecursionLookup = BreakExtras -> PoisonType
 type RecursionTest = Reader Int PoisonType
 
---type TestMapBuilder = StateT (Map BreakExtras RecursionLookup) (Reader RecursionLookup)
-type TestMapBuilder = StateT (Map BreakExtras RecursionTest) (Reader Int)
--- (Reader Int (Map BreakExtras RecursionTest))
---type TestMapBuilder = State (Map BreakExtras RecursionLookup)
+type TestMapBuilder = StateT (Map BreakExtras RecursionTest) (Reader (Map BreakExtras Int))
 
 -- (\f -> f succ 0) ?
 
@@ -415,12 +405,6 @@ type TestMapBuilder = StateT (Map BreakExtras RecursionTest) (Reader Int)
 -- Two instances of using this:
 -- 1. Find out where SetEnv (poisoned) = not poisoned
 -- 2. Find out if SetEnv aborts
-{-
-fragToPoison :: Monad m => (FragIndex -> FragExpr BreakExtras)
-  -> ((PoisonType -> FragExpr BreakExtras -> m PoisonType) -> (FragIndex -> FragExpr BreakExtras)
-      -> PoisonType -> PoisonType -> PoisonType -> m PoisonType)
-  -> PoisonType -> FragExpr BreakExtras -> m PoisonType
--}
 fragToPoison :: Monad m => (FragIndex -> FragExpr BreakExtras)
   -> ((PoisonType -> FragExpr BreakExtras -> m PoisonType) -> PoisonType -> PoisonType -> PoisonType -> m PoisonType)
   -> PoisonType -> FragExpr BreakExtras -> m PoisonType
@@ -501,8 +485,8 @@ buildingSetEval sRecur env ft' it' =
                              AnyTypeN -> pCombine <$> sRecur' l <*> sRecur' r
                              z -> error $ "buildingSetEval Gate unexpected input: " <> show z
                        in doGate it
-          AuxF _ -> do
-            cLimit <- lift ask
+          AuxF ind -> do
+            cLimit <- (Map.findWithDefault 1 ind) <$> lift ask
             let (c,e,ii) = case it of
                   (PairTypeN i' (PairTypeN (PairTypeN c' e') _)) -> (c',e',i')
                   z -> error $ "buildingSetEval AuxF app - bad environment: " <> show z
@@ -514,7 +498,7 @@ buildingSetEval sRecur env ft' it' =
                    addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
                    conditionallyAddTests :: TestMapBuilder PoisonType -> TestMapBuilder PoisonType
                    conditionallyAddTests opt =
-                     let truncatedResult = flip runReader (toEnum 1) $ State.evalStateT opt Map.empty -- force church numerals to 1 to evaluate poison typing
+                     let truncatedResult = flip runReader mempty $ State.evalStateT opt Map.empty -- force church numerals to 1 to evaluate poison typing
                      in do
                        when (hasContamination ft && noContaminatedFunctions truncatedResult) $
                          mapM_ (flip addSizeTest (pure $ PairTypeN ft it)) poisonedSet

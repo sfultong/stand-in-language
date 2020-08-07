@@ -60,13 +60,13 @@ parseReplStep =  step >>= (\x -> (x,) <$> (bound <$> State.get))
     where step = try (parseReplAssignment *> return ReplAssignment)
                <|> (parseReplExpr *> return ReplExpr)
 
-runReplParser :: Bindings -> String -> Either ErrorString (ReplStep, Bindings)
+runReplParser :: Bindings -> String -> Either CompileError (ReplStep, Bindings)
 runReplParser prelude str = do
   let startState = ParserState prelude
       p          = State.runStateT parseReplStep startState
   case runParser p "" str of
     Right (a, s) -> Right a
-    Left x       -> Left $ MkES $ errorBundlePretty x
+    Left x       -> Left $ ParseError $ errorBundlePretty x
 
 -- Repl loop
 
@@ -80,18 +80,18 @@ replStep eval bindings s = do
     let e_new_bindings = runReplParser bindings s
     case e_new_bindings of
         Left err -> do 
-            outputStrLn $ "Parse error: " ++ getErrorString err
+            outputStrLn $ "Parse error: " ++ show err
             return bindings
         Right (ReplExpr,new_bindings) -> do  
             case Map.lookup "_tmp_" new_bindings of
                 Nothing -> outputStrLn "Could not find _tmp_ in bindings"
                 Just e  -> do
-                    let m_iexpr = ((findChurchSize . splitExpr) <$> debruijinize [] e) >>= toSIL
+                    let m_iexpr = toSIL <$> (debruijinize [] e >>= (findChurchSize . splitExpr))
                     case m_iexpr of
-                        Nothing     -> outputStrLn "conversion error"
-                        Just iexpr' -> do
+                        Right (Just iexpr') -> do
                             iexpr <- liftIO $ eval (SetEnv (Pair (Defer iexpr') Zero))
                             outputStrLn $ (show.PrettyIExpr) iexpr
+                        e     -> outputStrLn $ "compile error: " <> show e
             return bindings
         Right (ReplAssignment, new_bindings) -> do
             return new_bindings
@@ -120,17 +120,17 @@ replLoop (ReplState bs eval) = do
         Just s | ":dn" `isPrefixOf` s -> do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":dn" s of
                      Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
-                       Just iexpr -> do
+                       Right iexpr -> do
                          putStrLn . showNExprs $ fromSIL iexpr
                          putStrLn . showNIE $ fromSIL iexpr
-                       _ -> putStrLn "some sort of error?"
+                       z -> putStrLn $ "compile error: " <> show z
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
         Just s | ":d" `isPrefixOf` s -> do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":d" s of
                      Just (Right (ReplExpr, new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
-                       Just iexpr -> putStrLn $ showPIE iexpr
-                       _ -> putStrLn "some sort of error?"
+                       Right iexpr -> putStrLn $ showPIE iexpr
+                       z -> putStrLn $ "compile error: " <> show z
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
   {-

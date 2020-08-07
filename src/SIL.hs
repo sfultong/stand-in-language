@@ -278,6 +278,9 @@ data RunTimeError
 data CompileError
   = ParseError String
   | RecursionLimitError BreakExtras
+  | MissingDefiniton String
+  | IRConversionError
+  deriving (Eq, Ord, Show)
 
 instance Show RunTimeError where
   show (AbortRunTime a) = "Abort: " <> (show $ g2s a)

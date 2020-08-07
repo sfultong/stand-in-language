@@ -142,19 +142,25 @@ contaminationMap =
 calculateRecursionLimits' :: Term3 -> Either CompileError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
   let testMapBuilder :: StateT (Map BreakExtras RecursionTest) (Reader (Map BreakExtras Int)) PoisonType
-      testMapBuilder = undefined
+      testMapBuilder = fragToPoison (termMap Map.!) buildingSetEval AnyTypeN (rootFrag termMap)
       step1 :: Reader (Map BreakExtras Int) (Map BreakExtras RecursionTest)
       step1 = State.execStateT testMapBuilder mempty
       findLimit :: BreakExtras -> RecursionTest -> Either BreakExtras Int
       findLimit churchSizingIndex tests =
-        -- let abortsAt i = not . null . fragToPoison (termMap Map.!) abortingSetEval ZeroTypeN $ runReader tests i
-        let abortsAt i =
-              let (lMap, kTests, gMap) = Map.splitLookup churchSizingIndex . unBetterMap . contaminationMap $ runReader tests i
+        let unhandleableOther =
+              let (lMap, kTests, gMap) = Map.splitLookup churchSizingIndex . unBetterMap . contaminationMap $ runReader tests 1
                   otherMap = lMap <> gMap
-              in case Set.lookupMin $ Map.keysSet otherMap of
-                Just m -> Left m
-                -- Nothing -> 
-        in undefined
+              in Set.lookupMin $ Map.keysSet otherMap
+        in case unhandleableOther of
+          Just o -> Left o
+          _ -> let abortsAt i = let tests' = (Map.! churchSizingIndex) . unBetterMap . contaminationMap $ runReader tests i
+                                    runTest (frag, inp) = null $ fragToPoison (termMap Map.!) abortingSetEval inp frag
+                                in or $ fmap runTest tests'
+                   (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
+                   findC b e | b > e = b
+                   findC b e = let midpoint = div (b + e) 2
+                               in if abortsAt midpoint then findC (midpoint + 1) e else findC b midpoint
+               in pure $ findC ib ie
       mapLimits :: Map BreakExtras RecursionTest -> Either BreakExtras (Map BreakExtras Int)
       mapLimits = sequence . Map.mapWithKey findLimit
       unwrappedReader :: Map BreakExtras Int -> Map BreakExtras RecursionTest
@@ -165,7 +171,7 @@ calculateRecursionLimits' t3@(Term3 termMap) =
     Left be -> Left $ RecursionLimitError be
     Right limits -> pure $ convertPT (limits Map.!) t3
 
-findChurchSize :: Term3 -> Term4
+findChurchSize :: Term3 -> Either CompileError Term4
 {-
 findChurchSize term =
   let abortsAt i = (\(PResult (_, b)) -> b) . fix pEval PZero . fromSIL $ convertPT i term
@@ -176,7 +182,7 @@ findChurchSize term =
                   in if abortsAt midpoint then findC (midpoint + 1) e else findC b midpoint
   in convertPT (findC ib ie) term
 -}
-findChurchSize = convertPT (const 255)
+findChurchSize = calculateRecursionLimits' -- convertPT (const 255)
 
 {-
 findAllSizes :: Term2 -> (Bool, Term3)
@@ -201,9 +207,16 @@ findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
   TLimitedRecursion -> (True, TLimitedRecursion)
 -}
 
-resolveBinding :: String -> Bindings -> Maybe IExpr
-resolveBinding name bindings = Map.lookup name bindings >>=
-  ((>>= toSIL) . fmap (findChurchSize . splitExpr) . debruijinize [])
+resolveBinding :: String -> Bindings -> Either CompileError IExpr
+resolveBinding name bindings = convert (Map.lookup name bindings) where
+  wrapUp = \case
+    Just r -> case r of
+      Right d -> case toSIL d of
+        Just c -> pure c
+        _ -> Left IRConversionError
+      Left e -> Left e
+    _ -> Left $ MissingDefiniton "unknown from resolveBinding"
+  convert = wrapUp . fmap (findChurchSize . splitExpr) . (>>= debruijinize [])
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of
