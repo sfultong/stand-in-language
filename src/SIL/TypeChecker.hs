@@ -389,7 +389,7 @@ buildConverterMap (Term3 termMap) =
 
 type RecursionTest = Reader Int PoisonType
 
-type TestMapBuilder = StateT (Map BreakExtras RecursionTest) (Reader (Map BreakExtras Int))
+type TestMapBuilder = StateT (Map BreakExtras RecursionTest) (Reader (BreakExtras -> Int))
 
 -- (\f -> f succ 0) ?
 
@@ -486,7 +486,7 @@ buildingSetEval sRecur env ft' it' =
                              z -> error $ "buildingSetEval Gate unexpected input: " <> show z
                        in doGate it
           AuxF ind -> do
-            cLimit <- (Map.findWithDefault 1 ind) <$> lift ask
+            cLimit <- ($ ind) <$> lift ask
             let (c,e,ii) = case it of
                   (PairTypeN i' (PairTypeN (PairTypeN c' e') _)) -> (c',e',i')
                   z -> error $ "buildingSetEval AuxF app - bad environment: " <> show z
@@ -498,7 +498,7 @@ buildingSetEval sRecur env ft' it' =
                    addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
                    conditionallyAddTests :: TestMapBuilder PoisonType -> TestMapBuilder PoisonType
                    conditionallyAddTests opt =
-                     let truncatedResult = flip runReader mempty $ State.evalStateT opt Map.empty -- force church numerals to 1 to evaluate poison typing
+                     let truncatedResult = flip runReader (const 1) $ State.evalStateT opt Map.empty -- force church numerals to 1 to evaluate poison typing
                      in do
                        when (hasContamination ft && noContaminatedFunctions truncatedResult) $
                          mapM_ (flip addSizeTest (pure $ PairTypeN ft it)) poisonedSet

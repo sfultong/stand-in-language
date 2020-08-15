@@ -141,10 +141,12 @@ contaminationMap =
 
 calculateRecursionLimits' :: Term3 -> Either CompileError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
-  let testMapBuilder :: StateT (Map BreakExtras RecursionTest) (Reader (Map BreakExtras Int)) PoisonType
+  let testMapBuilder :: StateT (Map BreakExtras RecursionTest) (Reader (BreakExtras -> Int)) PoisonType
       testMapBuilder = fragToPoison (termMap Map.!) buildingSetEval AnyTypeN (rootFrag termMap)
-      step1 :: Reader (Map BreakExtras Int) (Map BreakExtras RecursionTest)
+      step1 :: Reader (BreakExtras -> Int) (Map BreakExtras RecursionTest)
       step1 = State.execStateT testMapBuilder mempty
+      step2 :: Map BreakExtras RecursionTest
+      step2 = runReader step1 (const 1)
       findLimit :: BreakExtras -> RecursionTest -> Either BreakExtras Int
       findLimit churchSizingIndex tests =
         let unhandleableOther =
@@ -161,13 +163,17 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                    findC b e = let midpoint = div (b + e) 2
                                in if abortsAt midpoint then findC (midpoint + 1) e else findC b midpoint
                in pure $ findC ib ie
+  {-
       mapLimits :: Map BreakExtras RecursionTest -> Either BreakExtras (Map BreakExtras Int)
       mapLimits = sequence . Map.mapWithKey findLimit
-      unwrappedReader :: Map BreakExtras Int -> Map BreakExtras RecursionTest
-      unwrappedReader = runReader step1
-      fixable :: Either BreakExtras (Map BreakExtras Int) -> Either BreakExtras (Map BreakExtras Int)
+      unwrappedReader :: (BreakExtras -> Int) -> (BreakExtras -> RecursionTest)
+      unwrappedReader = (Map.!) . runReader step1
+      fixable :: Either BreakExtras (BreakExtras -> Int) -> Either BreakExtras (BreakExtras -> Int)
       fixable =  join . fmap (mapLimits . unwrappedReader)
-  in case fix fixable of
+-}
+      limitMap :: Either BreakExtras (Map BreakExtras Int)
+      limitMap = sequence $ Map.mapWithKey findLimit step2
+  in case limitMap of
     Left be -> Left $ RecursionLimitError be
     Right limits -> pure $ convertPT (limits Map.!) t3
 
