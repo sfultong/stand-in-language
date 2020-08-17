@@ -293,66 +293,8 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromSIL 
   Left err -> do
     expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
 
-{-
-unitTestOptimization :: String -> IExpr -> IO Bool
-unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
-  then pure True
-  else (putStrLn $ concat [name, ": optimized1 ", show $ optimize iexpr, " optimized2 "
-                          , show $ optimize2 iexpr])
-  >> pure False
--}
-
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
-{-
-rEvaluationIsomorphicToIEvaluation :: ZeroTypedTestIExpr -> Bool
-rEvaluationIsomorphicToIEvaluation vte = case (pureEval $ getIExpr vte, pureREval $ getIExpr vte) of
-  (Left _, Left _) -> True
-  (a, b) | a == b -> True
-  _ -> False
-
-debugREITIE :: IExpr -> IO Bool
-debugREITIE iexpr = if pureEval iexpr == pureREval iexpr
-  then pure True
-  else do
-  putStrLn . concat $ ["ieval: ", show $ pureEval iexpr]
-  putStrLn . concat $ ["reval: ", show $ pureREval iexpr]
-  pure False
-
-partiallyEvaluatedIsIsomorphicToOriginal:: ArrowTypedTestIExpr -> Bool
---partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getIExpr vte) 0) == pureREval (app ())
-partiallyEvaluatedIsIsomorphicToOriginal vte =
-  let iexpr = getIExpr vte
-      sameError (GenericRunTimeError sa _) (GenericRunTimeError sb _) = sa == sb
-      -- sameError (SetEnvError _) (SetEnvError _) = True
-      sameError a b = a == b
-  in case (\x -> pureREval (app x Zero)) <$> eval iexpr of
-  Left (RTE e) -> Left e == pureREval (app iexpr Zero)
-  Right x -> case (x, pureREval (app iexpr Zero)) of
-    (Left a, Left b) -> sameError a b
-    (a, b) -> a == b
-
-debugPEIITO :: IExpr -> Expectation
-debugPEIITO iexpr = do
-  putStrLn "regular app:"
-  putStrLn $ show (app iexpr Zero)
-  putStrLn "r-optimized:"
-  showROptimized $ app iexpr Zero
-  putStrLn "evaled:"
-  putStrLn $ show (eval iexpr)
-  case (\x -> pureREval (app x Zero)) <$> eval iexpr of
-    Left (RTE e) ->
-      expectationFailure
-        (unlines
-           [ concat $ ["partially evaluated error: ", show e]
-           , concat $ ["regular evaluation result: ", show (pureREval (app iexpr Zero))]])
-    Right x ->
-      expectationFailure
-        (unlines
-           [ concat $ ["partially evaluated result: ", show x]
-           , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
-
--}
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
   , "       in $3 layer (\\x -> x) 0"
@@ -361,9 +303,10 @@ testRecur = concat
 -- unitTests_ :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
 unitTests_ parse = do
   let unitTestType = unitTestType' parse
-      unitTest2 = unitTest2' parse
-      unitTestRuntime = unitTestRuntime' parse
-      unitTestSameResult = unitTestSameResult' parse
+      unitTest2 = unitTest2' parse'
+      unitTestRuntime = unitTestRuntime' parse'
+      unitTestSameResult = unitTestSameResult' parse'
+      parse' = fmap toSIL . (>>= findChurchSize) . parse
   unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
   unitTestType "main = \\x -> (x,0)" ZeroTypeP isInconsistentType
   unitTestType "main = succ 0" ZeroTypeP (== Nothing)
@@ -451,10 +394,25 @@ unitTestQC name times p = quickCheckWithResult stdArgs { maxSuccess = times } p 
 
 debugMark s = hPutStrLn stderr s >> pure True
 
+unitTest2' parse s r = it s $ case parse s of
+  Right (Just g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
+    then pure ()
+    else expectationFailure $ concat [s, " result ", r2]
+  e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+
+unitTestType' parse s t tef = it s $ case parse s of
+  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+  Right g -> let apt = typeCheck t g
+             in if tef apt
+                then pure ()
+                else expectationFailure $
+                      concat [s, " failed typecheck, result ", show apt]
+
 --unitTests :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
 unitTests parse = do
   let unitTestType = unitTestType' parse
-      unitTest2 = unitTest2' parse
+      unitTest2 = unitTest2' parse'
+      parse' = fmap toSIL . (>>= findChurchSize) . parse
   describe "type checker" $ do
     unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
     unitTestType "main = \\x -> (x,0)" ZeroTypeP isInconsistentType
@@ -639,21 +597,6 @@ nexprTests = do
 
 foreign import capi "gc.h GC_INIT" gcInit :: IO ()
 foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
-
-unitTest2' parse s r = it s $ case parse s of
-  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
-    then pure ()
-    else expectationFailure $ concat [s, " result ", r2]
-
-unitTestType' parse s t tef = it s $ case parse s of
-  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> let apt = typeCheck t $ fromSIL g
-             in if tef apt
-                then pure ()
-                else expectationFailure $
-                      concat [s, " failed typecheck, result ", show apt]
-
 unitTestType2 i t tef = it ("type check " <> show i) $
   let apt = typeCheck t $ fromSIL i
   in if tef apt
@@ -661,13 +604,13 @@ unitTestType2 i t tef = it ("type check " <> show i) $
      else expectationFailure $ concat [show i, " failed typecheck, result ", show apt]
 
 unitTestRuntime' parse s = it s $ case parse s of
-  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> verifyEval g >>= \x -> case x of
+  Right (Just g) -> verifyEval g >>= \x -> case x of
     Nothing -> pure ()
     Just (ir, nr) -> expectationFailure $ "expected result: " <> show ir <> "\nactual result: " <> show nr
+  e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
 
 unitTestSameResult' parse a b = it ("comparing to " <> a) $ case (parse a, parse b) of
-  (Right ga, Right gb) -> do
+  (Right (Just ga), Right (Just gb)) -> do
     ra <- testNEval ga -- runExceptT . eval $ (fromSIL ga :: NExprs)
     rb <- testNEval gb
     if (show ra == show rb)
@@ -684,55 +627,7 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
-    -- parse = fmap findChurchSize . parseMain prelude
-    parse term = case toSIL <$> (parseMain prelude term >>= findChurchSize) of
-      Right (Just term) -> pure term
-      Right Nothing -> Left "grammar conversion error"
-      Left x -> Left $ show x
-  {-
-    unitTestP s g = case parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right pg -> if pg == g
-        then pure ()
-        else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
--}
-  {-
-    unitTest2 s r = it s $ case parse s of
-      Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-      Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
-        then pure ()
-        else expectationFailure $ concat [s, " result ", r2]
--}
-  {-
-    unitTest3 s r = let parsed = parseMain prelude s in case (inferType <$> parsed, parsed) of
-      (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
-        then pure True
-        else (putStrLn $ concat [s, " result ", r2]) >> pure False
-      e -> (putStrLn $ concat ["failed unittest3: ", s, " ", show e ]) >> pure False
-    unitTest4 s t = let parsed = parseMain prelude s in case debugInferType <$> parsed of
-      (Right (Right it)) -> if t == it
-        then pure True
-        else do
-        putStrLn $ concat ["expected type ", show t, " inferred type ", show it]
-        pure False
-      e -> do
-        putStrLn $ concat ["could not infer type ", show e]
-        pure False
--}
-  {-
-    unitTestType s t tef = it s $ case parse s of
-      Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-      Right g -> let apt = typeCheck t g
-                 in if tef apt
-                    then pure ()
-                    else expectationFailure $
-                          concat [s, " failed typecheck, result ", show apt]
--}
-  {-
-    parseSIL s = case parseMain prelude s of
-      Left e -> concat ["failed to parse ", s, " ", show e]
-      Right g -> show g
--}
+    parse term = parseMain prelude term
 
   -- TODO change eval to use rEval, then run this over a long non-work period
   {-
