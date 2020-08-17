@@ -1,25 +1,25 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE LambdaCase #-}
 module Telomare.RunTime where
 
-import Data.Foldable
-import Data.Functor.Identity
-import Data.Set (Set)
-import Debug.Trace
-import Control.Exception
-import Control.Monad.Except
-import Control.Monad.Fix
+import           Control.Exception
+import           Control.Monad.Except
+import           Control.Monad.Fix
+import           Data.Foldable
+import           Data.Functor.Identity
+import           Data.Set              (Set)
+import           Debug.Trace
 --import GHC.Exts (IsList(..))
-import GHC.Exts (fromList)
-import System.IO (hPutStrLn, stderr, hPrint)
+import           GHC.Exts              (fromList)
+import           System.IO             (hPrint, hPutStrLn, stderr)
 
-import Telomare
-import Naturals hiding (debug, debugTrace)
-import PrettyPrint
-import qualified Data.Map as Map
-import qualified Data.Set as Set
--- import qualified Telomare.Llvm as LLVM
+import qualified Data.Map              as Map
+import qualified Data.Set              as Set
+import           Naturals              hiding (debug, debugTrace)
+import           PrettyPrint
+import           Telomare
+import qualified Telomare.Llvm         as LLVM
 
 debug :: Bool
 debug = False
@@ -44,8 +44,8 @@ nEval (NExprs m) =
           z -> error ("nleft on " ++ show z ++ " before " ++ show x)
         (NRight x) -> recur x >>= \y -> case y of
           (NPair _ r) -> pure r
-          NZero -> pure NZero
-          z -> error ("nright on " ++ show z)
+          NZero       -> pure NZero
+          z           -> error ("nright on " ++ show z)
         (NDefer ind) -> case Map.lookup ind m of
           (Just x) -> pure x
           _ -> throwError $ GenericRunTimeError ("nEval bad index for function: " ++ show ind) Zero
@@ -54,7 +54,7 @@ nEval (NExprs m) =
           (NPair c i) -> case c of
             NGate a b -> case i of
               NZero -> recur a
-              _ -> recur b
+              _     -> recur b
             NAbort -> case i of
               NZero -> pure NEnv
               z -> case toTelomare (NExprs $ Map.insert resultIndex z m) of
@@ -70,7 +70,7 @@ nEval (NExprs m) =
           case nc of
             p@(NPair _ _) -> appl p ni
             (NLamNum n e) -> pure $ case ni of
-              (NLamNum m _) -> NPair (NPair (NNum (n ^ m)) NEnv) e
+              (NLamNum m _)     -> NPair (NPair (NNum (n ^ m)) NEnv) e
               (NPartialNum m f) -> NPair (NNum (n * m)) f
             NToNum -> pure $ NApp NToNum ni
             (NApp NToNum (NPair (NPair (NNum nn) NEnv) nenv)) ->
@@ -90,7 +90,7 @@ nEval (NExprs m) =
         z -> pure z
   in case Map.lookup (FragIndex 0) m of
     (Just f) -> eval NZero f
-    _ -> throwError $ GenericRunTimeError "nEval: no root frag" Zero
+    _        -> throwError $ GenericRunTimeError "nEval: no root frag" Zero
 
 iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
 iEval f env g = let f' = f env in case g of
@@ -102,10 +102,10 @@ iEval f env g = let f' = f env in case g of
       -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
       Gate a b -> case nenv of
         Zero -> f' a
-        _ -> f' b
+        _    -> f' b
       Abort -> case nenv of
         Zero -> pure $ Defer Env
-        z -> throwError $ AbortRunTime z
+        z    -> throwError $ AbortRunTime z
       z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
   PLeft g -> f' g >>= \case
@@ -193,10 +193,10 @@ pEval f env g =
         PDefer c -> f nenv c
         PGate l r -> case nenv of
           PZero -> f' l
-          _ -> f' r
+          _     -> f' r
         PAbort -> case nenv of
           PZero -> singleResult $ PDefer PEnv
-          _ -> PResult (mempty, True)
+          _     -> PResult (mempty, True)
         _ -> error "should not be here in pEval setenv (bad cf)"
       _ -> error "should not be here in pEval setenv non pair"
     x -> singleResult x
@@ -212,18 +212,18 @@ instance TelomareLike NExprs where
   fromTelomare = (NExprs . fragsToNExpr) . fragmentExpr
   toTelomare (NExprs m) =
     let fromNExpr x = case x of
-          NZero -> pure Zero
-          (NPair a b) -> Pair <$> fromNExpr a <*> fromNExpr b
-          NEnv -> pure Env
-          (NSetEnv x) -> SetEnv <$> fromNExpr x
-          NAbort -> pure Abort
-          NGate a b -> Gate <$> fromNExpr a <*> fromNExpr b
-          (NLeft x) -> PLeft <$> fromNExpr x
-          (NRight x) -> PRight <$> fromNExpr x
-          NTrace -> pure Trace
-          (NDefer i) -> Map.lookup i m >>= (fmap Defer . fromNExpr)
+          NZero         -> pure Zero
+          (NPair a b)   -> Pair <$> fromNExpr a <*> fromNExpr b
+          NEnv          -> pure Env
+          (NSetEnv x)   -> SetEnv <$> fromNExpr x
+          NAbort        -> pure Abort
+          NGate a b     -> Gate <$> fromNExpr a <*> fromNExpr b
+          (NLeft x)     -> PLeft <$> fromNExpr x
+          (NRight x)    -> PRight <$> fromNExpr x
+          NTrace        -> pure Trace
+          (NDefer i)    -> Map.lookup i m >>= (fmap Defer . fromNExpr)
           (NOldDefer x) -> Defer <$> fromNExpr x
-          _ -> Nothing
+          _             -> Nothing
     in Map.lookup resultIndex m >>= fromNExpr
 instance AbstractRunTime NExprs where
   eval x@(NExprs m) = (\r -> NExprs $ Map.insert resultIndex r m) <$> nEval x
@@ -237,7 +237,7 @@ evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
 
 simpleEval :: IExpr -> IO IExpr
 simpleEval x = runExceptT (eval x) >>= \r -> case r of
-  Left e -> fail (show e)
+  Left e  -> fail (show e)
   Right i -> pure i
 
 fastInterpretEval :: IExpr -> IO IExpr
@@ -247,10 +247,8 @@ fastInterpretEval e = do
       nExpr = traceShow $ fromTelomare e
   result <- runExceptT $ evalAndConvert nExpr
   case result of
-    Left e -> error ("runtime error: " ++ show e)
+    Left e  -> error ("runtime error: " ++ show e)
     Right r -> pure r
-
-{- commenting out until fixed
 
 llvmEval :: NExpr -> IO LLVM.RunResult
 llvmEval nexpr = do
@@ -265,10 +263,15 @@ llvmEval nexpr = do
       hPutStrLn stderr $ "failed llvmEval: " ++ s
       fail s
     Right x -> pure x
--}
 
 optimizedEval :: IExpr -> IO IExpr
-optimizedEval = fastInterpretEval
+optimizedEval e = do
+  res <- llvmEval (toNExpr e)
+  fromNExpr <$> LLVM.convertPairs res
+  where
+    fromNExpr x = fromMaybe Zero (toTelomare x) -- FIX this hack
+
+-- optimizedEval = fastInterpretEval
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g
@@ -278,7 +281,7 @@ showPass a = a >>= (liftIO . print) >> a
 
 tEval :: IExpr -> IO IExpr
 tEval x = runExceptT (fix (\f e g -> showPass $ iEval f e g) Zero x) >>= \r -> case r of
-  Left e -> fail (show e)
+  Left e  -> fail (show e)
   Right i -> pure i
 
 typedEval :: (IExpr -> DataType -> Bool) -> IExpr -> (IExpr -> IO ()) -> IO ()

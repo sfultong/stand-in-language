@@ -142,13 +142,74 @@ instance Show DebugModule where
             concat ["  ", show n, "\n", concatMap displayInstruction inst, "    ", show term, "\n"]
           displayInstruction i = concat ["    ", show i, "\n"]
 
--- TODO fix
+-- OrcJIT simple example
+-- resolver :: CompileLayer l => l -> MangledSymbol
+--                            -> IO (Either JITSymbolError JITSymbol)
+-- resolver compileLayer symbol = findSymbol compileLayer symbol True
+
+-- Simple JIT example
+-- resolver ::
+--   JIT.IRCompileLayer l ->
+--   JIT.MangledSymbol ->
+--   IO (Either JIT.JITSymbolError JIT.JITSymbol)
+-- resolver compileLayer symbol =
+--   JIT.findSymbol compileLayer symbol True
+
+-- Cocreature blog post example https://purelyfunctional.org/posts/2018-04-02-llvm-hs-jit-external-function.html
+-- resolver :: IRCompileLayer l -> SymbolResolver
+-- resolver compileLayer =
+--   SymbolResolver
+--     (\s -> findSymbol compileLayer s True)
+--     (\s ->
+--        fmap
+--          (\a -> JITSymbol a (JITSymbolFlags False True))
+--          (getSymbolAddressInProcess s))
+
+
+-- what is this resolver resolving? Symbol? What does a Symbol do?
+-- Telomere. TODO fix. It typechecks, but arbitrarily got rid of the second lambda...
 resolver :: OJ.CompileLayer l => l -> OJ.SymbolResolver
 resolver compileLayer = OJ.SymbolResolver
-  (\s -> OJ.findSymbol compileLayer s True)
-  {-
-  (\s -> fmap (\a -> Right $ OJ.JITSymbol a (OJ.defaultJITSymbolFlags { OJ.jitSymbolExported = True })) (Linking.getSymbolAddressInProcess s))
--}
+                          (\ms -> OJ.findSymbol compileLayer ms True)
+-- -- Version 6
+-- type SymbolResolverFn = MangledSymbol -> IO JITSymbol
+-- -- | Specifies how external symbols in a module added to a
+-- -- 'CompielLayer' should be resolved.
+-- data SymbolResolver =
+--   SymbolResolver {
+--     -- | This is used to find symbols in the same logical dynamic
+--     -- library as the module referencing them.
+--     dylibResolver :: !SymbolResolverFn,
+--     -- | When 'dylibResolver' fails to resolve a symbol,
+--     -- 'externalResolver' is used as a fallback to find external symbols.
+--     externalResolver :: !SymbolResolverFn
+  }
+
+-- -- Version 7
+-- -- | Specifies how external symbols in a module added to a
+-- -- 'CompileLayer' should be resolved.
+-- newtype SymbolResolver =
+--   SymbolResolver (MangledSymbol -> IO (Either JITSymbolError JITSymbol))
+
+-- resolver :: OJ.CompileLayer l => l -> OJ.SymbolResolver
+-- resolver compileLayer = OJ.SymbolResolver
+--   (\s -> OJ.findSymbol compileLayer s True)
+--   (\s -> fmap (\a -> Right $ OJ.JITSymbol a (OJ.defaultJITSymbolFlags { OJ.jitSymbolExported = True })) (Linking.getSymbolAddressInProcess s))
+
+
+  -- OJ.SymbolResolver -- (OJ.MangledSymbol -> IO (Either OJ.JITSymbolError OJ.JITSymbol)) -> OJ.SymbolResolver
+  --   (\s -> OJ.findSymbol compileLayer s True)
+  --   (\s -> fmap
+  --            (\a -> Right $ OJ.JITSymbol a (OJ.defaultJITSymbolFlags { OJ.jitSymbolExported = True }))
+  --            (Linking.getSymbolAddressInProcess s))
+
+-- mangleSymbol :: CompileLayer l => l -> ShortByteString -> IO MangledSymbol
+-- usage in evalJIT: mainSymbol <- OJ.mangleSymbol compileLayer "main"
+
+-- findSymbol :: CompileLayer l => l -> MangledSymbol -> Bool -> IO (Either JITSymbolError JITSymbol)
+
+
+
 
 withTargetMachine :: (Target.TargetMachine -> IO a) -> IO a
 withTargetMachine f = do
