@@ -93,6 +93,10 @@ data NExpr
   | NToNum
   deriving (Eq, Show, Ord, Generic, NFData)
 
+
+-- instance
+
+
 instance Binary NExpr
 
 pattern NLamNum :: Int64 -> NExpr -> NExpr

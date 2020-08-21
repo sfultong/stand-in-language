@@ -169,8 +169,11 @@ instance Show DebugModule where
 -- what is this resolver resolving? Symbol? What does a Symbol do?
 -- Telomere. TODO fix. It typechecks, but arbitrarily got rid of the second lambda...
 resolver :: OJ.CompileLayer l => l -> OJ.SymbolResolver
-resolver compileLayer = OJ.SymbolResolver
-                          (\ms -> OJ.findSymbol compileLayer ms True)
+resolver compileLayer = OJ.SymbolResolver $
+                          (\s -> fmap
+                                  (\a -> Right $ OJ.JITSymbol a (OJ.defaultJITSymbolFlags { OJ.jitSymbolExported = True }))
+                                  (Linking.getSymbolAddressInProcess s))
+                          -- (\ms -> OJ.findSymbol compileLayer ms True)
 -- -- Version 6
 -- type SymbolResolverFn = MangledSymbol -> IO JITSymbol
 -- -- | Specifies how external symbols in a module added to a
@@ -183,7 +186,7 @@ resolver compileLayer = OJ.SymbolResolver
 --     -- | When 'dylibResolver' fails to resolve a symbol,
 --     -- 'externalResolver' is used as a fallback to find external symbols.
 --     externalResolver :: !SymbolResolverFn
-  }
+--     }
 
 -- -- Version 7
 -- -- | Specifies how external symbols in a module added to a
@@ -191,6 +194,7 @@ resolver compileLayer = OJ.SymbolResolver
 -- newtype SymbolResolver =
 --   SymbolResolver (MangledSymbol -> IO (Either JITSymbolError JITSymbol))
 
+-- -- This is the code that did work for version 6
 -- resolver :: OJ.CompileLayer l => l -> OJ.SymbolResolver
 -- resolver compileLayer = OJ.SymbolResolver
 --   (\s -> OJ.findSymbol compileLayer s True)

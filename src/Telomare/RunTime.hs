@@ -270,8 +270,7 @@ optimizedEval e = do
   fromNExpr <$> LLVM.convertPairs res
   where
     fromNExpr x = fromMaybe Zero (toTelomare x) -- FIX this hack
-
--- optimizedEval = fastInterpretEval
+-- optimizedEval = fastInterpretEval -- FIX
 
 pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval g = runIdentity . runExceptT $ fix iEval Zero g
