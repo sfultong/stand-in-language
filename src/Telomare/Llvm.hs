@@ -75,7 +75,7 @@ run jitConfig fn = do
 
 -- |Recursively follow all integers by interpreting them as indices
 -- in the pair array until a 0 is found.
-convertPairs :: RunResult -> IO NExpr
+convertPairs :: RunResult -> IO NResult
 convertPairs (RunResult x _) = go x
   where
     go 0 = pure NZero
@@ -84,52 +84,107 @@ convertPairs (RunResult x _) = go x
       l <- peek ptr
       r <- peek (ptr `plusPtr` 8)
       NPair <$> go l <*> go r
+-- convertPairs :: RunResult -> IO NExpr
+-- convertPairs (RunResult x _) = go x
+--   where
+--     go 0 = pure NZero
+--     go i = do
+--       let ptr = intPtrToPtr (IntPtr (fromIntegral i))
+--       l <- peek ptr
+--       r <- peek (ptr `plusPtr` 8)
+--       NPair <$> go l <*> go r
 
 -- |LLVM - Boehm linking
-makeModule :: NExpr -> AST.Module
-makeModule iexpr = flip evalState (Map.empty, 0) . buildModuleT "TelomareModule" $ do
-  _ <- emitDefn
-    (GlobalDefinition (functionDefaults {
-                          name = "GC_malloc",
-                          returnType = PointerType (IntegerType 8) (AddrSpace.AddrSpace 0),
-                          G.returnAttributes = [PA.NoAlias],
-                          parameters = ([Parameter intT "" []], False)
-                          }))
-  -- Initalize the Boehm GC
-  gcRegisterMyThread <- extern "Telomare_register_my_thread" [] T.void
-  mapM_ emitDefn [heapIndex, resultStructure]
+makeModule :: NExprs -> AST.Module
+makeModule nexprs = undefined
+  -- flip evalState (Map.empty, 0) . buildModuleT "TelomareModule" $ do
+  -- _ <- emitDefn
+  --   (GlobalDefinition (functionDefaults {
+  --                         name = "GC_malloc",
+  --                         returnType = PointerType (IntegerType 8) (AddrSpace.AddrSpace 0),
+  --                         G.returnAttributes = [PA.NoAlias],
+  --                         parameters = ([Parameter intT "" []], False)
+  --                         }))
+  -- -- Initalize the Boehm GC
+  -- gcRegisterMyThread <- extern "Telomare_register_my_thread" [] T.void
+  -- mapM_ emitDefn [heapIndex, resultStructure]
 
-  _ <- goLeft
-  _ <- goRight
+  -- _ <- goLeft
+  -- _ <- goRight
 
-  setJmp <- IRM.extern "w_setjmp" [] intT
-  _ <- IRM.extern "w_longjmp" [intT] VoidType
+  -- setJmp <- IRM.extern "w_setjmp" [] intT
+  -- _ <- IRM.extern "w_longjmp" [intT] VoidType
 
-  IRM.function "main" [] (PointerType resultStructureT (AddrSpace.AddrSpace 0))
-    $ \_ -> mdo
-        -- wrap the evaluation of iexpr in a setjmp branch, so that an abort instruction can return for an early exit
-        preludeB <- block `named` "prelude"
-        _ <- IRI.call gcRegisterMyThread []
-        jumped <- IRI.call setJmp []
-        brCond <- IRI.icmp IP.EQ jumped zero
-        IRI.condBr brCond mainB exitB
+  -- IRM.function "main" [] (PointerType resultStructureT (AddrSpace.AddrSpace 0))
+  --   $ \_ -> mdo
+  --       -- wrap the evaluation of nexprs in a setjmp branch, so that an abort instruction can return for an early exit
+  --       preludeB <- block `named` "prelude"
+  --       _ <- IRI.call gcRegisterMyThread []
+  --       jumped <- IRI.call setJmp []
+  --       brCond <- IRI.icmp IP.EQ jumped zero
+  --       IRI.condBr brCond mainB exitB
 
-        mainB <- block `named` "main"
-        -- TODO fix
-        -- mainExp <- toLLVM iexpr
-        mainExp <- undefined
-        endMainB <- currentBlock
-        IRI.br exitB
-        emitTerm (Br exitB [])
+  --       mainB <- block `named` "main"
+  --       -- TODO fix
+  --       -- mainExp <- toLLVM nexprs
+  --       mainExp <- undefined
+  --       endMainB <- currentBlock
+  --       IRI.br exitB
+  --       emitTerm (Br exitB [])
 
-        exitB <- block `named` "exit"
-        result <- IRI.phi [(mainExp, endMainB), (jumped, preludeB)]
-        heapC <- IRI.load heapIndexC 0
-        numPairs <- IRI.gep resultC [zero, zero32]
-        resultPair <- IRI.gep resultC [zero, one32]
-        IRI.store numPairs 0 heapC
-        IRI.store resultPair 0 result
-        IRI.ret resultC
+  --       exitB <- block `named` "exit"
+  --       result <- IRI.phi [(mainExp, endMainB), (jumped, preludeB)]
+  --       heapC <- IRI.load heapIndexC 0
+  --       numPairs <- IRI.gep resultC [zero, zero32]
+  --       resultPair <- IRI.gep resultC [zero, one32]
+  --       IRI.store numPairs 0 heapC
+  --       IRI.store resultPair 0 result
+  --       IRI.ret resultC
+-- makeModule :: NExpr -> AST.Module
+-- makeModule iexpr = flip evalState (Map.empty, 0) . buildModuleT "TelomareModule" $ do
+--   _ <- emitDefn
+--     (GlobalDefinition (functionDefaults {
+--                           name = "GC_malloc",
+--                           returnType = PointerType (IntegerType 8) (AddrSpace.AddrSpace 0),
+--                           G.returnAttributes = [PA.NoAlias],
+--                           parameters = ([Parameter intT "" []], False)
+--                           }))
+--   -- Initalize the Boehm GC
+--   gcRegisterMyThread <- extern "Telomare_register_my_thread" [] T.void
+--   mapM_ emitDefn [heapIndex, resultStructure]
+
+--   _ <- goLeft
+--   _ <- goRight
+
+--   setJmp <- IRM.extern "w_setjmp" [] intT
+--   _ <- IRM.extern "w_longjmp" [intT] VoidType
+
+--   IRM.function "main" [] (PointerType resultStructureT (AddrSpace.AddrSpace 0))
+--     $ \_ -> mdo
+--         -- wrap the evaluation of iexpr in a setjmp branch, so that an abort instruction can return for an early exit
+--         preludeB <- block `named` "prelude"
+--         _ <- IRI.call gcRegisterMyThread []
+--         jumped <- IRI.call setJmp []
+--         brCond <- IRI.icmp IP.EQ jumped zero
+--         IRI.condBr brCond mainB exitB
+
+--         mainB <- block `named` "main"
+--         -- TODO fix
+--         -- mainExp <- toLLVM iexpr
+--         mainExp <- undefined
+--         endMainB <- currentBlock
+--         IRI.br exitB
+--         emitTerm (Br exitB [])
+
+--         exitB <- block `named` "exit"
+--         result <- IRI.phi [(mainExp, endMainB), (jumped, preludeB)]
+--         heapC <- IRI.load heapIndexC 0
+--         numPairs <- IRI.gep resultC [zero, zero32]
+--         resultPair <- IRI.gep resultC [zero, one32]
+--         IRI.store numPairs 0 heapC
+--         IRI.store resultPair 0 result
+--         IRI.ret resultC
+
 
 data DebugModule = DebugModule AST.Module
 
@@ -264,42 +319,47 @@ optimizerLevelToWord l =
     Three -> 3
 
 evalJIT :: JITConfig -> AST.Module -> IO (Either String RunResult)
--- evalJIT jitConfig amod = do
---   _ <- Linking.loadLibraryPermanently Nothing
---   withContext $ \ctx -> do
---     t0 <- getTime Monotonic
---     OJ.withExecutionSession $ \sesh -> -- This function should be `IO (Either String RunResult)`, but is `(OJ.ModuleKey -> IO a3) -> IO a3`
---       OJ.withModuleKey $ \key ->
---         Mod.withModuleFromAST ctx amod $ \mod -> do
---           t1 <- getTime Monotonic
---           optimizeModule jitConfig mod
---           t2 <- getTime Monotonic
---           when (debugOutput jitConfig) $ do
---             asm <- moduleLLVMAssembly mod
---             BSC.putStrLn asm
---           withTargetMachine $ \tm ->
---             OJ.withObjectLinkingLayer $ \objectLayer -> do
---               debugLog jitConfig "in objectlinkinglayer"
---               OJ.withIRCompileLayer objectLayer tm $ \compileLayer -> do
---                 debugLog jitConfig "in compilelayer"
---                 t3 <- getTime Monotonic
---                 OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
---                   t4 <- getTime Monotonic
---                   debugLog jitConfig "in modulelayer"
---                   mainSymbol <- OJ.mangleSymbol compileLayer "main"
---                   jitSymbolOrError <- OJ.findSymbol compileLayer mainSymbol True
---                   case jitSymbolOrError of
---                     Left err -> do
---                       debugLog jitConfig ("Could not find main: " <> show err)
---                       pure $ error "Couldn't find main"
---                     Right (OJ.JITSymbol mainFn _) -> do
---                       debugLog jitConfig "running main"
---                       t5 <- getTime Monotonic
---                       res <- run jitConfig mainFn
---                       t6 <- getTime Monotonic
---                       when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
---                       pure . Right $ res
-evalJIT _ _ = undefined
+evalJIT jitConfig amod = do
+  _ <- Linking.loadLibraryPermanently Nothing
+  withContext $ \ctx -> do
+    t0 <- getTime Monotonic
+    OJ.withExecutionSession $ \sesh ->
+      OJ.withModuleKey sesh $ \key -> -- TODO: see if puting `sesh` was correct.
+        Mod.withModuleFromAST ctx amod $ \mod -> do
+          t1 <- getTime Monotonic
+          optimizeModule jitConfig mod
+          t2 <- getTime Monotonic
+          when (debugOutput jitConfig) $ do
+            asm <- moduleLLVMAssembly mod
+            BSC.putStrLn asm
+            evalJIT2 t0 t1 t2
+
+evalJIT2 t0 t1 t2 = do
+  withTargetMachine $ \tm ->
+    -- missing:
+    -- (OJ.ModuleKey -> IO (Ptr LLVM.Internal.FFI.OrcJIT.SymbolResolver))
+    OJ.withObjectLinkingLayer sesh $ \objectLayer -> do
+      debugLog jitConfig "in objectlinkinglayer"
+      OJ.withIRCompileLayer objectLayer tm $ \compileLayer -> do
+        debugLog jitConfig "in compilelayer"
+        t3 <- getTime Monotonic
+        OJ.withModule compileLayer mod (resolver compileLayer) $ \_ -> do
+          t4 <- getTime Monotonic
+          debugLog jitConfig "in modulelayer"
+          mainSymbol <- OJ.mangleSymbol compileLayer "main"
+          jitSymbolOrError <- OJ.findSymbol compileLayer mainSymbol True
+          case jitSymbolOrError of
+            Left err -> do
+              debugLog jitConfig ("Could not find main: " <> show err)
+              pure $ error "Couldn't find main"
+            Right (OJ.JITSymbol mainFn _) -> do
+              debugLog jitConfig "running main"
+              t5 <- getTime Monotonic
+              res <- run jitConfig mainFn
+              t6 <- getTime Monotonic
+              when (timingOutput jitConfig) $ printTimings t0 t1 t2 t3 t4 t5 t6
+              pure . Right $ res
+-- evalJIT _ _ = undefined
 
 printTimings :: TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> IO ()
 printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer beforeAddingModule afterAddingModule beforeRun afterRun = do
@@ -495,6 +555,8 @@ envC = LocalReference intT "env"
 
 lComment :: a -> (a, MDRef MDNode)
 lComment s = (s, MDInline (MDTuple []))
+
+-- newtype NExprs = NExprs (Map FragIndex NResult) deriving Eq
 
 toLLVM :: Map FragIndex ExprFrag -> ExprFrag -> TelomareBuilder Operand
 toLLVM = undefined

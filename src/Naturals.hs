@@ -1,9 +1,11 @@
 {-# LANGUAGE DeriveAnyClass             #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE PatternSynonyms            #-}
 -- {-# LANGUAGE GADTs #-}
 -- {-# LANGUAGE EmptyDataDecls #-}
+
 module Naturals where
 
 import           Control.Applicative
@@ -94,8 +96,37 @@ data NExpr
   deriving (Eq, Show, Ord, Generic, NFData)
 
 
--- instance
+-- instance TelomareLike NExpr where
+--   -- fromTelomare :: IExpr -> NExpr
+--   fromTelomare = \case
+--       Zero       -> NZero
+--       Env        -> NEnv
+--       Abort  -> NAbort
+--       Trace  -> NTrace
+--       (Pair a b) -> fromJust (error "fix me") $ NPair <$> (fromTelomare a)
+--                                                       <*> (fromTelomare b)
+--       (SetEnv x) -> fromJust (error "fix me") $ NSetEnv <$> (fromTelomare x)
+--       (Defer x)  -> fromJust (error "fix me") $ NDefer <$> (fromTelomare x)
+--       (Gate a b)  -> fromJust (error "fix me") $ NGate <$> (fromTelomare a)
+--                                                        <*> (fromTelomare b)
+--       (PLeft x)  -> fromJust (error "fix me") $ NLeft <$> (fromTelomare x)
+--       (PRight x) -> fromJust (error "fix me") $ NRight <$> (fromTelomare x)
 
+--       -- TODO Church numerals and natural ops
+--   -- toTelomare :: NExpr -> Maybe IExpr
+--   toTelomare x =
+--     case x of
+--       NZero       -> Just Zero
+--       NEnv        -> Just Env
+--       NTrace      -> Just Trace
+--       NAbort      -> Just Abort
+--       (NDefer x)  -> Defer <$> (toTelomare x)
+--       (NPair a b) -> Pair <$> (toTelomare a) <*> (toTelomare b)
+--       (NSetEnv x) -> SetEnv <$> (toTelomare x)
+--       (NGate a b) -> Gate <$> (toTelomare a) <*> (toTelomare b)
+--       (NLeft x)   -> PLeft <$> (toTelomare x)
+--       (NRight x)  -> PRight <$> (toTelomare x)
+--       _           -> error "TODO"
 
 instance Binary NExpr
 
@@ -108,7 +139,9 @@ pattern NPartialNum i f <- (NPair (NNum i) f)
 nlam :: NExpr -> NExpr
 nlam x = NPair (NOldDefer x) NEnv
 
+-- |NResult is an NExpr with no Defer.
 type NResult = NExpr
+
 
 newtype NExprs = NExprs (Map FragIndex NResult) deriving Eq
 

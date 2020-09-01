@@ -519,3 +519,6 @@ process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bi
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
 parseMain prelude s = parseWithPrelude prelude s >>= process prelude
+
+
+

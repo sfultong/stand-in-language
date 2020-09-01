@@ -8,6 +8,7 @@ import           Control.Monad.Except
 import           Control.Monad.Fix
 import           Data.Foldable
 import           Data.Functor.Identity
+import           Data.Maybe
 import           Data.Set              (Set)
 import           Debug.Trace
 --import GHC.Exts (IsList(..))
@@ -208,6 +209,7 @@ instance AbstractRunTime IExpr where
   eval = fix iEval Zero
 
 resultIndex = FragIndex (-1)
+
 instance TelomareLike NExprs where
   fromTelomare = (NExprs . fragsToNExpr) . fragmentExpr
   toTelomare (NExprs m) =
@@ -225,6 +227,7 @@ instance TelomareLike NExprs where
           (NOldDefer x) -> Defer <$> fromNExpr x
           _             -> Nothing
     in Map.lookup resultIndex m >>= fromNExpr
+
 instance AbstractRunTime NExprs where
   eval x@(NExprs m) = (\r -> NExprs $ Map.insert resultIndex r m) <$> nEval x
 
@@ -250,26 +253,35 @@ fastInterpretEval e = do
     Left e  -> error ("runtime error: " ++ show e)
     Right r -> pure r
 
-llvmEval :: NExpr -> IO LLVM.RunResult
-llvmEval nexpr = do
-  let lmod = LLVM.makeModule nexpr
+-- shouldn't this function be of type:?
+llvmEval :: NExprs -> IO LLVM.RunResult
+-- llvmEval :: NExpr -> IO LLVM.RunResult
+llvmEval nexprs = do
+  let lmod = LLVM.makeModule nexprs
   when debug $ do
     print $ LLVM.DebugModule lmod
     putStrLn . concat . replicate 100 $ "                                                                     \n"
   result <- catch (LLVM.evalJIT LLVM.defaultJITConfig lmod) $ \(e :: SomeException) -> pure . Left $ show e
   case result of
     Left s -> do
-      hPrint stderr nexpr
+      hPrint stderr nexprs
       hPutStrLn stderr $ "failed llvmEval: " ++ s
       fail s
     Right x -> pure x
 
+
+
 optimizedEval :: IExpr -> IO IExpr
 optimizedEval e = do
-  res <- llvmEval (toNExpr e)
-  fromNExpr <$> LLVM.convertPairs res
+  res <- llvmEval (fromTelomare e)
+  -- res <- llvmEval (toNExpr e)
+  fromNExprs . nResult2NExprs <$> LLVM.convertPairs res
   where
-    fromNExpr x = fromMaybe Zero (toTelomare x) -- FIX this hack
+    fromNExprs :: NExprs -> IExpr
+    fromNExprs x = fromMaybe Zero (toTelomare x) -- FIX this hack
+    toNExpr x = fromTelomare x
+    nResult2NExprs :: NResult -> NExprs
+    nResult2NExprs nr = NExprs (Map.singleton (FragIndex 0) nr)
 -- optimizedEval = fastInterpretEval -- FIX
 
 pureEval :: IExpr -> Either RunTimeError IExpr
