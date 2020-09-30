@@ -7,13 +7,16 @@ license:             Apache-2.0
 license-file:        LICENSE
 author:              Sam Griffin
 maintainer:          sam.griffin@gmail.com
-copyright:           2019 Sam Griffin
+copyright:           2020 Sam Griffin
 category:            Language
 build-type:          Simple
 extra-source-files:  CHANGELOG.md, README.md
 cabal-version:       >=1.10
 
 data-files:          bench/MemoryBench/cases
+                   , Prelude.tel
+                   , tictactoe.tel
+                   , hello.tel
 
 library
   hs-source-dirs:      src
@@ -36,8 +39,10 @@ library
                      , Telomare.Parser
                      , Telomare.RunTime
                      , Telomare.TypeChecker
-                     , Telomare.Serializer
-                     , Telomare.Serializer.C
+                     -- TODO: FIX.
+                     -- Maybe specifying ghc's all-cabal-hashes
+                     -- , Telomare.Serializer
+                     -- , Telomare.Serializer.C
                      , Common
   build-depends:       base
                      , base16-bytestring
@@ -50,8 +55,10 @@ library
                      , mtl
                      , vector
                      , deepseq
-                     , derive-storable
-                     , derive-storable-plugin
+                     -- TODO: FIX.
+                     -- Maybe specifying ghc's all-cabal-hashes
+                     -- , derive-storable
+                     -- , derive-storable-plugin
                      , bytestring
                      , llvm-hs
                      , llvm-hs-pure
@@ -132,18 +139,20 @@ test-suite telomare-parser-test
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
-test-suite telomare-serializer-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      test/
-  main-is:             SerializerSpec.hs
-  other-modules:       Common
-  build-depends:       base
-                     , telomare
-                     , strict
-                     , hspec
-                     , QuickCheck
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  default-language:    Haskell2010
+-- TODO: FIX.
+-- Maybe specifying ghc's all-cabal-hashes
+-- test-suite telomare-serializer-test
+--   type:                exitcode-stdio-1.0
+--   hs-source-dirs:      test/
+--   main-is:             SerializerSpec.hs
+--   other-modules:       Common
+--   build-depends:       base
+--                      , telomare
+--                      , strict
+--                      , hspec
+--                      , QuickCheck
+--   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+--   default-language:    Haskell2010
 
 benchmark telomare-serializer-benchmark
   type:                exitcode-stdio-1.0

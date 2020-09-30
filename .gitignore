@@ -9,3 +9,7 @@ cabal.project.local
 .dir-locals.el
 .#*
 libgc.so
+notes.md
+result
+result-2
+hie.yaml
