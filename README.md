@@ -1,10 +1,6 @@
 # Telomare
 > A simple but robust virtual machine
 
-![github actions badge](https://github.com/Stand-in-Language/stand-in-language/workflows/Telomare%20CI%20Tests/badge.svg)
-
-[![Join the chat at https://gitter.im/stand-in-language/Lobby](https://badges.gitter.im/stand-in-language/Lobby.svg)](https://gitter.im/stand-in-language/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-
 <p float="left">
   <img src="https://github.com/Stand-in-Language/stand-in-language/workflows/Telomare%20CI%20Tests/badge.svg" />
   <a href="https://gitter.im/stand-in-language/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge"
