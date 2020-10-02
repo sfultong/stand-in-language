@@ -1,6 +1,6 @@
 { # Fetch the latest haskell.nix and import its default.nix
-  # haskellNix ? import (builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/dc7acfeb7628032d5109747a8b330d58817b953f.tar.gz") {}
-  haskellNix ? import (builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/master.tar.gz") {}
+  haskellNix ? import (builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/c88f9eccc975b21ae1e6a6b8057a712b91e374f2.tar.gz") {}
+  # haskellNix ? import (builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/master.tar.gz") {}
 
   # # For LLVM
   # , enableLLVMAssertions ? true # TODO: Fix

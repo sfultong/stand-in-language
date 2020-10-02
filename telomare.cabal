@@ -111,7 +111,7 @@ test-suite telomare-test
   other-modules:       Common
   build-depends:       base
                      , hspec
-		     , hspec-core
+                     , hspec-core
                      , telomare
                      , strict
                      , QuickCheck

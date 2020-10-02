@@ -1,49 +1,31 @@
-{ rev ? "78d05675a4186c3b7b2de214f3c3b245ba0d2fa5",
-  outputSha256 ? "0aam50m1w1kqfdhwnazzi6jdq422d3ib3ilvb1m5lcr5jn7nhf1f",
-  enableLLVMAssertions ? true
-}:
+# shell.nix
+let
+  hsPkgs = import ./default.nix {};
+  # hsPkgs = import ./default.nix { inherit pkgs; };
+in
+  hsPkgs.shellFor {
+    # Include only the *local* packages of your project.
+    packages = ps: [
+      ps.telomare
+    ];
 
-with rec {
-  nixpkgs = builtins.fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/${rev}.tar.gz";
-    sha256 = outputSha256;
-  };
-  pkgs_not_used = import nixpkgs {
-    overlays = [(self: super: {
-      llvm_8 = super.llvm_8.overrideAttrs (oldAttrs: {
-          cmakeFlags =
-            if enableLLVMAssertions
-              then ["-DLLVM_ENABLE_ASSERTIONS=ON"] ++ oldAttrs.cmakeFlags
-              else oldAttrs.cmakeFlags;
-      });
-    })];
-  };
-  pkgs = import nixpkgs {};
-  telomare_jumper = pkgs.stdenv.mkDerivation {
-    name = "telomareJumper";
-    src = ./cbits;
-    buildInputs = [pkgs.boehmgc];
-  };
-  haskellPkgs = with pkgs.haskell.lib; pkgs.haskell.packages.ghc865.override(old: {
-    all-cabal-hashes = builtins.fetchurl {
-      url = "https://github.com/commercialhaskell/all-cabal-hashes/archive/1de0d224fe9c8e8947f217c92a12d9249334c5e4.tar.gz";
-      sha256 = "1ycayni4pjmgki8cdhcg25bmw970289f89b62sbdzw5naw15rrb1";
-    };
-    overrides = self: super: {
-      telomare = super.callCabal2nix "telomare" ./. { gc = pkgs.boehmgc; jumper = telomare_jumper; };
-      # llvm-hs = super.callHackage "llvm-hs" "8.0.0" { llvm-config = pkgs.llvm_8; };
-      # llvm-hs-pure = super.callHackage "llvm-hs-pure" "8.0.0" {};
-    };
-  });
-  simpleShell = haskellPkgs.shellFor { packages = p: [p.telomare]; };
+    # Builds a Hoogle documentation index of all dependencies,
+    # and provides a "hoogle" command to search the index.
+    withHoogle = true;
 
-}; simpleShell.overrideAttrs (oldAttrs : rec
-  { buildInputs = oldAttrs.buildInputs
-    ++ [
-         haskellPkgs.cabal-install
-         haskellPkgs.apply-refact
-         haskellPkgs.hlint
-         haskellPkgs.hasktags
-         haskellPkgs.haddock
-      ];
-  })
+    # You might want some extra tools in the shell (optional).
+
+    # Some common tools can be added with the `tools` argument
+    tools = { cabal = "3.2.0.0";
+              hlint = "2.2.11";
+            };
+    # See overlays/tools.nix for more details
+
+    # Some you may need to get some other way.
+    # buildInputs = with pkgs.haskellPackages;
+    #   [ ghcid ];
+
+    # Prevents cabal from choosing alternate plans, so that
+    # *all* dependencies are provided by Nix.
+    exactDeps = true;
+  }
