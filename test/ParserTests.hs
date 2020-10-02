@@ -423,7 +423,7 @@ runTestMainwCLwITEwPair = do
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
-      Left pe -> error . getErrorString $ pe
+      Left pe -> error . show $ pe
   case parseMain prelude testMainwCLwITEwPair of
     Right x -> return True
     Left err -> return False
@@ -435,7 +435,7 @@ runTestMainWType = do
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
-      Left pe -> error . getErrorString $ pe
+      Left pe -> error . show $ pe
   case parseMain prelude $ testMain2 of
     Right x -> return True
     Left err -> return False
@@ -476,7 +476,7 @@ testWtictactoe = do
   let
     prelude = case parsePrelude preludeFile of
                 Right p -> p
-                Left pe -> error . getErrorString $ pe
+                Left pe -> error . show $ pe
   case parseMain prelude tictactoe of
     Right _ -> return True
     Left _ -> return False
@@ -503,10 +503,10 @@ runTictactoe = do
   let
     prelude = case parsePrelude preludeFile of
       Right p -> p
-      Left pe -> error . getErrorString $ pe
+      Left pe -> error . show $ pe
   case parseMain prelude $ tictactoe of
     Right x -> putStrLn $ show x
-    Left err -> putStrLn . getErrorString $ err
+    Left err -> putStrLn . show $ err
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 

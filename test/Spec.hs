@@ -684,8 +684,8 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
-    -- parse = fmap findChurchSize . parseMain prelude
-    parse term = case fmap (toSIL . findChurchSize) (parseMain prelude term) of
+    -- parse term = case fmap (toSIL . findChurchSize) (parseMain prelude term) of
+    parse term = case toSIL <$> (parseMain prelude term >>= findChurchSize) of
       Right (Just term) -> pure term
       Right Nothing -> Left "grammar conversion error"
       Left x -> Left $ show x
