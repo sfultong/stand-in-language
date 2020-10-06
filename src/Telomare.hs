@@ -115,7 +115,7 @@ data ParserTerm l v
   | TLam (LamType l) (ParserTerm l v)
   | TLimitedRecursion
   deriving (Eq, Ord, Functor, Foldable, Traversable)
-makeBaseFunctor ''ParserTerm -- * Functorial version ParserTermF
+makeBaseFunctor ''ParserTerm -- Functorial version ParserTermF
 
 instance (Show l, Show v) => Show (ParserTerm l v) where
   show x = State.evalState (cata alg $ x) 0 where
@@ -190,7 +190,7 @@ data FragExpr a
   | TraceF
   | AuxF a
   deriving (Eq, Ord)
-makeBaseFunctor ''FragExpr -- * Functorial version FragExprF.
+makeBaseFunctor ''FragExpr -- Functorial version FragExprF.
 
 instance Show a => Show (FragExpr a) where
   show fexp = State.evalState (cata alg fexp) 0 where

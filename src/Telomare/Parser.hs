@@ -28,9 +28,9 @@ import           Data.Set                   (Set, (\\))
 import qualified Data.Set                   as Set
 import           Data.Void
 import           Debug.Trace
+import qualified System.IO.Strict           as Strict
 import           Telomare
 import           Telomare.TypeChecker
-import qualified System.IO.Strict           as Strict
 import           Text.Megaparsec            hiding (State)
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -55,7 +55,7 @@ data UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   -- TODO check
   deriving (Eq, Ord, Show)
-makeBaseFunctor ''UnprocessedParsedTerm -- * Functorial version UnprocessedParsedTerm
+makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
 
 instance EndoMapper UnprocessedParsedTerm where
   endoMap f = \case
@@ -365,7 +365,7 @@ parseAssignment = do
   expr <- scn *> parseLongExpr <* scn
   pure (var, expr)
 
- -- |Parse top level expressions.
+-- |Parse top level expressions.
 parseTopLevel :: TelomareParser UnprocessedParsedTerm
 parseTopLevel = do
   bindingList <- scn *> many parseAssignment <* eof
