@@ -5,7 +5,8 @@
   # # For LLVM
   # , enableLLVMAssertions ? true # TODO: Fix
 
-, compiler ? "ghc865"
+# , compiler ? "ghc865"
+, compiler ? "ghc884"
 }:
 let
   # haskell.nix provides access to the nixpkgs pins which are used by our CI,
@@ -42,6 +43,7 @@ pkgs.haskell-nix.cabalProject {
      (hackage: {
        llvm-hs = hackage.llvm-hs."9.0.1".revisions.default;
        llvm-hs-pure = hackage.llvm-hs-pure."9.0.0".revisions.default;
+       derive-storable-plugin = hackage.derive-storable-plugin."0.2.3.0".revisions.default;
      })
    ];
   modules = [];

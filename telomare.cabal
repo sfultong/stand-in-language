@@ -57,8 +57,8 @@ library
                      , deepseq
                      -- TODO: FIX.
                      -- Maybe specifying ghc's all-cabal-hashes
-                     -- , derive-storable
-                     -- , derive-storable-plugin
+                     , derive-storable
+                     , derive-storable-plugin
                      , bytestring
                      , llvm-hs
                      , llvm-hs-pure
