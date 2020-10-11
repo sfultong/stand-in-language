@@ -139,6 +139,9 @@ contaminationMap =
         z -> error $ "contaminationMap-makeKeyVal unexpected value: " <> show z
   in makeMap Set.empty
 
+limitedMFix :: Monad m => (a -> m a) -> m a -> m a
+limitedMFix f x = iterate (>>= f) x !! 10
+
 calculateRecursionLimits' :: Term3 -> Either CompileError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
   let testMapBuilder :: StateT (Map BreakExtras RecursionTest) (Reader (Map BreakExtras Int)) PoisonType
@@ -159,17 +162,25 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                    (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
                    findC b e | b > e = b
                    findC b e = let midpoint = div (b + e) 2
-                               in if abortsAt midpoint then findC (midpoint + 1) e else findC b midpoint
+                               in trace ("midpoint is now " <> show midpoint) $ if abortsAt midpoint then findC (midpoint + 1) e else findC b (midpoint - 1)
                in pure $ findC ib ie
       mapLimits :: Map BreakExtras RecursionTest -> Either BreakExtras (Map BreakExtras Int)
       mapLimits = sequence . Map.mapWithKey findLimit
       unwrappedReader :: Map BreakExtras Int -> Map BreakExtras RecursionTest
       unwrappedReader = runReader step1
+      fixable :: Map BreakExtras Int -> Either BreakExtras (Map BreakExtras Int)
+      fixable = mapLimits . unwrappedReader
+  -- in case mfix fixable of
+  in case limitedMFix fixable (Right mempty) of
+    Left be -> Left $ RecursionLimitError be
+    Right limits -> trace "found limits!" . pure $ convertPT (limits Map.!) t3
+  {-
       fixable :: Either BreakExtras (Map BreakExtras Int) -> Either BreakExtras (Map BreakExtras Int)
-      fixable =  join . fmap (mapLimits . unwrappedReader)
-  in case fix fixable of
+      fixable =  join . fmap (trace "searching..." . mapLimits . trace "uhh1" . unwrappedReader . trace "uhh2")
+  in trace "unforgiveable" $ case fix fixable of
     Left be -> Left $ RecursionLimitError be
     Right limits -> pure $ convertPT (limits Map.!) t3
+-}
 
 findChurchSize :: Term3 -> Either CompileError Term4
 {-
@@ -183,6 +194,7 @@ findChurchSize term =
   in convertPT (findC ib ie) term
 -}
 findChurchSize = calculateRecursionLimits' -- convertPT (const 255)
+-- findChurchSize = pure . convertPT (const 255)
 
 {-
 findAllSizes :: Term2 -> (Bool, Term3)
