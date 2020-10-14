@@ -5,7 +5,6 @@
   # # For LLVM
   # , enableLLVMAssertions ? true # TODO: Fix
 
-# , compiler ? "ghc865"
 , compiler ? "ghc884"
 }:
 let

@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE FlexibleInstances   #-}
 
 module Telomare.Parser where
 
@@ -107,7 +108,10 @@ i2c x = TLam (Closed "f") (TLam (Open "x") (inner x))
         coalg 0 = TVarF "x"
         coalg n = TAppF (Left . TVar $ "f") (Right $ n - 1)
 
-debruijinize :: Monad m => VarList -> Term1 -> m Term2
+instance MonadFail (Either String) where
+  fail = Left
+
+debruijinize :: MonadFail m => VarList -> Term1 -> m Term2
 debruijinize _ (TZero) = pure $ TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize vl (TVar n) = case elemIndex n vl of

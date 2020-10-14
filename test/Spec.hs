@@ -276,7 +276,7 @@ allowedTypeCheck _ = False
 testEval :: IExpr -> IO IExpr
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
 testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
-testEval iexpr = simpleEval (SetEnv (Pair (Defer deserialized) Zero))
+-- testEval iexpr = simpleEval (SetEnv (Pair (Defer deserialized) Zero))
     where serialized   = serialize iexpr
           deserialized = unsafeDeserialize serialized
 
