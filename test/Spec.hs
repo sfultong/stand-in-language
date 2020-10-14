@@ -16,7 +16,7 @@ import Telomare.Parser
 import Telomare.RunTime
 import Telomare.TypeChecker
 import Telomare.Optimizer
--- import Telomare.Serializer
+import Telomare.Serializer
 import System.Exit
 import System.IO
 import Test.Hspec
@@ -274,12 +274,11 @@ allowedTypeCheck (Just (UnboundType _)) = True
 allowedTypeCheck _ = False
 
 testEval :: IExpr -> IO IExpr
-testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
--- TODO: fix derive-storable-plugin derive-storable
--- testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
--- testEval iexpr = simpleEval (SetEnv (Pair (Defer deserialized) Zero))
---     where serialized   = serialize iexpr
---           deserialized = unsafeDeserialize serialized
+-- testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
+testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
+testEval iexpr = simpleEval (SetEnv (Pair (Defer deserialized) Zero))
+    where serialized   = serialize iexpr
+          deserialized = unsafeDeserialize serialized
 
 
 unitTest :: String -> String -> IExpr -> Spec
