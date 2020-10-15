@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE FlexibleInstances   #-}
 
 module Telomare.Parser where
 
@@ -28,9 +29,9 @@ import           Data.Set                   (Set, (\\))
 import qualified Data.Set                   as Set
 import           Data.Void
 import           Debug.Trace
+import qualified System.IO.Strict           as Strict
 import           Telomare
 import           Telomare.TypeChecker
-import qualified System.IO.Strict           as Strict
 import           Text.Megaparsec            hiding (State)
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
@@ -55,7 +56,7 @@ data UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   -- TODO check
   deriving (Eq, Ord, Show)
-makeBaseFunctor ''UnprocessedParsedTerm -- * Functorial version UnprocessedParsedTerm
+makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
 
 instance EndoMapper UnprocessedParsedTerm where
   endoMap f = \case
@@ -107,7 +108,10 @@ i2c x = TLam (Closed "f") (TLam (Open "x") (inner x))
         coalg 0 = TVarF "x"
         coalg n = TAppF (Left . TVar $ "f") (Right $ n - 1)
 
-debruijinize :: Monad m => VarList -> Term1 -> m Term2
+instance MonadFail (Either String) where
+  fail = Left
+
+debruijinize :: MonadFail m => VarList -> Term1 -> m Term2
 debruijinize _ (TZero) = pure $ TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize vl (TVar n) = case elemIndex n vl of
@@ -365,7 +369,7 @@ parseAssignment = do
   expr <- scn *> parseLongExpr <* scn
   pure (var, expr)
 
- -- |Parse top level expressions.
+-- |Parse top level expressions.
 parseTopLevel :: TelomareParser UnprocessedParsedTerm
 parseTopLevel = do
   bindingList <- scn *> many parseAssignment <* eof

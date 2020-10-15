@@ -5,28 +5,24 @@ import           Control.Monad.Except
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
 import           Debug.Trace
-
 import           Telomare
 import           Telomare.Optimizer
 import           Telomare.Parser
 import           Telomare.RunTime
+import           Telomare.Serializer
 import           Telomare.TypeChecker
--- TODO: FIX.
--- Maybe specifying ghc's all-cabal-hashes
--- import Telomare.Serializer
 
-data ExpP
-  = ZeroP
-  | PairP ExpP ExpP
-  | VarP
-  | SetEnvP ExpP Bool
-  | DeferP ExpP
-  | AbortP
-  | GateP ExpP ExpP
-  | LeftP ExpP
-  | RightP ExpP
-  | TraceP
-  deriving (Eq, Show, Ord)
+data ExpP = ZeroP
+    | PairP ExpP ExpP
+    | VarP
+    | SetEnvP ExpP Bool
+    | DeferP ExpP
+    | AbortP
+    | GateP ExpP ExpP
+    | LeftP ExpP
+    | RightP ExpP
+    | TraceP
+    deriving (Eq, Show, Ord)
 
 instance EndoMapper ExpP where
   endoMap f ZeroP          = f ZeroP
@@ -40,10 +36,9 @@ instance EndoMapper ExpP where
   endoMap f (RightP x)     = f . RightP $ endoMap f x
   endoMap f TraceP         = f TraceP
 
-data EvalError
-  = RTE RunTimeError
-  | TCE TypeCheckError
-  deriving (Eq, Ord, Show)
+data EvalError = RTE RunTimeError
+    | TCE TypeCheckError
+    deriving (Eq, Ord, Show)
 
 type ExpFullEnv = ExprA Bool
 

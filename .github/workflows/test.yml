@@ -22,3 +22,4 @@ jobs:
     - run: cachix use iohk
     - run: nix-build -A telomare.components.library
     - run: nix-build -A telomare.components.tests
+    - run: nix-shell --run "echo OK"

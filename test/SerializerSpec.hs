@@ -1,15 +1,12 @@
 module Main where
 
+import           Common
+import           Foreign.Marshal.Alloc
 import           Telomare
 import           Telomare.Serializer
 import           Telomare.Serializer.C
-
-import           Foreign.Marshal.Alloc
-
 import           Test.Hspec
 import           Test.QuickCheck
-
-import           Common
 
 serializerSpec :: Spec
 serializerSpec = do
