@@ -1,15 +1,12 @@
 module Main where
 
-import Telomare.Serializer.C
-import Telomare.Serializer
-import Telomare
-
-import Foreign.Marshal.Alloc
-
-import Test.Hspec
-import Test.QuickCheck
-
-import Common
+import           Common
+import           Foreign.Marshal.Alloc
+import           Telomare
+import           Telomare.Serializer
+import           Telomare.Serializer.C
+import           Test.Hspec
+import           Test.QuickCheck
 
 serializerSpec :: Spec
 serializerSpec = do
@@ -18,10 +15,10 @@ serializerSpec = do
             property (\test_iexpr -> do
                 let (TestIExpr iexpr) = test_iexpr
                 c_rep  <- toC   iexpr
-                hs_rep <- fromC c_rep 
+                hs_rep <- fromC c_rep
                 telomare_free c_rep
                 hs_rep `shouldBe` iexpr
-                ) 
+                )
    describe "Vector serialization" $ do
         it "Serializing to Vector Word8 and back will give the same result" $ do
             property (\test_iexpr -> do
@@ -29,7 +26,7 @@ serializerSpec = do
                     serialized   = serialize iexpr
                     deserialized = unsafeDeserialize serialized
                 deserialized `shouldBe` iexpr
-                ) 
+                )
    describe "C FFI and Haskell" $ do
         it "IExpr -> Vector Word8 -> Telomare_Serialized -> Vector Word8 -> IExpr: IExprs will be the same" $ do
             property (\test_iexpr -> do
@@ -40,7 +37,7 @@ serializerSpec = do
                 let deserialized = unsafeDeserialize serialized2
                 free ptr_serialized
                 deserialized `shouldBe` iexpr
-                ) 
+                )
         it "IExpr -> CRep -> Telomare_Serialized -> CRep -> IExpr: IExprs will be the same" $ do
             property (\test_iexpr -> do
                 let (TestIExpr iexpr) = test_iexpr
@@ -62,7 +59,7 @@ serializerSpec = do
                 telomare_free c_deserialized
                 free ptr_serialized
                 hs_rep `shouldBe` iexpr
-                ) 
+                )
         it "IExpr -> CRep -> Telomare_Serialized -> Vector Word8 -> IExpr: IExprs will be the same" $ do
             property (\test_iexpr -> do
                 let (TestIExpr iexpr) = test_iexpr
@@ -73,7 +70,7 @@ serializerSpec = do
                 telomare_free c_rep
                 free ptr_serialized
                 deserialized `shouldBe` iexpr
-                ) 
+                )
 
 main :: IO ()
 --main = hspec serializerSpec

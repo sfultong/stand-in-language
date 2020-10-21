@@ -1,47 +1,44 @@
 {-# LANGUAGE LambdaCase #-}
 module Telomare.Eval where
 
-import Control.Monad.Except
-import Data.Map (Map)
-import Debug.Trace
-import qualified Data.Map as Map
+import           Control.Monad.Except
+import           Data.Map             (Map)
+import qualified Data.Map             as Map
+import           Debug.Trace
+import           Telomare
+import           Telomare.Optimizer
+import           Telomare.Parser
+import           Telomare.RunTime
+import           Telomare.Serializer
+import           Telomare.TypeChecker
 
-import Telomare
-import Telomare.Parser
-import Telomare.RunTime
-import Telomare.TypeChecker
-import Telomare.Optimizer
-import Telomare.Serializer
-
-data ExpP
-  = ZeroP
-  | PairP ExpP ExpP
-  | VarP
-  | SetEnvP ExpP Bool
-  | DeferP ExpP
-  | AbortP
-  | GateP ExpP ExpP
-  | LeftP ExpP
-  | RightP ExpP
-  | TraceP
-  deriving (Eq, Show, Ord)
+data ExpP = ZeroP
+    | PairP ExpP ExpP
+    | VarP
+    | SetEnvP ExpP Bool
+    | DeferP ExpP
+    | AbortP
+    | GateP ExpP ExpP
+    | LeftP ExpP
+    | RightP ExpP
+    | TraceP
+    deriving (Eq, Show, Ord)
 
 instance EndoMapper ExpP where
-  endoMap f ZeroP = f ZeroP
-  endoMap f (PairP a b) = f $ PairP (endoMap f a) (endoMap f b)
-  endoMap f VarP = f VarP
+  endoMap f ZeroP          = f ZeroP
+  endoMap f (PairP a b)    = f $ PairP (endoMap f a) (endoMap f b)
+  endoMap f VarP           = f VarP
   endoMap f (SetEnvP x fe) = f $ SetEnvP (endoMap f x) fe
-  endoMap f (DeferP x) = f . DeferP $ endoMap f x
-  endoMap f AbortP = f AbortP
-  endoMap f (GateP a b) = f $ GateP (endoMap f a) (endoMap f b)
-  endoMap f (LeftP x) = f . LeftP $ endoMap f x
-  endoMap f (RightP x) = f . RightP $ endoMap f x
-  endoMap f TraceP = f TraceP
+  endoMap f (DeferP x)     = f . DeferP $ endoMap f x
+  endoMap f AbortP         = f AbortP
+  endoMap f (GateP a b)    = f $ GateP (endoMap f a) (endoMap f b)
+  endoMap f (LeftP x)      = f . LeftP $ endoMap f x
+  endoMap f (RightP x)     = f . RightP $ endoMap f x
+  endoMap f TraceP         = f TraceP
 
-data EvalError
-  = RTE RunTimeError
-  | TCE TypeCheckError
-  deriving (Eq, Ord, Show)
+data EvalError = RTE RunTimeError
+    | TCE TypeCheckError
+    deriving (Eq, Ord, Show)
 
 type ExpFullEnv = ExprA Bool
 
@@ -64,16 +61,16 @@ annotateEnv (PRight x) = RightP <$> annotateEnv x
 annotateEnv Trace = (False, TraceP)
 
 fromFullEnv :: Applicative a => (ExpP -> a IExpr) -> ExpP -> a IExpr
-fromFullEnv _ ZeroP = pure Zero
-fromFullEnv f (PairP a b) = Pair <$> f a <*> f b
-fromFullEnv _ VarP = pure Env
+fromFullEnv _ ZeroP         = pure Zero
+fromFullEnv f (PairP a b)   = Pair <$> f a <*> f b
+fromFullEnv _ VarP          = pure Env
 fromFullEnv f (SetEnvP x _) = SetEnv <$> f x
-fromFullEnv f (DeferP x) = Defer <$> f x
-fromFullEnv _ AbortP = pure Abort
-fromFullEnv f (GateP a b) = Gate <$> f a <*> f b
-fromFullEnv f (LeftP x) = PLeft <$> f x
-fromFullEnv f (RightP x) = PRight <$> f x
-fromFullEnv _ TraceP = pure Trace
+fromFullEnv f (DeferP x)    = Defer <$> f x
+fromFullEnv _ AbortP        = pure Abort
+fromFullEnv f (GateP a b)   = Gate <$> f a <*> f b
+fromFullEnv f (LeftP x)     = PLeft <$> f x
+fromFullEnv f (RightP x)    = PRight <$> f x
+fromFullEnv _ TraceP        = pure Trace
 
 instance TelomareLike ExpP where
   fromTelomare = snd . annotateEnv

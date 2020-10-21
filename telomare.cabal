@@ -7,13 +7,16 @@ license:             Apache-2.0
 license-file:        LICENSE
 author:              Sam Griffin
 maintainer:          sam.griffin@gmail.com
-copyright:           2019 Sam Griffin
+copyright:           2020 Sam Griffin
 category:            Language
 build-type:          Simple
 extra-source-files:  CHANGELOG.md, README.md
 cabal-version:       >=1.10
 
 data-files:          bench/MemoryBench/cases
+                   , Prelude.tel
+                   , tictactoe.tel
+                   , hello.tel
 
 library
   hs-source-dirs:      src
@@ -104,7 +107,7 @@ test-suite telomare-test
   other-modules:       Common
   build-depends:       base
                      , hspec
-		     , hspec-core
+                     , hspec-core
                      , telomare
                      , strict
                      , QuickCheck

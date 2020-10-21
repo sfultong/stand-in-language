@@ -1,7 +1,14 @@
 # Telomare
 > A simple but robust virtual machine
 
-[![Join the chat at https://gitter.im/stand-in-language/Lobby](https://badges.gitter.im/stand-in-language/Lobby.svg)](https://gitter.im/stand-in-language/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+<p float="left">
+  <img src="https://github.com/Stand-in-Language/stand-in-language/workflows/Telomare%20CI%20Tests/badge.svg" />
+  <a href="https://gitter.im/stand-in-language/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge"
+     title="Join the chat at https://gitter.im/stand-in-language/Lobby">
+    <img src="https://badges.gitter.im/stand-in-language/Lobby.svg" /> 
+  </a>
+</p>
+
 
 A virtual machine with a simple grammar evolved from simply typed lambda calculus, that eventually will have powerful static checking and an optimizing backend.
 
@@ -19,15 +26,21 @@ This project is in active development. Do expect bugs and general trouble, and p
    ```
    $ curl https://nixos.org/nix/install | sh
    ```
-3. Enter a Nix shell. This will setup an environment where all external dependencies will be available (such as `cabal` for building):
+3. Optional (reduces build time by using telomare's cache):
+   ```
+   # Install cachix with nix-env or adding `cachix` to your `/etc/nixos/configuration.nix`'s' `environment.systemPackages` if in NixOS.
+   $ nix-env -iA cachix -f https://cachix.org/api/v1/install
+   $ cachix use telomare
+   ```
+4. Enter a Nix shell. This will setup an environment where all external dependencies will be available (such as `cabal` for building):
    ```
    $ nix-shell shell.nix
    ```
-4. Build the project:
+5. Build the project:
    ```
    $ cabal new-build
    ```
-5. Run the tictactoe example and start playing with a friend:
+6. Run the tictactoe example and start playing with a friend:
    ```
    $ cabal new-run telomare-exe
    ```
