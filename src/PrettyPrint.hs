@@ -16,7 +16,6 @@ showPIExpr _ _ Zero = "Z"
 showPIExpr _ _ Env = "E"
 showPIExpr l i (Pair a b) =
   concat ["P\n", indent i, showPIExpr l (i + 1) a, "\n", indent i, showPIExpr l (i + 1) b]
-showPIExpr _ _ Abort  = "A"
 showPIExpr l i (Gate a b) = -- "G"
   "G\n" <> indent i <> showPIExpr l (i + 1) a <> "\n" <> indent i <> showPIExpr l (i + 1) b
 showPIExpr _ _ Trace = "T"
@@ -35,7 +34,6 @@ showTPIExpr typeMap l i expr =
     Zero       -> "Z"
     Env        -> "E"
     (Pair a b) -> concat ["P\n", indented a, "\n", indented b]
-    Abort      -> "A"
     Gate a b   -> "G\n" <> indented a <> "\n" <> indented b
     Trace      -> "T"
 
@@ -48,7 +46,6 @@ showNExpr nMap l i expr =
   NZero -> "Z"
   NEnv -> "E"
   (NPair a b) -> showTwo "P" a b
-  NAbort -> "A"
   NGate a b -> showTwo "G" a b
   NTrace -> "T"
   (NDefer ind) -> case Map.lookup ind nMap of
@@ -81,7 +78,6 @@ showOneNExpr l i expr =
       NZero                    -> "Z"
       NEnv                     -> "E"
       (NPair a b)              -> showTwo "P" a b
-      NAbort                   -> "A"
       NGate a b                -> showTwo "G" a b
       NTrace                   -> "T"
       (NDefer (FragIndex ind)) -> concat ["[", show ind, "]"]

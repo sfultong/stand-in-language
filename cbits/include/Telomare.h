@@ -17,11 +17,10 @@ extern "C" {
 #define Telomare_ENV     (2)
 #define Telomare_SETENV  (3)
 #define Telomare_DEFER   (4)
-#define Telomare_ABORT   (5)
-#define Telomare_GATE    (6)
-#define Telomare_PLEFT   (7)
-#define Telomare_PRIGHT  (8)
-#define Telomare_TRACE   (9)
+#define Telomare_GATE    (5)
+#define Telomare_PLEFT   (6)
+#define Telomare_PRIGHT  (7)
+#define Telomare_TRACE   (8)
 
 typedef unsigned char telomare_type;
 
@@ -62,7 +61,6 @@ typedef struct Telomare_Defer{
     telomare_type type;
     void * value; 
 } Telomare_Defer;
-typedef struct Telomare_Abort{} Telomare_Abort;
 typedef struct Telomare_Gate{
   telomare_type left_type;
   telomare_type right_type;

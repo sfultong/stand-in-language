@@ -55,11 +55,6 @@ nEval (NExprs m) =
             NGate a b -> case i of
               NZero -> recur a
               _ -> recur b
-            NAbort -> case i of
-              NZero -> pure NEnv
-              z -> case toTelomare (NExprs $ Map.insert resultIndex z m) of
-                Just z' -> throwError . AbortRunTime $ z'
-                Nothing -> throwError $ GenericRunTimeError ("Could not convert abort value of: " <> show z) Zero
             _ -> eval i c
           z -> error ("nEval nsetenv - not pair - " ++ show z)
         (NApp c i) -> do
@@ -103,9 +98,6 @@ iEval f env g = let f' = f env in case g of
       Gate a b -> case nenv of
         Zero -> f' a
         _ -> f' b
-      Abort -> case nenv of
-        Zero -> pure $ Defer Env
-        z -> throwError $ AbortRunTime z
       z -> throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
   PLeft g -> f' g >>= \case
@@ -117,89 +109,7 @@ iEval f env g = let f' = f env in case g of
   Trace -> pure $ trace (show env) env
   Zero -> pure Zero
   Gate a b -> pure $ Gate a b
-  Abort -> pure Abort
   Defer x -> pure $ Defer x
-
-data PExpr
-  = PPair PExpr PExpr
-  | PDefer PExpr
-  | PSetEnv PExpr
-  | PEnv
-  | PPLeft PExpr
-  | PPRight PExpr
-  | PZero
-  | PGate PExpr PExpr
-  | PAbort
-  | PAny
-  deriving (Eq, Show, Ord)
-
-instance TelomareLike PExpr where
-  fromTelomare = \case
-    Zero -> PZero
-    Pair a b -> PPair (fromTelomare a) (fromTelomare b)
-    Gate l r -> PGate (fromTelomare l) (fromTelomare r)
-    Defer x -> PDefer $ fromTelomare x
-    SetEnv x -> PSetEnv $ fromTelomare x
-    Env -> PEnv
-    PLeft x -> PPLeft $ fromTelomare x
-    PRight x -> PPRight $ fromTelomare x
-    Abort -> PAbort
-    Trace -> PEnv
-  toTelomare = \case
-    PZero -> pure Zero
-    PPair a b -> Pair <$> toTelomare a <*> toTelomare b
-    PGate l r -> Gate <$> toTelomare l <*> toTelomare r
-    PDefer x -> Defer <$> toTelomare x
-    PSetEnv x -> SetEnv <$> toTelomare x
-    PEnv -> pure Env
-    PPLeft x -> PLeft <$> toTelomare x
-    PPRight x -> PRight <$> toTelomare x
-    PAbort -> pure Abort
-    PAny -> Nothing
-
-newtype PResult = PResult (Set PExpr, Bool)
-
-instance Semigroup PResult where
-  (<>) (PResult (sa, ba)) (PResult (sb, bb)) = PResult (Set.union sa sb, ba || bb)
-instance Monoid PResult where
-  mempty = PResult (Set.empty, False)
-instance Eq PResult where
-  (==) (PResult (sa, ba)) (PResult (sb, bb)) = sa == sb && ba == bb
-instance Ord PResult where
-  compare (PResult (sa, ba)) (PResult (sb, bb)) = let sr = compare sa sb
-                                                  in if sr == EQ then compare ba bb else sr
-
-pEval :: (PExpr -> PExpr -> PResult) -> PExpr -> PExpr -> PResult
-pEval f env g =
-  let f' = f env
-      orB b' (PResult (s,b)) = PResult (s, b || b')
-      sMap g' next = (\(PResult (s, b)) -> orB b . fold $ Set.map next s) $ f env g'
-      singleResult x = PResult (Set.singleton x, False)
-  in case g of
-    PPair a b -> let PResult (sa, ba) = f' a
-                     PResult (sb, bb) = f' b
-                 in PResult (fromList [PPair na nb | na <- toList sa, nb <- toList sb], ba || bb)
-    PEnv -> singleResult env
-    PPLeft x -> sMap x $ \case
-      PPair a _ -> singleResult a
-      PAny -> PResult (fromList [PZero, PPair PAny PAny], False)
-      _ -> singleResult PZero
-    PPRight x -> sMap x $ \case
-      PPair _ b -> singleResult b
-      PAny -> PResult (fromList [PZero, PPair PAny PAny], False)
-      _ -> singleResult PZero
-    PSetEnv x -> sMap x $ \case
-      PPair cf nenv -> case cf of
-        PDefer c -> f nenv c
-        PGate l r -> case nenv of
-          PZero -> f' l
-          _ -> f' r
-        PAbort -> case nenv of
-          PZero -> singleResult $ PDefer PEnv
-          _ -> PResult (mempty, True)
-        _ -> error "should not be here in pEval setenv (bad cf)"
-      _ -> error "should not be here in pEval setenv non pair"
-    x -> singleResult x
 
 instance TelomareLike IExpr where
   fromTelomare = id
@@ -216,7 +126,6 @@ instance TelomareLike NExprs where
           (NPair a b) -> Pair <$> fromNExpr a <*> fromNExpr b
           NEnv -> pure Env
           (NSetEnv x) -> SetEnv <$> fromNExpr x
-          NAbort -> pure Abort
           NGate a b -> Gate <$> fromNExpr a <*> fromNExpr b
           (NLeft x) -> PLeft <$> fromNExpr x
           (NRight x) -> PRight <$> fromNExpr x
