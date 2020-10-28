@@ -95,9 +95,13 @@ nEval (NExprs m) =
 
 -- |IExpr evaluation with a given enviroment `e`
 -- (as in the second element of a closure).
-rEval :: (MonadError RunTimeError m, Show (m IExpr)) => IExpr -> IExpr -> m IExpr
+rEval :: (MonadError RunTimeError m, Show (m IExpr))
+      => IExpr -- *The enviroment.
+      -> IExpr -- *IExpr to be evaluated.
+      -> m IExpr
 rEval e = para alg where
-  alg :: (MonadError RunTimeError m, Show (m IExpr)) => (Base IExpr) (IExpr, m IExpr)
+  alg :: (MonadError RunTimeError m, Show (m IExpr))
+      => (Base IExpr) (IExpr, m IExpr)
       -> m IExpr
   alg = \case
     ZeroF -> trace "rEval Zero" $ pure Zero
@@ -175,18 +179,17 @@ auxEval = fix iEval Zero
 aux :: MonadError RunTimeError m => IExpr -> IExpr -> m IExpr
 aux = fix iEval
 
-data PExpr
-  = PPair PExpr PExpr
-  | PDefer PExpr
-  | PSetEnv PExpr
-  | PEnv
-  | PPLeft PExpr
-  | PPRight PExpr
-  | PZero
-  | PGate PExpr PExpr
-  | PAbort
-  | PAny
-  deriving (Eq, Show, Ord)
+data PExpr = PPair PExpr PExpr
+    | PDefer PExpr
+    | PSetEnv PExpr
+    | PEnv
+    | PPLeft PExpr
+    | PPRight PExpr
+    | PZero
+    | PGate PExpr PExpr
+    | PAbort
+    | PAny
+    deriving (Eq, Show, Ord)
 
 instance TelomareLike PExpr where
   fromTelomare = \case
