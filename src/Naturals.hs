@@ -51,7 +51,6 @@ data ExprFrag
   | FEnv
   | FSetEnv ExprFrag
   | FDefer FragIndex
-  | FAbort
   | FGate ExprFrag ExprFrag
   | FLeft ExprFrag
   | FRight ExprFrag
@@ -73,7 +72,6 @@ data NExpr
   | NEnv
   | NSetEnv NExpr
   | NDefer FragIndex
-  | NAbort
   | NGate NExpr NExpr
   | NLeft NExpr
   | NRight NExpr
@@ -117,7 +115,6 @@ instance Show NExprs where
           (NDefer ind) -> case Map.lookup ind m of
             Just x -> concat ["NDefer (", showInner x, ")"]
             Nothing -> concat ["ERROR undefined index in showing NExprs: ", show ind]
-          NAbort -> "NAbort"
           NGate l r -> "NGate (" <> showInner l <> " " <> showInner r <> " )"
           (NLeft x) -> concat ["NLeft (", showInner x, ")"]
           (NRight x) -> concat ["NRight (", showInner x, ")"]
@@ -149,7 +146,6 @@ toFrag (Defer x) = do
   let td = id -- trace ("adding defer " ++ show i ++ " - " ++ show nx)
   State.put (FragIndex (i + 1), td Map.insert ei nx fragMap)
   pure $ FDefer ei
-toFrag Abort = pure FAbort
 toFrag (Gate l r) = FGate <$> toFrag l <*> toFrag r
 toFrag (PLeft x) = FLeft <$> toFrag x
 toFrag (PRight x) = FRight <$> toFrag x
@@ -164,7 +160,6 @@ fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
   (FDefer fi) -> case Map.lookup fi fragMap of
     Nothing -> error ("fromFrag bad index " ++ show fi)
     Just subFrag -> Defer $ recur subFrag
-  FAbort -> Abort
   FGate l r -> Gate (recur l) (recur r)
   (FLeft x) -> PLeft $ recur x
   (FRight x) -> PRight $ recur x
@@ -219,7 +214,6 @@ fragToNExpr fragMap frag =
             (FLeft x) -> NLeft $ recur x
             (FRight x) -> NRight $ recur x
             FTrace -> NTrace
-            FAbort -> NAbort
             (FDefer ind) -> NDefer ind
             (FNum x) -> NPair (NOldDefer (NPair (NNum x) NEnv)) NEnv
             FToNum -> NToNum

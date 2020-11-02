@@ -24,6 +24,7 @@ import           Data.Functor.Foldable
 import           Data.Functor.Foldable.TH
 import           Data.Map                 (Map)
 import qualified Data.Map                 as Map
+import qualified Data.Set                 as Set
 import           Data.Void
 import           GHC.Generics
 
@@ -44,7 +45,6 @@ data IExpr
   | SetEnv !IExpr
   | Defer !IExpr
   -- the rest of these should be no argument constructors, to be treated as functions with setenv
-  | Abort
   | Gate !IExpr !IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
@@ -213,7 +213,7 @@ newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
 data BreakExtras
   = UnsizedRecursion
-  deriving Show
+  deriving (Eq, Ord, Show)
 
 type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
@@ -237,7 +237,6 @@ instance EndoMapper IExpr where
   endoMap f Env        = f Env
   endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
   endoMap f (Defer x)  = f $ Defer (endoMap f x)
-  endoMap f Abort      = f Abort
   endoMap f (Gate l r) = f $ Gate (endoMap f l) (endoMap f r)
   endoMap f (PLeft x)  = f $ PLeft (endoMap f x)
   endoMap f (PRight x) = f $ PRight (endoMap f x)
@@ -249,7 +248,6 @@ instance EitherEndoMapper IExpr where
   eitherEndoMap f Env = f Env
   eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f Abort = f Abort
   eitherEndoMap f (Gate l r) = (Gate <$> eitherEndoMap f l <*> eitherEndoMap f r) >>= f
   eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
   eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
@@ -261,7 +259,6 @@ instance MonoidEndoFolder IExpr where
   monoidFold f Env = f Env
   monoidFold f (SetEnv x) = mconcat [f (SetEnv x), monoidFold f x]
   monoidFold f (Defer x) = mconcat [f (Defer x), monoidFold f x]
-  monoidFold f Abort = f Abort
   monoidFold f (Gate l r) = mconcat [f (Gate l r), monoidFold f l, monoidFold f r]
   monoidFold f (PLeft x) = mconcat [f (PLeft x), monoidFold f x]
   monoidFold f (PRight x) = mconcat [f (PRight x), monoidFold f x]
@@ -273,11 +270,24 @@ instance NFData IExpr where
   rnf Env          = ()
   rnf (SetEnv  e)  = rnf e
   rnf (Defer   e)  = rnf e
-  rnf Abort        = ()
   rnf (Gate l r)   = rnf l `seq` rnf r
   rnf (PLeft   e)  = rnf e
   rnf (PRight  e)  = rnf e
   rnf Trace        = ()
+
+instance EndoMapper (FragExpr a) where
+  endoMap f = let recur = endoMap f in \case
+    ZeroF -> f ZeroF
+    PairF a b -> f $ PairF (recur a) (recur b)
+    EnvF -> f EnvF
+    SetEnvF x -> f $ SetEnvF (recur x)
+    DeferF ind -> f $ DeferF ind
+    AbortF -> f AbortF
+    GateF l r -> f $ GateF (recur l) (recur r)
+    LeftF x -> f $ LeftF (recur x)
+    RightF x -> f $ RightF (recur x)
+    TraceF -> f TraceF
+    AuxF a -> f $ AuxF a
 
 data RunTimeError
   = AbortRunTime IExpr
@@ -318,16 +328,6 @@ twiddle x = setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pr
 app :: IExpr -> IExpr -> IExpr
 app c i = setenv (setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env)))))
                           (pair i c)))
-check :: IExpr -> IExpr -> IExpr
-check c tc = setenv (pair (defer
-                             (setenv (pair
-                                        (setenv (pair Abort (app (pleft env) (pright env))))
-                                        (pright env)
-                                     )
-                             )
-                          )
-                          (pair tc c)
-                    )
 pleft :: IExpr -> IExpr
 pleft = PLeft
 pright :: IExpr -> IExpr
@@ -345,8 +345,6 @@ ite :: IExpr -> IExpr -> IExpr -> IExpr
 ite i t e = setenv (pair (Gate e t) i)
 varN :: Int -> IExpr
 varN n = pleft (iterate pright env !! n)
-partialFix :: IExpr -> IExpr
-partialFix = PartialFix (s2g "recursion depth limit exceeded")
 
 varNF :: Int -> FragExpr a
 varNF n = LeftFrag (iterate RightFrag EnvFrag !! n)
@@ -379,12 +377,6 @@ countApps _ _                 = Nothing
 
 pattern ChurchNum :: Int -> IExpr
 pattern ChurchNum x <- TwoArgFun (countApps 0 -> Just x)
-pattern PartialFix :: IExpr -> IExpr -> IExpr
-pattern PartialFix m c = Lam (Lam (App
-                                   (App c SecondArg)
-                                   (Lam (App (SetEnv (Pair Abort m)) (App SecondArg FirstArg)))
-                                  )
-                             )
 
 pattern ToChurch :: IExpr
 pattern ToChurch <-
@@ -607,7 +599,6 @@ toIndExpr (Pair a b) = PairA <$> toIndExpr a <*> toIndExpr b <*> nextI
 toIndExpr Env        = EnvA <$> nextI
 toIndExpr (SetEnv x) = SetEnvA <$> toIndExpr x <*> nextI
 toIndExpr (Defer x)  = DeferA <$> toIndExpr x <*> nextI
-toIndExpr Abort      = AbortA <$> nextI
 toIndExpr (Gate l r) = GateA <$> toIndExpr l <*> toIndExpr r <*> nextI
 toIndExpr (PLeft x)  = PLeftA <$> toIndExpr x <*> nextI
 toIndExpr (PRight x) = PRightA <$> toIndExpr x <*> nextI
@@ -623,7 +614,6 @@ instance TelomareLike (ExprT a) where
     Env -> EnvT
     SetEnv x -> SetEnvT $ fromTelomare x
     Defer x -> DeferT $ fromTelomare x
-    Abort -> AbortT
     Gate l r -> GateT (fromTelomare l) (fromTelomare r)
     PLeft x -> LeftT $ fromTelomare x
     PRight x -> RightT $ fromTelomare x
@@ -634,7 +624,7 @@ instance TelomareLike (ExprT a) where
     EnvT -> pure Env
     SetEnvT x -> SetEnv <$> toTelomare x
     DeferT x -> Defer <$> toTelomare x
-    AbortT -> pure Abort
+    AbortT -> Nothing
     GateT l r -> Gate <$> toTelomare l <*> toTelomare r
     LeftT x -> PLeft <$> toTelomare x
     RightT x -> PRight <$> toTelomare x
@@ -653,27 +643,26 @@ telomareToFragmap expr = Map.insert (FragIndex 0) bf m where
         bx <- convert x
         (fi@(FragIndex i), fragMap) <- State.get
         State.put (FragIndex (i + 1), Map.insert fi bx fragMap)
-        pure $ DeferFrag fi
-      Abort -> pure AbortFrag
-      Gate l r -> GateFrag <$> convert l <*> convert r
-      PLeft x -> LeftFrag <$> convert x
-      PRight x -> RightFrag <$> convert x
-      Trace -> pure TraceFrag
+        pure $ DeferF fi
+      Gate l r -> GateF <$> convert l <*> convert r
+      PLeft x -> LeftF <$> convert x
+      PRight x -> RightF <$> convert x
+      Trace -> pure TraceF
 
 fragmapToTelomare :: Map FragIndex (FragExpr a) -> Maybe IExpr
 fragmapToTelomare fragMap = convert (rootFrag fragMap) where
     convert = \case
-      ZeroFrag -> pure Zero
-      PairFrag a b -> Pair <$> convert a <*> convert b
-      EnvFrag -> pure Env
-      SetEnvFrag x -> SetEnv <$> convert x
-      DeferFrag ind -> Defer <$> (Map.lookup ind fragMap >>= convert)
-      AbortFrag -> pure Abort
-      GateFrag l r -> Gate <$> convert l <*> convert r
-      LeftFrag x -> PLeft <$> convert x
-      RightFrag x -> PRight <$> convert x
-      TraceFrag -> pure Trace
-      AuxFrag _ -> Nothing
+      ZeroF -> pure Zero
+      PairF a b -> Pair <$> convert a <*> convert b
+      EnvF -> pure Env
+      SetEnvF x -> SetEnv <$> convert x
+      DeferF ind -> Defer <$> (Map.lookup ind fragMap >>= convert)
+      AbortF -> Nothing
+      GateF l r -> Gate <$> convert l <*> convert r
+      LeftF x -> PLeft <$> convert x
+      RightF x -> PRight <$> convert x
+      TraceF -> pure Trace
+      AuxF _ -> Nothing
 
 instance TelomareLike Term3 where
   fromTelomare = Term3 . telomareToFragmap
@@ -682,3 +671,14 @@ instance TelomareLike Term3 where
 instance TelomareLike Term4 where
   fromTelomare = Term4 . telomareToFragmap
   toTelomare (Term4 fragMap) = fragmapToTelomare fragMap
+
+-- general utility functions
+
+insertAndGetKey :: (Ord e, Enum e) => a -> State (Map e a) e
+insertAndGetKey v = do
+  m <- State.get
+  let nextKey = case Set.lookupMax $ Map.keysSet m of
+        Nothing -> toEnum 0
+        Just n  -> succ n
+  State.put $ Map.insert nextKey v m
+  pure nextKey

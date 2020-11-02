@@ -1,7 +1,7 @@
-{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE DeriveFoldable      #-}
 {-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE DeriveTraversable   #-}
+{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -54,6 +54,7 @@ data UnprocessedParsedTerm
   | LeftUP UnprocessedParsedTerm
   | RightUP UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
+  | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
@@ -74,6 +75,7 @@ instance EndoMapper UnprocessedParsedTerm where
     LeftUP l -> f $ LeftUP (recur l)
     RightUP r -> f $ RightUP (recur r)
     TraceUP t -> f $ TraceUP (recur t)
+    CheckUP cf x -> f $ CheckUP (recur cf) (recur x)
     where recur = endoMap f
 
 type VarList = [String]
@@ -135,16 +137,16 @@ splitExpr' = \case
   TPair a b -> PairFrag <$> splitExpr' a <*> splitExpr' b
   TVar n -> pure $ varNF n
   TApp c i -> appF (splitExpr' c) (splitExpr' i)
-  TCheck c tc ->
-    let performTC = deferF ((\ia -> (SetEnvFrag (PairFrag (SetEnvFrag (PairFrag AbortFrag ia)) (RightFrag EnvFrag)))) <$> appF (pure $ LeftFrag EnvFrag) (pure $ RightFrag EnvFrag))
-    in (\ptc nc ntc -> SetEnvFrag (PairFrag ptc (PairFrag ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
-  TITE i t e -> (\ni nt ne -> SetEnvFrag (PairFrag (GateFrag ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
-  TLeft x -> LeftFrag <$> splitExpr' x
-  TRight x -> RightFrag <$> splitExpr' x
-  TTrace x -> (\tf nx -> SetEnvFrag (PairFrag tf nx)) <$> deferF (pure TraceFrag) <*> splitExpr' x
-  TLam (Open ()) x -> (\f -> PairFrag f EnvFrag) <$> deferF (splitExpr' x)
-  TLam (Closed ()) x -> (\f -> PairFrag f ZeroFrag) <$> deferF (splitExpr' x)
-  TLimitedRecursion -> pure $ AuxFrag UnsizedRecursion
+  TCheck tc c ->
+    let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
+    in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
+  TITE i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
+  TLeft x -> LeftF <$> splitExpr' x
+  TRight x -> RightF <$> splitExpr' x
+  TTrace x -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
+  TLam (Open ()) x -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
+  TLam (Closed ()) x -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
+  TLimitedRecursion -> pure $ AuxF UnsizedRecursion
 
 splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.empty)
@@ -359,7 +361,7 @@ parsePartialFix = symbol "?" *> pure UnsizedRecursionUP
 
 -- |Parse refinement check.
 parseRefinementCheck :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-parseRefinementCheck = pure id <* (symbol ":" *> parseLongExpr)
+parseRefinementCheck = CheckUP <$> (symbol ":" *> parseLongExpr)
 
 -- |Parse assignment add adding binding to ParserState.
 parseAssignment :: TelomareParser (String, UnprocessedParsedTerm)
@@ -368,7 +370,9 @@ parseAssignment = do
   annotation <- optional . try $ parseRefinementCheck
   scn *> symbol "=" <?> "assignment ="
   expr <- scn *> parseLongExpr <* scn
-  pure (var, expr)
+  case annotation of
+    Just annot -> pure (var, annot expr)
+    _          -> pure (var, expr)
 
 -- |Parse top level expressions.
 parseTopLevel :: TelomareParser UnprocessedParsedTerm
@@ -496,6 +500,7 @@ validateVariables bindings term =
         LeftUP x -> TLeft <$> validateWithEnvironment x
         RightUP x -> TRight <$> validateWithEnvironment x
         TraceUP x -> TTrace <$> validateWithEnvironment x
+        CheckUP cf x -> TCheck <$> validateWithEnvironment cf <*> validateWithEnvironment x
   in State.evalStateT (validateWithEnvironment term) Map.empty
 
 optimizeBuiltinFunctions :: UnprocessedParsedTerm -> UnprocessedParsedTerm

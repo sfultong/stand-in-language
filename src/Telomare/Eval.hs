@@ -2,11 +2,14 @@
 module Telomare.Eval where
 
 import           Control.Monad.Except
+import qualified Control.Monad.State      as State
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
+import Data.Void
 import           Debug.Trace
 import           Telomare
 import           Telomare.Optimizer
+import Telomare.Possible
 import           Telomare.Parser
 import           Telomare.RunTime
 import           Telomare.Serializer
@@ -38,6 +41,8 @@ instance EndoMapper ExpP where
 
 data EvalError = RTE RunTimeError
     | TCE TypeCheckError
+    | StaticCheckError String
+    | CompileConversionError
     deriving (Eq, Ord, Show)
 
 type ExpFullEnv = ExprA Bool
@@ -51,7 +56,6 @@ annotateEnv (Pair a b) =
 annotateEnv Env = (False, VarP)
 annotateEnv (SetEnv x) = let (xt, nx) = annotateEnv x in (xt, SetEnvP nx xt)
 annotateEnv (Defer x) = let (_, nx) = annotateEnv x in (True, DeferP nx)
-annotateEnv Abort = (True, AbortP)
 annotateEnv (Gate a b) =
   let (at, na) = annotateEnv a
       (bt, nb) = annotateEnv b
@@ -66,7 +70,6 @@ fromFullEnv f (PairP a b)   = Pair <$> f a <*> f b
 fromFullEnv _ VarP          = pure Env
 fromFullEnv f (SetEnvP x _) = SetEnv <$> f x
 fromFullEnv f (DeferP x)    = Defer <$> f x
-fromFullEnv _ AbortP        = pure Abort
 fromFullEnv f (GateP a b)   = Gate <$> f a <*> f b
 fromFullEnv f (LeftP x)     = PLeft <$> f x
 fromFullEnv f (RightP x)    = PRight <$> f x
@@ -96,6 +99,30 @@ findChurchSize term =
 -}
 findChurchSize = convertPT 255
 
+-- we should probably redo the types so that this is also a type conversion
+removeChecks :: Term4 -> Term4
+removeChecks (Term4 m) =
+  let f = \case
+        AbortF -> DeferF ind
+        x -> x
+      (ind, newM) = State.runState builder m
+      builder = do
+        envDefer <- insertAndGetKey EnvF
+        insertAndGetKey $ DeferF envDefer
+  in Term4 $ Map.map (endoMap f) newM
+
+runStaticChecks :: Term4 -> Maybe String
+runStaticChecks (Term4 termMap) = case ((toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap)) :: Either String (PossibleExpr Void Void)) of
+  Left s -> pure s
+  _ -> Nothing
+
+compile :: Term3 -> Either EvalError IExpr
+compile t = let sized = findChurchSize t
+            in case runStaticChecks sized of
+                 Nothing -> case toTelomare $ removeChecks sized of
+                   Just i -> pure i
+                   Nothing -> Left CompileConversionError
+                 Just s -> Left $ StaticCheckError s
 {-
 findAllSizes :: Term2 -> (Bool, Term3)
 findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x

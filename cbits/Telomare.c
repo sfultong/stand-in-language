@@ -72,10 +72,6 @@ void telomare_traverse(Telomare_Root * root, void (*fn)(telomare_type, void*), v
                     type  = defer->type;
                     value = defer->value; 
                     break;
-                case Telomare_ABORT:
-                    value = 0;
-                    goto TraverseBranchStop;
-                    break;
                 case Telomare_GATE:;
                     Telomare_Gate *gate = value;
                     type  = gate->left_type;
@@ -174,11 +170,6 @@ unsigned char telomare_equal(Telomare_Root * root1, Telomare_Root *root2){
                     Telomare_Defer * defer2 = value2;
                     type2  = defer2->type;
                     value2 = defer2->value; 
-                    break;
-                case Telomare_ABORT:;
-                    value1 = 0;
-                    value2 = 0;
-                    goto EqualBranchStop;
                     break;
                 case Telomare_GATE:;
                     Telomare_Gate *gate1 = value1;
@@ -282,13 +273,6 @@ void telomare_free(Telomare_Root * root){
                     type  = defer->type;
                     value = defer->value; 
                     free(defer);
-                    break;
-                case Telomare_ABORT:
-                    if(value != 0){
-                      free(value);
-                    }
-                    value = 0;
-                    goto FreeBranchStop;
                     break;
                 case Telomare_GATE:;
                     Telomare_Gate *gate = value;
@@ -439,12 +423,6 @@ Telomare_Root * telomare_deserialize(Telomare_Serialized * serialized){
                     type  = &(defer->type);
                     value = &(defer->value);
                     break;
-                case Telomare_ABORT:;
-                    (*type)  = current_type;
-                    (*value) = 0; 
-                    type  = 0;
-                    value = 0;
-                    break;
                 case Telomare_GATE:;
                     Telomare_Gate * gate = (Telomare_Gate*)malloc(sizeof(Telomare_Gate));
                     (*type)  = current_type;
@@ -525,10 +503,6 @@ unsigned long telomare_count_old(Telomare_Root * root){
                     Telomare_Defer * defer = value;
                     type  = defer->type;
                     value = defer->value; 
-                    break;
-                case Telomare_ABORT:;
-                    value = 0;
-                    goto CountBranchStop;
                     break;
                 case Telomare_GATE:;
                     Telomare_Gate *gate = value;

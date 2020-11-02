@@ -30,6 +30,7 @@ library
                      , ScopedTypeVariables
                      , OverloadedStrings
                      , RecursiveDo
+                     , LambdaCase
   exposed-modules:     Naturals
                      , PrettyPrint
                      , Telomare
@@ -37,6 +38,7 @@ library
                      , Telomare.Llvm
                      , Telomare.Optimizer
                      , Telomare.Parser
+                     , Telomare.Possible
                      , Telomare.RunTime
                      , Telomare.TypeChecker
                      , Telomare.Serializer

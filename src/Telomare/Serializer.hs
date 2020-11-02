@@ -29,7 +29,6 @@ telomareSize' (Pair e1 e2) acc = telomareSize' e1 (telomareSize' e2 (acc + 1))
 telomareSize' Env          acc = acc + 1
 telomareSize' (SetEnv  e)  acc = telomareSize' e (acc + 1)
 telomareSize' (Defer   e)  acc = telomareSize' e (acc + 1)
-telomareSize' Abort        acc = acc + 1
 telomareSize' (Gate e1 e2) acc = telomareSize' e1 (telomareSize' e2 (acc + 1))
 telomareSize' (PLeft   e)  acc = telomareSize' e (acc + 1)
 telomareSize' (PRight  e)  acc = telomareSize' e (acc + 1)
@@ -44,7 +43,6 @@ serialize_loop ix vec ie@(Pair e1 e2) = do
 serialize_loop ix vec ie@Env        = SM.write vec ix (fromIntegral $ typeId ie) >> return ix
 serialize_loop ix vec ie@(SetEnv e) = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
 serialize_loop ix vec ie@(Defer e)  = SM.write vec ix (fromIntegral $ typeId ie) >> serialize_loop (ix+1) vec e
-serialize_loop ix vec ie@Abort      = SM.write vec ix (fromIntegral $ typeId ie) >> return ix
 serialize_loop ix vec ie@(Gate e1 e2) = do
     SM.write vec ix (fromIntegral $ typeId ie)
     end_ix <- serialize_loop (ix+1) vec e1
@@ -88,9 +86,6 @@ deserializer_inside cont i | fromIntegral i == setenv_type = case cont of
 deserializer_inside cont i | fromIntegral i == defer_type = case cont of
     Call1 c -> Call1 $ \e -> c (Defer e) 
     CallN c -> CallN $ \e -> c (Defer e)
-deserializer_inside cont i | fromIntegral i == abort_type = case cont of
-    Call1 c -> Call1 $ \_ -> c Abort
-    CallN c -> c Abort
 deserializer_inside cont i | fromIntegral i == gate_type = case cont of
     Call1 c ->  CallN $ \e1 -> Call1 (\e2 -> c (Gate e1 e2))
     CallN c ->  CallN $ \e1 -> CallN (\e2 -> c (Gate e1 e2))
