@@ -409,33 +409,14 @@ testRecur = concat
 unitTests_ parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
+      unitTestStaticChecks = unitTestStaticChecks' parse
+  {-
       unitTestRuntime = unitTestRuntime' parse
       unitTestSameResult = unitTestSameResult' parse
-  unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
-  unitTestType "main = \\x -> (x,0)" ZeroTypeP isInconsistentType
-  unitTestType "main = succ 0" ZeroTypeP (== Nothing)
-  unitTestType "main = succ 0" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
-  unitTestType "main = or 0" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
-  unitTestType "main = or 0" ZeroTypeP isInconsistentType
-  unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
-  unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
-  unitTestType "main = 0 0" ZeroTypeP isInconsistentType
-  unitTestType "main = (if 0 then (\\x -> (x,0)) else (\\x -> (x,1))) 0" ZeroTypeP (== Nothing)
-  -- I guess this is inconsistently typed now?
-  unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
-    (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-  unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" ZeroTypeP (== Nothing)
-  unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
+-}
+  unitTestStaticChecks "main : (\\x -> if x then \"fail\" else 0) = 1" $ Just "fail"
+  unitTestStaticChecks "main : (\\x -> if left x then \"fail\" else 0) = 1" $ Nothing
+  unitTestStaticChecks "main : (\\x -> if 0 then \"fail\" else 0) = 1" $ Nothing
   {-
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "(0,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
@@ -497,6 +478,7 @@ debugMark s = hPutStrLn stderr s >> pure True
 unitTests parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
+      unitTestStaticChecks = unitTestStaticChecks' parse
   describe "type checker" $ do
     unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
     unitTestType "main = \\x -> (x,0)" ZeroTypeP isInconsistentType
@@ -534,12 +516,10 @@ unitTests parse = do
               )
       )
       ZeroTypeP isRecursiveType
-  -- TODO fix
-  --, unitTestType "main : (\\x -> if x then \"fail\" else 0) = 1" ZeroType isRefinementFailure
   describe "unitTest" $ do
     unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
     -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
-    unitTest "notAbort" "2" (setenv (pair (setenv (pair Abort zero)) (pair (pair zero zero) zero)))
+    --unitTest "notAbort" "2" (setenv (pair (setenv (pair Abort zero)) (pair (pair zero zero) zero)))
     unitTest "c2d" "2" c2d_test
     unitTest "c2d2" "2" c2d_test2
     unitTest "c2d3" "1" c2d_test3
@@ -563,14 +543,14 @@ unitTests parse = do
   -- because of the way lists are represented, the last number will be prettyPrinted + 1
     unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                      (ints2g [1,2,3])
+
   describe "refinement" $ do
-    unitTestRefinement "minimal refinement success" True (check zero (completeLam (varN 0)))
-    unitTestRefinement "minimal refinement failure" False
-      (check (i2g 1) (completeLam (ite (varN 0) (s2g "whoops") zero)))
-    unitTestRefinement "refinement: test of function success" True
-     (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 1))))
-    unitTestRefinement "refinement: test of function failure" False
-     (check (lam (pleft (varN 0))) (completeLam (app (varN 0) (i2g 2))))
+    unitTestStaticChecks "main : (\\x -> if x then \"fail\" else 0) = 1" $ Just "fail"
+    unitTestStaticChecks "main : (\\x -> if left x then \"fail\" else 0) = 1" $ Nothing
+    unitTestStaticChecks "main : (\\x -> if 0 then \"fail\" else 0) = 1" $ Nothing
+    unitTestStaticChecks "main : (\\f -> if f 2 then \"boop\" else 0) = \\x -> left x" $ Just "boop"
+    unitTestStaticChecks "main : (\\f -> if f 2 then \"boop\" else 0) = \\x -> left (left x)" $ Nothing
+
   describe "unitTest2" $ do
     unitTest2 "main = 0" "0"
     unitTest2 fiveApp "5"
@@ -678,19 +658,29 @@ nexprTests = do
 foreign import capi "gc.h GC_INIT" gcInit :: IO ()
 foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
 
-unitTest2' parse s r = it s $ case parse s of
+unitTest2' parse s r = it s $ case fmap compile (parse s) of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
+  Right (Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
     then pure ()
     else expectationFailure $ concat [s, " result ", r2]
+  Right (Left e) -> expectationFailure $ concat ["failed to compile: ", show e]
 
 unitTestType' parse s t tef = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> let apt = typeCheck t $ fromTelomare g
+  Right g -> let apt = typeCheck t g
              in if tef apt
                 then pure ()
                 else expectationFailure $
                       concat [s, " failed typecheck, result ", show apt]
+
+unitTestStaticChecks' parse s r = it s $ case parse s of
+  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+  Right g -> let rr = runStaticChecks $ findChurchSize g
+              in if rr == r
+                then pure ()
+                else do
+    --putStrLn $ "grammar is " <> show g
+    expectationFailure $ "static check failed, expected" <> show r <> " got " <> show rr
 
 unitTestType2 i t tef = it ("type check " <> show i) $
   let apt = typeCheck t $ fromTelomare i
@@ -698,6 +688,7 @@ unitTestType2 i t tef = it ("type check " <> show i) $
      then pure ()
      else expectationFailure $ concat [show i, " failed typecheck, result ", show apt]
 
+{-
 unitTestRuntime' parse s = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
   Right g -> verifyEval g >>= \x -> case x of
@@ -712,6 +703,7 @@ unitTestSameResult' parse a b = it ("comparing to " <> a) $ case (parse a, parse
       then pure ()
       else expectationFailure $ "results don't match: " <> show ra <> " --- " <> show rb
   _ -> expectationFailure "unitTestSameResult failed parsing somewhere"
+-}
 
 main = do
   gcInit
@@ -722,65 +714,8 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
-    -- parse = fmap findChurchSize . parseMain prelude
-    parse term = case fmap (toTelomare . findChurchSize) (parseMain prelude term) of
-      Right (Just term) -> pure term
-      Right Nothing -> Left "grammar conversion error"
-      Left x -> Left $ show x
-  {-
-    unitTestP s g = case parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
-      Right pg -> if pg == g
-        then pure ()
-        else putStrLn $ concat ["parsed oddly ", s, " ", show pg, " compared to ", show g]
--}
-  {-
-    unitTest2 s r = it s $ case parse s of
-      Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-      Right g -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
-        then pure ()
-        else expectationFailure $ concat [s, " result ", r2]
--}
-  {-
-    unitTest3 s r = let parsed = parseMain prelude s in case (inferType <$> parsed, parsed) of
-      (Right (Right _), Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
-        then pure True
-        else (putStrLn $ concat [s, " result ", r2]) >> pure False
-      e -> (putStrLn $ concat ["failed unittest3: ", s, " ", show e ]) >> pure False
-    unitTest4 s t = let parsed = parseMain prelude s in case debugInferType <$> parsed of
-      (Right (Right it)) -> if t == it
-        then pure True
-        else do
-        putStrLn $ concat ["expected type ", show t, " inferred type ", show it]
-        pure False
-      e -> do
-        putStrLn $ concat ["could not infer type ", show e]
-        pure False
--}
-  {-
-    unitTestType s t tef = it s $ case parse s of
-      Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-      Right g -> let apt = typeCheck t g
-                 in if tef apt
-                    then pure ()
-                    else expectationFailure $
-                          concat [s, " failed typecheck, result ", show apt]
--}
-  {-
-    parseTelomare s = case parseMain prelude s of
-      Left e -> concat ["failed to parse ", s, " ", show e]
-      Right g -> show g
--}
+    parse = parseMain prelude
 
-  -- TODO change eval to use rEval, then run this over a long non-work period
-  {-
-  let isProblem (TestIExpr iexpr) = typeable (TestIExpr iexpr) && case eval iexpr of
-        Left _ -> True
-        _ -> False
-  (Right mainAST) <- parseMain prelude <$> Strict.readFile "tictactoe.tel"
-  print . head $ shrinkComplexCase isProblem [TestIExpr mainAST]
-  result <- pure False
--}
   hspec $ do
     unitTests parse
     --nexprTests

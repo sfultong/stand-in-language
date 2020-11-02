@@ -5,9 +5,11 @@ import           Control.Monad.Except
 import qualified Control.Monad.State      as State
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
+import Data.Void
 import           Debug.Trace
 import           Telomare
 import           Telomare.Optimizer
+import Telomare.Possible
 import           Telomare.Parser
 import           Telomare.RunTime
 import           Telomare.Serializer
@@ -39,6 +41,8 @@ instance EndoMapper ExpP where
 
 data EvalError = RTE RunTimeError
     | TCE TypeCheckError
+    | StaticCheckError String
+    | CompileConversionError
     deriving (Eq, Ord, Show)
 
 type ExpFullEnv = ExprA Bool
@@ -107,6 +111,18 @@ removeChecks (Term4 m) =
         insertAndGetKey $ DeferF envDefer
   in Term4 $ Map.map (endoMap f) newM
 
+runStaticChecks :: Term4 -> Maybe String
+runStaticChecks (Term4 termMap) = case ((toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap)) :: Either String (PossibleExpr Void Void)) of
+  Left s -> pure s
+  _ -> Nothing
+
+compile :: Term3 -> Either EvalError IExpr
+compile t = let sized = findChurchSize t
+            in case runStaticChecks sized of
+                 Nothing -> case toTelomare $ removeChecks sized of
+                   Just i -> pure i
+                   Nothing -> Left CompileConversionError
+                 Just s -> Left $ StaticCheckError s
 {-
 findAllSizes :: Term2 -> (Bool, Term3)
 findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x

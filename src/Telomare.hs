@@ -213,7 +213,7 @@ newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
 data BreakExtras
   = UnsizedRecursion
-  deriving Show
+  deriving (Eq, Ord, Show)
 
 type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int

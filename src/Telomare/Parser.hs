@@ -54,6 +54,7 @@ data UnprocessedParsedTerm
   | LeftUP UnprocessedParsedTerm
   | RightUP UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
+  | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
@@ -74,6 +75,7 @@ instance EndoMapper UnprocessedParsedTerm where
     LeftUP l -> f $ LeftUP (recur l)
     RightUP r -> f $ RightUP (recur r)
     TraceUP t -> f $ TraceUP (recur t)
+    CheckUP cf x -> f $ CheckUP (recur cf) (recur x)
     where recur = endoMap f
 
 type VarList = [String]
@@ -135,7 +137,7 @@ splitExpr' = \case
   TPair a b -> PairF <$> splitExpr' a <*> splitExpr' b
   TVar n -> pure $ varNF n
   TApp c i -> appF (splitExpr' c) (splitExpr' i)
-  TCheck c tc ->
+  TCheck tc c ->
     let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
     in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
   TITE i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
@@ -358,7 +360,7 @@ parsePartialFix = symbol "?" *> pure UnsizedRecursionUP
 
 -- |Parse refinement check.
 parseRefinementCheck :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-parseRefinementCheck = pure id <* (symbol ":" *> parseLongExpr)
+parseRefinementCheck = CheckUP <$> (symbol ":" *> parseLongExpr)
 
 -- |Parse assignment add adding binding to ParserState.
 parseAssignment :: TelomareParser (String, UnprocessedParsedTerm)
@@ -367,7 +369,9 @@ parseAssignment = do
   annotation <- optional . try $ parseRefinementCheck
   scn *> symbol "=" <?> "assignment ="
   expr <- scn *> parseLongExpr <* scn
-  pure (var, expr)
+  case annotation of
+    Just annot -> pure (var, annot expr)
+    _ -> pure (var, expr)
 
 -- |Parse top level expressions.
 parseTopLevel :: TelomareParser UnprocessedParsedTerm
@@ -495,6 +499,7 @@ validateVariables bindings term =
         LeftUP x -> TLeft <$> validateWithEnvironment x
         RightUP x -> TRight <$> validateWithEnvironment x
         TraceUP x -> TTrace <$> validateWithEnvironment x
+        CheckUP cf x -> TCheck <$> validateWithEnvironment cf <*> validateWithEnvironment x
   in State.evalStateT (validateWithEnvironment term) Map.empty
 
 optimizeBuiltinFunctions :: UnprocessedParsedTerm -> UnprocessedParsedTerm
