@@ -2,15 +2,15 @@
 module Telomare.Eval where
 
 import           Control.Monad.Except
-import qualified Control.Monad.State      as State
+import qualified Control.Monad.State  as State
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
-import Data.Void
+import           Data.Void
 import           Debug.Trace
 import           Telomare
 import           Telomare.Optimizer
-import Telomare.Possible
 import           Telomare.Parser
+import           Telomare.Possible
 import           Telomare.RunTime
 import           Telomare.Serializer
 import           Telomare.TypeChecker
@@ -103,24 +103,24 @@ findChurchSize = convertPT 255
 removeChecks :: Term4 -> Term4
 removeChecks (Term4 m) =
   let f = \case
-        AbortF -> DeferF ind
+        AbortFrag -> DeferFrag ind
         x -> x
       (ind, newM) = State.runState builder m
       builder = do
-        envDefer <- insertAndGetKey EnvF
-        insertAndGetKey $ DeferF envDefer
+        envDefer <- insertAndGetKey EnvFrag
+        insertAndGetKey $ DeferFrag envDefer
   in Term4 $ Map.map (endoMap f) newM
 
 runStaticChecks :: Term4 -> Maybe String
 runStaticChecks (Term4 termMap) = case ((toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap)) :: Either String (PossibleExpr Void Void)) of
   Left s -> pure s
-  _ -> Nothing
+  _      -> Nothing
 
 compile :: Term3 -> Either EvalError IExpr
 compile t = let sized = findChurchSize t
             in case runStaticChecks sized of
                  Nothing -> case toTelomare $ removeChecks sized of
-                   Just i -> pure i
+                   Just i  -> pure i
                    Nothing -> Left CompileConversionError
                  Just s -> Left $ StaticCheckError s
 {-

@@ -100,7 +100,7 @@ rEval e = para alg where
       -> m IExpr
   alg = \case
     ZeroF -> trace "rEval Zero" $ pure Zero
-    AbortF -> trace "rEval Abort" $ pure Abort
+    -- AbortF -> trace "rEval Abort" $ pure Abort
     EnvF -> trace "rEval Env" $ pure Env
     (DeferF (ie, _)) -> trace ("rEval Defer: " <> show ie) $ pure . Defer $ ie
     TraceF -> trace ("rEval Trace: " <> show e) $ pure $ trace (show e) e
@@ -121,8 +121,8 @@ rEval e = para alg where
         Pair (Defer c) nenv  -> rEval nenv c
         Pair (Gate a _) Zero -> rEval e a
         Pair (Gate _ b) _    -> rEval e b
-        Pair Abort Zero      -> pure $ Defer Env
-        Pair Abort z         -> throwError $ AbortRunTime z
+        -- Pair Abort Zero      -> pure $ Defer Env
+        -- Pair Abort z         -> throwError $ AbortRunTime z
         -- The next case should never actually occur,
         -- because it should be caught by `typeCheck`.
         z                    -> throwError $ SetEnvError z
@@ -133,7 +133,7 @@ iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IE
 iEval f env g = let f' = f env in case g of
   Trace -> pure $ trace (show env) env
   Zero -> pure Zero
-  Abort -> pure Abort
+  -- Abort -> pure Abort
   Defer x -> pure $ Defer x
   Pair a b -> Pair <$> f' a <*> f' b
   Gate a b -> pure $ Gate a b
@@ -225,6 +225,12 @@ llvmEval nexpr = do
 
 optimizedEval :: IExpr -> IO IExpr
 optimizedEval = fastInterpretEval
+
+pureIEval :: IExpr -> Either RunTimeError IExpr
+pureIEval g = runIdentity . runExceptT $ fix iEval Zero g -- this is the original version
+
+pureEval :: IExpr -> Either RunTimeError IExpr
+pureEval = rEval Zero
 
 showPass :: (Show a, MonadIO m) => m a -> m a
 showPass a = a >>= (liftIO . print) >> a

@@ -277,17 +277,17 @@ instance NFData IExpr where
 
 instance EndoMapper (FragExpr a) where
   endoMap f = let recur = endoMap f in \case
-    ZeroF -> f ZeroF
-    PairF a b -> f $ PairF (recur a) (recur b)
-    EnvF -> f EnvF
-    SetEnvF x -> f $ SetEnvF (recur x)
-    DeferF ind -> f $ DeferF ind
-    AbortF -> f AbortF
-    GateF l r -> f $ GateF (recur l) (recur r)
-    LeftF x -> f $ LeftF (recur x)
-    RightF x -> f $ RightF (recur x)
-    TraceF -> f TraceF
-    AuxF a -> f $ AuxF a
+    ZeroFrag -> f ZeroFrag
+    PairFrag a b -> f $ PairFrag (recur a) (recur b)
+    EnvFrag -> f EnvFrag
+    SetEnvFrag x -> f $ SetEnvFrag (recur x)
+    DeferFrag ind -> f $ DeferFrag ind
+    AbortFrag -> f AbortFrag
+    GateFrag l r -> f $ GateFrag (recur l) (recur r)
+    LeftFrag x -> f $ LeftFrag (recur x)
+    RightFrag x -> f $ RightFrag (recur x)
+    TraceFrag -> f TraceFrag
+    AuxFrag a -> f $ AuxFrag a
 
 data RunTimeError
   = AbortRunTime IExpr
@@ -643,26 +643,26 @@ telomareToFragmap expr = Map.insert (FragIndex 0) bf m where
         bx <- convert x
         (fi@(FragIndex i), fragMap) <- State.get
         State.put (FragIndex (i + 1), Map.insert fi bx fragMap)
-        pure $ DeferF fi
-      Gate l r -> GateF <$> convert l <*> convert r
-      PLeft x -> LeftF <$> convert x
-      PRight x -> RightF <$> convert x
-      Trace -> pure TraceF
+        pure $ DeferFrag fi
+      Gate l r -> GateFrag <$> convert l <*> convert r
+      PLeft x -> LeftFrag <$> convert x
+      PRight x -> RightFrag <$> convert x
+      Trace -> pure TraceFrag
 
 fragmapToTelomare :: Map FragIndex (FragExpr a) -> Maybe IExpr
 fragmapToTelomare fragMap = convert (rootFrag fragMap) where
     convert = \case
-      ZeroF -> pure Zero
-      PairF a b -> Pair <$> convert a <*> convert b
-      EnvF -> pure Env
-      SetEnvF x -> SetEnv <$> convert x
-      DeferF ind -> Defer <$> (Map.lookup ind fragMap >>= convert)
-      AbortF -> Nothing
-      GateF l r -> Gate <$> convert l <*> convert r
-      LeftF x -> PLeft <$> convert x
-      RightF x -> PRight <$> convert x
-      TraceF -> pure Trace
-      AuxF _ -> Nothing
+      ZeroFrag -> pure Zero
+      PairFrag a b -> Pair <$> convert a <*> convert b
+      EnvFrag -> pure Env
+      SetEnvFrag x -> SetEnv <$> convert x
+      DeferFrag ind -> Defer <$> (Map.lookup ind fragMap >>= convert)
+      AbortFrag -> Nothing
+      GateFrag l r -> Gate <$> convert l <*> convert r
+      LeftFrag x -> PLeft <$> convert x
+      RightFrag x -> PRight <$> convert x
+      TraceFrag -> pure Trace
+      AuxFrag _ -> Nothing
 
 instance TelomareLike Term3 where
   fromTelomare = Term3 . telomareToFragmap
