@@ -17,9 +17,10 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ getErrorString pe
-    runMain s = case toTelomare . findChurchSize <$> parseMain prelude s of
+    runMain s = case compile <$> parseMain prelude s of
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", e]
-      Right (Just g) -> evalLoop g
+      Right (Right g) -> evalLoop g
+      Right z -> putStrLn $ "compilation failed somehow, with result " <> show z
     --testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
     --testData = PRight $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
     --testData = SetEnv $ Pair (Defer $ Pair Zero Env) Zero
