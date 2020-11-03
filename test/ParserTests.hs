@@ -1,9 +1,12 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE DeriveFunctor         #-}
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 module Main where
 
 import           Common
 import           Control.Monad
+import           Control.Monad.Error
 import           Control.Monad.Except      (ExceptT, MonadError, runExceptT)
 import           Control.Monad.Fix         (fix)
 import           Control.Monad.IO.Class    (liftIO)
@@ -19,6 +22,7 @@ import qualified Data.Semigroup            as Semigroup
 import qualified Data.Set                  as Set
 import           Debug.Trace               (trace)
 import qualified System.IO.Strict          as Strict
+import           System.IO.Unsafe          (unsafePerformIO)
 import           Telomare
 import           Telomare.Eval
 import           Telomare.Parser
@@ -840,24 +844,64 @@ showAllTransformations input = do
   section "Diff toTelomare" $ ppDiff diff
   putStrLn "\n-----------------------------------------------------------------"
   putStrLn $ "---- stepEval:\n"
-  x <- stepEval toTelomareVar
-  putStrLn .show $ x
+  x <- stepIEval toTelomareVar
+  print x
   -- let iEvalVar0 = iEval () Zero toTelomareVar
 
-stepEval :: IExpr -> IO IExpr
-stepEval g = do
-  x <- runExceptT $ fix myEval Zero g
-  case x of
-    Left e  -> error . show $ e
-    Right a -> pure a
+stepIEval :: IExpr -> IO IExpr
+stepIEval =
+  let wio :: IExpr -> WrappedIO IExpr
+      wio = rEval Zero
+  in wioIO . wio
+
+data WrappedIO a = WrappedIO
+  { wioIO :: IO a
+  } deriving (Functor)
+
+instance Show (WrappedIO IExpr) where
+  show = show . unsafePerformIO . wioIO
+
+instance Applicative WrappedIO where
+  pure = WrappedIO . pure
+  (<*>) (WrappedIO f) (WrappedIO a) = WrappedIO $ f <*> a
+
+instance Monad WrappedIO where
+  (>>=) (WrappedIO a) f = WrappedIO $ a >>= (wioIO . f)
+
+instance (MonadError RunTimeError) WrappedIO where
+  throwError = undefined
+  catchError = undefined
 
 -- TODO: Remove
 -- iEval :: MonadError RunTimeError m => (IExpr -> IExpr -> m IExpr) -> IExpr -> IExpr -> m IExpr
 
--- |EvalStep :: * -> *
-type EvalStep = ExceptT RunTimeError IO
+-- -- |EvalStep :: * -> *
+-- type EvalStep = ExceptT RunTimeError IO
 
-myEval :: (IExpr -> IExpr -> EvalStep IExpr) -> IExpr -> IExpr -> EvalStep IExpr
-myEval f e g = do
-  liftIO $ putStrLn . show $ (e, g)
-  iEval f e g
+-- myIEval :: (IExpr -> IExpr -> EvalStep IExpr) -> IExpr -> IExpr -> EvalStep IExpr
+-- myIEval f e g = do
+--   liftIO $ print (g, e)
+--   iEval f e g
+
+-- Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env)))))
+--   ,Left Can't SetEnv: Pair Zero (Pair Zero Zero))
+
+
+-- Main> pureREval (check zero (completeLam (varN 0)))
+-- (Pair (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env)))) (Pair (Pair (Defer (PLeft Env)) Zero) Zero),Right (Pair (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env)))) (Pair (Pair (Defer (PLeft Env)) Zero) Zero)))
+-- (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env)),Right (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero Zero)))
+-- (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))),Right (Pair Zero (Pair Zero Zero)))
+-- (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))),Left Can't SetEnv: Pair Zero (Pair Zero Zero))
+-- (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env),Left Can't SetEnv: Pair Zero (Pair Zero Zero))
+-- Left Can't SetEnv: Pair Zero (Pair Zero Zero)
+
+
+-- Main> stepIEval (check zero (completeLam (varN 0)))
+-- (SetEnv (Pair (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env)))) (Pair (Pair (Defer (PLeft Env)) Zero) Zero)),Zero)
+-- (Pair (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env)))) (Pair (Pair (Defer (PLeft Env)) Zero) Zero),Zero)
+-- (Defer (SetEnv (Pair (SetEnv (Pair Abort (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair (PRight Env) (PLeft Env))))))) (PRight Env))),Zero)
+-- (Pair (Pair (Defer (PLeft Env)) Zero) Zero,Zero)
+-- (Pair (Defer (PLeft Env)) Zero,Zero)
+-- (Defer (PLeft Env),Zero)
+-- (Zero,Zero)
+-- (Zero,Zero)

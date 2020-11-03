@@ -1,12 +1,12 @@
 {-# LANGUAGE DeriveFoldable      #-}
 {-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE DeriveTraversable   #-}
+{-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeFamilies        #-}
-{-# LANGUAGE FlexibleInstances   #-}
 
 module Telomare.Parser where
 
@@ -133,20 +133,20 @@ debruijinize _ (TLimitedRecursion) = pure TLimitedRecursion
 
 splitExpr' :: Term2 -> BreakState' BreakExtras
 splitExpr' = \case
-  TZero -> pure ZeroF
-  TPair a b -> PairF <$> splitExpr' a <*> splitExpr' b
+  TZero -> pure ZeroFrag
+  TPair a b -> PairFrag <$> splitExpr' a <*> splitExpr' b
   TVar n -> pure $ varNF n
   TApp c i -> appF (splitExpr' c) (splitExpr' i)
   TCheck tc c ->
-    let performTC = deferF ((\ia -> (SetEnvF (PairF (SetEnvF (PairF AbortF ia)) (RightF EnvF)))) <$> appF (pure $ LeftF EnvF) (pure $ RightF EnvF))
-    in (\ptc nc ntc -> SetEnvF (PairF ptc (PairF ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
-  TITE i t e -> (\ni nt ne -> SetEnvF (PairF (GateF ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
-  TLeft x -> LeftF <$> splitExpr' x
-  TRight x -> RightF <$> splitExpr' x
-  TTrace x -> (\tf nx -> SetEnvF (PairF tf nx)) <$> deferF (pure TraceF) <*> splitExpr' x
-  TLam (Open ()) x -> (\f -> PairF f EnvF) <$> deferF (splitExpr' x)
-  TLam (Closed ()) x -> (\f -> PairF f ZeroF) <$> deferF (splitExpr' x)
-  TLimitedRecursion -> pure $ AuxF UnsizedRecursion
+    let performTC = deferF ((\ia -> (SetEnvFrag (PairFrag (SetEnvFrag (PairFrag AbortFrag ia)) (RightFrag EnvFrag)))) <$> appF (pure $ LeftFrag EnvFrag) (pure $ RightFrag EnvFrag))
+    in (\ptc nc ntc -> SetEnvFrag (PairFrag ptc (PairFrag ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
+  TITE i t e -> (\ni nt ne -> SetEnvFrag (PairFrag (GateFrag ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
+  TLeft x -> LeftFrag <$> splitExpr' x
+  TRight x -> RightFrag <$> splitExpr' x
+  TTrace x -> (\tf nx -> SetEnvFrag (PairFrag tf nx)) <$> deferF (pure TraceFrag) <*> splitExpr' x
+  TLam (Open ()) x -> (\f -> PairFrag f EnvFrag) <$> deferF (splitExpr' x)
+  TLam (Closed ()) x -> (\f -> PairFrag f ZeroFrag) <$> deferF (splitExpr' x)
+  TLimitedRecursion -> pure $ AuxFrag UnsizedRecursion
 
 splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.empty)
@@ -155,17 +155,17 @@ splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.
 convertPT :: Int -> Term3 -> Term4
 convertPT n (Term3 termMap) =
   let changeTerm = \case
-        AuxF UnsizedRecursion -> partialFixF n
-        ZeroF -> pure ZeroF
-        PairF a b -> PairF <$> changeTerm a <*> changeTerm b
-        EnvF -> pure EnvF
-        SetEnvF x -> SetEnvF <$> changeTerm x
-        DeferF fi -> pure $ DeferF fi
-        AbortF -> pure AbortF
-        GateF l r -> GateF <$> changeTerm l <*> changeTerm r
-        LeftF x -> LeftF <$> changeTerm x
-        RightF x -> RightF <$> changeTerm x
-        TraceF -> pure TraceF
+        AuxFrag UnsizedRecursion -> partialFixF n
+        ZeroFrag -> pure ZeroFrag
+        PairFrag a b -> PairFrag <$> changeTerm a <*> changeTerm b
+        EnvFrag -> pure EnvFrag
+        SetEnvFrag x -> SetEnvFrag <$> changeTerm x
+        DeferFrag fi -> pure $ DeferFrag fi
+        AbortFrag -> pure AbortFrag
+        GateFrag l r -> GateFrag <$> changeTerm l <*> changeTerm r
+        LeftFrag x -> LeftFrag <$> changeTerm x
+        RightFrag x -> RightFrag <$> changeTerm x
+        TraceFrag -> pure TraceFrag
       mmap = traverse changeTerm termMap
       startKey = succ . fst $ Map.findMax termMap
       newMapBuilder = do
@@ -186,6 +186,7 @@ lineComment = L.skipLineComment "--"
 
 -- |A block comment starts with "{-" and ends at "-}".
 -- Nested block comments are also supported.
+blockComment :: TelomareParser ()
 blockComment = L.skipBlockCommentNested "{-" "-}"
 
 -- |Space Consumer: Whitespace and comment parser that does not consume new-lines.
@@ -255,7 +256,7 @@ parseNumber = (IntUP . fromInteger) <$> integer
 parsePair :: TelomareParser UnprocessedParsedTerm
 parsePair = parens $ do
   a <- scn *> parseLongExpr <* scn
-  symbol "," <* scn
+  _ <- symbol "," <* scn
   b <- parseLongExpr <* scn
   pure $ PairUP a b
 
@@ -371,7 +372,7 @@ parseAssignment = do
   expr <- scn *> parseLongExpr <* scn
   case annotation of
     Just annot -> pure (var, annot expr)
-    _ -> pure (var, expr)
+    _          -> pure (var, expr)
 
 -- |Parse top level expressions.
 parseTopLevel :: TelomareParser UnprocessedParsedTerm
@@ -478,8 +479,8 @@ validateVariables bindings term =
         LetUP bindingsMap inner -> do
           oldBindings <- State.get
           let addBinding (k,v) = do
-                term <- validateWithEnvironment v
-                State.modify (Map.insert k term)
+                newTerm <- validateWithEnvironment v
+                State.modify (Map.insert k newTerm)
           mapM_ addBinding bindingsMap
           result <- validateWithEnvironment inner
           State.put oldBindings

@@ -4,7 +4,6 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures             #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
@@ -51,6 +50,7 @@ data IExpr
   | PRight !IExpr            -- right
   | Trace
   deriving (Eq, Show, Ord)
+makeBaseFunctor ''IExpr -- * Functorial version IExprF.
 
 -- probably should get rid of this in favor of ExprT
 data ExprA a
@@ -178,17 +178,17 @@ dropUntil p x@(x1:_) =
 newtype FragIndex = FragIndex { unFragIndex :: Int } deriving (Eq, Show, Ord, Enum, NFData, Generic)
 
 data FragExpr a
-  = ZeroF
-  | PairF (FragExpr a) (FragExpr a)
-  | EnvF
-  | SetEnvF (FragExpr a)
-  | DeferF FragIndex
-  | AbortF
-  | GateF (FragExpr a) (FragExpr a)
-  | LeftF (FragExpr a)
-  | RightF (FragExpr a)
-  | TraceF
-  | AuxF a
+  = ZeroFrag
+  | PairFrag (FragExpr a) (FragExpr a)
+  | EnvFrag
+  | SetEnvFrag (FragExpr a)
+  | DeferFrag FragIndex
+  | AbortFrag
+  | GateFrag (FragExpr a) (FragExpr a)
+  | LeftFrag (FragExpr a)
+  | RightFrag (FragExpr a)
+  | TraceFrag
+  | AuxFrag a
   deriving (Eq, Ord)
 makeBaseFunctor ''FragExpr -- Functorial version FragExprF.
 
@@ -196,17 +196,17 @@ instance Show a => Show (FragExpr a) where
   show fexp = State.evalState (cata alg fexp) 0 where
     alg :: (Base (FragExpr a)) (State Int String) -> State Int String
     alg = \case
-      ZeroFF -> sindent "ZeroF"
-      (PairFF sl sr) -> indentWithTwoChildren "PairF" sl sr
-      EnvFF -> sindent "EnvF"
-      (SetEnvFF sx) -> indentWithOneChild "SetEnvF" sx
-      (DeferFF i) -> sindent $ "DeferF " <> show i
-      AbortFF -> sindent "AbortFF"
-      (GateFF sx sy) -> indentWithTwoChildren "GateF" sx sy
-      (LeftFF sl) -> indentWithOneChild "LeftF" sl
-      (RightFF sr) -> indentWithOneChild "RightF" sr
-      TraceFF -> sindent "TraceF"
-      (AuxFF x) -> sindent $ "AuxF " <> show x
+      ZeroFragF -> sindent "ZeroF"
+      (PairFragF sl sr) -> indentWithTwoChildren "PairF" sl sr
+      EnvFragF -> sindent "EnvF"
+      (SetEnvFragF sx) -> indentWithOneChild "SetEnvF" sx
+      (DeferFragF i) -> sindent $ "DeferF " <> show i
+      AbortFragF -> sindent "AbortFragF"
+      (GateFragF sx sy) -> indentWithTwoChildren "GateF" sx sy
+      (LeftFragF sl) -> indentWithOneChild "LeftF" sl
+      (RightFragF sr) -> indentWithOneChild "RightF" sr
+      TraceFragF -> sindent "TraceF"
+      (AuxFragF x) -> sindent $ "AuxF " <> show x
 
 
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
@@ -277,17 +277,17 @@ instance NFData IExpr where
 
 instance EndoMapper (FragExpr a) where
   endoMap f = let recur = endoMap f in \case
-    ZeroF -> f ZeroF
-    PairF a b -> f $ PairF (recur a) (recur b)
-    EnvF -> f EnvF
-    SetEnvF x -> f $ SetEnvF (recur x)
-    DeferF ind -> f $ DeferF ind
-    AbortF -> f AbortF
-    GateF l r -> f $ GateF (recur l) (recur r)
-    LeftF x -> f $ LeftF (recur x)
-    RightF x -> f $ RightF (recur x)
-    TraceF -> f TraceF
-    AuxF a -> f $ AuxF a
+    ZeroFrag -> f ZeroFrag
+    PairFrag a b -> f $ PairFrag (recur a) (recur b)
+    EnvFrag -> f EnvFrag
+    SetEnvFrag x -> f $ SetEnvFrag (recur x)
+    DeferFrag ind -> f $ DeferFrag ind
+    AbortFrag -> f AbortFrag
+    GateFrag l r -> f $ GateFrag (recur l) (recur r)
+    LeftFrag x -> f $ LeftFrag (recur x)
+    RightFrag x -> f $ RightFrag (recur x)
+    TraceFrag -> f TraceFrag
+    AuxFrag a -> f $ AuxFrag a
 
 data RunTimeError
   = AbortRunTime IExpr
@@ -347,7 +347,7 @@ varN :: Int -> IExpr
 varN n = pleft (iterate pright env !! n)
 
 varNF :: Int -> FragExpr a
-varNF n = LeftF (iterate RightF EnvF !! n)
+varNF n = LeftFrag (iterate RightFrag EnvFrag !! n)
 
 -- make sure these patterns are in exact correspondence with the shortcut functions above
 pattern FirstArg :: IExpr
@@ -412,31 +412,31 @@ deferF x = do
   bx <- x
   (fi@(FragIndex i), fragMap) <- State.get
   State.put (FragIndex (i + 1), Map.insert fi bx fragMap)
-  pure $ DeferF fi
+  pure $ DeferFrag fi
 
 appF :: BreakState' a -> BreakState' a -> BreakState' a
 appF c i =
-  let twiddleF = deferF $ pure (PairF (LeftF (RightF EnvF)) (PairF (LeftF EnvF) (RightF (RightF EnvF))))
-  in (\tf p -> SetEnvF (SetEnvF (PairF tf p))) <$> twiddleF <*> (PairF <$> i <*> c)
+  let twiddleF = deferF $ pure (PairFrag (LeftFrag (RightFrag EnvFrag)) (PairFrag (LeftFrag EnvFrag) (RightFrag (RightFrag EnvFrag))))
+  in (\tf p -> SetEnvFrag (SetEnvFrag (PairFrag tf p))) <$> twiddleF <*> (PairFrag <$> i <*> c)
 
 lamF :: BreakState' a -> BreakState' a
-lamF x = (\f -> PairF f EnvF) <$> deferF x
+lamF x = (\f -> PairFrag f EnvFrag) <$> deferF x
 
 clamF :: BreakState' a -> BreakState' a
-clamF x = (\f -> PairF f ZeroF) <$> deferF x
+clamF x = (\f -> PairFrag f ZeroFrag) <$> deferF x
 
 toChurchF :: Int -> BreakState' a
 toChurchF x' =
-  let inner 0 = pure $ LeftF EnvF
-      inner x = appF (pure $ LeftF (RightF EnvF)) (inner (x - 1))
+  let inner 0 = pure $ LeftFrag EnvFrag
+      inner x = appF (pure $ LeftFrag (RightFrag EnvFrag)) (inner (x - 1))
   in lamF (lamF (inner x'))
 
 partialFixF :: Int -> BreakState' a
 partialFixF i =
-  let firstArgF = pure $ LeftF EnvF
-      secondArgF = pure $ LeftF (RightF EnvF)
+  let firstArgF = pure $ LeftFrag EnvFrag
+      secondArgF = pure $ LeftFrag (RightFrag EnvFrag)
       abortMessage = s2gF "recursion depth limit exceeded ~"
-      abrt = SetEnvF . PairF AbortF <$> abortMessage
+      abrt = SetEnvFrag . PairFrag AbortFrag <$> abortMessage
   in clamF (lamF (appF (appF (toChurchF i) secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
 
 pattern FirstArgA :: ExprA a
@@ -478,6 +478,7 @@ data DataType
 
 newtype PrettyDataType = PrettyDataType DataType
 
+showInternal :: DataType -> String
 showInternal at@(ArrType _ _) = concat ["(", show $ PrettyDataType at, ")"]
 showInternal t                = show . PrettyDataType $ t
 
@@ -498,6 +499,7 @@ data PartialType
 
 newtype PrettyPartialType = PrettyPartialType PartialType
 
+showInternalP :: PartialType -> String
 showInternalP at@(ArrTypeP _ _) = concat ["(", show $ PrettyPartialType at, ")"]
 showInternalP t = show . PrettyPartialType $ t
 
@@ -569,15 +571,15 @@ g2s = map chr . g2Ints
 toChurch :: Int -> IExpr
 toChurch x =
   let inner 0 = PLeft Env
-      inner x = app (PLeft $ PRight Env) (inner (x - 1))
+      inner a = app (PLeft $ PRight Env) (inner (a - 1))
   in lam (lam (inner x))
 
 i2gF :: Int -> BreakState' a
-i2gF 0 = pure ZeroF
-i2gF n = PairF <$> i2gF (n - 1) <*> pure ZeroF
+i2gF 0 = pure ZeroFrag
+i2gF n = PairFrag <$> i2gF (n - 1) <*> pure ZeroFrag
 
 ints2gF :: [Int] -> BreakState' a
-ints2gF = foldr (\i g -> PairF <$> i2gF i <*> g) (pure ZeroF)
+ints2gF = foldr (\i g -> PairFrag <$> i2gF i <*> g) (pure ZeroFrag)
 
 s2gF :: String -> BreakState' a
 s2gF = ints2gF . map ord
@@ -633,34 +635,34 @@ telomareToFragmap :: IExpr -> Map FragIndex (FragExpr a)
 telomareToFragmap expr = Map.insert (FragIndex 0) bf m where
     (bf, (_,m)) = State.runState (convert expr) (FragIndex 1, Map.empty)
     convert = \case
-      Zero -> pure ZeroF
-      Pair a b -> PairF <$> convert a <*> convert b
-      Env -> pure EnvF
-      SetEnv x -> SetEnvF <$> convert x
+      Zero -> pure ZeroFrag
+      Pair a b -> PairFrag <$> convert a <*> convert b
+      Env -> pure EnvFrag
+      SetEnv x -> SetEnvFrag <$> convert x
       Defer x -> do
         bx <- convert x
         (fi@(FragIndex i), fragMap) <- State.get
         State.put (FragIndex (i + 1), Map.insert fi bx fragMap)
-        pure $ DeferF fi
-      Gate l r -> GateF <$> convert l <*> convert r
-      PLeft x -> LeftF <$> convert x
-      PRight x -> RightF <$> convert x
-      Trace -> pure TraceF
+        pure $ DeferFrag fi
+      Gate l r -> GateFrag <$> convert l <*> convert r
+      PLeft x -> LeftFrag <$> convert x
+      PRight x -> RightFrag <$> convert x
+      Trace -> pure TraceFrag
 
 fragmapToTelomare :: Map FragIndex (FragExpr a) -> Maybe IExpr
 fragmapToTelomare fragMap = convert (rootFrag fragMap) where
     convert = \case
-      ZeroF -> pure Zero
-      PairF a b -> Pair <$> convert a <*> convert b
-      EnvF -> pure Env
-      SetEnvF x -> SetEnv <$> convert x
-      DeferF ind -> Defer <$> (Map.lookup ind fragMap >>= convert)
-      AbortF -> Nothing
-      GateF l r -> Gate <$> convert l <*> convert r
-      LeftF x -> PLeft <$> convert x
-      RightF x -> PRight <$> convert x
-      TraceF -> pure Trace
-      AuxF _ -> Nothing
+      ZeroFrag -> pure Zero
+      PairFrag a b -> Pair <$> convert a <*> convert b
+      EnvFrag -> pure Env
+      SetEnvFrag x -> SetEnv <$> convert x
+      DeferFrag ind -> Defer <$> (Map.lookup ind fragMap >>= convert)
+      AbortFrag -> Nothing
+      GateFrag l r -> Gate <$> convert l <*> convert r
+      LeftFrag x -> PLeft <$> convert x
+      RightFrag x -> PRight <$> convert x
+      TraceFrag -> pure Trace
+      AuxFrag _ -> Nothing
 
 instance TelomareLike Term3 where
   fromTelomare = Term3 . telomareToFragmap
@@ -677,6 +679,6 @@ insertAndGetKey v = do
   m <- State.get
   let nextKey = case Set.lookupMax $ Map.keysSet m of
         Nothing -> toEnum 0
-        Just n -> succ n
+        Just n  -> succ n
   State.put $ Map.insert nextKey v m
   pure nextKey

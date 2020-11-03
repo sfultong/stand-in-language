@@ -30,13 +30,15 @@
 --                       f = (x,y)
 --                   in f
 
-main = \input ->  let alt = \n -> (n succ (left "1"), 0)
-                      dp = \n -> (alt n)
-                      y = 0
-                      f = (dp $7, y)
-                  in f
+-- main = \input ->  let alt = \n -> (n succ (left "1"), 0)
+--                       dp = \n -> (alt n)
+--                       y = 0
+--                       f = (dp $7, y)
+--                   in f
 
-a=0
+-- a=0
+
+main = \input -> ("Hello, World!", 0)
 -- main = \input ->  let x = "0"
 --                       y = "0"
 --                       f = (0, concat [x,y])

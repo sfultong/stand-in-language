@@ -1,14 +1,14 @@
 module Main where
 
-import Data.Char
-import Telomare
+import           Data.Char
+import qualified System.IO.Strict     as Strict
+import           Telomare
+import           Telomare.Eval
+import           Telomare.Optimizer
+import           Telomare.Parser
+import           Telomare.RunTime
+import           Telomare.TypeChecker (inferType, typeCheck)
 --import Telomare.Llvm
-import Telomare.Parser
-import Telomare.RunTime
-import Telomare.TypeChecker (typeCheck, inferType)
-import Telomare.Optimizer
-import Telomare.Eval
-import qualified System.IO.Strict as Strict
 
 main = do
   preludeFile <- Strict.readFile "Prelude.tel"
@@ -31,7 +31,7 @@ main = do
   runJIT (makeModule testData) >>= \result -> case result of
     Left err -> putStrLn $ concat ["JIT error: ", err]
     Right mod -> putStrLn "JIT seemed to finish ok"
--}
+  -}
 
   -- printBindingTypes prelude
   Strict.readFile "tictactoe.tel" >>= runMain

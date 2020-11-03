@@ -1,21 +1,20 @@
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase    #-}
+
 module Telomare.TypeChecker where
 
-import Control.Applicative
-import Control.Monad.Except
-import Control.Monad.State (State)
-import Data.Map (Map)
-import Data.Set (Set)
-import Debug.Trace
-
-import qualified Control.Monad.State as State
-import qualified Data.DList as DList
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-
-import Telomare
-import PrettyPrint
+import           Control.Applicative
+import           Control.Monad.Except
+import           Control.Monad.State  (State)
+import qualified Control.Monad.State  as State
+import qualified Data.DList           as DList
+import           Data.Map             (Map)
+import qualified Data.Map             as Map
+import           Data.Set             (Set)
+import qualified Data.Set             as Set
+import           Debug.Trace
+import           PrettyPrint
+import           Telomare
 
 debug :: Bool
 debug = False
@@ -88,7 +87,7 @@ buildTypeMap assocSet =
           Just t2 -> makeAssociations t t2 >>= (\assoc2 -> buildMap (newAssoc <> assoc2) typeMap)
   -- if any variables result in lookup cycles, fail with RecursiveType
   in case foldr (\t r -> isRecursiveType Set.empty t <|> r) Nothing (Map.keys multiMap) of
-    Just k -> Left $ RecursiveType k
+    Just k  -> Left $ RecursiveType k
     Nothing -> debugTrace (show multiMap) $ buildMap assocSet mempty
 
 fullyResolve :: (Int -> Maybe PartialType) -> PartialType -> PartialType
@@ -97,7 +96,7 @@ fullyResolve resolve = convert where
     endo = \case
       TypeVariable i -> case resolve i of
         Nothing -> TypeVariable i
-        Just t -> convert t -- debugTrace (show t) $ convert t
+        Just t  -> convert t -- debugTrace (show t) $ convert t
       x -> x
 
 traceAssociate :: PartialType -> PartialType -> a -> a
@@ -129,7 +128,7 @@ fullyResolve typeMap x = case mostlyResolved of
 initState :: Term3 -> (PartialType, Set TypeAssociation, Int)
 initState (Term3 termMap) =
   let startVariable = case Set.maxView (Map.keysSet termMap) of
-        Nothing -> 0
+        Nothing               -> 0
         Just (FragIndex i, _) -> (i + 1) * 2
   in (TypeVariable 0, Set.empty, startVariable)
 
@@ -140,36 +139,36 @@ annotate :: Term3 -> AnnotateState PartialType
 annotate (Term3 termMap) =
   let annotate' :: FragExpr BreakExtras -> AnnotateState PartialType
       annotate' = \case
-        ZeroF -> pure ZeroTypeP
-        PairF a b -> PairTypeP <$> annotate' a <*> annotate' b
-        EnvF -> (\(t, _, _) -> t) <$> State.get
-        SetEnvF x -> do
+        ZeroFrag -> pure ZeroTypeP
+        PairFrag a b -> PairTypeP <$> annotate' a <*> annotate' b
+        EnvFrag -> (\(t, _, _) -> t) <$> State.get
+        SetEnvFrag x -> do
           xt <- annotate' x
           (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
           associateVar (PairTypeP (ArrTypeP it ot) it) xt
           pure ot
-        DeferF ind -> pure $ getFragType ind
-        AbortF -> do
+        DeferFrag ind -> pure $ getFragType ind
+        AbortFrag -> do
           (it, _) <- withNewEnv $ pure ()
           pure (ArrTypeP ZeroTypeP (ArrTypeP it it))
-        GateF l r -> do
+        GateFrag l r -> do
           lt <- annotate' l
           rt <- annotate' r
           associateVar lt rt
           pure $ ArrTypeP ZeroTypeP lt
-        LeftF x -> do
+        LeftFrag x -> do
           xt <- annotate' x
           (la, _) <- withNewEnv $ pure ()
           associateVar (PairTypeP la AnyType) xt
           pure la
-        RightF x -> do
+        RightFrag x -> do
           xt <- annotate' x
           (ra, _) <- withNewEnv $ pure ()
           associateVar (PairTypeP AnyType ra) xt
           pure ra
-        TraceF -> (\(t, _, _) -> t) <$> State.get
+        TraceFrag -> (\(t, _, _) -> t) <$> State.get
         --(v8 -> ((A,(((v17,v19) -> v7,A),A)) -> v7,v8),Z)
-        AuxF UnsizedRecursion -> do -- ugh... just trust this?
+        AuxFrag UnsizedRecursion -> do -- ugh... just trust this?
           (ta, (tb, (tc, (td, _)))) <- withNewEnv . withNewEnv . withNewEnv . withNewEnv $ pure ()
           let it = PairTypeP AnyType (PairTypeP (PairTypeP (ArrTypeP (PairTypeP tc td) ta) AnyType) AnyType)
           pure $ PairTypeP (ArrTypeP tb (PairTypeP (ArrTypeP it ta) tb)) ZeroTypeP
@@ -200,4 +199,3 @@ typeCheck t tm@(Term3 typeMap) = convert (partiallyAnnotate tm >>= associate) wh
   convert = \case
     Left er -> Just er
     _ -> Nothing
-

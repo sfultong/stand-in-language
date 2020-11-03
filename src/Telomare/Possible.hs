@@ -1,14 +1,14 @@
 {-# LANGUAGE LambdaCase #-}
 module Telomare.Possible where
 
-import Control.Applicative
-import Data.Char
-import Data.Foldable
-import Data.Monoid
-import Data.Void
-import Debug.Trace
-import Telomare
-import qualified Data.DList as DList
+import           Control.Applicative
+import           Data.Char
+import qualified Data.DList          as DList
+import           Data.Foldable
+import           Data.Monoid
+import           Data.Void
+import           Debug.Trace
+import           Telomare
 
 data PossibleExpr a b
   = ZeroX
@@ -21,16 +21,16 @@ data PossibleExpr a b
 
 instance (Eq a, Eq b) => Semigroup (PossibleExpr a b) where
   (<>) a b = case (a,b) of
-    (ZeroX, ZeroX) -> ZeroX
-    (AnyX, _) -> AnyX
-    (_, AnyX) -> AnyX
-    (AnnotateX x a, b) -> AnnotateX x $ a <> b
-    (a, AnnotateX x b) -> AnnotateX x $ a <> b
+    (ZeroX, ZeroX)                      -> ZeroX
+    (AnyX, _)                           -> AnyX
+    (_, AnyX)                           -> AnyX
+    (AnnotateX x a, b)                  -> AnnotateX x $ a <> b
+    (a, AnnotateX x b)                  -> AnnotateX x $ a <> b
     (FunctionX a, FunctionX b) | a == b -> FunctionX a
-    (PairX a b, PairX c d) | a == c -> PairX a (b <> d)
-    (PairX a b, PairX c d) | b == d -> PairX (a <> c) b
-    (EitherX a b, EitherX c d) -> EitherX (a <> c) (b <> d)
-    _ -> EitherX a b
+    (PairX a b, PairX c d) | a == c     -> PairX a (b <> d)
+    (PairX a b, PairX c d) | b == d     -> PairX (a <> c) b
+    (EitherX a b, EitherX c d)          -> EitherX (a <> c) (b <> d)
+    _                                   -> EitherX a b
 
 booleanPossibilities :: PossibleExpr a b -> DList.DList Bool
 booleanPossibilities = \case
@@ -77,37 +77,37 @@ toPossible fragLookup setEval env =
   let toPossible' = toPossible fragLookup setEval
       recur = toPossible' env
   in \case
-  ZeroF -> pure ZeroX
-  PairF a b -> PairX <$> recur a <*> recur b
-  EnvF -> pure env
-  LeftF x -> let process = \case
-                   AnnotateX a px -> AnnotateX a <$> process px
-                   PairX ln _ -> pure ln
-                   z@ZeroX -> pure z
-                   a@AnyX -> pure a
-                   EitherX a b -> EitherX <$> process a <*> process b
-                   z -> error $ "buildTestMap leftF unexpected: " <> show z
-              in recur x >>= process
-  RightF x -> let process = \case
-                    AnnotateX a px -> AnnotateX a <$> process px
-                    PairX _ rn -> pure rn
-                    z@ZeroX -> pure z
-                    a@AnyX -> pure a
-                    EitherX a b -> EitherX <$> process a <*> process b
-                    z -> error $ "buildTestMap rightF unexpected: " <> show z
-              in recur x >>= process
-  SetEnvF x -> recur x >>=
+  ZeroFrag -> pure ZeroX
+  PairFrag a b -> PairX <$> recur a <*> recur b
+  EnvFrag -> pure env
+  LeftFrag x -> let process = \case
+                      AnnotateX a px -> AnnotateX a <$> process px
+                      PairX ln _ -> pure ln
+                      z@ZeroX -> pure z
+                      a@AnyX -> pure a
+                      EitherX a b -> EitherX <$> process a <*> process b
+                      z -> error $ "buildTestMap leftFrag unexpected: " <> show z
+                in recur x >>= process
+  RightFrag x -> let process = \case
+                       AnnotateX a px -> AnnotateX a <$> process px
+                       PairX _ rn -> pure rn
+                       z@ZeroX -> pure z
+                       a@AnyX -> pure a
+                       EitherX a b -> EitherX <$> process a <*> process b
+                       z -> error $ "buildTestMap rightFrag unexpected: " <> show z
+                 in recur x >>= process
+  SetEnvFrag x -> recur x >>=
     let processSet = \case
           AnnotateX a px -> AnnotateX a <$> processSet px
           PairX ft it -> setEval toPossible' env ft it
           EitherX a b -> (<>) <$> processSet a <*> processSet b
           z -> error $ "buildTestMap setenv not pair: " <> show z
     in processSet
-  DeferF ind -> pure . FunctionX $ fragLookup ind -- process Defer here rather than SetEnvF to reduce arguments to setEval
-  g@(GateF _ _) -> pure $ FunctionX g
-  AbortF -> pure $ FunctionX AbortF
-  a@(AuxF ur) -> pure $ FunctionX a -- TODO, poison here? pure $ PoisonedBy ur $ ArrTypeN a
-  TraceF -> pure env
+  DeferFrag ind -> pure . FunctionX $ fragLookup ind -- process Defer here rather than SetEnvFrag to reduce arguments to setEval
+  g@(GateFrag _ _) -> pure $ FunctionX g
+  AbortFrag -> pure $ FunctionX AbortFrag
+  a@(AuxFrag ur) -> pure $ FunctionX a -- TODO, poison here? pure $ PoisonedBy ur $ ArrTypeN a
+  TraceFrag -> pure env
 
 
 -- f x = if x == 0 then abort "divide by zero" else 2 / x
@@ -123,7 +123,7 @@ staticAbortSetEval sRecur env ft' it' =
   let sRecur' = sRecur env
       setEval ft it = case ft of
         FunctionX af -> case af of
-          GateF l r -> case it of
+          GateFrag l r -> case it of
             AnnotateX _ px -> setEval ft px --abortingSetEval sRecur env f px
             ZeroX -> sRecur' l
             PairX _ _ -> sRecur' r
@@ -132,9 +132,9 @@ staticAbortSetEval sRecur env ft' it' =
             EitherX _ _ -> sRecur' r
             AnyX -> (<>) <$> sRecur' l <*> sRecur' r
             z -> error $ "abortingSetEval Gate unexpected input: " <> show z
-          AbortF -> case it of
+          AbortFrag -> case it of
             AnnotateX _ px -> setEval ft px
-            ZeroX -> pure $ FunctionX EnvF
+            ZeroX -> pure $ FunctionX EnvFrag
             -- nzo | nonZeroOption nzo -> Nothing
             nzo | getAll . foldMap All $ booleanPossibilities nzo -> Left . possibleString' $ nzo
             z -> error $ "abortingSetEval Abort unexpected input: " <> show z
