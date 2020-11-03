@@ -90,42 +90,34 @@ nEval (NExprs m) =
 
 -- |IExpr evaluation with a given enviroment `e`
 -- (as in the second element of a closure).
-rEval :: (MonadError RunTimeError m, Show (m IExpr))
+rEval :: (MonadError RunTimeError m)
       => IExpr -- *The enviroment.
       -> IExpr -- *IExpr to be evaluated.
       -> m IExpr
 rEval e = para alg where
-  alg :: (MonadError RunTimeError m, Show (m IExpr))
+  alg :: (MonadError RunTimeError m)
       => (Base IExpr) (IExpr, m IExpr)
       -> m IExpr
   alg = \case
-    ZeroF -> trace "rEval Zero" $ pure Zero
-    -- AbortF -> trace "rEval Abort" $ pure Abort
-    EnvF -> trace "rEval Env" $ pure Env
-    (DeferF (ie, _)) -> trace ("rEval Defer: " <> show ie) $ pure . Defer $ ie
-    TraceF -> trace ("rEval Trace: " <> show e) $ pure $ trace (show e) e
-    (GateF (ie1, _) (ie2, _)) -> trace ("rEval Gate: " <> show (ie1,ie2)) $ pure $ Gate ie1 ie2
-    (PairF (_, l) (_, r)) -> trace ("rEval PRight: (" <> show l <> show ", " <> show r <> show ")" ) $
-                               Pair <$> l
-                                    <*> r
-    (PRightF (_, x)) -> trace ("rEval PRight: " <> show x) $
-      x >>= \case
+    ZeroF -> pure Zero
+    EnvF -> pure Env
+    (DeferF (ie, _)) -> pure . Defer $ ie
+    TraceF -> pure $ trace (show e) e
+    (GateF (ie1, _) (ie2, _)) -> pure $ Gate ie1 ie2
+    (PairF (_, l) (_, r)) -> Pair <$> l <*> r
+    (PRightF (_, x)) -> x >>= \case
       (Pair _ r) -> pure r
       _ -> pure Zero
-    (PLeftF (_, x)) -> trace ("rEval PLeft: " <> show x) $
-      x >>= \case
+    (PLeftF (_, x)) -> x >>= \case
       (Pair l _) -> pure l
       _ -> pure Zero
-    (SetEnvF s@(_, x)) -> trace ("rEval SetEnv: " <> show s) $
-      x >>= \case
-        Pair (Defer c) nenv  -> rEval nenv c
-        Pair (Gate a _) Zero -> rEval e a
-        Pair (Gate _ b) _    -> rEval e b
-        -- Pair Abort Zero      -> pure $ Defer Env
-        -- Pair Abort z         -> throwError $ AbortRunTime z
-        -- The next case should never actually occur,
-        -- because it should be caught by `typeCheck`.
-        z                    -> throwError $ SetEnvError z
+    (SetEnvF s@(_, x)) -> x >>= \case
+      Pair (Defer c) nenv  -> rEval nenv c
+      Pair (Gate a _) Zero -> rEval e a
+      Pair (Gate _ b) _    -> rEval e b
+      -- The next case should never actually occur,
+      -- because it should be caught by `typeCheck`.
+      z                    -> throwError $ SetEnvError z
 
 -- |The fix point combinator of this function (of type `IExpr -> IExpr -> m IExpr`) yields a function that
 -- evaluates an `IExpr` with a given enviroment (another `IExpr`).
