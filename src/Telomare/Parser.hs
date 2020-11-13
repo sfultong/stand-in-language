@@ -63,6 +63,7 @@ makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedT
 
 instance EndoMapper UnprocessedParsedTerm where
   endoMap f = \case
+    UniqueUP -> f UniqueUP
     VarUP str -> f $ VarUP str
     ITEUP i t e -> f $ ITEUP (recur i) (recur t) (recur e)
     LetUP listmap expr -> f $ LetUP ((second recur) <$> listmap) $ recur expr
@@ -580,7 +581,11 @@ generateAllUniques upt = State.evalState (makeUnique upt) 0 where
 
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
 process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Either String Term3
-process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bindings . optimizeBuiltinFunctions . generateAllUniques
+process bindings = fmap splitExpr
+                   . (>>= debruijinize [])
+                   . validateVariables bindings
+                   . optimizeBuiltinFunctions
+                   . generateAllUniques
 
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3
