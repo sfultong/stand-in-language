@@ -1,46 +1,11 @@
+-- Simple example of ad-hoc user defined types
 
-
--- drawPiece = \piece alt -> if piece
---                             then "X"
---                             else alt
-
-
--- drawBoard = \pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
---                            alt = \n -> (n succ (left "1"), 0)
---                            dp = \n -> drawPiece (getPiece n) (alt n)
---                        in dp $8
-
--- emptyBoard = [0,0,0,0,0,0,0,0,0]
-
--- main = \input ->  let x = drawBoard emptyBoard
---                       -- x = "Hello"
---                       y = 0
---                       f = (x,y)
---                   in f
-
--- drawBoard = \pieces -> let alt = \n -> (n succ (left "1"), 0)
---                            dp = \n -> (alt n)
---                        in dp $8
-
--- emptyBoard = [0,0,0,0,0,0,0,0,0]
-
--- main = \input ->  let x = drawBoard emptyBoard
---                       -- x = "Hello"
---                       y = 0
---                       f = (x,y)
---                   in f
-
--- main = \input ->  let alt = \n -> (n succ (left "1"), 0)
---                       dp = \n -> (alt n)
---                       y = 0
---                       f = (dp $7, y)
---                   in f
-
--- a=0
-
-main = \input -> ("Hello, World!", 0)
--- main = \input ->  let x = "0"
---                       y = "0"
---                       f = (0, concat [x,y])
---                   in f
-
+MyInt = let intTag = unique
+        in ( \i -> if not i
+                   then "MyInt must not be 0"
+                   else (intTag, i)
+           , \i -> if dEqual (left i) intTag
+                   then 0
+                   else "expecting MyInt"
+           )
+main = \i -> ((left MyInt) 0, 0)

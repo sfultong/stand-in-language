@@ -55,6 +55,8 @@ data UnprocessedParsedTerm
   | RightUP UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
+  | UniqueUP -- * On ad hoc user defined types, this term will be substitued to a unique Int.
+             -- TODO: make it a unique hash dependant of the code.
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
@@ -423,6 +425,7 @@ addBuiltins = LetUP
   , ("trace", LamUP "x" (TraceUP (VarUP "x")))
   , ("pair", LamUP "x" (LamUP "y" (PairUP (VarUP "x") (VarUP "y"))))
   , ("app", LamUP "x" (LamUP "y" (AppUP (VarUP "x") (VarUP "y"))))
+  , ("unique", UniqueUP)
   ]
 
 -- |Parse prelude.
@@ -522,9 +525,62 @@ optimizeBuiltinFunctions = endoMap optimize where
         -- VarUP "check" TODO
     x -> x
 
+-- |Process an `UnprocessedParesedTerm` to have all `UniqueUP` replaced by a unique number.
+generateAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+generateAllUniques upt = State.evalState (makeUnique upt) 0 where
+  makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
+  makeUnique = \case
+    UniqueUP -> do
+      State.modify (+1)
+      i <- State.get
+      pure . IntUP $ i
+    -- TODO: Make this code more elegant with a stateful traversal over UniqueUP_ prism
+    -- making the rest of this code unnecesary.
+    VarUP str -> pure . VarUP $ str
+    IntUP i -> pure $ IntUP i
+    StringUP str -> pure $ StringUP str
+    ChurchUP i -> pure $ ChurchUP i
+    UnsizedRecursionUP -> pure UnsizedRecursionUP
+    ITEUP i t e -> do
+      i' <- makeUnique i
+      t' <- makeUnique t
+      e' <- makeUnique e
+      pure $ ITEUP i' t' e'
+    LetUP listmap expr -> do
+      listmap' <- sequence $ sequence <$> ((fmap . fmap) makeUnique listmap)
+      expr' <- makeUnique expr
+      pure $ LetUP listmap' expr'
+    ListUP l -> do
+      l' <- sequence $ makeUnique <$> l
+      pure $ ListUP l'
+    PairUP a b -> do
+      a' <- makeUnique a
+      b' <- makeUnique b
+      pure $ PairUP a' b'
+    AppUP x y -> do
+      x' <- makeUnique x
+      y' <- makeUnique y
+      pure $ AppUP x' y'
+    LamUP str x -> do
+      x' <- makeUnique x
+      pure $ LamUP str x'
+    LeftUP l -> do
+      l' <- makeUnique l
+      pure $ LeftUP l'
+    RightUP r -> do
+      r' <- makeUnique r
+      pure $ RightUP r'
+    TraceUP t -> do
+      t' <- makeUnique t
+      pure $ TraceUP t'
+    CheckUP cf x -> do
+      cf' <- makeUnique cf
+      x' <- makeUnique x
+      pure $ CheckUP cf' x'
+
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
 process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Either String Term3
-process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bindings . optimizeBuiltinFunctions
+process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bindings . optimizeBuiltinFunctions . generateAllUniques
 
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3

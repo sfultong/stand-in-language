@@ -234,7 +234,7 @@ dependantTopLevelBindings = unlines $
 -- Parsec implementation
 testWtictactoe = do
   preludeFile <- Strict.readFile "Prelude.tel"
-  tictactoe <- Strict.readFile "hello.tel"
+  tictactoe <- Strict.readFile "tictactoe.tel"
   let
     prelude = case parsePrelude preludeFile of
                 Right p -> p
