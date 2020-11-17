@@ -580,7 +580,9 @@ generateAllUniques upt = State.evalState (makeUnique upt) 0 where
       pure $ CheckUP cf' x'
 
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
-process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Either String Term3
+process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+        -> UnprocessedParsedTerm
+        -> Either String Term3
 process bindings = fmap splitExpr
                    . (>>= debruijinize [])
                    . validateVariables bindings

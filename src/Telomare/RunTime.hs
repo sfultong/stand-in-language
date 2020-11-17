@@ -162,8 +162,8 @@ instance TelomareLike IExpr where
   fromTelomare = id
   toTelomare = pure
 instance AbstractRunTime IExpr where
-  eval = fix iEval Zero
-  -- eval = rEval Zero
+  -- eval = fix iEval Zero
+  eval = rEval Zero
 
 resultIndex = FragIndex (-1)
 instance TelomareLike NExprs where
