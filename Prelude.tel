@@ -92,3 +92,4 @@ quicksort = let layer = \recur l -> if right l
 
 abort = \str -> let x : (\y -> listPlus "abort: " str) = 1
                 in x
+assert = \t s -> if not t then (1, s) else 0

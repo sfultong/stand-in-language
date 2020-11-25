@@ -13,6 +13,7 @@
 
 module Telomare where
 
+import Control.Applicative
 import           Control.DeepSeq
 import           Control.Lens.Combinators
 import           Control.Lens.Plated
@@ -241,9 +242,7 @@ instance Show a => Show (FragExpr a) where
 
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
-data BreakExtras
-  = UnsizedRecursion
-  deriving (Eq, Ord, Show)
+newtype BreakExtras = UnsizedRecursion { unUnsizedRecursion :: Int } deriving (Eq, Ord, Show, Enum)
 
 type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
@@ -252,9 +251,9 @@ type Term2 = ParserTerm () Int
 newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving Show
 
-type BreakState a = State (FragIndex, Map FragIndex (FragExpr a))
+type BreakState a b = State (b, FragIndex, Map FragIndex (FragExpr a))
 
-type BreakState' a = BreakState a (FragExpr a)
+type BreakState' a b = BreakState a b (FragExpr a)
 
 type IndExpr = ExprA EIndex
 
@@ -401,29 +400,32 @@ pattern ToChurch <-
       (Lam (Lam (Lam FirstArg)))
     )
 
-deferF :: BreakState' a -> BreakState' a
+deferF :: BreakState' a b -> BreakState' a b
 deferF x = do
   bx <- x
-  (fi@(FragIndex i), fragMap) <- State.get
-  State.put (FragIndex (i + 1), Map.insert fi bx fragMap)
+  (uri, fi@(FragIndex i), fragMap) <- State.get
+  State.put (uri, FragIndex (i + 1), Map.insert fi bx fragMap)
   pure $ DeferFrag fi
 
-appF :: BreakState' a -> BreakState' a -> BreakState' a
+pairF :: BreakState' a b -> BreakState' a b -> BreakState' a b
+pairF = liftA2 PairFrag
+
+appF :: BreakState' a b -> BreakState' a b -> BreakState' a b
 appF c i =
   let twiddleF = deferF $ pure (PairFrag (LeftFrag (RightFrag EnvFrag)) (PairFrag (LeftFrag EnvFrag) (RightFrag (RightFrag EnvFrag))))
   in (\tf p -> SetEnvFrag (SetEnvFrag (PairFrag tf p))) <$> twiddleF <*> (PairFrag <$> i <*> c)
 
-lamF :: BreakState' a -> BreakState' a
-lamF x = (\f -> PairFrag f EnvFrag) <$> deferF x
+lamF :: BreakState' a b -> BreakState' a b
+lamF x = pairF (deferF x) $ pure EnvFrag
 
-clamF :: BreakState' a -> BreakState' a
-clamF x = (\f -> PairFrag f ZeroFrag) <$> deferF x
+clamF :: BreakState' a b -> BreakState' a b
+clamF x = pairF (deferF x) $ pure ZeroFrag
 
 -- to construct a church numeral (\f x -> f ... (f x))
 -- the new, optimized church numeral operation iterates on a function "frame" (rf, (rf, (f', (x, env))))
 -- rf is the function to pull arguments out of the frame, run f', and construct the next frame
 -- (f',env') is f (since f may contain a saved environment/closure env we want to use for each iteration)
-toChurchF :: Int -> BreakState' a
+toChurchF :: Int -> BreakState' a b
 toChurchF x' =
   let applyF = SetEnvFrag (RightFrag EnvFrag) -- applies x to f
       env' = RightFrag (RightFrag (RightFrag EnvFrag))
@@ -437,13 +439,23 @@ toChurchF x' =
       unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag $ (iterate SetEnvFrag EnvFrag !! x')
   in clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
 
-partialFixF :: Int -> BreakState' a
-partialFixF i =
+innerChurchF :: Int -> BreakState' a b
+innerChurchF x = iterate (appF (pure $ LeftFrag (RightFrag EnvFrag))) (pure $ LeftFrag EnvFrag) !! x
+
+unsizedRecursionWrapper :: BreakExtras -> BreakState' BreakExtras BreakExtras
+unsizedRecursionWrapper urToken =
   let firstArgF = pure $ LeftFrag EnvFrag
       secondArgF = pure $ LeftFrag (RightFrag EnvFrag)
-      abortMessage = s2gF "recursion depth limit exceeded ~"
-      abrt = SetEnvFrag . PairFrag AbortFrag <$> abortMessage
-  in clamF (lamF (appF (appF (toChurchF i) secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
+      abortToken = pure $ PairFrag ZeroFrag ZeroFrag
+      abrt = SetEnvFrag . PairFrag AbortFrag <$> abortToken
+      ur = clamF (pairF (pure $ AuxFrag urToken) (pure EnvFrag))
+  in clamF (lamF (appF (appF ur secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
+
+nextBreakToken :: Enum b => BreakState a b b
+nextBreakToken = do
+  (token, fi, fm) <- State.get
+  State.put (succ token, fi, fm)
+  pure token
 
 buildFragMap :: BreakState' a -> Map FragIndex (FragExpr a)
 buildFragMap bs = let (bf, (_,m)) = State.runState bs (FragIndex 1, Map.empty)
@@ -584,14 +596,14 @@ toChurch x =
       inner a = app (PLeft $ PRight Env) (inner (a - 1))
   in lam (lam (inner x))
 
-i2gF :: Int -> BreakState' a
+i2gF :: Int -> BreakState' a b
 i2gF 0 = pure ZeroFrag
 i2gF n = PairFrag <$> i2gF (n - 1) <*> pure ZeroFrag
 
-ints2gF :: [Int] -> BreakState' a
+ints2gF :: [Int] -> BreakState' a b
 ints2gF = foldr (\i g -> PairFrag <$> i2gF i <*> g) (pure ZeroFrag)
 
-s2gF :: String -> BreakState' a
+s2gF :: String -> BreakState' a b
 s2gF = ints2gF . map ord
 
 -- convention is numbers are left-nested pairs with zero on right

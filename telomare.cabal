@@ -59,6 +59,7 @@ library
                      -- , llvm-hs
                      -- , llvm-hs-pure
                      , text
+		     , transformers
                      , megaparsec
                      , memory
                      , strict
