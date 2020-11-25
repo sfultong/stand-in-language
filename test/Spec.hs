@@ -524,11 +524,11 @@ unitTests parse = do
                                      (ints2g [1,2,3])
 
   describe "refinement" $ do
-    unitTestStaticChecks "main : (\\x -> if x then \"fail\" else 0) = 1" $ Just "fail"
-    unitTestStaticChecks "main : (\\x -> if left x then \"fail\" else 0) = 1" $ Nothing
-    unitTestStaticChecks "main : (\\x -> if 0 then \"fail\" else 0) = 1" $ Nothing
-    unitTestStaticChecks "main : (\\f -> if f 2 then \"boop\" else 0) = \\x -> left x" $ Just "boop"
-    unitTestStaticChecks "main : (\\f -> if f 2 then \"boop\" else 0) = \\x -> left (left x)" $ Nothing
+    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ Just "user abort: fail"
+    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ Nothing
+    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ Nothing
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ Just "user abort: boop"
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ Nothing
 
   describe "unitTest2" $ do
     unitTest2 "main = 0" "0"

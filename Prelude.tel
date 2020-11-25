@@ -89,3 +89,5 @@ quicksort = let layer = \recur l -> if right l
                                             in listPlus (recur p2) (t,(recur p1))
                                        else l
             in ? layer (\l -> 0)
+
+assert = \t s -> if not t then (1, s) else 0

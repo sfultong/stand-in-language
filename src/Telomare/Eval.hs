@@ -3,9 +3,14 @@ module Telomare.Eval where
 
 import           Control.Lens.Plated
 import           Control.Monad.Except
+import Control.Monad.Reader (Reader, runReader)
+import Control.Monad.State (StateT)
 import qualified Control.Monad.State  as State
+import Data.DList (DList)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Void
 import           Debug.Trace
 import           Telomare
@@ -42,9 +47,18 @@ data EvalError = RTE RunTimeError
     | TCE TypeCheckError
     | StaticCheckError String
     | CompileConversionError
+    | RecursionLimitError BreakExtras
     deriving (Eq, Ord, Show)
 
 type ExpFullEnv = ExprA Bool
+
+newtype BetterMap k v = BetterMap { unBetterMap :: Map k v}
+
+instance Functor (BetterMap k) where
+  fmap f (BetterMap x) = BetterMap $ fmap f x
+
+instance (Ord k, Semigroup m) => Semigroup (BetterMap k m) where
+  (<>) (BetterMap a) (BetterMap b) = BetterMap $ Map.unionWith (<>) a b
 
 annotateEnv :: IExpr -> (Bool, ExpP)
 annotateEnv Zero = (True, ZeroP)
@@ -85,18 +99,30 @@ partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 eval' :: IExpr -> Either String IExpr
 eval' = pure
 
+convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
+convertPT limitLookup (Term3 termMap) =
+  let changeTerm = \case
+        AuxFrag n -> deferF . innerChurchF $ limitLookup n
+        ZeroFrag -> pure ZeroFrag
+        PairFrag a b -> PairFrag <$> changeTerm a <*> changeTerm b
+        EnvFrag -> pure EnvFrag
+        SetEnvFrag x -> SetEnvFrag <$> changeTerm x
+        DeferFrag fi -> pure $ DeferFrag fi
+        AbortFrag -> pure AbortFrag
+        GateFrag l r -> GateFrag <$> changeTerm l <*> changeTerm r
+        LeftFrag x -> LeftFrag <$> changeTerm x
+        RightFrag x -> RightFrag <$> changeTerm x
+        TraceFrag -> pure TraceFrag
+      mmap = traverse changeTerm termMap
+      startKey = succ . fst $ Map.findMax termMap
+      newMapBuilder = do
+        changedTermMap <- mmap
+        State.modify (\(be,i,m) -> ((), i, Map.union changedTermMap m))
+      (_,_,newMap) = State.execState newMapBuilder ((), startKey, Map.empty)
+  in Term4 newMap
+
 findChurchSize :: Term3 -> Term4
-{-
-findChurchSize term =
-  let abortsAt i = (\(PResult (_, b)) -> b) . fix pEval PZero . fromTelomare $ convertPT i term
-      -- evaluating large church numbers is currently impractical, just fail if found
-      (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
-      findC b e | b > e = b
-      findC b e = let midpoint = (\n -> trace ("midpoint is now " <> show n) n) $ div (b + e) 2
-                  in if abortsAt midpoint then findC (midpoint + 1) e else findC b midpoint
-  in convertPT (findC ib ie) term
--}
-findChurchSize = convertPT 255
+findChurchSize = convertPT (const 255)
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -110,10 +136,19 @@ removeChecks (Term4 m) =
         insertAndGetKey $ DeferFrag envDefer
   in Term4 $ Map.map (transform f) newM
 
+convertAbortMessage :: IExpr -> String
+convertAbortMessage = \case
+  Pair Zero Zero -> "recursion overflow (should be caught by other means)"
+  Pair (Pair Zero Zero) s -> "user abort: " <> g2s s
+  x -> "unexpected abort: " <> show x
+
 runStaticChecks :: Term4 -> Maybe String
-runStaticChecks (Term4 termMap) = case ((toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap)) :: Either String (PossibleExpr Void Void)) of
-  Left s -> pure s
-  _      -> Nothing
+runStaticChecks (Term4 termMap) =
+  let result :: Either IExpr (PossibleExpr Void Void)
+      result = toPossible (termMap Map.!) staticAbortSetEval (pure . FunctionX . AuxFrag) AnyX (rootFrag termMap)
+  in case result of
+            Left x -> pure $ convertAbortMessage x
+            _      -> Nothing
 
 compile :: Term3 -> Either EvalError IExpr
 compile t = let sized = findChurchSize t
@@ -122,28 +157,6 @@ compile t = let sized = findChurchSize t
                    Just i  -> pure i
                    Nothing -> Left CompileConversionError
                  Just s -> Left $ StaticCheckError s
-{-
-findAllSizes :: Term2 -> (Bool, Term3)
-findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
-                   doChild (_, x) = TTransformedGrammar $ convertPT 0 x
-                   doChildren l = let nl = map findAllSizes l
-                                  in case sum (map (fromEnum . fst) nl) of
-                                       0 -> (False, map snd nl)
-                                       1 -> (True, map snd nl)
-                                       _ -> (False, map doChild nl)
-               in \case
-  TZero -> (False, TZero)
-  TPair a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TPair na nb)
-  TVar n -> (False, TVar n)
-  TApp a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TApp na nb)
-  TCheck a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TCheck na nb)
-  TITE i t e -> let (c, [ni, nt, ne]) = doChildren [i,t,e] in (c, TITE ni nt ne)
-  TLeft x -> TLeft <$> findAllSizes x
-  TRight x -> TRight <$> findAllSizes x
-  TTrace x -> TTrace <$> findAllSizes x
-  TLam lt x -> TLam lt <$> findAllSizes x
-  TLimitedRecursion -> (True, TLimitedRecursion)
--}
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of
@@ -183,3 +196,56 @@ evalLoop_ iexpr = case eval' iexpr of
                   mainLoop (prev <> "\n" <> d) $ Pair inp newState
             r -> pure $ concat ["runtime error, dumped ", show r]
     in mainLoop "" Zero
+
+-- map of contamination indices to test functions
+contaminationMap :: BasicPossible -> BetterMap BreakExtras (DList (FragExpr BreakExtras, BasicPossible))
+contaminationMap =
+  let makeMap cSet = \case
+        EitherX a b -> makeMap cSet a <> makeMap cSet b
+        AnnotateX p x -> makeMap (Set.insert p cSet) x
+        PairX f i -> makeKeyVal cSet f i
+        z -> error $ "contaminationMap-makeMap unexpected value: " <> show z
+      makeKeyVal cSet f i = case f of
+        EitherX a b -> makeKeyVal cSet a i <> makeKeyVal cSet b i
+        AnnotateX p x -> makeKeyVal (Set.insert p cSet) x i
+        FunctionX frag -> BetterMap $ foldr (\k -> Map.insert k (pure (frag, i))) mempty cSet
+        z -> error $ "contaminationMap-makeKeyVal unexpected value: " <> show z
+  in makeMap Set.empty
+
+limitedMFix :: Monad m => (a -> m a) -> m a -> m a
+limitedMFix f x = iterate (>>= f) x !! 10
+
+calculateRecursionLimits' :: Term3 -> Either EvalError Term4
+calculateRecursionLimits' t3@(Term3 termMap) =
+  let testMapBuilder :: StateT (Map BreakExtras RecursionTest) (Reader (BreakExtras -> Int)) BasicPossible
+      testMapBuilder = toPossible (termMap Map.!) testBuildingSetEval annotateAux AnyX (rootFrag termMap)
+      annotateAux ur = pure . AnnotateX ur . FunctionX $ AuxFrag ur
+      step1 :: Reader (BreakExtras -> Int) (Map BreakExtras RecursionTest)
+      step1 = State.execStateT testMapBuilder mempty
+      findLimit :: BreakExtras -> RecursionTest -> Either BreakExtras Int
+      findLimit churchSizingIndex tests =
+        let unhandleableOther =
+              let (lMap, kTests, gMap) = Map.splitLookup churchSizingIndex . unBetterMap . contaminationMap $ runReader tests 1
+                  otherMap = lMap <> gMap
+              in Set.lookupMin $ Map.keysSet otherMap
+        in case unhandleableOther of
+          Just o -> Left o
+          _ -> let abortsAt i = let tests' = (Map.! churchSizingIndex) . unBetterMap . contaminationMap $ runReader tests i
+                                    wrapAux = pure . FunctionX . AuxFrag
+                                    runTest (frag, inp) = null $ toPossible (termMap Map.!) sizingAbortSetEval wrapAux inp frag
+                                in or $ fmap runTest tests'
+                   (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
+                   findC b e | b > e = b
+                   findC b e = let midpoint = div (b + e) 2
+                               in trace ("midpoint is now " <> show midpoint) $ if abortsAt midpoint then findC (midpoint + 1) e else findC b (midpoint - 1)
+               in pure $ findC ib ie
+      mapLimits :: Map BreakExtras RecursionTest -> Either BreakExtras (Map BreakExtras Int)
+      mapLimits = sequence . Map.mapWithKey findLimit
+      unwrappedReader :: (BreakExtras -> Int) -> Map BreakExtras RecursionTest
+      unwrappedReader = runReader step1
+      fixable :: (BreakExtras -> Int) -> Either BreakExtras (BreakExtras -> Int)
+      fixable = fmap (Map.!) . mapLimits . unwrappedReader
+  -- in case mfix fixable of
+  in case limitedMFix fixable (Right (const (-1))) of
+    Left be -> Left $ RecursionLimitError be
+    Right limits -> trace "found limits!" . pure $ convertPT limits t3
