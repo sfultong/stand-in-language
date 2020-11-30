@@ -15,7 +15,10 @@ import           Control.Lens.Operators
 import           Control.Monad
 import           Control.Monad.State        (State)
 import qualified Control.Monad.State        as State
+import           Crypto.Hash.SHA1           (hash)
+import           Crypto.Util                (bs2i)
 import           Data.Bifunctor
+import qualified Data.ByteString.Char8      as BS
 import           Data.Char
 import qualified Data.Foldable              as F
 import           Data.Functor.Foldable
@@ -528,7 +531,9 @@ optimizeBuiltinFunctions = endoMap optimize where
 
 -- |Process an `UnprocessedParesedTerm` to have all `UniqueUP` replaced by a unique number.
 generateAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
-generateAllUniques upt = State.evalState (makeUnique upt) 0 where
+generateAllUniques upt = State.evalState (makeUnique upt) (uptHash upt) where
+  uptHash :: UnprocessedParsedTerm -> Int
+  uptHash = fromInteger . bs2i . hash . BS.pack . show
   makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
   makeUnique = \case
     UniqueUP -> do

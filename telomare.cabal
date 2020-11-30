@@ -47,7 +47,7 @@ library
   build-depends:       base
                      , base16-bytestring
                      , binary
-                     , cryptohash-sha256
+                     -- , cryptohash-sha256
                      , dlist
                      , recursion-schemes
                      , clock
@@ -69,6 +69,9 @@ library
                      , lens
                      , hspec
                      , QuickCheck
+                     , cryptohash
+                     , bytestring
+                     , crypto-api
                        
   extra-libraries:     gc
                      , jumper
