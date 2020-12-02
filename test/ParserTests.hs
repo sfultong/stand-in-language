@@ -1,13 +1,15 @@
 {-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+
 module Main where
 
 import           Common
 import           Control.Monad
-import           Control.Monad.Error
-import           Control.Monad.Except      (ExceptT, MonadError, runExceptT)
+import           Control.Monad.Except      (ExceptT, MonadError, catchError,
+                                            runExceptT, throwError)
 import           Control.Monad.Fix         (fix)
 import           Control.Monad.IO.Class    (liftIO)
 import qualified Control.Monad.State       as State
@@ -16,8 +18,10 @@ import           Data.Algorithm.DiffOutput (ppDiff)
 import           Data.Bifunctor
 import           Data.Either               (fromRight)
 import           Data.Functor.Foldable
+import           Data.List
 import           Data.Map                  (Map, fromList, toList)
 import qualified Data.Map                  as Map
+import           Data.Ord
 import qualified Data.Semigroup            as Semigroup
 import qualified Data.Set                  as Set
 import           Debug.Trace               (trace)
@@ -30,6 +34,7 @@ import           Telomare.RunTime
 import           Test.QuickCheck
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import           Test.Tasty.QuickCheck     as QC
 import           Text.Megaparsec
 import           Text.Megaparsec.Debug
 import           Text.Megaparsec.Error
@@ -39,7 +44,58 @@ main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [unitTests]
+tests = testGroup "Tests" [unitTests, qcProps]
+
+qcProps = testGroup "Property tests (QuickCheck)"
+  [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
+      \x ->
+        containsUniqueUP x QC.==> checkAllUniques . generateAllUniques $ x
+  ]
+
+checkAllUniques :: UnprocessedParsedTerm -> Bool
+checkAllUniques = noDups . allIntsToList
+
+containsUniqueUP :: UnprocessedParsedTerm -> Bool
+containsUniqueUP = \case
+  UniqueUP -> True
+  LetUP xs a -> containsUniqueUP a || (or $ (containsUniqueUP . snd) <$> xs)
+  ITEUP a b c -> containsUniqueUP a || containsUniqueUP b || containsUniqueUP c
+  ListUP ls -> or $ containsUniqueUP <$> ls
+  PairUP a b -> containsUniqueUP a || containsUniqueUP b
+  AppUP a b -> containsUniqueUP a || containsUniqueUP b
+  CheckUP a b -> containsUniqueUP a || containsUniqueUP b
+  LamUP _ a -> containsUniqueUP a
+  LeftUP a -> containsUniqueUP a
+  RightUP a -> containsUniqueUP a
+  TraceUP a -> containsUniqueUP a
+  x -> False
+
+allIntsToList :: UnprocessedParsedTerm -> [Int]
+allIntsToList upt =
+  let withoutUniquesUPT = generateAllUniques upt
+      interm = \case
+        (UniqueUP, IntUP x) -> [x]
+        (ITEUP a b c, ITEUP a' b' c') -> interm (a, a') ++ interm (b, b') ++ interm (c, c')
+        (ListUP ls, ListUP ls') -> concat $ interm <$> (zip ls ls')
+        (PairUP a b, PairUP a' b') -> interm (a, a') ++ interm (b, b')
+        (AppUP a b, AppUP a' b') -> interm (a, a') ++ interm (b, b')
+        (CheckUP a b, CheckUP a' b') -> interm (a, a') ++ interm (b, b')
+        (LamUP _ a, LamUP _ a') -> interm (a, a')
+        (LeftUP a, LeftUP a') -> interm (a, a')
+        (RightUP a, RightUP a') -> interm (a, a')
+        (TraceUP a, TraceUP a') -> interm (a, a')
+        (LetUP xs a, LetUP xs' a') -> interm (a, a') ++ (concat $ interm <$> zs)
+          where ys = snd <$> xs
+                ys'= snd <$> xs'
+                zs = zip ys ys'
+        (x, x') | x /= x' -> error "x and x' should be the same (inside of allIntsToList, within interm)"
+        (x, x') -> []
+  in curry interm upt withoutUniquesUPT
+
+noDups = not . f []
+  where
+    f seen (x:xs) = x `elem` seen || f (x:seen) xs
+    f seen []     = False
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"

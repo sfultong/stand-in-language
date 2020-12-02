@@ -59,7 +59,6 @@ data UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
   | UniqueUP -- * On ad hoc user defined types, this term will be substitued to a unique Int.
-             -- TODO: make it a unique hash dependant of the code.
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
@@ -530,6 +529,8 @@ optimizeBuiltinFunctions = endoMap optimize where
     x -> x
 
 -- |Process an `UnprocessedParesedTerm` to have all `UniqueUP` replaced by a unique number.
+-- The unique number is constructed by doing a SHA1 hash of the UnprocessedParsedTerm and
+-- adding one for all consecutive UniqueUP's.
 generateAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
 generateAllUniques upt = State.evalState (makeUnique upt) (uptHash upt) where
   uptHash :: UnprocessedParsedTerm -> Int
@@ -540,7 +541,7 @@ generateAllUniques upt = State.evalState (makeUnique upt) (uptHash upt) where
       State.modify (+1)
       i <- State.get
       pure . IntUP $ i
-    -- TODO: Make this code more elegant with a stateful traversal over UniqueUP_ prism
+    -- TODO: Make this code more elegant with a stateful traversal over an UniqueUP_ prism
     -- making the rest of this code unnecesary.
     VarUP str -> pure . VarUP $ str
     IntUP i -> pure $ IntUP i
