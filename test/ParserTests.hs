@@ -974,7 +974,7 @@ showAllTransformations input = do
       diff = getGroupedDiff str5 str4
   section "splitExpr" . ppShow $ splitExprVar
   section "Diff splitExpr" $ ppDiff diff
-  let Just toTelomareVar = toTelomare . findChurchSize $ splitExprVar
+  let Right (Just toTelomareVar) = fmap toTelomare . findChurchSize $ splitExprVar
       str6 = lines . show $ toTelomareVar
       diff = getGroupedDiff str6 str5
   section "toTelomare" . show $ toTelomareVar

@@ -121,8 +121,9 @@ convertPT limitLookup (Term3 termMap) =
       (_,_,newMap) = State.execState newMapBuilder ((), startKey, Map.empty)
   in Term4 newMap
 
-findChurchSize :: Term3 -> Term4
-findChurchSize = convertPT (const 255)
+findChurchSize :: Term3 -> Either EvalError Term4
+--findChurchSize = pure . convertPT (const 255)
+findChurchSize = calculateRecursionLimits'
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -142,21 +143,19 @@ convertAbortMessage = \case
   Pair (Pair Zero Zero) s -> "user abort: " <> g2s s
   x -> "unexpected abort: " <> show x
 
-runStaticChecks :: Term4 -> Maybe String
-runStaticChecks (Term4 termMap) =
+runStaticChecks :: Term4 -> Either EvalError Term4
+runStaticChecks t@(Term4 termMap) =
   let result :: Either IExpr (PossibleExpr Void Void)
       result = toPossible (termMap Map.!) staticAbortSetEval (pure . FunctionX . AuxFrag) AnyX (rootFrag termMap)
   in case result of
-            Left x -> pure $ convertAbortMessage x
-            _      -> Nothing
+            Left x -> Left . StaticCheckError $ convertAbortMessage x
+            _      -> pure t
 
 compile :: Term3 -> Either EvalError IExpr
-compile t = let sized = findChurchSize t
-            in case runStaticChecks sized of
-                 Nothing -> case toTelomare $ removeChecks sized of
-                   Just i  -> pure i
-                   Nothing -> Left CompileConversionError
-                 Just s -> Left $ StaticCheckError s
+compile t = case toTelomare . removeChecks <$> (findChurchSize t >>= runStaticChecks) of
+  Right (Just i) -> pure i
+  Right Nothing -> Left CompileConversionError
+  Left e -> Left e
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of

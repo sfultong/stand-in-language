@@ -232,8 +232,8 @@ type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
 
 -- |Term3 :: Map FragIndex (FragExpr BreakExtras) -> Term3
-newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving Show
-newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving Show
+newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving (Eq, Show)
+newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving (Eq, Show)
 
 type BreakState a b = State (b, FragIndex, Map FragIndex (FragExpr a))
 
