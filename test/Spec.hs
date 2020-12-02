@@ -300,37 +300,9 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromTelo
   Left err -> do
     expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
 
-
-{-
-unitTestQC :: Testable p => String -> Int -> p -> Spec
-unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
-  (Success _ _ _ _ _ _) -> pure ()
-  x -> expectationFailure $ concat [name, " failed: ", show x]
--}
 unitTestQC :: Testable p => String -> Int -> p -> Spec
 unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
 
-
-{-
-unitTestOptimization :: String -> IExpr -> IO Bool
-unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
-  then pure True
-  else (putStrLn $ concat [name, ": optimized1 ", show $ optimize iexpr, " optimized2 "
-                          , show $ optimize2 iexpr])
-  >> pure False
--}
-quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
-quickcheckBuiltInOptimizedDoesNotChangeEval up =
-  let
-      makeTelomare f = second (toTelomare . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables [] . f . addBuiltins $ up)
-      iexpr :: Either String (Maybe IExpr)
-      iexpr = makeTelomare id -- x. validateVariables id . optimizeBuiltinFunctions $ up)
-      iexpr' = makeTelomare optimizeBuiltinFunctions -- second (toTelomare . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up)
-  in
-    case (iexpr, iexpr') of
-       (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
-       _ | iexpr == iexpr'                 -> True
-       _ | otherwise                       -> False
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
@@ -525,11 +497,11 @@ unitTests parse = do
                                      (ints2g [1,2,3])
 
   describe "refinement" $ do
-    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ Just "user abort: fail"
-    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ Nothing
-    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ Nothing
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ Just "user abort: boop"
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ Nothing
+    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
+    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ (== Left (StaticCheckError "user abort: boop"))
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ (not . null)
 
   describe "unitTest2" $ do
     unitTest2 "main = 0" "0"
@@ -655,14 +627,14 @@ unitTestType' parse s t tef = it s $ case parse s of
                 else expectationFailure $
                       concat [s, " failed typecheck, result ", show apt]
 
-unitTestStaticChecks' parse s r = it s $ case parse s of
+unitTestStaticChecks' parse s c = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> let rr = runStaticChecks $ findChurchSize g
-              in if rr == r
+  Right g -> let rr = findChurchSize g >>= runStaticChecks
+              in if c rr
                 then pure ()
                 else do
     --putStrLn $ "grammar is " <> show g
-    expectationFailure $ "static check failed, expected" <> show r <> " got " <> show rr
+    expectationFailure $ "static check failed with " <> show rr
 
 unitTestType2 i t tef = it ("type check " <> show i) $
   let apt = typeCheck t $ fromTelomare i
