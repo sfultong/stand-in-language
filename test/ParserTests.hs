@@ -47,13 +47,21 @@ tests :: TestTree
 tests = testGroup "Tests" [unitTests, qcProps]
 
 qcProps = testGroup "Property tests (QuickCheck)"
-  [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
+  [ -- This tests that generateAllUniques wont generate duplicate hashes
+    QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
       \x ->
         containsUniqueUP x QC.==> checkAllUniques . generateAllUniques $ x
+    -- TODO test that generateAllUniques preserves the tree's structure
+    -- i.e that it wont chop off branches or arbitrarily change anything rather than UniqueUP's
   ]
 
 checkAllUniques :: UnprocessedParsedTerm -> Bool
-checkAllUniques = noDups . allIntsToList
+checkAllUniques = noDups . allUniquesToIntList
+
+noDups = not . f []
+  where
+    f seen (x:xs) = x `elem` seen || f (x:seen) xs
+    f seen []     = False
 
 containsUniqueUP :: UnprocessedParsedTerm -> Bool
 containsUniqueUP = \case
@@ -70,9 +78,15 @@ containsUniqueUP = \case
   TraceUP a -> containsUniqueUP a
   x -> False
 
-allIntsToList :: UnprocessedParsedTerm -> [Int]
-allIntsToList upt =
-  let withoutUniquesUPT = generateAllUniques upt
+diffUPTTransformation :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -- *Transformation to generate the diff
+                      -> UnprocessedParsedTerm                            -- *The tree to be transformed
+                      -> (UnprocessedParsedTerm, UnprocessedParsedTerm)   -- *The original and the transformation
+diffUPTTransformation f upt = (upt, f upt)
+
+allUniquesToIntList :: UnprocessedParsedTerm -> [Int]
+allUniquesToIntList upt =
+  let utpWithUniquesAsInts = generateAllUniques upt
+      interm :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [Int]
       interm = \case
         (UniqueUP, IntUP x) -> [x]
         (ITEUP a b c, ITEUP a' b' c') -> interm (a, a') ++ interm (b, b') ++ interm (c, c')
@@ -88,14 +102,9 @@ allIntsToList upt =
           where ys = snd <$> xs
                 ys'= snd <$> xs'
                 zs = zip ys ys'
-        (x, x') | x /= x' -> error "x and x' should be the same (inside of allIntsToList, within interm)"
+        (x, x') | x /= x' -> error "x and x' should be the same (inside of allUniquesToIntList, within interm)"
         (x, x') -> []
-  in curry interm upt withoutUniquesUPT
-
-noDups = not . f []
-  where
-    f seen (x:xs) = x `elem` seen || f (x:seen) xs
-    f seen []     = False
+  in curry interm upt utpWithUniquesAsInts
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
