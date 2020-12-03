@@ -4,6 +4,7 @@
 module Telomare.TypeChecker where
 
 import           Control.Applicative
+import Control.Lens.Plated (transform)
 import           Control.Monad.Except
 import           Control.Monad.State  (State)
 import qualified Control.Monad.State  as State
@@ -92,7 +93,7 @@ buildTypeMap assocSet =
 
 fullyResolve :: (Int -> Maybe PartialType) -> PartialType -> PartialType
 fullyResolve resolve = convert where
-    convert = endoMap endo
+    convert = transform endo
     endo = \case
       TypeVariable i -> case resolve i of
         Nothing -> TypeVariable i
