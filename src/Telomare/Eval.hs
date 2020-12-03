@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 module Telomare.Eval where
 
+import           Control.Lens.Plated
 import           Control.Monad.Except
 import qualified Control.Monad.State  as State
 import           Data.Map             (Map)
@@ -27,17 +28,15 @@ data ExpP = ZeroP
     | TraceP
     deriving (Eq, Show, Ord)
 
-instance EndoMapper ExpP where
-  endoMap f ZeroP          = f ZeroP
-  endoMap f (PairP a b)    = f $ PairP (endoMap f a) (endoMap f b)
-  endoMap f VarP           = f VarP
-  endoMap f (SetEnvP x fe) = f $ SetEnvP (endoMap f x) fe
-  endoMap f (DeferP x)     = f . DeferP $ endoMap f x
-  endoMap f AbortP         = f AbortP
-  endoMap f (GateP a b)    = f $ GateP (endoMap f a) (endoMap f b)
-  endoMap f (LeftP x)      = f . LeftP $ endoMap f x
-  endoMap f (RightP x)     = f . RightP $ endoMap f x
-  endoMap f TraceP         = f TraceP
+instance Plated ExpP where
+  plate f = \case
+    PairP a b -> PairP <$> f a <*> f b
+    SetEnvP x b -> SetEnvP <$> f x <*> pure b
+    DeferP x -> DeferP <$> f x
+    GateP l r -> GateP <$> f l <*> f r
+    LeftP x -> LeftP <$> f x
+    RightP x -> RightP <$> f x
+    x -> pure x
 
 data EvalError = RTE RunTimeError
     | TCE TypeCheckError
@@ -109,7 +108,7 @@ removeChecks (Term4 m) =
       builder = do
         envDefer <- insertAndGetKey EnvFrag
         insertAndGetKey $ DeferFrag envDefer
-  in Term4 $ Map.map (endoMap f) newM
+  in Term4 $ Map.map (transform f) newM
 
 runStaticChecks :: Term4 -> Maybe String
 runStaticChecks (Term4 termMap) = case ((toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap)) :: Either String (PossibleExpr Void Void)) of

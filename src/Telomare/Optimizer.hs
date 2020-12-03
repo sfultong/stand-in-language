@@ -1,5 +1,6 @@
 module Telomare.Optimizer where
 
+import Control.Lens.Plated (transform)
 import Data.Map (Map)
 import Data.Set (Set)
 import qualified Data.Map as Map
@@ -38,7 +39,7 @@ data IExprV
 
 -- converts nested grammar that can be computed locally
 precompute :: IExpr -> IExpr
-precompute = endoMap f where
+precompute = transform f where
   f (PLeft (Pair x _)) = x
   f (PRight (Pair _ x)) = x
   f x = x

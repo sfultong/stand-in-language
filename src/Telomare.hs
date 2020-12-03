@@ -15,6 +15,7 @@ module Telomare where
 
 import           Control.DeepSeq
 import           Control.Lens.Combinators
+import           Control.Lens.Plated
 import           Control.Monad.Except
 import           Control.Monad.State      (State)
 import qualified Control.Monad.State      as State
@@ -28,13 +29,7 @@ import qualified Data.Set                 as Set
 import           Data.Void
 import           GHC.Generics
 
--- if classes were categories, this would be an EndoFunctor?
-class EndoMapper a where
-  endoMap :: (a -> a) -> a -> a
-
-class EitherEndoMapper a where
-  eitherEndoMap :: (a -> Either e a) -> a -> Either e a
-
+-- TODO replace with a Plated fold
 class MonoidEndoFolder a where
   monoidFold :: Monoid m => (a -> m) -> a -> m
 
@@ -51,6 +46,16 @@ data IExpr
   | Trace
   deriving (Eq, Show, Ord)
 makeBaseFunctor ''IExpr -- * Functorial version IExprF.
+
+instance Plated IExpr where
+  plate f = \case
+    Pair a b -> Pair <$> f a <*> f b
+    SetEnv x -> SetEnv <$> f x
+    Defer x -> Defer <$> f x
+    Gate l r -> Gate <$> f l <*> f r
+    PLeft x -> PLeft <$> f x
+    PRight x -> PRight <$> f x
+    x -> pure x
 
 -- probably should get rid of this in favor of ExprT
 data ExprA a
@@ -192,6 +197,15 @@ data FragExpr a
   deriving (Eq, Ord)
 makeBaseFunctor ''FragExpr -- Functorial version FragExprF.
 
+instance Plated (FragExpr a) where
+  plate f = \case
+    PairFrag a b -> PairFrag <$> f a <*> f b
+    SetEnvFrag x -> SetEnvFrag <$> f x
+    GateFrag l r -> GateFrag <$> f l <*> f r
+    LeftFrag x -> LeftFrag <$> f x
+    RightFrag x -> RightFrag <$> f x
+    x -> pure x
+
 instance Show a => Show (FragExpr a) where
   show fexp = State.evalState (cata alg fexp) 0 where
     alg :: (Base (FragExpr a)) (State Int String) -> State Int String
@@ -231,28 +245,6 @@ type IndExpr = ExprA EIndex
 -- instance Show Term3 where
 --   show = ppShow
 
-instance EndoMapper IExpr where
-  endoMap f Zero       = f Zero
-  endoMap f (Pair a b) = f $ Pair (endoMap f a) (endoMap f b)
-  endoMap f Env        = f Env
-  endoMap f (SetEnv x) = f $ SetEnv (endoMap f x)
-  endoMap f (Defer x)  = f $ Defer (endoMap f x)
-  endoMap f (Gate l r) = f $ Gate (endoMap f l) (endoMap f r)
-  endoMap f (PLeft x)  = f $ PLeft (endoMap f x)
-  endoMap f (PRight x) = f $ PRight (endoMap f x)
-  endoMap f Trace      = f Trace
-
-instance EitherEndoMapper IExpr where
-  eitherEndoMap f Zero = f Zero
-  eitherEndoMap f (Pair a b) = (Pair <$> eitherEndoMap f a <*> eitherEndoMap f b) >>= f
-  eitherEndoMap f Env = f Env
-  eitherEndoMap f (SetEnv x) = (SetEnv <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (Defer x) = (Defer <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (Gate l r) = (Gate <$> eitherEndoMap f l <*> eitherEndoMap f r) >>= f
-  eitherEndoMap f (PLeft x) = (PLeft <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f (PRight x) = (PRight <$> eitherEndoMap f x) >>= f
-  eitherEndoMap f Trace = f Trace
-
 instance MonoidEndoFolder IExpr where
   monoidFold f Zero = f Zero
   monoidFold f (Pair a b) = mconcat [f (Pair a b), monoidFold f a, monoidFold f b]
@@ -274,20 +266,6 @@ instance NFData IExpr where
   rnf (PLeft   e)  = rnf e
   rnf (PRight  e)  = rnf e
   rnf Trace        = ()
-
-instance EndoMapper (FragExpr a) where
-  endoMap f = let recur = endoMap f in \case
-    ZeroFrag -> f ZeroFrag
-    PairFrag a b -> f $ PairFrag (recur a) (recur b)
-    EnvFrag -> f EnvFrag
-    SetEnvFrag x -> f $ SetEnvFrag (recur x)
-    DeferFrag ind -> f $ DeferFrag ind
-    AbortFrag -> f AbortFrag
-    GateFrag l r -> f $ GateFrag (recur l) (recur r)
-    LeftFrag x -> f $ LeftFrag (recur x)
-    RightFrag x -> f $ RightFrag (recur x)
-    TraceFrag -> f TraceFrag
-    AuxFrag a -> f $ AuxFrag a
 
 data RunTimeError
   = AbortRunTime IExpr
@@ -476,6 +454,12 @@ data DataType
   | PairType DataType DataType -- only used when at least one side of a pair is not ZeroType
   deriving (Eq, Show, Ord)
 
+instance Plated DataType where
+  plate f = \case
+    ArrType i o -> ArrType <$> f i <*> f o
+    PairType a b -> PairType <$> f a <*> f b
+    x -> pure x
+
 newtype PrettyDataType = PrettyDataType DataType
 
 showInternal :: DataType -> String
@@ -497,6 +481,12 @@ data PartialType
   | PairTypeP PartialType PartialType
   deriving (Show, Eq, Ord)
 
+instance Plated PartialType where
+  plate f = \case
+    ArrTypeP i o -> ArrTypeP <$> f i <*> f o
+    PairTypeP a b -> PairTypeP <$> f a <*> f b
+    x -> pure x
+
 newtype PrettyPartialType = PrettyPartialType PartialType
 
 showInternalP :: PartialType -> String
@@ -513,25 +503,13 @@ instance Show PrettyPartialType where
     (TypeVariable (-1)) -> "badType"
     (TypeVariable x) -> 'v' : show x
 
-instance EndoMapper DataType where
-  endoMap f ZeroType       = f ZeroType
-  endoMap f (ArrType a b)  = f $ ArrType (endoMap f a) (endoMap f b)
-  endoMap f (PairType a b) = f $ PairType (endoMap f a) (endoMap f b)
-
-instance EndoMapper PartialType where
-  endoMap f ZeroTypeP        = f ZeroTypeP
-  endoMap f AnyType          = f AnyType
-  endoMap f (TypeVariable i) = f $ TypeVariable i
-  endoMap f (ArrTypeP a b)   = f $ ArrTypeP (endoMap f a) (endoMap f b)
-  endoMap f (PairTypeP a b)  = f $ PairTypeP (endoMap f a) (endoMap f b)
-
 mergePairType :: DataType -> DataType
-mergePairType = endoMap f where
+mergePairType = transform f where
   f (PairType ZeroType ZeroType) = ZeroType
   f x                            = x
 
 mergePairTypeP :: PartialType -> PartialType
-mergePairTypeP = endoMap f where
+mergePairTypeP = transform f where
   f (PairTypeP ZeroTypeP ZeroTypeP) = ZeroTypeP
   f x                               = x
 

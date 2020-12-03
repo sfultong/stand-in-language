@@ -12,6 +12,7 @@ module Telomare.Parser where
 
 import           Control.Lens.Combinators
 import           Control.Lens.Operators
+import Control.Lens.Plated
 import           Control.Monad
 import           Control.Monad.State        (State)
 import qualified Control.Monad.State        as State
@@ -59,24 +60,19 @@ data UnprocessedParsedTerm
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
 
-instance EndoMapper UnprocessedParsedTerm where
-  endoMap f = \case
-    VarUP str -> f $ VarUP str
-    ITEUP i t e -> f $ ITEUP (recur i) (recur t) (recur e)
-    LetUP listmap expr -> f $ LetUP ((second recur) <$> listmap) $ recur expr
-    ListUP l -> f $ ListUP (recur <$> l)
-    IntUP i -> f $ IntUP i
-    StringUP str -> f $ StringUP str
-    PairUP a b -> f $ PairUP (recur a) (recur b)
-    AppUP x y -> f $ AppUP (recur x) (recur y)
-    LamUP str x -> f $ LamUP str (recur x)
-    ChurchUP i -> f $ ChurchUP i
-    UnsizedRecursionUP -> f UnsizedRecursionUP
-    LeftUP l -> f $ LeftUP (recur l)
-    RightUP r -> f $ RightUP (recur r)
-    TraceUP t -> f $ TraceUP (recur t)
-    CheckUP cf x -> f $ CheckUP (recur cf) (recur x)
-    where recur = endoMap f
+instance Plated UnprocessedParsedTerm where
+  plate f = \case
+    ITEUP i t e -> ITEUP <$> f i <*> f t <*> f e
+    LetUP l x -> LetUP <$> traverse sequenceA (second f <$> l) <*> f x
+    ListUP l -> ListUP <$> traverse f l
+    PairUP a b -> PairUP <$> f a <*> f b
+    AppUP u x -> AppUP <$> f u <*> f x
+    LamUP s x -> LamUP s <$> f x
+    LeftUP x -> LeftUP <$> f x
+    RightUP x -> RightUP <$> f x
+    TraceUP x -> TraceUP <$> f x
+    CheckUP c x -> CheckUP <$> f c <*> f x
+    x -> pure x
 
 type VarList = [String]
 
@@ -504,7 +500,7 @@ validateVariables bindings term =
   in State.evalStateT (validateWithEnvironment term) Map.empty
 
 optimizeBuiltinFunctions :: UnprocessedParsedTerm -> UnprocessedParsedTerm
-optimizeBuiltinFunctions = endoMap optimize where
+optimizeBuiltinFunctions = transform optimize where
   optimize = \case
     twoApp@(AppUP (AppUP f x) y) ->
       case f of
