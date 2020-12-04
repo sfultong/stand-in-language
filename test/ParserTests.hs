@@ -7,6 +7,8 @@
 module Main where
 
 import           Common
+import           Control.Lens.Fold
+import           Control.Lens.Plated
 import           Control.Monad
 import           Control.Monad.Except      (ExceptT, MonadError, catchError,
                                             runExceptT, throwError)
@@ -51,12 +53,21 @@ qcProps = testGroup "Property tests (QuickCheck)"
     QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
       \x ->
         containsUniqueUP x QC.==> checkAllUniques . generateAllUniques $ x
-    -- TODO test that generateAllUniques preserves the tree's structure
-    -- i.e that it wont chop off branches or arbitrarily change anything rather than UniqueUP's
+  -- , QC.testProperty "Have the total amount of UniqueUP + IntUP be equal to total IntUP after generateAllUniques" . (withMaxSuccess 1) $
+  --     \x ->
+  --       containsUniqueUP x QC.==> checkNumberOfUniques x
+  , QC.testProperty "See that generateAllUniques only changes UniqueUP to IntUP" $
+      \x ->
+        containsUniqueUP x QC.==> onlyUniqueUPAndIntUP x
   ]
 
 checkAllUniques :: UnprocessedParsedTerm -> Bool
 checkAllUniques = noDups . allUniquesToIntList
+
+-- For some reason this is super slow. TODO: Fix.
+checkNumberOfUniques :: UnprocessedParsedTerm -> Bool
+checkNumberOfUniques upt = let (upt, tupt) = (upt, generateAllUniques upt)
+                           in ((length $ upt ^.. (cosmos . _UniqueUP)) + (length $ upt ^.. (cosmos . _IntUP))) == (length $ upt ^.. (cosmos . _IntUP))
 
 noDups = not . f []
   where
@@ -78,10 +89,35 @@ containsUniqueUP = \case
   TraceUP a -> containsUniqueUP a
   x -> False
 
-diffUPTTransformation :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -- *Transformation to generate the diff
-                      -> UnprocessedParsedTerm                            -- *The tree to be transformed
-                      -> (UnprocessedParsedTerm, UnprocessedParsedTerm)   -- *The original and the transformation
-diffUPTTransformation f upt = (upt, f upt)
+onlyUniqueUPAndIntUP :: UnprocessedParsedTerm -> Bool
+onlyUniqueUPAndIntUP upt = let diffList = diffUPT (upt, generateAllUniques upt)
+                               isUniqueUP :: UnprocessedParsedTerm -> Bool
+                               isUniqueUP = \case
+                                 UniqueUP -> True
+                                 _        -> False
+                               isIntUP :: UnprocessedParsedTerm -> Bool
+                               isIntUP = \case
+                                 IntUP _ -> True
+                                 _       -> False
+                           in and $ fmap (isUniqueUP . fst) diffList ++ fmap (isIntUP . snd) diffList
+
+diffUPT :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [(UnprocessedParsedTerm, UnprocessedParsedTerm)]
+diffUPT = \case
+  (ITEUP a b c, ITEUP a' b' c') -> diffUPT (a, a') ++ diffUPT (b, b') ++ diffUPT (c, c')
+  (ListUP ls, ListUP ls') -> concat $ diffUPT <$> (zip ls ls')
+  (PairUP a b, PairUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
+  (AppUP a b, AppUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
+  (CheckUP a b, CheckUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
+  (LamUP _ a, LamUP _ a') -> diffUPT (a, a')
+  (LeftUP a, LeftUP a') -> diffUPT (a, a')
+  (RightUP a, RightUP a') -> diffUPT (a, a')
+  (TraceUP a, TraceUP a') -> diffUPT (a, a')
+  (LetUP xs a, LetUP xs' a') -> diffUPT (a, a') ++ (concat $ diffUPT <$> zs)
+    where ys = snd <$> xs
+          ys'= snd <$> xs'
+          zs = zip ys ys'
+  (x, x') | x /= x' -> [(x, x')]
+  _ -> []
 
 allUniquesToIntList :: UnprocessedParsedTerm -> [Int]
 allUniquesToIntList upt =

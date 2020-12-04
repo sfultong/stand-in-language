@@ -10,4 +10,5 @@
 --            )
 -- main = \i -> ((left MyInt) 0, 0)
 
-main = \i -> ("Hello, World!", 0)
+-- main = \i -> ("Hello, World!", 0)
+main = if 0 then succ "hi" else 0

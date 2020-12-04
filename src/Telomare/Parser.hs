@@ -63,6 +63,7 @@ data UnprocessedParsedTerm
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
+makePrisms ''UnprocessedParsedTerm
 
 instance Plated UnprocessedParsedTerm where
   plate f = \case
@@ -246,7 +247,7 @@ integer = toInteger <$> lexeme L.decimal
 
 -- |Parse string literal.
 parseString :: TelomareParser UnprocessedParsedTerm
-parseString = StringUP <$> (char '\"' *> manyTill L.charLiteral (char '\"'))
+parseString = StringUP <$> (symbol "\"" *> manyTill L.charLiteral (symbol "\""))
 
 -- |Parse number (Integer).
 parseNumber :: TelomareParser UnprocessedParsedTerm
@@ -531,54 +532,12 @@ generateAllUniques upt = State.evalState (makeUnique upt) (uptHash upt) where
   uptHash :: UnprocessedParsedTerm -> Int
   uptHash = fromInteger . bs2i . hash . BS.pack . show
   makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
-  makeUnique = \case
+  makeUnique = transformM $ \case
     UniqueUP -> do
       State.modify (+1)
       i <- State.get
       pure . IntUP $ i
-    -- TODO: Make this code more elegant with a stateful traversal over an UniqueUP_ prism
-    -- making the rest of this code unnecesary.
-    VarUP str -> pure . VarUP $ str
-    IntUP i -> pure $ IntUP i
-    StringUP str -> pure $ StringUP str
-    ChurchUP i -> pure $ ChurchUP i
-    UnsizedRecursionUP -> pure UnsizedRecursionUP
-    ITEUP i t e -> do
-      i' <- makeUnique i
-      t' <- makeUnique t
-      e' <- makeUnique e
-      pure $ ITEUP i' t' e'
-    LetUP listmap expr -> do
-      listmap' <- sequence $ sequence <$> ((fmap . fmap) makeUnique listmap)
-      expr' <- makeUnique expr
-      pure $ LetUP listmap' expr'
-    ListUP l -> do
-      l' <- sequence $ makeUnique <$> l
-      pure $ ListUP l'
-    PairUP a b -> do
-      a' <- makeUnique a
-      b' <- makeUnique b
-      pure $ PairUP a' b'
-    AppUP x y -> do
-      x' <- makeUnique x
-      y' <- makeUnique y
-      pure $ AppUP x' y'
-    LamUP str x -> do
-      x' <- makeUnique x
-      pure $ LamUP str x'
-    LeftUP l -> do
-      l' <- makeUnique l
-      pure $ LeftUP l'
-    RightUP r -> do
-      r' <- makeUnique r
-      pure $ RightUP r'
-    TraceUP t -> do
-      t' <- makeUnique t
-      pure $ TraceUP t'
-    CheckUP cf x -> do
-      cf' <- makeUnique cf
-      x' <- makeUnique x
-      pure $ CheckUP cf' x'
+    x -> pure x
 
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
 process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
