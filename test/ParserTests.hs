@@ -30,6 +30,7 @@ import           Telomare.RunTime
 import           Test.QuickCheck
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import           Test.Tasty.QuickCheck     as QC
 import           Text.Megaparsec
 import           Text.Megaparsec.Debug
 import           Text.Megaparsec.Error
@@ -39,7 +40,13 @@ main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [unitTests]
+tests = testGroup "Tests" [unitTests, qcProps]
+
+qcProps = testGroup "Property tests (QuickCheck)"
+  [ QC.testProperty "parseString testing" $
+      \x ->
+        undefined QC.==> undefined
+  ]
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
