@@ -12,7 +12,7 @@ module Telomare.Parser where
 
 import           Control.Lens.Combinators
 import           Control.Lens.Operators
-import Control.Lens.Plated
+import           Control.Lens.Plated
 import           Control.Monad
 import           Control.Monad.State        (State)
 import qualified Control.Monad.State        as State
@@ -242,7 +242,7 @@ integer = toInteger <$> lexeme L.decimal
 
 -- |Parse string literal.
 parseString :: TelomareParser UnprocessedParsedTerm
-parseString = StringUP <$> (char '\"' *> manyTill L.charLiteral (char '\"'))
+parseString = StringUP <$> (symbol "\"" *> manyTill L.charLiteral (symbol "\""))
 
 -- |Parse number (Integer).
 parseNumber :: TelomareParser UnprocessedParsedTerm

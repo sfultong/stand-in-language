@@ -1,46 +1,9 @@
+-- File for small illustrative telomare programs and for testing
 
+-- main = \input -> ("Hello, World!", 0)
 
--- drawPiece = \piece alt -> if piece
---                             then "X"
---                             else alt
-
-
--- drawBoard = \pieces -> let getPiece = \n -> left (n (\x -> right x) pieces)
---                            alt = \n -> (n succ (left "1"), 0)
---                            dp = \n -> drawPiece (getPiece n) (alt n)
---                        in dp $8
-
--- emptyBoard = [0,0,0,0,0,0,0,0,0]
-
--- main = \input ->  let x = drawBoard emptyBoard
---                       -- x = "Hello"
---                       y = 0
---                       f = (x,y)
---                   in f
-
--- drawBoard = \pieces -> let alt = \n -> (n succ (left "1"), 0)
---                            dp = \n -> (alt n)
---                        in dp $8
-
--- emptyBoard = [0,0,0,0,0,0,0,0,0]
-
--- main = \input ->  let x = drawBoard emptyBoard
---                       -- x = "Hello"
---                       y = 0
---                       f = (x,y)
---                   in f
-
--- main = \input ->  let alt = \n -> (n succ (left "1"), 0)
---                       dp = \n -> (alt n)
---                       y = 0
---                       f = (dp $7, y)
---                   in f
-
--- a=0
-
-main = \input -> ("Hello, World!", 0)
--- main = \input ->  let x = "0"
---                       y = "0"
---                       f = (0, concat [x,y])
---                   in f
-
+-- main = if 0 then ( succ "hi" , 0) else ("hi2", 0)
+-- main = if 0 then ( ( foo "hi" ) , 0) else ("hi2", 0)
+-- foo "hi" somthing
+-- main = if 0 then succ "hi" else 0
+main = (succ "hi" , 0)
