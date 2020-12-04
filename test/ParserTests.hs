@@ -30,7 +30,6 @@ import           Telomare.RunTime
 import           Test.QuickCheck
 import           Test.Tasty
 import           Test.Tasty.HUnit
-import           Test.Tasty.QuickCheck     as QC
 import           Text.Megaparsec
 import           Text.Megaparsec.Debug
 import           Text.Megaparsec.Error
@@ -40,20 +39,20 @@ main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [unitTests, qcProps]
-
-qcProps = testGroup "Property tests (QuickCheck)"
-  [ QC.testProperty "parseString testing" $
-      \x ->
-        undefined QC.==> undefined
-  ]
+tests = testGroup "Tests" [unitTests]
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [ testCase "test Pair 0" $ do
+  [ testCase "test function applied to a string that has whitespaces in both sides inside a structure" $ do
+      res1 <- parseSuccessful parseLongExpr "(foo \"woops\" , 0)"
+      res2 <- parseSuccessful parseLongExpr "(foo \"woops\" )"
+      res3 <- parseSuccessful parseLongExpr "if 0 then foo \"woops\" else 0"
+      res4 <- parseSuccessful parseLongExpr "[ foo \"woops\" ]"
+      (res1 && res2 && res3 && res4) `compare` True @?= EQ
+  , testCase "test Pair 0" $ do
       res <- parseSuccessful (parsePair >> eof) testPair0
       res `compare` True @?= EQ
-  ,testCase "test ITE 1" $ do
+  , testCase "test ITE 1" $ do
       res <- parseSuccessful parseITE testITE1
       res `compare` True @?= EQ
   , testCase "test ITE 2" $ do
@@ -241,7 +240,7 @@ dependantTopLevelBindings = unlines $
 -- Parsec implementation
 testWtictactoe = do
   preludeFile <- Strict.readFile "Prelude.tel"
-  tictactoe <- Strict.readFile "hello.tel"
+  tictactoe <- Strict.readFile "tictactoe.tel"
   let
     prelude = case parsePrelude preludeFile of
                 Right p -> p

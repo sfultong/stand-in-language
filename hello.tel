@@ -1,4 +1,9 @@
+-- File for small illustrative telomare programs and for testing
+
 -- main = \input -> ("Hello, World!", 0)
 
--- main = if 0 then ( succ "hi" , 0) else 0
-main = if 0 then ( ( foo "hi" ) , 0) else ("hi2", 0)
+-- main = if 0 then ( succ "hi" , 0) else ("hi2", 0)
+-- main = if 0 then ( ( foo "hi" ) , 0) else ("hi2", 0)
+-- foo "hi" somthing
+-- main = if 0 then succ "hi" else 0
+main = (succ "hi" , 0)

@@ -127,7 +127,6 @@ test-suite telomare-parser-test
                      , QuickCheck
                      , tasty
                      , tasty-hunit
-                     , tasty-quickcheck
                      , containers
                      , megaparsec
                      , mtl
