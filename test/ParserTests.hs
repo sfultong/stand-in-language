@@ -53,9 +53,9 @@ qcProps = testGroup "Property tests (QuickCheck)"
     QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
       \x ->
         containsUniqueUP x QC.==> checkAllUniques . generateAllUniques $ x
-  -- , QC.testProperty "Have the total amount of UniqueUP + IntUP be equal to total IntUP after generateAllUniques" . (withMaxSuccess 1) $
-  --     \x ->
-  --       containsUniqueUP x QC.==> checkNumberOfUniques x
+  , QC.testProperty "Have the total amount of UniqueUP + IntUP be equal to total IntUP after generateAllUniques" . (withMaxSuccess 1) $
+      \x ->
+        containsUniqueUP x QC.==> checkNumberOfUniques x
   , QC.testProperty "See that generateAllUniques only changes UniqueUP to IntUP" $
       \x ->
         containsUniqueUP x QC.==> onlyUniqueUPAndIntUP x
@@ -64,10 +64,9 @@ qcProps = testGroup "Property tests (QuickCheck)"
 checkAllUniques :: UnprocessedParsedTerm -> Bool
 checkAllUniques = noDups . allUniquesToIntList
 
--- For some reason this is super slow. TODO: Fix.
 checkNumberOfUniques :: UnprocessedParsedTerm -> Bool
-checkNumberOfUniques upt = let (upt, tupt) = (upt, generateAllUniques upt)
-                           in ((length $ upt ^.. (cosmos . _UniqueUP)) + (length $ upt ^.. (cosmos . _IntUP))) == (length $ upt ^.. (cosmos . _IntUP))
+checkNumberOfUniques upt = let tupt = generateAllUniques upt
+                           in ((length $ upt ^.. (cosmos . _UniqueUP)) + (length $ upt ^.. (cosmos . _IntUP))) == (length $ tupt ^.. (cosmos . _IntUP))
 
 noDups = not . f []
   where
