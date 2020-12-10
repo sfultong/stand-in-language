@@ -11,4 +11,4 @@ MyInt = let intTag = unique
                    then 0
                    else "expecting MyInt"
            )
-main = \i -> ((left MyInt) 9, 0)
+main = \i -> ((left MyInt) 8, 0)

@@ -49,29 +49,20 @@ tests :: TestTree
 tests = testGroup "Tests" [unitTests, qcProps]
 
 qcProps = testGroup "Property tests (QuickCheck)"
-  [ -- This tests that generateAllUniques wont generate duplicate hashes
-    QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
+  [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
       \x ->
         containsUniqueUP x QC.==> checkAllUniques . generateAllUniques $ x
-  , QC.testProperty "Have the total amount of UniqueUP + IntUP be equal to total IntUP after generateAllUniques" . (withMaxSuccess 1) $
+  , QC.testProperty "Have the total amount of UniqueUP + ListUP be equal to total ListUP after generateAllUniques" $
       \x ->
         containsUniqueUP x QC.==> checkNumberOfUniques x
-  , QC.testProperty "See that generateAllUniques only changes UniqueUP to IntUP" $
+  , QC.testProperty "See that generateAllUniques only changes UniqueUP to ListUP" $
       \x ->
         containsUniqueUP x QC.==> onlyUniqueUPAndIntUP x
   ]
 
-checkAllUniques :: UnprocessedParsedTerm -> Bool
-checkAllUniques = noDups . allUniquesToIntList
-
 checkNumberOfUniques :: UnprocessedParsedTerm -> Bool
 checkNumberOfUniques upt = let tupt = generateAllUniques upt
-                           in ((length $ upt ^.. (cosmos . _UniqueUP)) + (length $ upt ^.. (cosmos . _IntUP))) == (length $ tupt ^.. (cosmos . _IntUP))
-
-noDups = not . f []
-  where
-    f seen (x:xs) = x `elem` seen || f (x:seen) xs
-    f seen []     = False
+                           in ((length $ upt ^.. (cosmos . _UniqueUP)) + (length $ upt ^.. (cosmos . _ListUP))) == (length $ tupt ^.. (cosmos . _ListUP))
 
 containsUniqueUP :: UnprocessedParsedTerm -> Bool
 containsUniqueUP = \case
@@ -94,11 +85,11 @@ onlyUniqueUPAndIntUP upt = let diffList = diffUPT (upt, generateAllUniques upt)
                                isUniqueUP = \case
                                  UniqueUP -> True
                                  _        -> False
-                               isIntUP :: UnprocessedParsedTerm -> Bool
-                               isIntUP = \case
-                                 IntUP _ -> True
-                                 _       -> False
-                           in and $ fmap (isUniqueUP . fst) diffList ++ fmap (isIntUP . snd) diffList
+                               isListUP :: UnprocessedParsedTerm -> Bool
+                               isListUP = \case
+                                 ListUP _ -> True
+                                 _        -> False
+                           in and $ fmap (isUniqueUP . fst) diffList ++ fmap (isListUP . snd) diffList
 
 diffUPT :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [(UnprocessedParsedTerm, UnprocessedParsedTerm)]
 diffUPT = \case
@@ -118,12 +109,20 @@ diffUPT = \case
   (x, x') | x /= x' -> [(x, x')]
   _ -> []
 
-allUniquesToIntList :: UnprocessedParsedTerm -> [Int]
-allUniquesToIntList upt =
+checkAllUniques :: UnprocessedParsedTerm -> Bool
+checkAllUniques = noDups . allUniquesToIntUPList
+
+noDups = not . f []
+  where
+    f seen (x:xs) = x `elem` seen || f (x:seen) xs
+    f seen []     = False
+
+allUniquesToIntUPList :: UnprocessedParsedTerm -> [[UnprocessedParsedTerm]]
+allUniquesToIntUPList upt =
   let utpWithUniquesAsInts = generateAllUniques upt
-      interm :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [Int]
+      interm :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [[UnprocessedParsedTerm]]
       interm = \case
-        (UniqueUP, IntUP x) -> [x]
+        (UniqueUP, ListUP x) -> [x]
         (ITEUP a b c, ITEUP a' b' c') -> interm (a, a') ++ interm (b, b') ++ interm (c, c')
         (ListUP ls, ListUP ls') -> concat $ interm <$> (zip ls ls')
         (PairUP a b, PairUP a' b') -> interm (a, a') ++ interm (b, b')
@@ -137,7 +136,7 @@ allUniquesToIntList upt =
           where ys = snd <$> xs
                 ys'= snd <$> xs'
                 zs = zip ys ys'
-        (x, x') | x /= x' -> error "x and x' should be the same (inside of allUniquesToIntList, within interm)"
+        (x, x') | x /= x' -> error "x and x' should be the same (inside of allUniquesToIntUPList, within interm)"
         (x, x') -> []
   in curry interm upt utpWithUniquesAsInts
 

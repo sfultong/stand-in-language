@@ -10,6 +10,7 @@
 
 module Telomare.Parser where
 
+import           Codec.Binary.UTF8.String   (encode)
 import           Control.Lens.Combinators
 import           Control.Lens.Operators
 import           Control.Lens.Plated
@@ -19,7 +20,10 @@ import qualified Control.Monad.State        as State
 import           Crypto.Hash.SHA1           (hash)
 import           Crypto.Util                (bs2i)
 import           Data.Bifunctor
-import qualified Data.ByteString.Char8      as BS
+-- import           Data.ByteString.Char8      (ByteString)
+-- import qualified Data.ByteString.Char8      as BS
+import           Data.ByteString            (ByteString)
+import qualified Data.ByteString            as BS
 import           Data.Char
 import qualified Data.Foldable              as F
 import           Data.Functor.Foldable
@@ -32,6 +36,7 @@ import           Data.Maybe                 (fromJust)
 import           Data.Set                   (Set, (\\))
 import qualified Data.Set                   as Set
 import           Data.Void
+import           Data.Word                  (Word8)
 import           Debug.Trace
 import qualified System.IO.Strict           as Strict
 import           Telomare
@@ -528,16 +533,22 @@ optimizeBuiltinFunctions = transform optimize where
 -- The unique number is constructed by doing a SHA1 hash of the UnprocessedParsedTerm and
 -- adding one for all consecutive UniqueUP's.
 generateAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
-generateAllUniques upt = State.evalState (makeUnique upt) (uptHash upt) where
-  uptHash :: UnprocessedParsedTerm -> Int
-  uptHash = fromInteger . bs2i . hash . BS.pack . show
+generateAllUniques upt = State.evalState (makeUnique upt) 0 where
+  uptHash :: UnprocessedParsedTerm -> ByteString
+  uptHash = hash . BS.pack . encode . show
+  bs2IntUPList :: ByteString -> [UnprocessedParsedTerm]
+  bs2IntUPList bs = (IntUP . fromInteger . toInteger) <$> (BS.unpack bs :: [Word8])
   makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
-  makeUnique = transformM $ \case
-    UniqueUP -> do
-      State.modify (+1)
-      i <- State.get
-      pure . IntUP $ i
-    x -> pure x
+  makeUnique upt = transformM interm upt
+    where
+      ls = bs2IntUPList . uptHash $ upt
+      interm :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
+      interm = \case
+        UniqueUP -> do
+          State.modify (+1)
+          i <- State.get
+          pure $ ListUP (ls <> [IntUP i])
+        x -> pure x
 
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
 process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
