@@ -142,10 +142,16 @@ allUniquesToIntUPList upt =
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [ testCase "test Pair 0" $ do
+  [ testCase "Ad hoc user defined types success" $ do
+      res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
+      res `compare` "\n\2672\a\ndone" @?= EQ
+  , testCase "Ad hoc user defined types failure" $ do
+      res <- testUserDefAdHocTypes userDefAdHocTypesFailure
+      res `compare` "\nMyInt must not be 0\ndone" @?= EQ
+  , testCase "test Pair 0" $ do
       res <- parseSuccessful (parsePair >> eof) testPair0
       res `compare` True @?= EQ
-  ,testCase "test ITE 1" $ do
+  , testCase "test ITE 1" $ do
       res <- parseSuccessful parseITE testITE1
       res `compare` True @?= EQ
   , testCase "test ITE 2" $ do
@@ -314,6 +320,45 @@ unitTests = testGroup "Unit tests"
   --         (x Map.! "h") `compare` expected @?= EQ
   --       Left err -> assertFailure . show $ err
   ]
+
+testUserDefAdHocTypes :: String -> IO String
+testUserDefAdHocTypes input = do
+  preludeFile <- Strict.readFile "Prelude.tel"
+  let
+    prelude = case parsePrelude preludeFile of
+      Right p -> p
+      Left pe -> error $ getErrorString pe
+    runMain s = case compile <$> parseMain prelude s of
+      Left e -> error $ concat ["failed to parse ", s, " ", e]
+      Right (Right g) -> evalLoop_ g
+      Right z -> error $ "compilation failed somehow, with result " <> show z
+  runMain input
+
+userDefAdHocTypesSuccess = unlines $
+  [ "MyInt = let intTag = unique"
+  , "        in ( \\i -> if not i"
+  , "                   then \"MyInt must not be 0\""
+  , "                   else (intTag, i)"
+  , "           , \\i -> if dEqual (left i) intTag"
+  , "                   then 0"
+  , "                   else \"expecting MyInt\""
+  , "           )"
+  , "main = \\i -> ((left MyInt) 8, 0)"
+  ]
+
+userDefAdHocTypesFailure = unlines $
+  [ "MyInt = let intTag = unique"
+  , "        in ( \\i -> if not i"
+  , "                   then \"MyInt must not be 0\""
+  , "                   else (intTag, i)"
+  , "           , \\i -> if dEqual (left i) intTag"
+  , "                   then 0"
+  , "                   else \"expecting MyInt\""
+  , "           )"
+  , "main = \\i -> ((left MyInt) 0, 0)"
+  ]
+
+
 
 myTrace a = trace (show a) a
 

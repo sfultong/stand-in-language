@@ -163,3 +163,23 @@ evalLoop iexpr = case eval' iexpr of
                   mainLoop $ Pair inp newState
             r -> putStrLn $ concat ["runtime error, dumped ", show r]
     in mainLoop Zero
+
+-- |Same as `evalLoop`, but keeping what was displayed.
+evalLoop_ :: IExpr -> IO String
+evalLoop_ iexpr = case eval' iexpr of
+  Left err -> pure . concat $ ["Failed compiling main, ", show err]
+  Right peExp ->
+    let mainLoop prev s = do
+          -- result <- optimizedEval (app peExp s)
+          result <- simpleEval (app peExp s)
+          case result of
+            Zero -> pure $ prev <> "\n" <> "aborted"
+            (Pair disp newState) -> do
+              let d = g2s $ disp
+              case newState of
+                Zero -> pure $ prev <> "\n" <> d <> "\ndone"
+                _ -> do
+                  inp <- s2g <$> getLine
+                  mainLoop (prev <> "\n" <> d) $ Pair inp newState
+            r -> pure $ concat ["runtime error, dumped ", show r]
+    in mainLoop "" Zero
