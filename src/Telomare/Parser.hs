@@ -537,7 +537,7 @@ generateAllUniques upt = State.evalState (makeUnique upt) 0 where
   uptHash :: UnprocessedParsedTerm -> ByteString
   uptHash = hash . BS.pack . encode . show
   bs2IntUPList :: ByteString -> [UnprocessedParsedTerm]
-  bs2IntUPList bs = (IntUP . fromInteger . toInteger) <$> (BS.unpack bs :: [Word8])
+  bs2IntUPList bs = (IntUP . fromInteger . toInteger) <$> (BS.unpack bs)
   makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
   makeUnique upt = transformM interm upt
     where
