@@ -17,11 +17,9 @@ import           Control.Lens.Plated
 import           Control.Monad
 import           Control.Monad.State        (State)
 import qualified Control.Monad.State        as State
-import           Crypto.Hash.SHA1           (hash)
+import           Crypto.Hash.SHA256         (hash)
 import           Crypto.Util                (bs2i)
 import           Data.Bifunctor
--- import           Data.ByteString.Char8      (ByteString)
--- import qualified Data.ByteString.Char8      as BS
 import           Data.ByteString            (ByteString)
 import qualified Data.ByteString            as BS
 import           Data.Char

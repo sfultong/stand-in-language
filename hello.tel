@@ -1,8 +1,9 @@
+-- File for small illustrative telomare programs and for testing
+
+-- Hello World example.
+-- main = \input -> ("Hello, World!", 0)
+
 -- Simple example of ad-hoc user defined types
-
--- main = \i -> ("Hello, World!", 0)
--- main = if 0 then succ "hi" else 0
-
 MyInt = let intTag = unique
         in ( \i -> if not i
                    then "MyInt must not be 0"

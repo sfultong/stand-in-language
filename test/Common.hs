@@ -6,12 +6,11 @@
 
 module Common where
 
-import           Test.QuickCheck
-import           Test.QuickCheck.Gen
-
 import           Telomare
 import           Telomare.Parser
 import           Telomare.TypeChecker
+import           Test.QuickCheck
+import           Test.QuickCheck.Gen
 
 class TestableIExpr a where
   getIExpr :: a -> IExpr
@@ -103,31 +102,6 @@ simpleArrowTyped x = inferType (fromTelomare $ getIExpr x) == Right (ArrTypeP Ze
 instance Arbitrary ArrowTypedTestIExpr where
   arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped
   shrink (ArrowTypedTestIExpr atte) = map ArrowTypedTestIExpr . filter simpleArrowTyped $ shrink atte
-
--- newtype SimpleUPTwUniques = SimpleUPTwUniques { unwrapUPT :: UnprocessedParsedTerm
---   deriving (Show)
-
--- instance Arbitrary SimpleUPTwUniques where
---   arbitrary = sized arbUPT where
---     arbUPT :: Int -> Gen SimpleUPTwUniques
---     arbUPT 0 = pure . SimpleUPTwUniques $ PairUP UniqueUP UniqueUP
---     arbUPT x = do
-
---       oneof
---         [ pure . SimpleUPTwUniques $ PairUP UniqueUP UniqueUP
---         , pure . SimpleUPTwUniques $ VarUP arbitrary -- change if it is slow
---         -- ,
-
---         , do
---             (SimpleUPTwUniques a) <- arbUPT (x `div` 2)
---             (SimpleUPTwUniques b) <- arbUPT (x `div` 2)
---             pure . SimpleUPTwUniques $ PairUP a b
---         , do
---             (SimpleUPTwUniques a) <- arbUPT (x `div` 3)
---             (SimpleUPTwUniques b) <- arbUPT (x `div` 3)
---             (SimpleUPTwUniques c) <- arbUPT (x `div` 3)
---             pure . SimpleUPTwUniques $ ITEUP a b c
---         ]
 
 instance Arbitrary UnprocessedParsedTerm where
   arbitrary = sized (genTree []) where

@@ -144,10 +144,16 @@ unitTests :: TestTree
 unitTests = testGroup "Unit tests"
   [ testCase "Ad hoc user defined types success" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
-      res `compare` "\n\2672\a\ndone" @?= EQ
+      res `compare` "\n\3372\a\ndone" @?= EQ
   , testCase "Ad hoc user defined types failure" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesFailure
       res `compare` "\nMyInt must not be 0\ndone" @?= EQ
+  , testCase "test function applied to a string that has whitespaces in both sides inside a structure" $ do
+      res1 <- parseSuccessful parseLongExpr "(foo \"woops\" , 0)"
+      res2 <- parseSuccessful parseLongExpr "(foo \"woops\" )"
+      res3 <- parseSuccessful parseLongExpr "if 0 then foo \"woops\" else 0"
+      res4 <- parseSuccessful parseLongExpr "[ foo \"woops\" ]"
+      (res1 && res2 && res3 && res4) `compare` True @?= EQ
   , testCase "test Pair 0" $ do
       res <- parseSuccessful (parsePair >> eof) testPair0
       res `compare` True @?= EQ
