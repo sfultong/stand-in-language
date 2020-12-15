@@ -35,6 +35,7 @@ library
                      , PrettyPrint
                      , Telomare
                      , Telomare.Eval
+                     , Telomare.Decompiler
                      , Telomare.Llvm
                      , Telomare.Optimizer
                      , Telomare.Parser

@@ -12,6 +12,7 @@ import Telomare
 import Telomare.Eval
 import Telomare.Llvm (RunResult(..))
 import Naturals
+import Telomare.Decompiler
 import Telomare.Parser
 import Telomare.RunTime
 import Telomare.TypeChecker
@@ -320,6 +321,14 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
        _ | iexpr == iexpr'-> True
        _ | otherwise -> False
 
+propertyDecompileThenCompileIsIdentity :: UnprocessedParsedTerm -> Bool
+propertyDecompileThenCompileIsIdentity up =
+  let nup = parseTestTerm $ decompileUPT up
+  in case nup of
+    -- Right up' -> up == up'
+    Right up' -> if up == up' then True else error (show (up, up'))
+    Left e -> error e
+
 {-
 unitTestQC :: Testable p => String -> Int -> p -> Spec
 unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
@@ -617,7 +626,8 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
   -- warning: may be slow
-  -- describe "quickcheck" $ do
+  describe "quickcheck" $ do
+       unitTestQC "propertyDecompileThenCompileIsIdentity" 1000 propertyDecompileThenCompileIsIdentity
   --   unitTestQC "builtinOptimizationDoesntBreakEvaluation" 100 quickcheckBuiltInOptimizedDoesNotChangeEval
   -- ++ quickCheckTests unitTest2 unitTestType
 
