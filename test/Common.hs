@@ -7,11 +7,14 @@
 
 module Common where
 
-import           Telomare
-import           Telomare.Parser
-import           Telomare.TypeChecker
-import           Test.QuickCheck
-import           Test.QuickCheck.Gen
+import Data.Bifunctor
+
+import Test.QuickCheck
+import Test.QuickCheck.Gen
+
+import Telomare.TypeChecker
+import Telomare.Parser
+import Telomare
 
 class TestableIExpr a where
   getIExpr :: a -> IExpr
@@ -225,9 +228,21 @@ instance Arbitrary UnprocessedParsedTerm where
     ListUP l -> case l of
       [e] -> if null $ shrink e then [e] else e : map (ListUP . pure) (shrink e)
       _ -> head l : ListUP (tail l) : map (ListUP . shrink) l
+  {-
     LetUP l i -> i : case l of -- TODO make this do proper, full enumeration
       [(v,e)] -> if null $ shrink e then [e] else e : map (flip LetUP i . pure . (v,)) (shrink e) <> (map (LetUP l) (shrink i))
-      _ -> snd (head l) : LetUP (tail l) i : map (flip LetUP i. shrink) l
+      _ -> let shrinkBinding (n, v) = map (n,) $ shrink v
+           in snd (head l) : LetUP (tail l) i : map (flip LetUP i . second shrink) l
+-}
+    LetUP l i -> let shrinkBinding (n, v) = map (n,) $ shrink v
+                     removeAt n x = let (f,s) = splitAt n x in f ++ tail s
+                     makeOptions f n [] = error "debugging split here"
+                     makeOptions f n x = let (pa,c:pz) = splitAt n x in map ((pa ++) . (:pz)) $ f c
+                     lessBindings = if length l > 1
+                       then [LetUP (removeAt n l) i | n <- [0..length l - 1]]
+                       else []
+                 in i : lessBindings
+                    ++ concat [map (flip LetUP i) $ makeOptions shrinkBinding n l | n <- [0..length l - 1]]
     PairUP a b -> a : b : [PairUP na nb | (na, nb) <- shrink (a,b)]
     AppUP f i -> f : i : [AppUP nf ni | (nf, ni) <- shrink (f,i)]
 

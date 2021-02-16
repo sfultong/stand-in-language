@@ -326,8 +326,9 @@ propertyDecompileThenCompileIsIdentity up =
   let nup = parseTestTerm $ decompileUPT up
   in case nup of
     -- Right up' -> up == up'
-    Right up' -> if up == up' then True else error (show (up, up'))
-    Left e -> error e
+    Right up' -> if up == up' then True else error (show (decompileUPT up, up, up'))
+    -- Left e -> error (e <> ":  " <> show up)
+    Left e -> error (show (decompileUPT up, up, e))
 
 {-
 unitTestQC :: Testable p => String -> Int -> p -> Spec
