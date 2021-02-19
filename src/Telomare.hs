@@ -403,11 +403,23 @@ lamF x = (\f -> PairFrag f EnvFrag) <$> deferF x
 clamF :: BreakState' a -> BreakState' a
 clamF x = (\f -> PairFrag f ZeroFrag) <$> deferF x
 
+-- to construct a church numeral (\f x -> f ... (f x))
+-- the new, optimized church numeral operation iterates on a function "frame" (rf, (rf, (f', (x, env))))
+-- rf is the function to pull arguments out of the frame, run f', and construct the next frame
+-- (f',env') is f (since f may contain a saved environment/closure env we want to use for each iteration)
 toChurchF :: Int -> BreakState' a
 toChurchF x' =
-  let inner 0 = pure $ LeftFrag EnvFrag
-      inner x = appF (pure $ LeftFrag (RightFrag EnvFrag)) (inner (x - 1))
-  in lamF (lamF (inner x'))
+  let applyF = SetEnvFrag (RightFrag EnvFrag) -- applies x to f
+      env' = RightFrag (RightFrag (RightFrag EnvFrag))
+      rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
+                                                                                                (PairFrag applyF env')))
+      -- construct the initial frame from f and x
+      frameSetup = (\ff -> PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
+                                                     (PairFrag (LeftFrag EnvFrag) (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
+                   <$> rf
+      -- run the iterations x' number of times, then unwrap the result from the final frame
+      unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag $ (iterate SetEnvFrag EnvFrag !! x')
+  in clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
 
 partialFixF :: Int -> BreakState' a
 partialFixF i =
