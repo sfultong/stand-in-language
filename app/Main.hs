@@ -32,7 +32,6 @@ main = do
     Left err -> putStrLn $ concat ["JIT error: ", err]
     Right mod -> putStrLn "JIT seemed to finish ok"
   -}
-
   -- printBindingTypes prelude
   Strict.readFile "tictactoe.tel" >>= runMain
   -- Strict.readFile "hello.tel" >>= runMain
