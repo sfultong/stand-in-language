@@ -30,6 +30,11 @@ import qualified Data.Set                 as Set
 import           Data.Void
 import           GHC.Generics
 
+{- top level TODO list
+ - change AbortFrag form to something more convenient
+ - extract abort logic from arbitrary expressions (like, make quick dynamic check the way we have static check)
+ - make sure recur calls in unsized recursion combinator are structurally smaller ... although, we can fail sizing and report that to user
+-}
 -- TODO replace with a Plated fold
 class MonoidEndoFolder a where
   monoidFold :: Monoid m => (a -> m) -> a -> m
@@ -405,35 +410,30 @@ lamF x = pairF (deferF x) $ pure EnvFrag
 clamF :: BreakState' a b -> BreakState' a b
 clamF x = pairF (deferF x) $ pure ZeroFrag
 
+innerChurchF :: Int -> BreakState' a b
+innerChurchF x = pure $ iterate SetEnvFrag EnvFrag !! x
+
 -- to construct a church numeral (\f x -> f ... (f x))
--- the new, optimized church numeral operation iterates on a function "frame" (rf, (rf, (f', (x, env))))
+-- the new, optimized church numeral operation iterates on a function "frame" (rf, (rf, (f', (x, env'))))
 -- rf is the function to pull arguments out of the frame, run f', and construct the next frame
 -- (f',env') is f (since f may contain a saved environment/closure env we want to use for each iteration)
-toChurchF :: Int -> BreakState' a b
-toChurchF x' =
-  let applyF = SetEnvFrag (RightFrag EnvFrag) -- applies x to f
-      env' = RightFrag (RightFrag (RightFrag EnvFrag))
-      rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
-                                                                                                (PairFrag applyF env')))
-      -- construct the initial frame from f and x
-      frameSetup = (\ff -> PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
-                                                     (PairFrag (LeftFrag EnvFrag) (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
-                   <$> rf
-      -- run the iterations x' number of times, then unwrap the result from the final frame
-      unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag $ (iterate SetEnvFrag EnvFrag !! x')
-  in clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
-
-innerChurchF :: Int -> BreakState' a b
-innerChurchF x = iterate (appF (pure $ LeftFrag (RightFrag EnvFrag))) (pure $ LeftFrag EnvFrag) !! x
-
 unsizedRecursionWrapper :: BreakExtras -> BreakState' BreakExtras BreakExtras
 unsizedRecursionWrapper urToken =
   let firstArgF = pure $ LeftFrag EnvFrag
       secondArgF = pure $ LeftFrag (RightFrag EnvFrag)
-      abortToken = pure $ PairFrag ZeroFrag ZeroFrag
-      abrt = SetEnvFrag . PairFrag AbortFrag <$> abortToken
-      ur = clamF (pairF (pure $ AuxFrag urToken) (pure EnvFrag))
-  in clamF (lamF (appF (appF ur secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
+      abortToken = PairFrag ZeroFrag ZeroFrag
+      abrt = lamF (SetEnvFrag <$> (PairFrag (SetEnvFrag (PairFrag AbortFrag abortToken)) <$> appF secondArgF firstArgF))
+      applyF = SetEnvFrag $ RightFrag EnvFrag
+      env' = RightFrag (RightFrag (RightFrag EnvFrag))
+      rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
+                                                                                                (PairFrag applyF env')))
+      -- construct the initial frame from f and x
+      frameSetup = (\ff a -> PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
+                                                     (PairFrag a (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
+                   <$> rf <*> abrt
+      -- run the iterations x' number of times, then unwrap the result from the final frame
+      unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag $ AuxFrag urToken
+  in clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
 
 nextBreakToken :: Enum b => BreakState a b b
 nextBreakToken = do
