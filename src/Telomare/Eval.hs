@@ -102,7 +102,7 @@ eval' = pure
 convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
 convertPT limitLookup (Term3 termMap) =
   let changeTerm = \case
-        AuxFrag n -> deferF . innerChurchF $ limitLookup n
+        AuxFrag n -> innerChurchF $ limitLookup n
         ZeroFrag -> pure ZeroFrag
         PairFrag a b -> PairFrag <$> changeTerm a <*> changeTerm b
         EnvFrag -> pure EnvFrag

@@ -168,11 +168,7 @@ annotate (Term3 termMap) =
           associateVar (PairTypeP AnyType ra) xt
           pure ra
         TraceFrag -> (\(t, _, _) -> t) <$> State.get
-        --(A,(((v17,v19) -> v7,A),A)) -> v7                  -- this is the replacement for the inner lambda
-        AuxFrag (UnsizedRecursion _) -> do -- ugh... just trust this?
-          (ta, (tb, (tc, _))) <- withNewEnv . withNewEnv . withNewEnv $ pure ()
-          let it = PairTypeP AnyType (PairTypeP (PairTypeP (ArrTypeP (PairTypeP tb tc) ta) AnyType) AnyType)
-          pure $ ArrTypeP it ta
+        AuxFrag (UnsizedRecursion _) -> (\(t, _, _) -> t) <$> State.get
       initInputType :: FragIndex -> AnnotateState ()
       initInputType fi = let (ArrTypeP it _) = getFragType fi in State.modify (\(_, s, i) -> (it, s, i))
       associateOutType fi ot = let (ArrTypeP _ ot2) = getFragType fi in associateVar ot ot2

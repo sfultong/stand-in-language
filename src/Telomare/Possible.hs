@@ -178,11 +178,8 @@ testBuildingSetEval sRecur env ft' it' =
                        in doGate it
           AuxFrag ind -> do
             cLimit <- ($ ind) <$> lift Reader.ask
-            let (c,e,ii) = case it of
-                  (PairX i' (PairX (PairX c' e') _)) -> (c',e',i')
-                  z -> error $ "buildingSetEval AuxF app - bad environment: " <> show z
-                appP ii = sRecur (PairX c (PairX ii e)) $ SetEnvFrag EnvFrag -- simple hack to simulate function application
-            iterate (>>= appP) (pure ii) !! cLimit
+            let appP ii = sRecur ii $ SetEnvFrag EnvFrag -- simple hack to simulate function application
+            iterate (>>= appP) (pure it) !! cLimit
           x -> let alterSizeTest v = \case
                      Nothing -> pure v
                      Just e -> pure $ (<>) <$> e <*> v
