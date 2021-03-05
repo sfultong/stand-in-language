@@ -22,8 +22,8 @@ jobs:
     - run: cachix use iohk
     # - run: nix-build -A telomare.components.library
     - run: nix-build -A checks.x86_64-linux
-    - run: nix-shell --run ./result-2/bin/telomare-test
-    - run: nix-shell --run ./result-3/bin/telomare-parser-test
-    - run: nix-shell --run ./result-4/bin/telomare-serializer-test
+    - run: nix-shell --run ./result-2/bin/*
+    - run: nix-shell --run ./result-3/bin/*
+    - run: nix-shell --run ./result-4/bin/*
     # - run: nix-build -A telomare.components.tests
     # - run: nix-shell --run "echo OK"
