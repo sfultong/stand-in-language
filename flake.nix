@@ -53,11 +53,12 @@
     in flake // {
       # Built by `nix build .`
       defaultPackage = flake.packages."telomare:exe:telomare-exe";
-      telomareTests = flake.packages."telomare:test:telomare-test";
+      # telomareTests = flake.packages."telomare:test:telomare-parser-test";
 
-      checks.x86_64-linux = {
-
+      checks = {
         build = self.defaultPackage.x86_64-linux;
+        # telTest0 = self.telomareTests.x86_64-linux;
+        telTest0 = flake.packages."telomare:test:telomare-parser-test";
       };
 
 
