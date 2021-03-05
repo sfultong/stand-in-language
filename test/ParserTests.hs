@@ -48,7 +48,7 @@ unitTests = testGroup "Unit tests"
       res2 <- parseSuccessful parseLongExpr "(foo \"woops\" )"
       res3 <- parseSuccessful parseLongExpr "if 0 then foo \"woops\" else 0"
       res4 <- parseSuccessful parseLongExpr "[ foo \"woops\" ]"
-      (res1 && res2 && res3 && res4) `compare` True @?= EQ
+      (res1 && res2 && res3 && res4) `compare` False @?= EQ
   , testCase "test Pair 0" $ do
       res <- parseSuccessful (parsePair >> eof) testPair0
       res `compare` True @?= EQ
