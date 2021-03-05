@@ -21,12 +21,12 @@ main = do
       Left e -> putStrLn $ concat ["failed to parse ", s, " ", e]
       Right (Right g) -> evalLoop g
       Right z -> putStrLn $ "compilation failed somehow, with result " <> show z
-    --testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
-    --testData = PRight $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
-    --testData = SetEnv $ Pair (Defer $ Pair Zero Env) Zero
-    testData = ite (Pair Zero Zero) (Pair (Pair Zero Zero) Zero) (Pair Zero (Pair Zero Zero))
+    -- testData = Twiddle $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
+    -- testData = PRight $ Pair (Pair (Pair Zero Zero) Zero) (Pair Zero Zero)
+    -- testData = SetEnv $ Pair (Defer $ Pair Zero Env) Zero
+    -- testData = ite (Pair Zero Zero) (Pair (Pair Zero Zero) Zero) (Pair Zero (Pair Zero Zero))
 
-  --print $ makeModule testData
+  -- print $ makeModule testData
   {-
   runJIT (makeModule testData) >>= \result -> case result of
     Left err -> putStrLn $ concat ["JIT error: ", err]

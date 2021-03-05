@@ -10,13 +10,18 @@
 
 module Telomare.Parser where
 
+import           Codec.Binary.UTF8.String   (encode)
 import           Control.Lens.Combinators
 import           Control.Lens.Operators
 import           Control.Lens.Plated
 import           Control.Monad
 import           Control.Monad.State        (State)
 import qualified Control.Monad.State        as State
+import           Crypto.Hash.SHA256         (hash)
+import           Crypto.Util                (bs2i)
 import           Data.Bifunctor
+import           Data.ByteString            (ByteString)
+import qualified Data.ByteString            as BS
 import           Data.Char
 import qualified Data.Foldable              as F
 import           Data.Functor.Foldable
@@ -29,6 +34,7 @@ import           Data.Maybe                 (fromJust)
 import           Data.Set                   (Set, (\\))
 import qualified Data.Set                   as Set
 import           Data.Void
+import           Data.Word                  (Word8)
 import           Debug.Trace
 import qualified System.IO.Strict           as Strict
 import           Telomare
@@ -56,9 +62,11 @@ data UnprocessedParsedTerm
   | RightUP UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
+  | UniqueUP -- * On ad hoc user defined types, this term will be substitued to a unique Int.
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
+makePrisms ''UnprocessedParsedTerm
 
 instance Plated UnprocessedParsedTerm where
   plate f = \case
@@ -419,6 +427,7 @@ addBuiltins = LetUP
   , ("trace", LamUP "x" (TraceUP (VarUP "x")))
   , ("pair", LamUP "x" (LamUP "y" (PairUP (VarUP "x") (VarUP "y"))))
   , ("app", LamUP "x" (LamUP "y" (AppUP (VarUP "x") (VarUP "y"))))
+  , ("unique", UniqueUP)
   ]
 
 -- |Parse prelude.
@@ -518,9 +527,36 @@ optimizeBuiltinFunctions = transform optimize where
         -- VarUP "check" TODO
     x -> x
 
+-- |Process an `UnprocessedParesedTerm` to have all `UniqueUP` replaced by a unique number.
+-- The unique number is constructed by doing a SHA1 hash of the UnprocessedParsedTerm and
+-- adding one for all consecutive UniqueUP's.
+generateAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+generateAllUniques upt = State.evalState (makeUnique upt) 0 where
+  uptHash :: UnprocessedParsedTerm -> ByteString
+  uptHash = hash . BS.pack . encode . show
+  bs2IntUPList :: ByteString -> [UnprocessedParsedTerm]
+  bs2IntUPList bs = (IntUP . fromInteger . toInteger) <$> (BS.unpack bs)
+  makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
+  makeUnique upt = transformM interm upt
+    where
+      ls = bs2IntUPList . uptHash $ upt
+      interm :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
+      interm = \case
+        UniqueUP -> do
+          State.modify (+1)
+          i <- State.get
+          pure $ ListUP (ls <> [IntUP i])
+        x -> pure x
+
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
-process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Either String Term3
-process bindings = fmap splitExpr . (>>= debruijinize []) . validateVariables bindings . optimizeBuiltinFunctions
+process :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+        -> UnprocessedParsedTerm
+        -> Either String Term3
+process bindings = fmap splitExpr
+                   . (>>= debruijinize [])
+                   . validateVariables bindings
+                   . optimizeBuiltinFunctions
+                   . generateAllUniques
 
 -- |Parse main.
 parseMain :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> String -> Either String Term3

@@ -1,13 +1,17 @@
 {-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+
 module Main where
 
 import           Common
+import           Control.Lens.Fold
+import           Control.Lens.Plated
 import           Control.Monad
-import           Control.Monad.Error
-import           Control.Monad.Except      (ExceptT, MonadError, runExceptT)
+import           Control.Monad.Except      (ExceptT, MonadError, catchError,
+                                            runExceptT, throwError)
 import           Control.Monad.Fix         (fix)
 import           Control.Monad.IO.Class    (liftIO)
 import qualified Control.Monad.State       as State
@@ -16,8 +20,10 @@ import           Data.Algorithm.DiffOutput (ppDiff)
 import           Data.Bifunctor
 import           Data.Either               (fromRight)
 import           Data.Functor.Foldable
+import           Data.List
 import           Data.Map                  (Map, fromList, toList)
 import qualified Data.Map                  as Map
+import           Data.Ord
 import qualified Data.Semigroup            as Semigroup
 import qualified Data.Set                  as Set
 import           Debug.Trace               (trace)
@@ -30,6 +36,7 @@ import           Telomare.RunTime
 import           Test.QuickCheck
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import           Test.Tasty.QuickCheck     as QC
 import           Text.Megaparsec
 import           Text.Megaparsec.Debug
 import           Text.Megaparsec.Error
@@ -39,11 +46,109 @@ main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [unitTests]
+tests = testGroup "Tests" [unitTests, qcProps]
+
+qcProps = testGroup "Property tests (QuickCheck)"
+  [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
+      \x ->
+        containsUniqueUP x QC.==> checkAllUniques . generateAllUniques $ x
+  , QC.testProperty "Have the total amount of UniqueUP + ListUP be equal to total ListUP after generateAllUniques" $
+      \x ->
+        containsUniqueUP x QC.==> checkNumberOfUniques x
+  , QC.testProperty "See that generateAllUniques only changes UniqueUP to ListUP" $
+      \x ->
+        containsUniqueUP x QC.==> onlyUniqueUPAndIntUP x
+  ]
+
+checkNumberOfUniques :: UnprocessedParsedTerm -> Bool
+checkNumberOfUniques upt = let tupt = generateAllUniques upt
+                           in ((length $ upt ^.. (cosmos . _UniqueUP)) + (length $ upt ^.. (cosmos . _ListUP))) == (length $ tupt ^.. (cosmos . _ListUP))
+
+containsUniqueUP :: UnprocessedParsedTerm -> Bool
+containsUniqueUP = \case
+  UniqueUP -> True
+  LetUP xs a -> containsUniqueUP a || (or $ (containsUniqueUP . snd) <$> xs)
+  ITEUP a b c -> containsUniqueUP a || containsUniqueUP b || containsUniqueUP c
+  ListUP ls -> or $ containsUniqueUP <$> ls
+  PairUP a b -> containsUniqueUP a || containsUniqueUP b
+  AppUP a b -> containsUniqueUP a || containsUniqueUP b
+  CheckUP a b -> containsUniqueUP a || containsUniqueUP b
+  LamUP _ a -> containsUniqueUP a
+  LeftUP a -> containsUniqueUP a
+  RightUP a -> containsUniqueUP a
+  TraceUP a -> containsUniqueUP a
+  x -> False
+
+onlyUniqueUPAndIntUP :: UnprocessedParsedTerm -> Bool
+onlyUniqueUPAndIntUP upt = let diffList = diffUPT (upt, generateAllUniques upt)
+                               isUniqueUP :: UnprocessedParsedTerm -> Bool
+                               isUniqueUP = \case
+                                 UniqueUP -> True
+                                 _        -> False
+                               isListUP :: UnprocessedParsedTerm -> Bool
+                               isListUP = \case
+                                 ListUP _ -> True
+                                 _        -> False
+                           in and $ fmap (isUniqueUP . fst) diffList ++ fmap (isListUP . snd) diffList
+
+diffUPT :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [(UnprocessedParsedTerm, UnprocessedParsedTerm)]
+diffUPT = \case
+  (ITEUP a b c, ITEUP a' b' c') -> diffUPT (a, a') ++ diffUPT (b, b') ++ diffUPT (c, c')
+  (ListUP ls, ListUP ls') -> concat $ diffUPT <$> (zip ls ls')
+  (PairUP a b, PairUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
+  (AppUP a b, AppUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
+  (CheckUP a b, CheckUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
+  (LamUP _ a, LamUP _ a') -> diffUPT (a, a')
+  (LeftUP a, LeftUP a') -> diffUPT (a, a')
+  (RightUP a, RightUP a') -> diffUPT (a, a')
+  (TraceUP a, TraceUP a') -> diffUPT (a, a')
+  (LetUP xs a, LetUP xs' a') -> diffUPT (a, a') ++ (concat $ diffUPT <$> zs)
+    where ys = snd <$> xs
+          ys'= snd <$> xs'
+          zs = zip ys ys'
+  (x, x') | x /= x' -> [(x, x')]
+  _ -> []
+
+checkAllUniques :: UnprocessedParsedTerm -> Bool
+checkAllUniques = noDups . allUniquesToIntUPList
+
+noDups = not . f []
+  where
+    f seen (x:xs) = x `elem` seen || f (x:seen) xs
+    f seen []     = False
+
+allUniquesToIntUPList :: UnprocessedParsedTerm -> [[UnprocessedParsedTerm]]
+allUniquesToIntUPList upt =
+  let utpWithUniquesAsInts = generateAllUniques upt
+      interm :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [[UnprocessedParsedTerm]]
+      interm = \case
+        (UniqueUP, ListUP x) -> [x]
+        (ITEUP a b c, ITEUP a' b' c') -> interm (a, a') ++ interm (b, b') ++ interm (c, c')
+        (ListUP ls, ListUP ls') -> concat $ interm <$> (zip ls ls')
+        (PairUP a b, PairUP a' b') -> interm (a, a') ++ interm (b, b')
+        (AppUP a b, AppUP a' b') -> interm (a, a') ++ interm (b, b')
+        (CheckUP a b, CheckUP a' b') -> interm (a, a') ++ interm (b, b')
+        (LamUP _ a, LamUP _ a') -> interm (a, a')
+        (LeftUP a, LeftUP a') -> interm (a, a')
+        (RightUP a, RightUP a') -> interm (a, a')
+        (TraceUP a, TraceUP a') -> interm (a, a')
+        (LetUP xs a, LetUP xs' a') -> interm (a, a') ++ (concat $ interm <$> zs)
+          where ys = snd <$> xs
+                ys'= snd <$> xs'
+                zs = zip ys ys'
+        (x, x') | x /= x' -> error "x and x' should be the same (inside of allUniquesToIntUPList, within interm)"
+        (x, x') -> []
+  in curry interm upt utpWithUniquesAsInts
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [ testCase "test function applied to a string that has whitespaces in both sides inside a structure" $ do
+  [ testCase "Ad hoc user defined types success" $ do
+      res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
+      res `compare` "\n\3372\a\ndone" @?= EQ
+  , testCase "Ad hoc user defined types failure" $ do
+      res <- testUserDefAdHocTypes userDefAdHocTypesFailure
+      res `compare` "\nMyInt must not be 0\ndone" @?= EQ
+  , testCase "test function applied to a string that has whitespaces in both sides inside a structure" $ do
       res1 <- parseSuccessful parseLongExpr "(foo \"woops\" , 0)"
       res2 <- parseSuccessful parseLongExpr "(foo \"woops\" )"
       res3 <- parseSuccessful parseLongExpr "if 0 then foo \"woops\" else 0"
@@ -221,6 +326,45 @@ unitTests = testGroup "Unit tests"
   --         (x Map.! "h") `compare` expected @?= EQ
   --       Left err -> assertFailure . show $ err
   ]
+
+testUserDefAdHocTypes :: String -> IO String
+testUserDefAdHocTypes input = do
+  preludeFile <- Strict.readFile "Prelude.tel"
+  let
+    prelude = case parsePrelude preludeFile of
+      Right p -> p
+      Left pe -> error $ getErrorString pe
+    runMain s = case compile <$> parseMain prelude s of
+      Left e -> error $ concat ["failed to parse ", s, " ", e]
+      Right (Right g) -> evalLoop_ g
+      Right z -> error $ "compilation failed somehow, with result " <> show z
+  runMain input
+
+userDefAdHocTypesSuccess = unlines $
+  [ "MyInt = let intTag = unique"
+  , "        in ( \\i -> if not i"
+  , "                   then \"MyInt must not be 0\""
+  , "                   else (intTag, i)"
+  , "           , \\i -> if dEqual (left i) intTag"
+  , "                   then 0"
+  , "                   else \"expecting MyInt\""
+  , "           )"
+  , "main = \\i -> ((left MyInt) 8, 0)"
+  ]
+
+userDefAdHocTypesFailure = unlines $
+  [ "MyInt = let intTag = unique"
+  , "        in ( \\i -> if not i"
+  , "                   then \"MyInt must not be 0\""
+  , "                   else (intTag, i)"
+  , "           , \\i -> if dEqual (left i) intTag"
+  , "                   then 0"
+  , "                   else \"expecting MyInt\""
+  , "           )"
+  , "main = \\i -> ((left MyInt) 0, 0)"
+  ]
+
+
 
 myTrace a = trace (show a) a
 
