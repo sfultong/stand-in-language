@@ -53,14 +53,13 @@
     in flake // {
       # Built by `nix build .`
       defaultPackage = flake.packages."telomare:exe:telomare-exe";
-      # telomareTests = flake.packages."telomare:test:telomare-parser-test";
 
       checks = {
         build = self.defaultPackage.x86_64-linux;
-        # telTest0 = self.telomareTests.x86_64-linux;
-        telTest0 = flake.packages."telomare:test:telomare-parser-test";
+        telomareTest0 = flake.packages."telomare:test:telomare-test";
+        telomareTest1 = flake.packages."telomare:test:telomare-parser-test";
+        telomareTest2 = flake.packages."telomare:test:telomare-serializer-test";
       };
-
 
       # This is used by `nix develop .` to open a shell for use with
       # `cabal`, `hlint` and `haskell-language-server`

@@ -12,5 +12,5 @@ cabal.project.local
 libgc.so
 notes.md
 result
-result-2
+result-*
 hie.yaml

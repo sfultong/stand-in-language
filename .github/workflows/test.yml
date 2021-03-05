@@ -20,6 +20,10 @@ jobs:
         #authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
     # This might be overkill: telomare cache could be enough.
     - run: cachix use iohk
-    - run: nix-build -A telomare.components.library
-    - run: nix-build -A telomare.components.tests
-    - run: nix-shell --run "echo OK"
+    # - run: nix-build -A telomare.components.library
+    - run: nix-build -A checks.x86_64-linux
+    - run: nix-shell --run ./result-2/bin/telomare-test
+    - run: nix-shell --run ./result-3/bin/telomare-parser-test
+    - run: nix-shell --run ./result-4/bin/telomare-serializer-test
+    # - run: nix-build -A telomare.components.tests
+    # - run: nix-shell --run "echo OK"
