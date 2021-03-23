@@ -79,7 +79,8 @@ toPossible :: (Show a, Eq a, Show b, Eq b, Monad m) => (FragIndex -> FragExpr b)
   -> PossibleExpr a b -> FragExpr b -> m (PossibleExpr a b)
 toPossible fragLookup setEval doAnnotation env =
   let toPossible' = toPossible fragLookup setEval doAnnotation
-      recur = toPossible' env
+      traceThrough x = trace ("toPossible dump: " <> show x) x
+      recur = toPossible' env . traceThrough
   in \case
   ZeroFrag -> pure ZeroX
   PairFrag a b -> PairX <$> recur a <*> recur b
@@ -90,7 +91,7 @@ toPossible fragLookup setEval doAnnotation env =
                       z@ZeroX -> pure z
                       a@AnyX -> pure a
                       EitherX a b -> EitherX <$> process a <*> process b
-                      z -> error $ "buildTestMap leftFrag unexpected: " <> show z
+                      z -> error $ "toPossible leftFrag unexpected: " <> show z
                 in recur x >>= process
   RightFrag x -> let process = \case
                        AnnotateX a px -> AnnotateX a <$> process px
@@ -98,14 +99,14 @@ toPossible fragLookup setEval doAnnotation env =
                        z@ZeroX -> pure z
                        a@AnyX -> pure a
                        EitherX a b -> EitherX <$> process a <*> process b
-                       z -> error $ "buildTestMap rightFrag unexpected: " <> show z
+                       z -> error $ "toPossible rightFrag unexpected: " <> show z
                  in recur x >>= process
   SetEnvFrag x -> recur x >>=
     let processSet = \case
           AnnotateX a px -> AnnotateX a <$> processSet px
-          PairX ft it    -> setEval toPossible' env ft it
-          EitherX a b    -> (<>) <$> processSet a <*> processSet b
-          z              -> error $ "buildTestMap setenv not pair: " <> show z
+          PairX ft it -> setEval toPossible' env ft it
+          EitherX a b -> (<>) <$> processSet a <*> processSet b
+          z -> error $ "toPossible setenv not pair: " <> show z
     in processSet
   DeferFrag ind -> pure . FunctionX $ fragLookup ind -- process Defer here rather than SetEnvFrag to reduce arguments to setEval
   g@(GateFrag _ _) -> pure $ FunctionX g
@@ -138,6 +139,7 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
                     Just x -> Left x
             z -> error $ "abortingSetEval Abort unexpected input: " <> show z
           -- From Defer
+          AuxFrag _ -> error "abortSetEval: should be no AuxFrag here"
           x -> sRecur it x
         AnnotateX _ nf -> setEval nf it
   in setEval ft' it'
@@ -177,9 +179,24 @@ testBuildingSetEval sRecur env ft' it' =
                                 z -> error $ "buildingSetEval Gate unexpected input: " <> show z
                        in doGate it
           AuxFrag ind -> do
+            error "should not be directly in auxfrag"
+  {-
             cLimit <- ($ ind) <$> lift Reader.ask
+-}
+            cLimit <- ((\c -> if c < 0 then error ("climit is " <> show (ind, c)) else c) . ($ ind)) <$> lift Reader.ask
             let appP ii = sRecur ii $ SetEnvFrag EnvFrag -- simple hack to simulate function application
             iterate (>>= appP) (pure it) !! cLimit
+          LeftFrag (RightFrag (RightFrag (RightFrag (AuxFrag ind)))) -> do
+            {-
+            cLimit <- ($ ind) <$> lift Reader.ask
+-}
+            cLimit <- ((\c -> if c < 0 then error ("climit is " <> show (ind, c)) else c) . ($ ind)) <$> lift Reader.ask
+            let appP ii = sRecur ii $ SetEnvFrag EnvFrag -- simple hack to simulate function application
+            itResult <- iterate (>>= appP) (pure it) !! cLimit
+            case itResult of
+              --PairX (PairX _ (PairX _ (PairX _ r))) _ -> pure r
+              PairX _ (PairX _ (PairX _ (PairX r _))) -> pure r
+              z -> error ("testBuildingSetEval AuxFrag part, unexpected " <> show z)
           x -> let alterSizeTest v = \case
                      Nothing -> pure v
                      Just e -> pure $ (<>) <$> e <*> v

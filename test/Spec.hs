@@ -672,5 +672,5 @@ main = do
     parse = parseMain prelude
 
   hspec $ do
-    unitTests parse
+    unitTests_ parse
     --nexprTests

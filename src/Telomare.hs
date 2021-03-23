@@ -342,10 +342,14 @@ completeLam x = pair (defer x) zero
 ite :: IExpr -> IExpr -> IExpr -> IExpr
 ite i t e = setenv (pair (Gate e t) i)
 varN :: Int -> IExpr
-varN n = pleft (iterate pright env !! n)
+varN n = if n < 0
+  then error ("varN invalid debruijin index " <> show n)
+  else pleft (iterate pright env !! n)
 
 varNF :: Int -> FragExpr a
-varNF n = LeftFrag (iterate RightFrag EnvFrag !! n)
+varNF n = if n < 0
+  then error ("varN invalid debruijin index " <> show n)
+  else LeftFrag (iterate RightFrag EnvFrag !! n)
 
 -- make sure these patterns are in exact correspondence with the shortcut functions above
 pattern FirstArg :: IExpr
@@ -427,7 +431,9 @@ clamF :: BreakState' a b -> BreakState' a b
 clamF x = pairF (deferF x) $ pure ZeroFrag
 
 innerChurchF :: Int -> BreakState' a b
-innerChurchF x = pure $ iterate SetEnvFrag EnvFrag !! x
+innerChurchF x = if x < 0
+  then error ("innerChurchF called with " <> show x)
+  else pure $ iterate SetEnvFrag EnvFrag !! x
 
 -- to construct a church numeral (\f x -> f ... (f x))
 -- the new, optimized church numeral operation iterates on a function "frame" (rf, (rf, (f', (x, env'))))
