@@ -281,9 +281,15 @@ parseITE = do
   elseExpr <- parseLongExpr <* scn
   pure $ ITEUP cond thenExpr elseExpr
 
+parseUnique :: TelomareParser UnprocessedParsedTerm
+parseUnique = do
+  reserved "unique" <* scn
+  pure UniqueUP
+
 -- |Parse a single expression.
 parseSingleExpr :: TelomareParser UnprocessedParsedTerm
-parseSingleExpr = choice $ try <$> [ parseString
+parseSingleExpr = choice $ try <$> [ parseUnique
+                                   , parseString
                                    , parseNumber
                                    , parsePair
                                    , parseList
@@ -370,9 +376,15 @@ parseAssignment = do
 
 -- |Parse top level expressions.
 parseTopLevel :: TelomareParser UnprocessedParsedTerm
-parseTopLevel = do
+parseTopLevel = parseTopLevelWithPrelude []
+
+-- |Parse top level expressions.
+parseTopLevelWithPrelude :: [(String, UnprocessedParsedTerm)]    -- *Prelude
+                         -> TelomareParser UnprocessedParsedTerm
+parseTopLevelWithPrelude lst = do
   bindingList <- scn *> many parseAssignment <* eof
-  pure $ LetUP bindingList (fromJust $ lookup "main" bindingList)
+  pure $ LetUP (lst <> bindingList) (fromJust $ lookup "main" bindingList)
+
 
 parseDefinitions :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
 parseDefinitions = do
@@ -409,7 +421,6 @@ addBuiltins = LetUP
   , ("trace", LamUP "x" (TraceUP (VarUP "x")))
   , ("pair", LamUP "x" (LamUP "y" (PairUP (VarUP "x") (VarUP "y"))))
   , ("app", LamUP "x" (LamUP "y" (AppUP (VarUP "x") (VarUP "y"))))
-  , ("unique", UniqueUP)
   ]
 
 parsePrelude :: String -> Either String [(String, UnprocessedParsedTerm)]
@@ -543,9 +554,10 @@ process prelude = fmap splitExpr
 parseWithPrelude :: [(String, UnprocessedParsedTerm)]   -- *Prelude
                  -> String                              -- *Raw string to be parsed
                  -> Either String UnprocessedParsedTerm -- *Error on Left
-parseWithPrelude prelude str = bimap errorBundlePretty (LetUP prelude) $ runParser parseTopLevel "" str
+-- parseWithPrelude prelude str = bimap errorBundlePretty (LetUP prelude) $ runParser parseTopLevel "" str
+parseWithPrelude prelude str = first errorBundlePretty $ runParser (parseTopLevelWithPrelude prelude) "" str
 
 parseMain :: [(String, UnprocessedParsedTerm)] -- *Prelude
           -> String                            -- *Raw string to be parserd
           -> Either String Term3               -- *Error on Left
-parseMain prelude s = (bimap errorBundlePretty (LetUP prelude) $ runParser parseTopLevel "" s) >>= process prelude
+parseMain prelude s = parseWithPrelude prelude s >>= process prelude
