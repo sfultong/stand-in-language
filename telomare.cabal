@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 data-files:          bench/MemoryBench/cases
                    , Prelude.tel
                    , tictactoe.tel
-                   , hello.tel
+                   , examples.tel
 
 library
   hs-source-dirs:      src
@@ -74,7 +74,7 @@ library
                      , utf8-string
   extra-libraries:     gc
                      , jumper
-  -- uncomment this line to get a cabal repl. Use appropiate complete path.
+  -- uncomment this line to get a cabal repl. Use appropiate complete path (will error with a relative path).
   -- extra-lib-dirs:      /home/hhefesto/src/telomare/lib
 
   default-language:    Haskell2010
