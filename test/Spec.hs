@@ -310,7 +310,7 @@ unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
 quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
 quickcheckBuiltInOptimizedDoesNotChangeEval up =
   let
-      makeTelomare f = second (toTelomare . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id . f . addBuiltins $ up)
+      makeTelomare f = second (toTelomare . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables [] . f . addBuiltins $ up)
       iexpr :: Either String (Maybe IExpr)
       iexpr = makeTelomare id -- x. validateVariables id . optimizeBuiltinFunctions $ up)
       iexpr' = makeTelomare optimizeBuiltinFunctions -- second (toTelomare . findChurchSize) (fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up)

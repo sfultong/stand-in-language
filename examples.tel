@@ -1,0 +1,4 @@
+-- File for small illustrative telomare programs and for testing
+
+-- Hello World example.
+main = \input -> ("Hello, World!", 0)
