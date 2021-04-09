@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 data-files:          bench/MemoryBench/cases
                    , Prelude.tel
                    , tictactoe.tel
-                   , hello.tel
+                   , examples.tel
 
 library
   hs-source-dirs:      src
