@@ -79,7 +79,7 @@ toPossible :: (Show a, Eq a, Show b, Eq b, Monad m) => (FragIndex -> FragExpr b)
   -> PossibleExpr a b -> FragExpr b -> m (PossibleExpr a b)
 toPossible fragLookup setEval doAnnotation env =
   let toPossible' = toPossible fragLookup setEval doAnnotation
-      traceThrough x = trace ("toPossible dump: " <> show x) x
+      traceThrough x = x -- trace ("toPossible dump: " <> show x) x
       recur = toPossible' env . traceThrough
   in \case
   ZeroFrag -> pure ZeroX
@@ -166,7 +166,7 @@ testBuildingSetEval :: (BasicPossible -> FragExpr BreakExtras -> TestMapBuilder 
 testBuildingSetEval sRecur env ft' it' =
   let sRecur' = sRecur env
       setEval poisonedSet ft it = case ft of
-        AnnotateX p pf -> AnnotateX p <$> setEval (Set.insert p poisonedSet) pf it
+        AnnotateX p pf -> AnnotateX p <$> trace "tbse doing some annotate" setEval (Set.insert p poisonedSet) pf it
         FunctionX af -> case af of
           AbortFrag -> pure $ FunctionX EnvFrag
           GateFrag l r -> let doGate = \case
@@ -192,23 +192,31 @@ testBuildingSetEval sRecur env ft' it' =
 -}
             cLimit <- ((\c -> if c < 0 then error ("climit is " <> show (ind, c)) else c) . ($ ind)) <$> lift Reader.ask
             let appP ii = sRecur ii $ SetEnvFrag EnvFrag -- simple hack to simulate function application
-            itResult <- iterate (>>= appP) (pure it) !! cLimit
-            case itResult of
+	    	pruneAnnotations (annoSet, AnnotateX i x) = pruneAnnotations (Set.insert i annoSet, x)
+		pruneAnnotations (annoSet, x) = (annoSet, x)
+            itResult <- iterate (>>= appP) (pure $ AnnotateX ind it) !! cLimit
+            case pruneAnnotations (mempty, itResult) of
               --PairX (PairX _ (PairX _ (PairX _ r))) _ -> pure r
-              PairX _ (PairX _ (PairX _ (PairX r _))) -> pure r
+              (aSet, PairX _ (PairX _ (PairX _ (PairX r _)))) -> pure $ foldr AnnotateX r aSet -- pure r
               z -> error ("testBuildingSetEval AuxFrag part, unexpected " <> show z)
           x -> let alterSizeTest v = \case
                      Nothing -> pure v
                      Just e -> pure $ (<>) <$> e <*> v
                    addSizeTest :: BreakExtras -> RecursionTest -> TestMapBuilder ()
                    addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
-                   hasContamination = not . null . annotations
+                   -- hasContamination = not . null . annotations
+		   hasContamination = not . null $ poisonedSet
                    conditionallyAddTests :: TestMapBuilder BasicPossible -> TestMapBuilder BasicPossible
                    conditionallyAddTests opt =
                      let truncatedResult = flip Reader.runReader (const 1) $ State.evalStateT opt Map.empty -- force church numerals to 1 to evaluate poison typing
                      in do
-                       when (hasContamination ft && noAnnotatedFunctions truncatedResult) $
+                       when (hasContamination && noAnnotatedFunctions truncatedResult) . trace ("adding size test for " <> show poisonedSet) $
                          mapM_ (flip addSizeTest (pure $ PairX ft it)) poisonedSet
+			 {-
+                       if not (null poisonedSet)
+		       then trace ("contaminated thing " <> show ft') pure ()
+		       else pure ()
+		       -}
                        opt
                in conditionallyAddTests $ sRecur it x
   in setEval mempty ft' it'
