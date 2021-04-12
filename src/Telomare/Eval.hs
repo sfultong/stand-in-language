@@ -197,6 +197,7 @@ evalLoop_ iexpr = case eval' iexpr of
     in mainLoop "" Zero
 
 -- map of contamination indices to test functions
+  {-
 contaminationMap :: BasicPossible -> BetterMap BreakExtras (DList (FragExpr BreakExtras, BasicPossible))
 contaminationMap =
   let makeMap cSet = \case
@@ -209,10 +210,22 @@ contaminationMap =
         AnnotateX p x -> makeKeyVal (Set.insert p cSet) x i
         FunctionX frag -> BetterMap $ foldr (\k -> Map.insert k (pure (frag, i))) mempty cSet
         z -> error $ "contaminationMap-makeKeyVal unexpected value: " <> show z
-  in makeMap Set.empty
+  in makeMap Set.empty . (\bp -> trace ("basicpossible encoded contamination map is" <> show bp) bp)
+-}
+splitTests :: BasicPossible -> DList (FragExpr BreakExtras, BasicPossible)
+splitTests =
+  let makeList = \case
+        EitherX a b -> makeList a <> makeList b
+        PairX f i -> makePair f i
+        z -> error $ "splitTests-makeList unexpected value: " <> show z
+      makePair f i = case f of
+        EitherX a b -> makePair a i <> makePair b i
+        FunctionX frag -> pure (frag, i)
+        z -> error $ "splitTests-makePair unexpected value: " <> show z
+  in (\bl -> trace ("basicpossible tests are " <> show bl) bl) . makeList
 
 limitedMFix :: Monad m => (a -> m a) -> m a -> m a
-limitedMFix f x = iterate (>>= f) x !! 10
+limitedMFix f x = iterate (>>= trace "fixing again" f) x !! 10
 
 calculateRecursionLimits' :: Term3 -> Either EvalError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
@@ -221,18 +234,21 @@ calculateRecursionLimits' t3@(Term3 termMap) =
           Just v -> v
           _ -> error ("calculateRecursionLimits outside mapLookup bad key " <> show k)
       testMapBuilder = toPossible mapLookup' testBuildingSetEval annotateAux AnyX (rootFrag termMap)
-      annotateAux ur = pure . AnnotateX ur . FunctionX $ AuxFrag ur
+      annotateAux ur = trace "annotating AUX" . pure . AnnotateX ur . FunctionX $ AuxFrag ur
       step1 :: Reader (BreakExtras -> Int) (Map BreakExtras RecursionTest)
       step1 = State.execStateT testMapBuilder mempty
       findLimit :: BreakExtras -> RecursionTest -> Either BreakExtras Int
       findLimit churchSizingIndex tests =
+        {-
         let unhandleableOther =
               let (lMap, kTests, gMap) = Map.splitLookup churchSizingIndex . unBetterMap . contaminationMap $ runReader tests 1
                   otherMap = lMap <> gMap
               in Set.lookupMin $ Map.keysSet otherMap
+-}
+        let unhandleableOther = Nothing
         in case unhandleableOther of
           Just o -> Left o
-          _ -> let abortsAt i = let tests' = testsMapLookup . unBetterMap . contaminationMap $ runReader tests i
+          _ -> let abortsAt i = let tests' = splitTests $ runReader tests i -- testsMapLookup . unBetterMap . contaminationMap $ runReader tests i
                                     wrapAux = pure . FunctionX . AuxFrag
                                     mapLookup k = case Map.lookup k termMap of
                                       Just v -> v
@@ -243,7 +259,7 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                                     runTest (frag, inp) = null $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
                                 in or $ fmap runTest tests'
                    (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
-                   findC b e | b > e = b
+                   findC b e | b > e = trace ("crl b is found at " <> show b) b
                    findC b e = let midpoint = div (b + e) 2
                                in trace ("midpoint is now " <> show midpoint) $ if abortsAt midpoint then findC (midpoint + 1) e else findC b (midpoint - 1)
                in pure $ findC ib ie
@@ -251,7 +267,7 @@ calculateRecursionLimits' t3@(Term3 termMap) =
       mapLimits = sequence . Map.mapWithKey findLimit
       unwrappedReader :: (BreakExtras -> Int) -> Map BreakExtras RecursionTest
       unwrappedReader = runReader step1
-      fixableMapLookup m k = case (null m, Map.lookup k m) of
+      fixableMapLookup m k = case (trace ("fml is m null? " <> show (null m)) null m, Map.lookup k m) of
           (True, _) -> 0
           (_, Just v) -> v
           _ -> error ("calculateRecursionLimits fixableMapLookup bad key " <> show k)
