@@ -61,7 +61,7 @@ data UnprocessedParsedTerm
   | RightUP UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
-  | UniqueUP -- * On ad hoc user defined types, this term will be substitued to a unique Int.
+  | UniqueUP -- ^ On ad hoc user defined types, this term will be substitued to a unique Int.
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
@@ -379,7 +379,7 @@ parseTopLevel :: TelomareParser UnprocessedParsedTerm
 parseTopLevel = parseTopLevelWithPrelude []
 
 -- |Parse top level expressions.
-parseTopLevelWithPrelude :: [(String, UnprocessedParsedTerm)]    -- *Prelude
+parseTopLevelWithPrelude :: [(String, UnprocessedParsedTerm)]    -- ^Prelude
                          -> TelomareParser UnprocessedParsedTerm
 parseTopLevelWithPrelude lst = do
   bindingList <- scn *> many parseAssignment <* eof
@@ -455,7 +455,7 @@ makeLambda bindings str term1 =
         v = vars term1
         unbound = ((v \\ bindings') \\ Set.singleton str)
 
-validateVariables :: [(String, UnprocessedParsedTerm)] -- * Prelude
+validateVariables :: [(String, UnprocessedParsedTerm)] -- ^ Prelude
                   -> UnprocessedParsedTerm
                   -> Either String Term1
 validateVariables prelude term =
@@ -541,7 +541,7 @@ generateAllUniques upt = State.evalState (makeUnique upt) 0 where
         x -> pure x
 
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
-process :: [(String, UnprocessedParsedTerm)] -- *Prelude
+process :: [(String, UnprocessedParsedTerm)] -- ^Prelude
         -> UnprocessedParsedTerm
         -> Either String Term3
 process prelude = fmap splitExpr
@@ -551,13 +551,13 @@ process prelude = fmap splitExpr
                 . generateAllUniques
 
 -- |Parse with specified prelude
-parseWithPrelude :: [(String, UnprocessedParsedTerm)]   -- *Prelude
-                 -> String                              -- *Raw string to be parsed
-                 -> Either String UnprocessedParsedTerm -- *Error on Left
+parseWithPrelude :: [(String, UnprocessedParsedTerm)]   -- ^Prelude
+                 -> String                              -- ^Raw string to be parsed
+                 -> Either String UnprocessedParsedTerm -- ^Error on Left
 -- parseWithPrelude prelude str = bimap errorBundlePretty (LetUP prelude) $ runParser parseTopLevel "" str
 parseWithPrelude prelude str = first errorBundlePretty $ runParser (parseTopLevelWithPrelude prelude) "" str
 
-parseMain :: [(String, UnprocessedParsedTerm)] -- *Prelude
-          -> String                            -- *Raw string to be parserd
-          -> Either String Term3               -- *Error on Left
+parseMain :: [(String, UnprocessedParsedTerm)] -- ^Prelude
+          -> String                            -- ^Raw string to be parserd
+          -> Either String Term3               -- ^Error on Left
 parseMain prelude s = parseWithPrelude prelude s >>= process prelude

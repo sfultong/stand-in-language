@@ -37,7 +37,7 @@ data IExpr
   = Zero                     -- no special syntax necessary
   | Pair !IExpr !IExpr       -- (,)
   | Env                      -- identifier
-  | SetEnv !IExpr
+  | SetEnv !IExpr -- SetEnv takes a Pair where the right part is Env and the left part is Defer. Inside the Defer is a closed lambda with all argument information on the right (i.e. Env)
   | Defer !IExpr
   -- the rest of these should be no argument constructors, to be treated as functions with setenv
   | Gate !IExpr !IExpr
@@ -45,17 +45,17 @@ data IExpr
   | PRight !IExpr            -- right
   | Trace
   deriving (Eq, Show, Ord)
-makeBaseFunctor ''IExpr -- * Functorial version IExprF.
+makeBaseFunctor ''IExpr -- Functorial version IExprF.
 
 instance Plated IExpr where
   plate f = \case
     Pair a b -> Pair <$> f a <*> f b
     SetEnv x -> SetEnv <$> f x
-    Defer x -> Defer <$> f x
+    Defer x  -> Defer <$> f x
     Gate l r -> Gate <$> f l <*> f r
-    PLeft x -> PLeft <$> f x
+    PLeft x  -> PLeft <$> f x
     PRight x -> PRight <$> f x
-    x -> pure x
+    x        -> pure x
 
 -- probably should get rid of this in favor of ExprT
 data ExprA a
@@ -202,25 +202,25 @@ instance Plated (FragExpr a) where
     PairFrag a b -> PairFrag <$> f a <*> f b
     SetEnvFrag x -> SetEnvFrag <$> f x
     GateFrag l r -> GateFrag <$> f l <*> f r
-    LeftFrag x -> LeftFrag <$> f x
-    RightFrag x -> RightFrag <$> f x
-    x -> pure x
+    LeftFrag x   -> LeftFrag <$> f x
+    RightFrag x  -> RightFrag <$> f x
+    x            -> pure x
 
 instance Show a => Show (FragExpr a) where
   show fexp = State.evalState (cata alg fexp) 0 where
     alg :: (Base (FragExpr a)) (State Int String) -> State Int String
     alg = \case
-      ZeroFragF -> sindent "ZeroF"
+      ZeroFragF         -> sindent "ZeroF"
       (PairFragF sl sr) -> indentWithTwoChildren "PairF" sl sr
-      EnvFragF -> sindent "EnvF"
-      (SetEnvFragF sx) -> indentWithOneChild "SetEnvF" sx
-      (DeferFragF i) -> sindent $ "DeferF " <> show i
-      AbortFragF -> sindent "AbortFragF"
+      EnvFragF          -> sindent "EnvF"
+      (SetEnvFragF sx)  -> indentWithOneChild "SetEnvF" sx
+      (DeferFragF i)    -> sindent $ "DeferF " <> show i
+      AbortFragF        -> sindent "AbortFragF"
       (GateFragF sx sy) -> indentWithTwoChildren "GateF" sx sy
-      (LeftFragF sl) -> indentWithOneChild "LeftF" sl
-      (RightFragF sr) -> indentWithOneChild "RightF" sr
-      TraceFragF -> sindent "TraceF"
-      (AuxFragF x) -> sindent $ "AuxF " <> show x
+      (LeftFragF sl)    -> indentWithOneChild "LeftF" sl
+      (RightFragF sr)   -> indentWithOneChild "RightF" sr
+      TraceFragF        -> sindent "TraceF"
+      (AuxFragF x)      -> sindent $ "AuxF " <> show x
 
 
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
@@ -468,9 +468,9 @@ data DataType
 
 instance Plated DataType where
   plate f = \case
-    ArrType i o -> ArrType <$> f i <*> f o
+    ArrType i o  -> ArrType <$> f i <*> f o
     PairType a b -> PairType <$> f a <*> f b
-    x -> pure x
+    x            -> pure x
 
 newtype PrettyDataType = PrettyDataType DataType
 
@@ -495,15 +495,15 @@ data PartialType
 
 instance Plated PartialType where
   plate f = \case
-    ArrTypeP i o -> ArrTypeP <$> f i <*> f o
+    ArrTypeP i o  -> ArrTypeP <$> f i <*> f o
     PairTypeP a b -> PairTypeP <$> f a <*> f b
-    x -> pure x
+    x             -> pure x
 
 newtype PrettyPartialType = PrettyPartialType PartialType
 
 showInternalP :: PartialType -> String
 showInternalP at@(ArrTypeP _ _) = concat ["(", show $ PrettyPartialType at, ")"]
-showInternalP t = show . PrettyPartialType $ t
+showInternalP t                 = show . PrettyPartialType $ t
 
 instance Show PrettyPartialType where
   show (PrettyPartialType dt) = case dt of
@@ -599,27 +599,27 @@ toIndExpr' x = State.evalState (toIndExpr x) (EIndex 0)
 
 instance TelomareLike (ExprT a) where
   fromTelomare = \case
-    Zero -> ZeroT
+    Zero     -> ZeroT
     Pair a b -> PairT (fromTelomare a) (fromTelomare b)
-    Env -> EnvT
+    Env      -> EnvT
     SetEnv x -> SetEnvT $ fromTelomare x
-    Defer x -> DeferT $ fromTelomare x
+    Defer x  -> DeferT $ fromTelomare x
     Gate l r -> GateT (fromTelomare l) (fromTelomare r)
-    PLeft x -> LeftT $ fromTelomare x
+    PLeft x  -> LeftT $ fromTelomare x
     PRight x -> RightT $ fromTelomare x
-    Trace -> TraceT
+    Trace    -> TraceT
   toTelomare = \case
-    ZeroT -> pure Zero
+    ZeroT     -> pure Zero
     PairT a b -> Pair <$> toTelomare a <*> toTelomare b
-    EnvT -> pure Env
+    EnvT      -> pure Env
     SetEnvT x -> SetEnv <$> toTelomare x
-    DeferT x -> Defer <$> toTelomare x
-    AbortT -> Nothing
+    DeferT x  -> Defer <$> toTelomare x
+    AbortT    -> Nothing
     GateT l r -> Gate <$> toTelomare l <*> toTelomare r
-    LeftT x -> PLeft <$> toTelomare x
-    RightT x -> PRight <$> toTelomare x
-    TraceT -> pure Trace
-    TagT x _ -> toTelomare x -- just elide tags
+    LeftT x   -> PLeft <$> toTelomare x
+    RightT x  -> PRight <$> toTelomare x
+    TraceT    -> pure Trace
+    TagT x _  -> toTelomare x -- just elide tags
 
 telomareToFragmap :: IExpr -> Map FragIndex (FragExpr a)
 telomareToFragmap expr = Map.insert (FragIndex 0) bf m where
@@ -642,17 +642,17 @@ telomareToFragmap expr = Map.insert (FragIndex 0) bf m where
 fragmapToTelomare :: Map FragIndex (FragExpr a) -> Maybe IExpr
 fragmapToTelomare fragMap = convert (rootFrag fragMap) where
     convert = \case
-      ZeroFrag -> pure Zero
-      PairFrag a b -> Pair <$> convert a <*> convert b
-      EnvFrag -> pure Env
-      SetEnvFrag x -> SetEnv <$> convert x
+      ZeroFrag      -> pure Zero
+      PairFrag a b  -> Pair <$> convert a <*> convert b
+      EnvFrag       -> pure Env
+      SetEnvFrag x  -> SetEnv <$> convert x
       DeferFrag ind -> Defer <$> (Map.lookup ind fragMap >>= convert)
-      AbortFrag -> Nothing
-      GateFrag l r -> Gate <$> convert l <*> convert r
-      LeftFrag x -> PLeft <$> convert x
-      RightFrag x -> PRight <$> convert x
-      TraceFrag -> pure Trace
-      AuxFrag _ -> Nothing
+      AbortFrag     -> Nothing
+      GateFrag l r  -> Gate <$> convert l <*> convert r
+      LeftFrag x    -> PLeft <$> convert x
+      RightFrag x   -> PRight <$> convert x
+      TraceFrag     -> pure Trace
+      AuxFrag _     -> Nothing
 
 instance TelomareLike Term3 where
   fromTelomare = Term3 . telomareToFragmap
