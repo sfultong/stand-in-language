@@ -74,8 +74,8 @@ jobs:
       - name: haddock copy
         run: |
           ls
-          rm -rf ../stand-in-language.github.io/docs/haddock/
-          cp -r dist-newstyle/build/x86_64-linux/ghc-8.8.4/telomare-0.1.0.0/doc/html/telomare ../stand-in-language.github.io/docs/haddock
+          rm -rf stand-in-language.github.io/stand-in-language.github.io/docs/haddock/
+          cp -r telomare/dist-newstyle/build/x86_64-linux/ghc-8.8.4/telomare-0.1.0.0/doc/html/telomare stand-in-language.github.io/docs/haddock
       - uses: stefanzweifel/git-auto-commit-action@v4
         with:
           repository: ../stand-in-language.github.io
