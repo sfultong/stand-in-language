@@ -561,3 +561,6 @@ parseMain :: [(String, UnprocessedParsedTerm)] -- ^Prelude
           -> String                            -- ^Raw string to be parserd
           -> Either String Term3               -- ^Error on Left
 parseMain prelude s = parseWithPrelude prelude s >>= process prelude
+
+somethingNew :: Int -- ^Something new to see if CI does something
+somethingNew = undefined
