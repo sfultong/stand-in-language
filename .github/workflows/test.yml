@@ -76,7 +76,12 @@ jobs:
           ls
           rm -rf stand-in-language.github.io/stand-in-language.github.io/docs/haddock/
           cp -r telomare/dist-newstyle/build/x86_64-linux/ghc-8.8.4/telomare-0.1.0.0/doc/html/telomare stand-in-language.github.io/docs/haddock
-      - uses: stefanzweifel/git-auto-commit-action@v4
+      # - uses: stefanzweifel/git-auto-commit-action@v4
+      #   with:
+      #     repository: stand-in-language.github.io
+      #     commit_message: haddock documentation automatically updated
+      - uses: EndBug/add-and-commit@v7
         with:
-          repository: stand-in-language.github.io
-          commit_message: haddock documentation automatically updated
+          message: 'haddock documentation automatically updated'
+          add: 'stand-in-language.github.io/docs/haddock'
+          cwd: './stand-in-language.github.io/'
