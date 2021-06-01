@@ -31,7 +31,7 @@ jobs:
         nix run .#telomare:test:telomare-test
         nix run .#telomare:test:telomare-parser-test
         nix run .#telomare:test:telomare-serializer-test
-        echo ${{ github.ref == 'master' }}
+        echo ${{ github.ref }}
 
   release:
     if: ${{ github.ref == 'master' }}
