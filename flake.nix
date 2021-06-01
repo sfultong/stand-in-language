@@ -65,6 +65,7 @@
             # ls
             # cabal haddock --haddock-hyperlink-source
             rsync -a dist-newstyle/build/x86_64-linux/ghc-8.8.4/telomare-0.1.0.0/doc/html/telomare/ ../stand-in-language.github.io/docs/haddock/
+            echo haddockScript OK
           '';
         };
       };
