@@ -83,5 +83,5 @@ jobs:
       - uses: EndBug/add-and-commit@v7
         with:
           message: 'haddock documentation automatically updated'
-          add: 'stand-in-language.github.io/docs/haddock'
+          # add: 'stand-in-language.github.io/docs/haddock'
           cwd: './stand-in-language.github.io/'
