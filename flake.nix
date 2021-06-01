@@ -53,7 +53,13 @@
     in flake // {
       # Built by `nix build .`
       defaultPackage = flake.packages."telomare:exe:telomare-exe";
-
+      packages.haddockScript = pkgs.writeShellScriptBin "updateHaddockScript" ''
+        # cd telomare
+        nix-shell --run "cabal haddock --haddock-hyperlink-source"
+        # ls
+        # cabal haddock --haddock-hyperlink-source
+        rsync -a dist-newstyle/build/x86_64-linux/ghc-8.8.4/telomare-0.1.0.0/doc/html/telomare/ ../stand-in-language.github.io/docs/haddock/
+      '';
       checks = {
         build = self.defaultPackage.x86_64-linux;
         telomareTest0 = flake.packages."telomare:test:telomare-test";
