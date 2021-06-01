@@ -25,7 +25,8 @@ jobs:
         # Only needed for private caches
         #authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
     # This might be overkill: telomare cache could be enough.
-    - run: |
+    - name: Build and test
+      run: |
         cachix use iohk
         nix build .#telomare:exe:telomare-exe
         nix run .#telomare:test:telomare-test
@@ -34,7 +35,7 @@ jobs:
         echo ${{ github.ref }}
 
   release:
-    if: ${{ github.ref == 'master' }}
+    if: ${{ github.ref == 'refs/heads/master' }}
     needs: tests
     runs-on: ubuntu-latest
     steps:
@@ -64,7 +65,8 @@ jobs:
           # Only needed for private caches
           #authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
       # This might be overkill: telomare cache could be enough.
-      - run: |
+      - name: haddock deployment
+        run: |
           ls
           cd telomare
           nix run .#haddockScript
