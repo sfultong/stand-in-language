@@ -78,5 +78,5 @@ jobs:
           cp -r telomare/dist-newstyle/build/x86_64-linux/ghc-8.8.4/telomare-0.1.0.0/doc/html/telomare stand-in-language.github.io/docs/haddock
       - uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          repository: ../stand-in-language.github.io
+          repository: stand-in-language.github.io
           commit_message: haddock documentation automatically updated
