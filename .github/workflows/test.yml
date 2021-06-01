@@ -25,11 +25,14 @@ jobs:
         # Only needed for private caches
         #authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
     # This might be overkill: telomare cache could be enough.
-    - run: cachix use iohk
-    - run: nix build .#telomare:exe:telomare-exe
-    - run: nix run .#telomare:test:telomare-test
-    - run: nix run .#telomare:test:telomare-parser-test
-    - run: nix run .#telomare:test:telomare-serializer-test
+    - run: |
+        cachix use iohk
+        nix build .#telomare:exe:telomare-exe
+        nix run .#telomare:test:telomare-test
+        nix run .#telomare:test:telomare-parser-test
+        nix run .#telomare:test:telomare-serializer-test
+        echo ${{ github.ref == 'master' }}
+
   release:
     if: ${{ github.ref == 'master' }}
     needs: tests
