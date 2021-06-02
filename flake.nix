@@ -50,10 +50,19 @@
       ];
       pkgs = import nixpkgs { inherit system overlays; };
       flake = pkgs.telomare.flake {};
-    in flake // {
+      flake1 = flake // { packages = flake.packages //
+        {
+          # This script is ran by Github Actions to do Haddock CI.
+          # TODO: refactor to not use nix-shell.
+          haddockScript = pkgs.writeShellScriptBin "updateHaddockScript" ''
+            nix-shell --run "cabal haddock --haddock-hyperlink-source"
+            echo haddockScript OK
+          '';
+        };
+      };
+    in flake1 // {
       # Built by `nix build .`
       defaultPackage = flake.packages."telomare:exe:telomare-exe";
-
       checks = {
         build = self.defaultPackage.x86_64-linux;
         telomareTest0 = flake.packages."telomare:test:telomare-test";

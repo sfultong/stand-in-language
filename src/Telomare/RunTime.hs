@@ -41,8 +41,8 @@ nEval (NExprs m) =
         NEnv -> pure env
         (NLeft x) -> recur x >>= \y -> case y of
           (NPair l _) -> pure l
-          NZero -> pure NZero
-          z -> error ("nleft on " ++ show z ++ " before " ++ show x)
+          NZero       -> pure NZero
+          z           -> error ("nleft on " ++ show z ++ " before " ++ show x)
         (NRight x) -> recur x >>= \y -> case y of
           (NPair _ r) -> pure r
           NZero       -> pure NZero
@@ -91,8 +91,8 @@ nEval (NExprs m) =
 -- |IExpr evaluation with a given enviroment `e`
 -- (as in the second element of a closure).
 rEval :: (MonadError RunTimeError m)
-      => IExpr -- *The enviroment.
-      -> IExpr -- *IExpr to be evaluated.
+      => IExpr -- ^ The enviroment.
+      -> IExpr -- ^ IExpr to be evaluated.
       -> m IExpr
 rEval e = para alg where
   alg :: (MonadError RunTimeError m)
@@ -107,10 +107,10 @@ rEval e = para alg where
     (PairF (_, l) (_, r)) -> Pair <$> l <*> r
     (PRightF (_, x)) -> x >>= \case
       (Pair _ r) -> pure r
-      _ -> pure Zero
+      _          -> pure Zero
     (PLeftF (_, x)) -> x >>= \case
       (Pair l _) -> pure l
-      _ -> pure Zero
+      _          -> pure Zero
     (SetEnvF s@(_, x)) -> x >>= \case
       Pair (Defer c) nenv  -> rEval nenv c
       Pair (Gate a _) Zero -> rEval e a
@@ -141,10 +141,10 @@ iEval f env g = let f' = f env in case g of
     bx -> throwError $ SetEnvError bx -- This should never actually occur, because it should be caught by typecheck
   PLeft g -> f' g >>= \case
     (Pair a _) -> pure a
-    _ -> pure Zero
+    _          -> pure Zero
   PRight g -> f' g >>= \case
     (Pair _ x) -> pure x
-    _ -> pure Zero
+    _          -> pure Zero
   Trace -> pure $ trace (show env) env
   Zero -> pure Zero
   Gate a b -> pure $ Gate a b
