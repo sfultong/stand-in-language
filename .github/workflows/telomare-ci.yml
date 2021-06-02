@@ -32,6 +32,7 @@ jobs:
         nix run .#telomare:test:telomare-parser-test
         nix run .#telomare:test:telomare-serializer-test
         echo ${{ github.ref }}
+        echo ${{ github.repository }}
 
   release:
     if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
