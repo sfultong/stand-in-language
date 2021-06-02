@@ -44,12 +44,14 @@ jobs:
         with:
           fetch-depth: 0
           repository: hhefesto/stand-in-language
+          token: ${{ secrets.API_TOKEN_GITHUB }}
           path: ./telomare
       - name: Checkout telomare site repository
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
           repository: hhefesto/stand-in-language.github.io
+          token: ${{ secrets.API_TOKEN_GITHUB }}
           path: ./stand-in-language.github.io
       - uses: cachix/install-nix-action@v12
         with:
