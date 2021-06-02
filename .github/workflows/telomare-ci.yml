@@ -34,7 +34,7 @@ jobs:
         echo ${{ github.ref }}
 
   release:
-    if: ${{ github.ref == 'refs/heads/master' }}
+    if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
     needs: tests
     runs-on: ubuntu-latest
     steps:
