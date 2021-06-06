@@ -245,7 +245,9 @@ splitTests =
         EitherX a b -> makePair a i <> makePair b i
         FunctionX frag -> pure (frag, i)
         z -> error $ "splitTests-makePair unexpected value: " <> show z
-  in (\bl -> trace ("basicpossible tests are " <> show bl) bl) . makeList
+      -- traceTests bl = trace ("basicpossible tests are " <> show bl) bl
+      traceTests = id
+  in traceTests . makeList
 
 limitedMFix :: Monad m => (a -> m a) -> m a -> m a
 limitedMFix f x = iterate (>>= trace "fixing again" f) x !! 10
@@ -272,6 +274,10 @@ calculateRecursionLimits' t3@(Term3 termMap) =
         in case unhandleableOther of
           Just o -> Left o
           _ -> let abortsAt i = let tests' = splitTests $ runReader tests i -- testsMapLookup . unBetterMap . contaminationMap $ runReader tests i
+                                    traceTest (f, bp) t = if containsAux mapLookup' f || containsAux' mapLookup' bp
+                                      then trace ("test with aux: " <> show f <> " *** " <> show bp) . t
+                                      else t
+                                    traceAuxes = foldr traceTest id tests'
                                     wrapAux = pure . FunctionX . AuxFrag
                                     mapLookup k = case Map.lookup k termMap of
                                       Just v -> v
@@ -279,7 +285,7 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                                     testsMapLookup m = case Map.lookup churchSizingIndex m of
                                       Just v -> v
                                       _ -> error ("calculateRecursionLimits findlimit testsMapLookup bad key " <> show churchSizingIndex)
-                                    runTest (frag, inp) = null $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
+                                    runTest (frag, inp) = null . traceAuxes $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
                                 in or $ fmap runTest tests'
                    (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
                    findC b e | b > e = trace ("crl b is found at " <> show b) b
@@ -298,6 +304,6 @@ calculateRecursionLimits' t3@(Term3 termMap) =
       fixable = fmap fixableMapLookup . mapLimits . unwrappedReader
   -- in case mfix fixable of
   -- this limitedMFix solution is bad, and will eventually break on deeply-nested referentiality.
-  in case limitedMFix fixable (Right (const 0)) of
+  in case limitedMFix fixable (Right (const 1)) of
     Left be -> Left $ RecursionLimitError be
     Right limits -> trace "found limits!" . pure $ convertPT limits t3
