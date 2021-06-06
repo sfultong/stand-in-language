@@ -25,6 +25,7 @@ data PossibleExpr a b
   | EitherX (PossibleExpr a b) (PossibleExpr a b)
   | FunctionX (FragExpr b)
   | AnnotateX a (PossibleExpr a b)
+  | ClosureX (FragExpr b) (PossibleExpr a b) -- hack for lazy evaluation
   deriving (Eq, Ord, Show)
 
 instance (Eq a, Eq b) => Semigroup (PossibleExpr a b) where
@@ -54,6 +55,7 @@ annotations = \case
   PairX a b -> annotations a <> annotations b
   EitherX a b -> annotations a <> annotations b
   AnnotateX a x -> Set.insert a $ annotations x
+  ClosureX _ x -> annotations x
   _ -> mempty
 
 noAnnotatedFunctions :: PossibleExpr a b -> Bool
@@ -67,7 +69,28 @@ noAnnotatedFunctions =
     PairX a b -> noAnnotatedFunctions a && noAnnotatedFunctions b
     EitherX a b -> noAnnotatedFunctions a && noAnnotatedFunctions b
     AnnotateX _ x -> testF x
+    -- ClosureX _ 
     _ -> True
+
+containsAux :: (FragIndex -> FragExpr a) -> FragExpr a -> Bool
+containsAux fragLookup = let recur = containsAux fragLookup in \case
+  PairFrag a b -> recur a || recur b
+  SetEnvFrag x -> recur x
+  DeferFrag ind -> recur $ fragLookup ind
+  GateFrag l r -> recur l || recur r
+  LeftFrag x -> recur x
+  RightFrag x -> recur x
+  AuxFrag _ -> True
+  _ -> False
+
+containsAux' :: (FragIndex -> FragExpr b) -> PossibleExpr a b -> Bool
+containsAux' fragLookup = let recur = containsAux' fragLookup in \case
+  PairX a b -> recur a || recur b
+  EitherX a b -> recur a || recur b
+  FunctionX f -> containsAux fragLookup f
+  AnnotateX _ x -> recur x
+  ClosureX f i -> containsAux fragLookup f || recur i
+  _ -> False
 
 type BasicPossible = PossibleExpr BreakExtras BreakExtras
 type RecursionTest = Reader Int BasicPossible
@@ -81,13 +104,21 @@ toPossible fragLookup setEval doAnnotation env =
   let toPossible' = toPossible fragLookup setEval doAnnotation
       traceThrough x = x -- trace ("toPossible dump: " <> show x) x
       recur = toPossible' env . traceThrough
+      envWrap x = case x of
+        DeferFrag ind -> FunctionX $ fragLookup ind
+        x -> ClosureX x env
+      force x = case x of
+        ClosureX x env -> toPossible' env x
+        _ -> pure x
   in \case
   ZeroFrag -> pure ZeroX
-  PairFrag a b -> PairX <$> recur a <*> recur b
+  -- PairFrag a b -> PairX <$> recur a <*> recur b
+  PairFrag a b -> pure $ PairX (envWrap a) (envWrap b)
   EnvFrag -> pure env
   LeftFrag x -> let process = \case
                       AnnotateX a px -> AnnotateX a <$> process px
-                      PairX ln _ -> pure ln
+                      -- PairX ln _ -> pure ln
+                      PairX ln _ -> force ln
                       z@ZeroX -> pure z
                       a@AnyX -> pure a
                       EitherX a b -> EitherX <$> process a <*> process b
@@ -95,7 +126,8 @@ toPossible fragLookup setEval doAnnotation env =
                 in recur x >>= process
   RightFrag x -> let process = \case
                        AnnotateX a px -> AnnotateX a <$> process px
-                       PairX _ rn -> pure rn
+                       -- PairX _ rn -> pure rn
+                       PairX _ rn -> force rn
                        z@ZeroX -> pure z
                        a@AnyX -> pure a
                        EitherX a b -> EitherX <$> process a <*> process b
@@ -104,7 +136,11 @@ toPossible fragLookup setEval doAnnotation env =
   SetEnvFrag x -> recur x >>=
     let processSet = \case
           AnnotateX a px -> AnnotateX a <$> processSet px
-          PairX ft it -> setEval toPossible' env ft it
+          -- PairX ft it -> setEval toPossible' env ft it
+          PairX ft it -> do
+            ft' <- force ft
+            it' <- force it
+            setEval toPossible' env ft' it'
           EitherX a b -> (<>) <$> processSet a <*> processSet b
           z -> error $ "toPossible setenv not pair: " <> show z
     in processSet
@@ -120,12 +156,31 @@ abortSetEval :: (Show a, Eq a, Show b, Eq b) => (IExpr -> Maybe IExpr -> Maybe I
   -> PossibleExpr a b -> PossibleExpr a b -> PossibleExpr a b -> Either IExpr (PossibleExpr a b)
 abortSetEval abortCombine abortDefault sRecur env ft' it' =
   let sRecur' = sRecur env
+      condense = \case
+        ZeroX -> pure Zero
+        PairX a b -> Pair <$> condense a <*> condense b
+        -- EitherX a b -> toIExprList' a >>= (\na -> abortCombine na $ toIExprList' b)
+        EitherX a b -> case (condense a, condense b) of
+          (Right ia, Right _) -> pure ia -- arbitrarily choose the first one
+          (Left ia, Right ib) -> case abortCombine ia Nothing of
+            Just ca -> Left ca
+            _ -> Right ib
+          (Right ia, Left ib) -> case abortCombine ib Nothing of
+            Just cb -> Left cb
+            _ -> Right ia
+          (Left ia, Left ib) -> case abortCombine ia (Just ib) of
+            Just cb -> Left cb
+            _ -> Left ia
+        AnnotateX _ x -> toIExprList' x
+        ClosureX f i -> sRecur i f
       setEval ft it = case ft of
         FunctionX af -> case af of
           GateFrag l r -> case it of
             AnnotateX _ px -> setEval ft px
             ZeroX -> sRecur' l
             PairX _ _ -> sRecur' r
+            -- zo | foldl (\b a -> a == Zero || b) False (toIExprList zo) -> (<>) <$> sRecur' l <*> sRecur' r -- this takes care of EitherX with an embedded ZeroX
+            -- TODO -- here. Maybe we do need lists?
             zo | foldl (\b a -> a == Zero || b) False (toIExprList zo) -> (<>) <$> sRecur' l <*> sRecur' r -- this takes care of EitherX with an embedded ZeroX
             EitherX _ _ -> sRecur' r
             AnyX -> (<>) <$> sRecur' l <*> sRecur' r
@@ -165,6 +220,16 @@ testBuildingSetEval :: (BasicPossible -> FragExpr BreakExtras -> TestMapBuilder 
   -> BasicPossible -> BasicPossible -> BasicPossible -> TestMapBuilder BasicPossible
 testBuildingSetEval sRecur env ft' it' =
   let sRecur' = sRecur env
+      force x = case x of
+        ClosureX x env -> sRecur env x
+        _ -> pure x
+      deepForce = \case
+        PairX a b -> PairX <$> deepForce a <*> deepForce b
+        EitherX a b -> EitherX <$> deepForce a <*> deepForce b
+        AnnotateX a x -> AnnotateX a <$> deepForce x -- we could probably prune annotations for where this will be used
+        ClosureX f i -> sRecur i f
+        x -> pure x
+      initialPoisoned = annotations it'
       setEval poisonedSet ft it = case ft of
         AnnotateX p pf -> AnnotateX p <$> trace "tbse doing some annotate" setEval (Set.insert p poisonedSet) pf it
         FunctionX af -> case af of
@@ -194,11 +259,27 @@ testBuildingSetEval sRecur env ft' it' =
             let appP ii = sRecur ii $ SetEnvFrag EnvFrag -- simple hack to simulate function application
 	    	pruneAnnotations (annoSet, AnnotateX i x) = pruneAnnotations (Set.insert i annoSet, x)
 		pruneAnnotations (annoSet, x) = (annoSet, x)
+                extractR (aSet, pairA) = do
+                  pairB <- case pairA of
+                    PairX _ wrappedB -> force wrappedB
+                    _ -> error ("extractR bad " <> show pairA)
+                  pairC <- case pairB of
+                    PairX _ wrappedC -> force wrappedC
+                    _ -> error ("extractR bad " <> show pairA)
+                  pairD <- case pairC of
+                    PairX _ wrappedD -> force wrappedD
+                    _ -> error ("extractR bad " <> show pairA)
+                  case pairD of
+                    PairX wrappedR _ -> (\r -> foldr AnnotateX r aSet) <$> force wrappedR
+                    _ -> error ("extractR bad " <> show pairA)
             itResult <- iterate (>>= appP) (pure $ AnnotateX ind it) !! cLimit
+            extractR $ pruneAnnotations (mempty, itResult)
+  {-
             case pruneAnnotations (mempty, itResult) of
               --PairX (PairX _ (PairX _ (PairX _ r))) _ -> pure r
               (aSet, PairX _ (PairX _ (PairX _ (PairX r _)))) -> pure $ foldr AnnotateX r aSet -- pure r
               z -> error ("testBuildingSetEval AuxFrag part, unexpected " <> show z)
+-}
           x -> let alterSizeTest v = \case
                      Nothing -> pure v
                      Just e -> pure $ (<>) <$> e <*> v
@@ -210,13 +291,23 @@ testBuildingSetEval sRecur env ft' it' =
                    conditionallyAddTests opt =
                      let truncatedResult = flip Reader.runReader (const 1) $ State.evalStateT opt Map.empty -- force church numerals to 1 to evaluate poison typing
                      in do
-                       when (hasContamination && noAnnotatedFunctions truncatedResult) . trace ("adding size test for " <> show poisonedSet) $
-                         mapM_ (flip addSizeTest (pure $ PairX ft it)) poisonedSet
+                       {-
+                       let showAuxed x = if containsAux' x
+                             then trace ("adding size test, but it has aux: " <> show x) x
+                             else x
+-}
+                       let showAuxed = id
+                       when (hasContamination && noAnnotatedFunctions truncatedResult) . showAuxed $ do
+                         -- mapM_ (flip addSizeTest (pure . PairX ft $ deepForce it)) poisonedSet
+                         fit <- deepForce it
+                         mapM_ (flip addSizeTest (pure $ PairX ft fit)) poisonedSet
 			 {-
                        if not (null poisonedSet)
 		       then trace ("contaminated thing " <> show ft') pure ()
 		       else pure ()
 		       -}
+                       -- trace ("hc " <> show hasContamination <> " naf " <> show (noAnnotatedFunctions truncatedResult)) opt
+                       -- trace ("itdump " <> show it') opt
                        opt
                in conditionallyAddTests $ sRecur it x
-  in setEval mempty ft' it'
+  in setEval initialPoisoned ft' it'
