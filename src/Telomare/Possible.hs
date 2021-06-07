@@ -156,35 +156,41 @@ abortSetEval :: (Show a, Eq a, Show b, Eq b) => (IExpr -> Maybe IExpr -> Maybe I
   -> PossibleExpr a b -> PossibleExpr a b -> PossibleExpr a b -> Either IExpr (PossibleExpr a b)
 abortSetEval abortCombine abortDefault sRecur env ft' it' =
   let sRecur' = sRecur env
-      condense = \case
-        ZeroX -> pure Zero
-        PairX a b -> Pair <$> condense a <*> condense b
-        -- EitherX a b -> toIExprList' a >>= (\na -> abortCombine na $ toIExprList' b)
-        EitherX a b -> case (condense a, condense b) of
-          (Right ia, Right _) -> pure ia -- arbitrarily choose the first one
-          (Left ia, Right ib) -> case abortCombine ia Nothing of
-            Just ca -> Left ca
-            _ -> Right ib
-          (Right ia, Left ib) -> case abortCombine ib Nothing of
-            Just cb -> Left cb
-            _ -> Right ia
-          (Left ia, Left ib) -> case abortCombine ia (Just ib) of
-            Just cb -> Left cb
-            _ -> Left ia
-        AnnotateX _ x -> toIExprList' x
-        ClosureX f i -> sRecur i f
+      -- toExprList' :: PossibleExpr a b -> Either IExpr (DList.DList IExpr)
+      toExprList' x = let pure' = pure . pure -- should I use Compose here?
+                      in case x of
+        ZeroX -> pure' Zero
+        PairX a b -> do
+          na <- toExprList' a
+          nb <- toExprList' b
+          pure $ Pair <$> na <*> nb
+        -- EitherX a b -> (<>) <$> toExprList' a <*> toExprList' b
+        EitherX a b -> let comb :: DList.DList a -> DList.DList a -> DList.DList a
+                           comb = (<>)
+                       in comb <$> toExprList' a <*> toExprList' b
+        AnnotateX _ x -> toExprList' x
+        ClosureX f i -> sRecur i f >>= toExprList'
       setEval ft it = case ft of
         FunctionX af -> case af of
+          {-
           GateFrag l r -> case it of
             AnnotateX _ px -> setEval ft px
             ZeroX -> sRecur' l
             PairX _ _ -> sRecur' r
             -- zo | foldl (\b a -> a == Zero || b) False (toIExprList zo) -> (<>) <$> sRecur' l <*> sRecur' r -- this takes care of EitherX with an embedded ZeroX
-            -- TODO -- here. Maybe we do need lists?
             zo | foldl (\b a -> a == Zero || b) False (toIExprList zo) -> (<>) <$> sRecur' l <*> sRecur' r -- this takes care of EitherX with an embedded ZeroX
             EitherX _ _ -> sRecur' r
             AnyX -> (<>) <$> sRecur' l <*> sRecur' r
             z -> error $ "abortingSetEval Gate unexpected input: " <> show z
+-}
+          GateFrag l r -> case (it, toExprList' it) of
+            (_, Left e) -> Left e -- if evaluating input aborts, bubble up abort result
+            (AnyX, _) -> (<>) <$> sRecur' l <*> sRecur' r
+            (_, Right iList) -> case (elem Zero iList, length iList > 1) of
+              (True, True) -> (<>) <$> sRecur' l <*> sRecur' r
+              (True, False) -> sRecur' l
+              _ -> sRecur' r
+  {-
           AbortFrag -> case it of
             AnnotateX _ px -> setEval ft px
             ZeroX -> pure $ FunctionX EnvFrag
@@ -193,6 +199,13 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
                     Nothing -> error "abortSetEval: impossible"
                     Just x -> Left x
             z -> error $ "abortingSetEval Abort unexpected input: " <> show z
+-}
+          AbortFrag -> case (filter (/= Zero) . toList) <$> toExprList' it of
+            Left e -> Left e -- if evaluating input aborts, bubble up abort result
+            Right l -> case foldr abortCombine abortDefault $ l of
+              Nothing -> pure $ FunctionX EnvFrag
+              -- Just e -> trace ("aborting from input of " <> show it) Left e
+              Just e -> trace ("aborting with " <> show l) Left e
           -- From Defer
           AuxFrag _ -> error "abortSetEval: should be no AuxFrag here"
           x -> sRecur it x
