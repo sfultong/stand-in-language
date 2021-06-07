@@ -252,9 +252,15 @@ calculateRecursionLimits' t3@(Term3 termMap) =
           Just o -> Left o
           _ -> let abortsAt i = let tests' = splitTests $ runReader tests i -- testsMapLookup . unBetterMap . contaminationMap $ runReader tests i
                                     traceTest (f, bp) t = if containsAux mapLookup' f || containsAux' mapLookup' bp
-                                      then trace ("test with aux: " <> show f <> " *** " <> show bp) . t
+                                      -- then trace ("test with aux: " <> show f <> " *** " <> show bp) . t
+                                      then t
                                       else t
                                     traceAuxes = foldr traceTest id tests'
+                                    -- traceResults r = trace ("test results are: " <> show r) r
+                                    traceResults = id
+                                    traceIfTrue p t = if t
+                                      then trace ("true test of " <> show p) t
+                                      else t
                                     wrapAux = pure . FunctionX . AuxFrag
                                     mapLookup k = case Map.lookup k termMap of
                                       Just v -> v
@@ -262,8 +268,8 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                                     testsMapLookup m = case Map.lookup churchSizingIndex m of
                                       Just v -> v
                                       _ -> error ("calculateRecursionLimits findlimit testsMapLookup bad key " <> show churchSizingIndex)
-                                    runTest (frag, inp) = null . traceAuxes $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
-                                in or $ fmap runTest tests'
+                                    runTest (frag, inp) = traceIfTrue (frag, inp) . null . traceAuxes $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
+                                in or . traceResults $ fmap runTest tests'
                    (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
                    findC b e | b > e = trace ("crl b is found at " <> show b) b
                    findC b e = let midpoint = div (b + e) 2
