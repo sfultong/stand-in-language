@@ -400,6 +400,11 @@ debugPEIITO iexpr = do
 --   let iexpr = toTelomare . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up
 --   in False
 
+-- unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
+  -- inferType (fromTelomare iexpr)
+quickcheckDataTypedCorrectlyTypeChecks :: DataTypedIExpr -> Bool
+quickcheckDataTypedCorrectlyTypeChecks (IExprWrapper x) = not . null $ inferType (fromTelomare x)
+
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
   , "       in $3 layer (\\x -> x) 0"
@@ -414,9 +419,7 @@ unitTests_ parse = do
       unitTestRuntime = unitTestRuntime' parse
       unitTestSameResult = unitTestSameResult' parse
 -}
-  unitTestStaticChecks "main : (\\x -> if x then \"fail\" else 0) = 1" $ Just "fail"
-  unitTestStaticChecks "main : (\\x -> if left x then \"fail\" else 0) = 1" $ Nothing
-  unitTestStaticChecks "main : (\\x -> if 0 then \"fail\" else 0) = 1" $ Nothing
+  unitTestQC "DataTypedCorrectlyTypeChecks" 2 quickcheckDataTypedCorrectlyTypeChecks
   {-
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "(0,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
@@ -592,6 +595,7 @@ unitTests parse = do
     unitTest2 "main = (\\a b -> if 0 then a b else b) (\\b -> times $2 b) $1 succ 0" "1"
     unitTest2 "main = c2d (factorial 0)" "1"
     unitTest2 "main = c2d (factorial 4)" "24"
+
   {- TODO -- figure out why this broke
     unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
       "(1,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
@@ -717,5 +721,5 @@ main = do
     parse = parseMain prelude
 
   hspec $ do
-    unitTests parse
+    unitTests_ parse
     --nexprTests

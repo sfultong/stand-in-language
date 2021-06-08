@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
+{-# LANGUAGE DeriveFunctor              #-}
 
 module Common where
 
@@ -19,9 +20,34 @@ data TestIExpr = TestIExpr IExpr
 
 data ValidTestIExpr = ValidTestIExpr TestIExpr
 
-data ZeroTypedTestIExpr = ZeroTypedTestIExpr TestIExpr
-
 data ArrowTypedTestIExpr = ArrowTypedTestIExpr TestIExpr
+
+data IExprWrapper a = IExprWrapper a
+  deriving (Eq, Show, Functor)
+
+instance Applicative IExprWrapper where
+  pure = IExprWrapper
+  (<*>) (IExprWrapper f) (IExprWrapper x) = IExprWrapper $ f x
+
+type DataTypedIExpr = IExprWrapper IExpr
+
+-- TODO move these into Telomare.hs and make type checking use them
+data BasicType
+  = NotFunctionType
+  | PairTypeB ExtendedType ExtendedType
+  deriving (Eq, Show)
+
+data ArrowType
+  = ArrowType ExtendedType BasicType -- Gate as currently designed can't return functions this way... careful
+  deriving (Eq, Show)
+
+data ExtendedType
+  = BT BasicType
+  | AT ArrowType
+  deriving (Eq, Show)
+
+instance TestableIExpr DataTypedIExpr where
+  getIExpr (IExprWrapper x) = x
 
 instance TestableIExpr TestIExpr where
   getIExpr (TestIExpr x) = x
@@ -34,12 +60,6 @@ instance TestableIExpr ValidTestIExpr where
 
 instance Show ValidTestIExpr where
   show (ValidTestIExpr v) = show v
-
-instance TestableIExpr ZeroTypedTestIExpr where
-  getIExpr (ZeroTypedTestIExpr x) = getIExpr x
-
-instance Show ZeroTypedTestIExpr where
-  show (ZeroTypedTestIExpr v) = show v
 
 instance TestableIExpr ArrowTypedTestIExpr where
   getIExpr (ArrowTypedTestIExpr x) = getIExpr x
@@ -83,6 +103,99 @@ instance Arbitrary TestIExpr where
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 
+instance Arbitrary BasicType where
+  arbitrary = sized gen where
+    gen i = if i < 1
+      then pure NotFunctionType
+      else oneof
+      [ pure NotFunctionType
+      , PairTypeB <$> scale (`div` 2) arbitrary <*> scale (`div` 2) arbitrary
+      ]
+
+instance Arbitrary ArrowType where
+  arbitrary = ArrowType <$> scale (`div` 2) arbitrary <*> scale (`div` 2) arbitrary
+
+instance Arbitrary ExtendedType where
+  arbitrary = sized gen where
+    gen i = if i < 1
+      then BT <$> arbitrary
+      else oneof
+      [ BT <$> arbitrary
+      , AT <$> arbitrary
+      ]
+
+instance Arbitrary DataTypedIExpr where
+  arbitrary = IExprWrapper <$> sized (tree Nothing (BT NotFunctionType)) where
+    tree :: Maybe ExtendedType -> ExtendedType -> Int -> Gen IExpr
+    tree ti t i = let half = div i 2
+                      optionEnv = if ti == Just t
+                        then (pure var :)
+                        else id
+                      optionGate ti' to = if ti' == BT NotFunctionType
+                        then ((pure Gate <*> tree ti (BT to) half <*> tree ti (BT to) half) :)
+                        else id
+                      setEnvOption to = arbitrary >>= makeSetEnv where
+                        makeSetEnv ti' = SetEnv <$> tree ti (BT $ PairTypeB (AT $ ArrowType ti' to) ti') (i - 1)
+                      leftOption to = arbitrary >>= (\ti' -> pleft <$> tree ti (BT $ PairTypeB to ti') (i - 1))
+                      rightOption to = arbitrary >>= (\ti' -> pright <$> tree ti (BT $ PairTypeB ti' to) (i - 1))
+                  in oneof . optionEnv $ case t of
+                       BT NotFunctionType -> if i < 1
+                         then [pure zero]
+                         else
+                         [ tree ti (BT $ PairTypeB (BT NotFunctionType) (BT NotFunctionType)) i
+                         , setEnvOption NotFunctionType
+                         , leftOption (BT NotFunctionType)
+                         , rightOption (BT NotFunctionType)
+                         ]
+                       BT (PairTypeB ta tb) ->
+                         [ pure pair <*> tree ti ta half <*> tree ti tb half
+                         , setEnvOption (PairTypeB ta tb)
+                         , leftOption (BT (PairTypeB ta tb))
+                         , rightOption (BT (PairTypeB ta tb))
+                         ]
+                       AT (ArrowType ti' to) ->
+                         optionGate ti' to
+                         [ leftOption (AT (ArrowType ti' to))
+                         , rightOption (AT (ArrowType ti' to))
+                         , Defer <$> tree (Just ti') (BT to) (i - 1)
+                         ]
+  {-
+  arbitrary = sized (tree Nothing (BT NotFunctionType)) where
+    tree ti t i = let half = div i 2
+                      pure2 = pure . pure
+                      optionEnv = if ti == Just t
+                        then (pure2 var :)
+                        else id
+                      optionGate ti' to = if ti' == BT NotFunctionType
+                        then ((pure2 Gate <*> tree ti (BT to) half <*> tree ti (BT to) half) :)
+                        else id
+                      setEnvOption to = arbitrary >>= makeSetEnv where
+                        makeSetEnv ti' = fmap SetEnv <$> tree ti (BT $ PairTypeB (AT $ ArrowType ti' to) ti') (i - 1)
+                      leftOption to = arbitrary >>= (\ti' -> fmap pleft <$> tree ti (BT $ PairTypeB to ti') (i - 1))
+                      rightOption to = arbitrary >>= (\ti' -> fmap pright <$> tree ti (BT $ PairTypeB ti' to) (i - 1))
+                  in oneof . optionEnv $ case t of
+                       BT NotFunctionType -> if i < 1
+                         then [pure2 zero]
+                         else
+                         [ tree ti (BT $ PairTypeB (BT NotFunctionType) (BT NotFunctionType)) i
+                         , setEnvOption NotFunctionType
+                         , leftOption (BT NotFunctionType)
+                         , rightOption (BT NotFunctionType)
+                         ]
+                       BT (PairTypeB ta tb) ->
+                         [ pure2 pair <*> tree ti ta half <*> tree ti tb half
+                         , setEnvOption (PairTypeB ta tb)
+                         , leftOption (BT (PairTypeB ta tb))
+                         , rightOption (BT (PairTypeB ta tb))
+                         ]
+                       AT (ArrowType ti' to) ->
+                         optionGate ti' to
+                         [ leftOption (AT (ArrowType ti to))
+                         , rightOption (AT (ArrowType ti to))
+                         , fmap Defer <$> tree (Just ti') to (i - 1)
+                         ]
+-}
+
 typeable x = case inferType (fromTelomare $ getIExpr x) of
   Left _ -> False
   _      -> True
@@ -91,11 +204,13 @@ instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
   shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
 
+{-
 zeroTyped x = inferType (fromTelomare $ getIExpr x) == Right ZeroTypeP
 
 instance Arbitrary ZeroTypedTestIExpr where
   arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
   shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
+  -}
 
 simpleArrowTyped x = inferType (fromTelomare $ getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
 
