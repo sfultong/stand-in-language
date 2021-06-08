@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
+{-# LANGUAGE DeriveFunctor              #-}
 
 module Common where
 
@@ -19,9 +20,19 @@ data TestIExpr = TestIExpr IExpr
 
 data ValidTestIExpr = ValidTestIExpr TestIExpr
 
-data ZeroTypedTestIExpr = ZeroTypedTestIExpr TestIExpr
-
 data ArrowTypedTestIExpr = ArrowTypedTestIExpr TestIExpr
+
+data IExprWrapper a = IExprWrapper a
+  deriving (Eq, Show, Functor)
+
+instance Applicative IExprWrapper where
+  pure = IExprWrapper
+  (<*>) (IExprWrapper f) (IExprWrapper x) = IExprWrapper $ f x
+
+type DataTypedIExpr = IExprWrapper IExpr
+
+instance TestableIExpr DataTypedIExpr where
+  getIExpr (IExprWrapper x) = x
 
 instance TestableIExpr TestIExpr where
   getIExpr (TestIExpr x) = x
@@ -34,12 +45,6 @@ instance TestableIExpr ValidTestIExpr where
 
 instance Show ValidTestIExpr where
   show (ValidTestIExpr v) = show v
-
-instance TestableIExpr ZeroTypedTestIExpr where
-  getIExpr (ZeroTypedTestIExpr x) = getIExpr x
-
-instance Show ZeroTypedTestIExpr where
-  show (ZeroTypedTestIExpr v) = show v
 
 instance TestableIExpr ArrowTypedTestIExpr where
   getIExpr (ArrowTypedTestIExpr x) = getIExpr x
@@ -83,6 +88,55 @@ instance Arbitrary TestIExpr where
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 
+instance Arbitrary DataType where
+  arbitrary = sized gen where
+    gen i = let half = div i 2 in oneof $ pure ZeroType :
+      if i < 1
+      then []
+      else [ ArrType <$> gen half <*> gen half
+           , PairType <$> gen half <*> gen half
+           ]
+
+instance Arbitrary DataTypedIExpr where
+  arbitrary = IExprWrapper <$> sized (tree Nothing ZeroType) where
+    tree :: Maybe DataType -> DataType -> Int -> Gen IExpr
+    tree ti t i = let half = div i 2
+                      optionEnv = if ti == Just t
+                        then (pure var :)
+                        else id
+                      optionGate ti' to = if ti' == ZeroType
+                        then ((pure Gate <*> tree ti to half <*> tree ti to half) :)
+                        else id
+                      setEnvOption to = arbitrary >>= makeSetEnv where
+                        makeSetEnv ti' = SetEnv <$> tree ti (PairType (ArrType ti' to) ti') (i - 1)
+                      leftOption to = arbitrary >>= (\ti' -> pleft <$> tree ti (PairType to ti') (i - 1))
+                      rightOption to = arbitrary >>= (\ti' -> pright <$> tree ti (PairType ti' to) (i - 1))
+                  in oneof . optionEnv $ case t of
+                       ZeroType ->
+                         pure zero : if i < 1
+                         then []
+                         else [ tree ti (PairType ZeroType ZeroType) i
+                              , setEnvOption ZeroType
+                              , leftOption ZeroType
+                              , rightOption ZeroType
+                              ]
+                       PairType ta tb ->
+                         (pure pair <*> tree ti ta half <*> tree ti tb half) :
+                         if i < 1
+                         then []
+                         else [ setEnvOption (PairType ta tb)
+                              , leftOption (PairType ta tb)
+                              , rightOption (PairType ta tb)
+                              ]
+                       ArrType ti' to ->
+                         (Defer <$> tree (Just ti') to (i - 1)) :
+                         if i < 1
+                         then []
+                         else optionGate ti' to
+                         [ leftOption (ArrType ti' to)
+                         , rightOption (ArrType ti' to)
+                         ]
+
 typeable x = case inferType (fromTelomare $ getIExpr x) of
   Left _ -> False
   _      -> True
@@ -90,12 +144,6 @@ typeable x = case inferType (fromTelomare $ getIExpr x) of
 instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
   shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
-
-zeroTyped x = inferType (fromTelomare $ getIExpr x) == Right ZeroTypeP
-
-instance Arbitrary ZeroTypedTestIExpr where
-  arbitrary = ZeroTypedTestIExpr <$> suchThat arbitrary zeroTyped
-  shrink (ZeroTypedTestIExpr ztte) = map ZeroTypedTestIExpr . filter zeroTyped $ shrink ztte
 
 simpleArrowTyped x = inferType (fromTelomare $ getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
 
