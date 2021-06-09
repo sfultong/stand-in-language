@@ -429,6 +429,10 @@ partialFixF i =
       abrt = SetEnvFrag . PairFrag AbortFrag <$> abortMessage
   in clamF (lamF (appF (appF (toChurchF i) secondArgF) (lamF (appF abrt (appF secondArgF firstArgF)))))
 
+buildFragMap :: BreakState' a -> Map FragIndex (FragExpr a)
+buildFragMap bs = let (bf, (_,m)) = State.runState bs (FragIndex 1, Map.empty)
+                  in Map.insert (FragIndex 0) bf m
+
 pattern FirstArgA :: ExprA a
 pattern FirstArgA <- PLeftA (EnvA _) _
 pattern SecondArgA :: ExprA a

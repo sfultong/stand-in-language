@@ -165,3 +165,33 @@ decompileTerm3 (Term3 tm) =
         PairFrag a b -> TPair <$> decomp a <*> decomp b
   in decomp $ rootFrag tm
 -}
+
+decompileTerm4 :: Term4 -> Term2
+decompileTerm4 (Term4 tm) =
+  let decomp = let recur = decomp in \case
+        ZeroFrag -> TZero
+        PairFrag a b -> TPair (recur a) (recur b)
+        EnvFrag -> TVar 0
+        SetEnvFrag x -> TApp (TLam (Closed ()) (TApp (TLeft (TVar 0)) (TRight (TVar 0)))) $ recur x
+        DeferFrag x -> TLam (Open ()) $ recur x
+        AbortFrag -> TLam (Closed ()) . TLam (Open ())
+          $ TCheck (TLam (Closed ()) (TVar 1)) (TVar 0)
+        GateFrag l r -> TLam (Closed ()) $ TITE (TVar 0) (recur l) (recur r)
+        LeftFrag x -> TLeft $ recur x
+        RightFrag x -> TRight $ recur x
+        TraceFrag -> TLam (Closed ()) $ TTrace (TVar 0)
+        AuxFrag _ -> TLimitedRecursion
+  in decomp (-1) $ rootFrag tm
+
+decompileIExpr :: IExpr -> Term4
+decompileIExpr x = let build = \case
+                         Zero -> pure ZeroFrag
+                         Pair a b -> PairFrag <$> build a <*> build b
+                         Env -> pure EnvFrag
+                         SetEnv x -> SetEnvFrag <$> build x
+                         Gate l r -> GateFrag <$> build l <*> build r
+                         PLeft x -> LeftFrag <$> build x
+                         PRight x -> RightFrag <$> build x
+                         Trace -> pure TraceFrag
+                         Defer x -> deferF $ build x
+                   in Term4 . buildFragMap $ build x
