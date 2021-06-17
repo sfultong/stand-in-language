@@ -100,6 +100,8 @@ instance Arbitrary DataType where
            , PairType <$> gen half <*> gen half
            ]
 
+zeroTyped = null . typeCheck ZeroTypeP . fromTelomare . getIExpr
+
 instance Arbitrary DataTypedIExpr where
   arbitrary = IExprWrapper <$> sized (tree Nothing ZeroType) where
     tree :: Maybe DataType -> DataType -> Int -> Gen IExpr
@@ -139,6 +141,7 @@ instance Arbitrary DataTypedIExpr where
                          [ leftOption (ArrType ti' to)
                          , rightOption (ArrType ti' to)
                          ]
+  shrink (IExprWrapper x) = map (IExprWrapper . getIExpr) . filter zeroTyped . shrink $ TestIExpr x
 
 typeable x = case inferType (fromTelomare $ getIExpr x) of
   Left _ -> False

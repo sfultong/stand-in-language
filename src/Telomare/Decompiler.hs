@@ -5,6 +5,7 @@ module Telomare.Decompiler where
 import Control.Monad (foldM, liftM2)
 import qualified Control.Monad.State as State
 import Data.List (intercalate)
+import qualified Data.Map              as Map
 import Telomare
 import Telomare.Parser
 
@@ -125,47 +126,6 @@ decompileTerm2 =
         TLimitedRecursion -> TLimitedRecursion
   in go 0
 
-decompileTerm3 :: Term3 -> Maybe Term2
-decompileTerm3 (Term3 tm) =
-  let decomp ind = let recur = decomp ind in \case
-        -- simple to complex
-
-        --
-        ZeroFrag -> pure TZero
-        PairFrag a b -> TPair <$> recur a <*> recur b
-        EnvFrag -> pure $ foldl (\b a -> TPair (TVar a) b) TZero [0..ind]
-        SetEnvFrag x -> TApp (TLam (Closed ()) (TApp (TLeft (TVar 0)) (TRight (TVar 0)))) <$> recur x
-        DeferFrag _ -> Nothing
-        -- AbortFrag -> TLam (Closed ()) $ TCheck (TLam (Closed ()) $ s2t "")
-        AbortFrag -> pure . TLam (Closed ()) . TLam (Open ())
-          $ TCheck (TLam (Closed ()) (TVar 1)) (TVar 0)
-        GateFrag l r -> (\t e -> TLam (Closed ()) $ TITE (TVar 0) t e) <$> recur l <*> recur r
-        LeftFrag x -> TLeft <$> recur x
-        RightFrag x -> TRight <$> recur x
-        TraceFrag -> pure . TLam (Closed ()) $ TTrace (TVar 0)
-        AuxFrag _ -> pure TLimitedRecursion
-  in decomp (-1) $ rootFrag tm
-{-
-decompileTerm3 :: Term3 -> Term2
-decompileTerm3 (Term3 tm) =
-  let decomp ind = let recur = decomp ind in \case
-        ZeroFrag -> TZero
-        PairFrag a b -> TPair (recur a) (recur b)
-        EnvFrag -> foldl (\b a -> TPair (TVar a) b) TZero [0..ind]
-        SetEnvFrag x -> TApp (TLam (Closed ()) (TApp (TLeft (TVar 0)) (TRight (TVar 0)))) (recur x)
-        Defer --
-  in decomp (-1) $ rootFrag tm
--}
-
-{-
-decompileTerm3 :: Term3 -> Maybe Term2
-decompileTerm3 (Term3 tm) =
-  let decomp = \case
-        ZeroFrag -> pure TZero
-        PairFrag a b -> TPair <$> decomp a <*> decomp b
-  in decomp $ rootFrag tm
--}
-
 decompileTerm4 :: Term4 -> Term2
 decompileTerm4 (Term4 tm) =
   let decomp = let recur = decomp in \case
@@ -173,15 +133,15 @@ decompileTerm4 (Term4 tm) =
         PairFrag a b -> TPair (recur a) (recur b)
         EnvFrag -> TVar 0
         SetEnvFrag x -> TApp (TLam (Closed ()) (TApp (TLeft (TVar 0)) (TRight (TVar 0)))) $ recur x
-        DeferFrag x -> TLam (Open ()) $ recur x
+        DeferFrag ind -> TLam (Open ()) . recur $ tm Map.! ind
         AbortFrag -> TLam (Closed ()) . TLam (Open ())
           $ TCheck (TLam (Closed ()) (TVar 1)) (TVar 0)
-        GateFrag l r -> TLam (Closed ()) $ TITE (TVar 0) (recur l) (recur r)
+        GateFrag l r -> TLam (Closed ()) $ TITE (TVar 0) (recur r) (recur l)
         LeftFrag x -> TLeft $ recur x
         RightFrag x -> TRight $ recur x
         TraceFrag -> TLam (Closed ()) $ TTrace (TVar 0)
         AuxFrag _ -> TLimitedRecursion
-  in decomp (-1) $ rootFrag tm
+  in decomp $ rootFrag tm
 
 decompileIExpr :: IExpr -> Term4
 decompileIExpr x = let build = \case

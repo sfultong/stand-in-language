@@ -321,15 +321,6 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
        _ | iexpr == iexpr'-> True
        _ | otherwise -> False
 
-propertyDecompileThenCompileIsIdentity :: UnprocessedParsedTerm -> Bool
-propertyDecompileThenCompileIsIdentity up =
-  let nup = parseTestTerm $ decompileUPT up
-  in case nup of
-    -- Right up' -> up == up'
-    Right up' -> if up == up' then True else error (show (decompileUPT up, up, up'))
-    -- Left e -> error (e <> ":  " <> show up)
-    Left e -> error (show (decompileUPT up, up, e))
-
 {-
 unitTestQC :: Testable p => String -> Int -> p -> Spec
 unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
@@ -342,78 +333,17 @@ unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ 
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
-{-
-rEvaluationIsomorphicToIEvaluation :: ZeroTypedTestIExpr -> Bool
-rEvaluationIsomorphicToIEvaluation vte = case (pureEval $ getIExpr vte, pureREval $ getIExpr vte) of
-  (Left _, Left _) -> True
-  (a, b) | a == b -> True
-  _ -> False
-
-debugREITIE :: IExpr -> IO Bool
-debugREITIE iexpr = if pureEval iexpr == pureREval iexpr
-  then pure True
-  else do
-  putStrLn . concat $ ["ieval: ", show $ pureEval iexpr]
-  putStrLn . concat $ ["reval: ", show $ pureREval iexpr]
-  pure False
-
-partiallyEvaluatedIsIsomorphicToOriginal:: ArrowTypedTestIExpr -> Bool
---partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getIExpr vte) 0) == pureREval (app ())
-partiallyEvaluatedIsIsomorphicToOriginal vte =
-  let iexpr = getIExpr vte
-      sameError (GenericRunTimeError sa _) (GenericRunTimeError sb _) = sa == sb
-      -- sameError (SetEnvError _) (SetEnvError _) = True
-      sameError a b = a == b
-  in case (\x -> pureREval (app x Zero)) <$> eval iexpr of
-  Left (RTE e) -> Left e == pureREval (app iexpr Zero)
-  Right x -> case (x, pureREval (app iexpr Zero)) of
-    (Left a, Left b) -> sameError a b
-    (a, b) -> a == b
-
-debugPEIITO :: IExpr -> Expectation
-debugPEIITO iexpr = do
-  putStrLn "regular app:"
-  putStrLn $ show (app iexpr Zero)
-  putStrLn "r-optimized:"
-  showROptimized $ app iexpr Zero
-  putStrLn "evaled:"
-  putStrLn $ show (eval iexpr)
-  case (\x -> pureREval (app x Zero)) <$> eval iexpr of
-    Left (RTE e) ->
-      expectationFailure
-        (unlines
-           [ concat $ ["partially evaluated error: ", show e]
-           , concat $ ["regular evaluation result: ", show (pureREval (app iexpr Zero))]])
-    Right x ->
-      expectationFailure
-        (unlines
-           [ concat $ ["partially evaluated result: ", show x]
-           , concat $ ["normally evaluated result: ", show (pureREval (app iexpr Zero))]])
-
--}
-
--- partiallyEvaluatedIsIsomorphicToOriginal :: ArrowTypedTestIExpr -> Bool
--- --partiallyEvaluatedIsIsomorphicToOriginal vte = pureREval (app (getIExpr vte) 0) == pureREval (app ())
--- partiallyEvaluatedIsIsomorphicToOriginal vte =
---   let iexpr = getIExpr vte
---       sameError (GenericRunTimeError sa _) (GenericRunTimeError sb _) = sa == sb
---       -- sameError (SetEnvError _) (SetEnvError _) = True
---       sameError a b = a == b
---   in case (\x -> pureREval (app x Zero)) <$> eval iexpr of
---   Left (RTE e) -> Left e == pureREval (app iexpr Zero)
---   Right x -> case (x, pureREval (app iexpr Zero)) of
---     (Left a, Left b) -> sameError a b
---     (a, b) -> a == b
-
--- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
--- quickcheckBuiltInOptimizedDoesNotChangeEval up =
---   let iexpr = toTelomare . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up
---   in False
-
 -- unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
   -- inferType (fromTelomare iexpr)
 quickcheckDataTypedCorrectlyTypeChecks :: DataTypedIExpr -> Bool
 quickcheckDataTypedCorrectlyTypeChecks (IExprWrapper x) = not . null $ inferType (fromTelomare x)
+
+qcDecompileIExprToTerm2andBackEvalsSame :: DataTypedIExpr -> Bool
+qcDecompileIExprToTerm2andBackEvalsSame (IExprWrapper x) = pure (eval' x)
+  == fmap (showResult . eval') (toTelomare . findChurchSize . splitExpr . showTrace . decompileTerm4 $ decompileIExpr x)
+  where eval' = pureIEval
+        showTrace x = x -- trace ("decompiled: " <> show x) x
+        showResult x = x -- trace ("result: " <> show x) x
 
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
@@ -425,11 +355,17 @@ unitTests_ parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
       unitTestStaticChecks = unitTestStaticChecks' parse
+      decompileExample = IExprWrapper (SetEnv (Pair (Gate Zero (Pair Zero (SetEnv (Pair (Defer Zero) Zero)))) Zero))
   {-
       unitTestRuntime = unitTestRuntime' parse
       unitTestSameResult = unitTestSameResult' parse
 -}
-  unitTestQC "DataTypedCorrectlyTypeChecks" 500 quickcheckDataTypedCorrectlyTypeChecks
+  unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprToTerm2andBackEvalsSame
+  {-
+  it "decompileExample" $ if qcDecompileIExprToTerm2andBackEvalsSame decompileExample
+    then pure ()
+    else expectationFailure "not equal"
+-}
   {-
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "(0,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
@@ -627,8 +563,8 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
   , unitTestOptimization "map" $ app (app map_ (lam (pair (varN 0) zero))) (ints2g [1,2,3])
   -}
   -- warning: may be slow
-  describe "quickcheck" $ do
-       unitTestQC "propertyDecompileThenCompileIsIdentity" 1000 propertyDecompileThenCompileIsIdentity
+  -- describe "quickcheck" $ do
+  --   unitTestQC "propertyDecompileThenCompileIsIdentity" 1000 propertyDecompileThenCompileIsIdentity
   --   unitTestQC "builtinOptimizationDoesntBreakEvaluation" 100 quickcheckBuiltInOptimizedDoesNotChangeEval
   -- ++ quickCheckTests unitTest2 unitTestType
 
