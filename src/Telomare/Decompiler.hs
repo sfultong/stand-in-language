@@ -6,6 +6,7 @@ import Control.Monad (foldM, liftM2)
 import qualified Control.Monad.State as State
 import Data.List (intercalate)
 import qualified Data.Map              as Map
+import           Data.Semigroup (Max(..))
 import Telomare
 import Telomare.Parser
 
@@ -111,20 +112,20 @@ decompileTerm1 = \case
 decompileTerm2 :: Term2 -> Term1
 decompileTerm2 =
   let nameSupply = map (:[]) ['a'..'z'] ++ [x <> y | x <- nameSupply, y <- nameSupply]
-      go ind = let recur = go ind in \case
-        TZero -> TZero
-        TPair a b -> TPair (recur a) (recur b)
-        TVar n -> TVar (nameSupply !! n)
-        TApp f x -> TApp (recur f) (recur x)
-        TCheck c x -> TCheck (recur c) (recur x)
-        TITE i t e -> TITE (recur i) (recur t) (recur e)
-        TLeft x -> TLeft $ recur x
-        TRight x -> TRight $ recur x
-        TTrace x -> TTrace $ recur x
-        TLam (Open ()) x -> TLam (Open (nameSupply !! ind)) $ go (ind + 1) x
-        TLam (Closed ()) x -> TLam (Open (nameSupply !! 0)) $ go 1 x -- reset to first debruijin
-        TLimitedRecursion -> TLimitedRecursion
-  in go 0
+      go = \case
+        TZero -> pure TZero
+        TPair a b -> TPair <$> go a <*> go b
+        TVar n ->  (Max n, TVar (nameSupply !! n))
+        TApp f x -> TApp <$> go f <*> go x
+        TCheck c x -> TCheck <$> go c <*> go x
+        TITE i t e -> TITE <$> go i <*> go t <*> go e
+        TLeft x -> TLeft <$> go x
+        TRight x -> TRight <$> go x
+        TTrace x -> TTrace <$> go x
+        TLam (Open ()) x -> (\(Max n, r) -> (Max n, (TLam (Open (nameSupply !! n)) r))) $ go x -- warning, untested
+        TLam (Closed ()) x -> (\(Max n, r) -> (Max 0, (TLam (Closed (nameSupply !! n)) r))) $ go x
+        TLimitedRecursion -> pure TLimitedRecursion
+  in snd . go
 
 decompileTerm4 :: Term4 -> Term2
 decompileTerm4 (Term4 tm) =
@@ -133,7 +134,7 @@ decompileTerm4 (Term4 tm) =
         PairFrag a b -> TPair (recur a) (recur b)
         EnvFrag -> TVar 0
         SetEnvFrag x -> TApp (TLam (Closed ()) (TApp (TLeft (TVar 0)) (TRight (TVar 0)))) $ recur x
-        DeferFrag ind -> TLam (Open ()) . recur $ tm Map.! ind
+        DeferFrag ind -> TLam (Closed ()) . recur $ tm Map.! ind
         AbortFrag -> TLam (Closed ()) . TLam (Open ())
           $ TCheck (TLam (Closed ()) (TVar 1)) (TVar 0)
         GateFrag l r -> TLam (Closed ()) $ TITE (TVar 0) (recur r) (recur l)
