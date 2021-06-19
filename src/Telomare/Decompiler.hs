@@ -112,18 +112,21 @@ decompileTerm1 = \case
 decompileTerm2 :: Term2 -> Term1
 decompileTerm2 =
   let nameSupply = map (:[]) ['a'..'z'] ++ [x <> y | x <- nameSupply, y <- nameSupply]
+      getName n = if n < 0
+        then nameSupply !! 0
+        else nameSupply !! n
       go = \case
         TZero -> pure TZero
         TPair a b -> TPair <$> go a <*> go b
-        TVar n ->  (Max n, TVar (nameSupply !! n))
+        TVar n ->  (Max n, TVar (getName n))
         TApp f x -> TApp <$> go f <*> go x
         TCheck c x -> TCheck <$> go c <*> go x
         TITE i t e -> TITE <$> go i <*> go t <*> go e
         TLeft x -> TLeft <$> go x
         TRight x -> TRight <$> go x
         TTrace x -> TTrace <$> go x
-        TLam (Open ()) x -> (\(Max n, r) -> (Max n, (TLam (Open (nameSupply !! n)) r))) $ go x -- warning, untested
-        TLam (Closed ()) x -> (\(Max n, r) -> (Max 0, (TLam (Closed (nameSupply !! n)) r))) $ go x
+        TLam (Open ()) x -> (\(Max n, r) -> (Max n, (TLam (Open (getName n)) r))) $ go x -- warning, untested
+        TLam (Closed ()) x -> (\(Max n, r) -> (Max 0, (TLam (Closed (getName n)) r))) $ go x
         TLimitedRecursion -> pure TLimitedRecursion
   in snd . go
 
