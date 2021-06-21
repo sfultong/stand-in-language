@@ -353,7 +353,7 @@ qcDecompileIExprAndBackEvalsSame (IExprWrapper x) = pure (showResult $ eval' x)
           Just r -> r
           _ -> error "parseLongExpr' should be impossible"
         dec = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm4 . decompileIExpr
-        comp = findChurchSize . splitExpr . debruijinize' . validateVariables' . parseLongExpr'
+        comp = findChurchSize . splitExpr . debruijinize' . validateVariables' . optimizeBuiltinFunctions . parseLongExpr'
         showTrace x = x -- trace ("decompiled: " <> show x) x
         showTrace' x = x -- trace ("recompiled: " <> show x) x
         showResult x = x -- trace ("desired result: " <> show x) x
