@@ -338,12 +338,26 @@ churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 quickcheckDataTypedCorrectlyTypeChecks :: DataTypedIExpr -> Bool
 quickcheckDataTypedCorrectlyTypeChecks (IExprWrapper x) = not . null $ inferType (fromTelomare x)
 
-qcDecompileIExprToTerm2andBackEvalsSame :: DataTypedIExpr -> Bool
-qcDecompileIExprToTerm2andBackEvalsSame (IExprWrapper x) = pure (eval' x)
-  == fmap (showResult . eval') (toTelomare . findChurchSize . splitExpr . showTrace . decompileTerm4 $ decompileIExpr x)
+qcDecompileIExprAndBackEvalsSame :: DataTypedIExpr -> Bool
+qcDecompileIExprAndBackEvalsSame (IExprWrapper x) = pure (showResult $ eval' x)
+  -- == fmap (showResult . eval') (toTelomare . findChurchSize . splitExpr . showTrace . decompileTerm4 $ decompileIExpr x)
+  == fmap (showResult' . eval') (showTrace' . toTelomare . comp . showTrace . dec $ x)
   where eval' = pureIEval
+        debruijinize' x = case debruijinize [] x of
+          Just r -> r
+          _ -> error "debruijinize error"
+        validateVariables' x = case validateVariables [] x of
+          Right r -> r
+          Left e -> error ("validateVariables " <> e)
+        parseLongExpr' x = case runTelomareParser (scn *> parseLongExpr <* scn) x of
+          Just r -> r
+          _ -> error "parseLongExpr' should be impossible"
+        dec = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm4 . decompileIExpr
+        comp = findChurchSize . splitExpr . debruijinize' . validateVariables' . parseLongExpr'
         showTrace x = x -- trace ("decompiled: " <> show x) x
-        showResult x = x -- trace ("result: " <> show x) x
+        showTrace' x = x -- trace ("recompiled: " <> show x) x
+        showResult x = x -- trace ("desired result: " <> show x) x
+        showResult' x = x -- trace ("actual result: " <> show x) x
 
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
@@ -355,17 +369,33 @@ unitTests_ parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
       unitTestStaticChecks = unitTestStaticChecks' parse
-      decompileExample = IExprWrapper (SetEnv (Pair (Gate Zero (Pair Zero (SetEnv (Pair (Defer Zero) Zero)))) Zero))
+      decomplleExample = IExprWrapper (PLeft (PLeft (SetEnv (PRight (PLeft (SetEnv (Pair (Defer (Pair (Pair Zero (Pair (Gate (Pair (Pair Zero (Defer Env)) Zero) (Pair (Pair Env (Defer Zero)) Env)) (SetEnv (Pair (Defer Env) Env)))) Env)) (SetEnv (Pair (PRight (SetEnv (SetEnv (Pair (Defer (Pair (Defer (Pair Zero (Defer (Pair Zero Zero)))) Zero)) Zero)))) Zero)))))))))
+
   {-
       unitTestRuntime = unitTestRuntime' parse
       unitTestSameResult = unitTestSameResult' parse
 -}
-  unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprToTerm2andBackEvalsSame
+  unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprAndBackEvalsSame
   {-
-  it "decompileExample" $ if qcDecompileIExprToTerm2andBackEvalsSame decompileExample
+  it "decompileExample" $ if qcDecompileIExprAndBackEvalsSame decompileExample
     then pure ()
     else expectationFailure "not equal"
 -}
+  {-
+  1) decompileIexprToTerm2AndBackEvalsSame
+       uncaught exception: ErrorCall
+       validateVariables No definition found for a
+       CallStack (from HasCallStack):
+         error, called at test/Spec.hs:351:21 in main:Main
+       (after 974 tests and 61 shrinks)
+         IExprWrapper Env
+-}
+
+--        IExprWrapper (SetEnv (PRight (PLeft (PLeft (PLeft (SetEnv (Pair (Defer (Pair (Pair (Pair (Pair Zero (Pair (Defer Env) Zero)) Zero) Zero) Zero)) (Defer Zero))))))))
+--  IExprWrapper (SetEnv (Pair (Defer (SetEnv (PRight (Pair Zero (Pair (Defer Env) Zero))))) (Pair Zero Zero)))
+-- IExprWrapper (SetEnv (SetEnv (SetEnv (Pair (Defer (Pair (Defer (Pair Env Zero)) (Defer Zero))) Zero))))
+-- IExprWrapper (SetEnv (SetEnv (PLeft (Pair (Pair (Defer (Pair (Defer Env) Zero)) (Defer Zero)) Zero))))
+
   {-
   unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
     "(0,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
