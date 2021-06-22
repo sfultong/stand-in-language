@@ -78,6 +78,7 @@
           hlint = "latest";
           haskell-language-server = "latest";
           ghcid = "latest";
+          stylish-haskell = "latest";
         };
       };
     });
