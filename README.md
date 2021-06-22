@@ -40,10 +40,11 @@ This project is in active development. Do expect bugs and general trouble, and p
    ```
    $ cabal new-build
    ```
-6. Run the tictactoe example and start playing with a friend:
+6. Run the tictactoe example and start playing with a friend (or run your own telomare file):
    ```
-   $ cabal new-run telomare-exe
+   $ cabal new-run telomare -- tictactoe.tel
    ```
+7. Profit!
 
 ## Running `cabal new-repl`
 
@@ -51,24 +52,7 @@ There is a known issue (#7) for getting a repl.
 
 To get around it, you should copy `libgc.so.1` (provided by the `bohem` garbage collector) into your repository (telomare/lib is a good choice) and rename it to `libgc.so`. You will also need to reference it on `telomare.cabal` under the `library` stanza. Be sure to use the complete path for `libgc.so` on `telomare.cabal` (a commented version on `telomare.cabal` is provided as an example).
 
-
-## Running your own Telomare code
-
-### Your own Telomare file
-1. Create your own file with the telomare code
-2. Modify the last uncommented line to reference your file.
-   ```haskell
-   Strict.readFile "<your-telomare-code-file>.tel" >>= runMain
-   ```
-3. Run:
-   ```
-   $ cd <your/local/proyect/location>/telomare
-   $ nix-shell shell.nix
-   $ cabal new-build
-   $ cabal new-run telomare-exe
-   ```
-4. Profit!
-### REPL
+## Telomare REPL
 1. Run:
    ```
    $ cd <your/local/proyect/location>/telomare

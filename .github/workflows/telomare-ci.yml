@@ -27,7 +27,7 @@ jobs:
     - name: Build and test
       run: |
         cachix use iohk
-        nix build .#telomare:exe:telomare-exe
+        nix build .#telomare:exe:telomare
         nix run .#telomare:test:telomare-test
         nix run .#telomare:test:telomare-parser-test
         nix run .#telomare:test:telomare-serializer-test
