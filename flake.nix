@@ -62,7 +62,7 @@
       };
     in flake1 // {
       # Built by `nix build .`
-      defaultPackage = flake.packages."telomare:exe:telomare-exe";
+      defaultPackage = flake.packages."telomare:exe:telomare";
       checks = {
         build = self.defaultPackage.x86_64-linux;
         telomareTest0 = flake.packages."telomare:test:telomare-test";

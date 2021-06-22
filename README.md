@@ -42,7 +42,7 @@ This project is in active development. Do expect bugs and general trouble, and p
    ```
 6. Run the tictactoe example and start playing with a friend:
    ```
-   $ cabal new-run telomare-exe
+   $ cabal new-run telomare
    ```
 
 ## Running `cabal new-repl`
@@ -65,7 +65,7 @@ To get around it, you should copy `libgc.so.1` (provided by the `bohem` garbage 
    $ cd <your/local/proyect/location>/telomare
    $ nix-shell shell.nix
    $ cabal new-build
-   $ cabal new-run telomare-exe
+   $ cabal new-run telomare
    ```
 4. Profit!
 ### REPL
