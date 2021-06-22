@@ -4,7 +4,6 @@ module Main where
 
 import           Data.Char
 import qualified Options.Applicative  as O
-import           System.Environment   (getArgs)
 import qualified System.IO.Strict     as Strict
 import           Telomare
 import           Telomare.Eval
