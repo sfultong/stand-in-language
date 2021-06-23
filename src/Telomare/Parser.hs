@@ -327,13 +327,6 @@ parseSameLvl pos parser = do
     True  -> parser
     False -> fail "Expected same indentation."
 
--- |`applyUntilNoChange f x` returns the fix point of `f` with `x` the starting point.
--- This function will loop if there is no fix point exists.
-applyUntilNoChange :: Eq a => (a -> a) -> a -> a
-applyUntilNoChange f x = case x == (f x) of
-                           True  -> x
-                           False -> applyUntilNoChange f $ f x
-
 -- |Parse let expression.
 parseLet :: TelomareParser UnprocessedParsedTerm
 parseLet = do
