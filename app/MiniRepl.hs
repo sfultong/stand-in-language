@@ -32,20 +32,19 @@ foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: 
 --   Things in the REPL behave slightly different
 -- than in the compiler. For example it is possible.
 -- to overwrite top-level bindings.
---
 
 -- | Add a Telomare expression to the ParserState.
-addReplBound :: String -> UnprocessedParsedTerm -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-addReplBound name expr = LetUP [(name, expr)]
+addReplBound :: String -> UnprocessedParsedTerm -> [(String, UnprocessedParsedTerm)]
+addReplBound name expr = [(name, expr)]
 
 -- | Assignment parsing from the repl.
-parseReplAssignment :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+parseReplAssignment :: TelomareParser [(String, UnprocessedParsedTerm)]
 parseReplAssignment = do
   (var, expr) <- parseAssignment <* eof
   pure $ addReplBound var expr
 
 -- | Parse only an expression
-parseReplExpr :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+parseReplExpr :: TelomareParser [(String, UnprocessedParsedTerm)]
 parseReplExpr = do
   expr <- parseLongExpr <* eof
   pure $ addReplBound "_tmp_" expr
@@ -56,15 +55,15 @@ data ReplStep a = ReplAssignment a
                 deriving (Eq, Ord, Show, Functor)
 
 -- | Combination of `parseReplExpr` and `parseReplAssignment`
-parseReplStep :: TelomareParser (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
+parseReplStep :: TelomareParser (ReplStep [(String, UnprocessedParsedTerm )])
 parseReplStep = try (parseReplAssignment >>= (pure . ReplAssignment))
                 <|> (parseReplExpr >>= (pure . ReplExpr))
 
 -- | Try to parse the given string and update the bindings.
-runReplParser :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+runReplParser :: [(String, UnprocessedParsedTerm)]
               -> String
-              -> Either String (ReplStep (UnprocessedParsedTerm -> UnprocessedParsedTerm))
-runReplParser prelude str = (fmap . fmap) (. prelude) $ runTelomareParser parseReplStep str
+              -> Either String (ReplStep [(String, UnprocessedParsedTerm)])
+runReplParser prelude str = (fmap . fmap) (++  prelude) $ runTelomareParser parseReplStep str
 
 -- Common functions 
 -- ~~~~~~~~~~~~~~~~
@@ -79,17 +78,17 @@ flattenOuterLetUP (LetUP l (LetUP l' x)) = LetUP (l' <> l) x
 flattenOuterLetUP x = x
 
 -- |Extra processing (see `Telomare.Parser.process`) useful for the MinRepl's context.
-process' :: (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> UnprocessedParsedTerm -> Maybe Term3
-process' bindings x = rightToMaybe . process bindings . applyUntilNoChange flattenOuterLetUP . bindings $ x
+process' :: [(String, UnprocessedParsedTerm)] -> UnprocessedParsedTerm -> Maybe Term3
+process' bindings x = rightToMaybe . process bindings . applyUntilNoChange flattenOuterLetUP $ x
 
 -- |Obtain expression from the bindings and transform them into maybe a Term3.
-resolveBinding' :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> Maybe Term3
+resolveBinding' :: String -> [(String, UnprocessedParsedTerm)] -> Maybe Term3
 resolveBinding' name bindings = do
-  x <- lookup name (extractBindingsList bindings)
+  x <- lookup name bindings
   process' bindings x
 
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
-resolveBinding :: String -> (UnprocessedParsedTerm -> UnprocessedParsedTerm) -> Maybe IExpr
+resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
 resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings >>= toTelomare
 
 -- |Print last expression bound to 
@@ -97,10 +96,9 @@ resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings 
 printLastExpr :: (MonadIO m)
               => (String -> m ())    -- ^Printing function
               -> (IExpr -> m IExpr) -- ^Telomare backend
-              -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-              -- ^ an unapplied `LetUP` holding al bindings
+              -> [(String, UnprocessedParsedTerm)]
               -> m ()
-printLastExpr printer eval bindings = case lookup "_tmp_" (extractBindingsList bindings) of
+printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
     Nothing -> printer "Could not find _tmp_ in bindings"
     Just e -> do
       let m_iexpr = findChurchSize <$> (process' bindings e) >>= toTelomare
@@ -114,8 +112,7 @@ printLastExpr printer eval bindings = case lookup "_tmp_" (extractBindingsList b
 -- ~~~~~~~~~~~~~~~~~~
 
 data ReplState = ReplState 
-    { replBindings :: (UnprocessedParsedTerm -> UnprocessedParsedTerm)
-    -- ^. an unapplied `LetUP` holding al bindings
+    { replBindings :: [(String, UnprocessedParsedTerm)]
       -- replBindings :: Bindings
     , replEval     :: (IExpr -> IO IExpr)
     -- ^ Backend function used to compile IExprs.
@@ -123,9 +120,9 @@ data ReplState = ReplState
 
 -- | Enter a single line assignment or expression.
 replStep :: (IExpr -> IO IExpr)
-         -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+         -> [(String, UnprocessedParsedTerm)]
          -> String
-         -> InputT IO (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+         -> InputT IO ([(String,UnprocessedParsedTerm)])
 replStep eval bindings s = do
     let e_new_bindings = runReplParser bindings s
     case e_new_bindings of
@@ -133,7 +130,7 @@ replStep eval bindings s = do
             outputStrLn $ "Parse error: " ++ err
             return bindings
         Right (ReplExpr new_bindings) -> do
-            printLastExpr (outputStrLn) (liftIO.eval) new_bindings
+            printLastExpr (outputStrLn)(liftIO.eval) new_bindings
             return bindings
         Right (ReplAssignment new_bindings) -> do
             return new_bindings
@@ -234,7 +231,7 @@ startLoop state = runInputT defaultSettings $ replLoop state
 
 -- | Compile and output a Telomare expression.
 startExpr :: (IExpr -> IO IExpr)
-          -> (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+          -> [(String, UnprocessedParsedTerm)]
           -> String
           -> IO ()
 startExpr eval bindings s_expr = do
@@ -254,7 +251,7 @@ main = do
             return optimizedEval
         NaturalsBackend -> return fastInterpretEval
     let bindings = case e_prelude of
-            Left  _   -> LetUP []
+            Left  _   ->  []
             Right bds -> bds
     case _expr settings of
         Just  s -> startExpr eval bindings s
