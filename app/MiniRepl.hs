@@ -1,27 +1,27 @@
-{-# LANGUAGE CApiFFI #-}
+{-# LANGUAGE CApiFFI               #-}
+{-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE TupleSections         #-}
 module Main where
 
-import Options.Applicative hiding (ParseError, (<|>))
-import qualified Options.Applicative as O
-import System.Console.Haskeline
-import Text.Megaparsec
-import Text.Megaparsec.Char
-import Telomare.Eval
-import Telomare.Parser
-import Telomare.RunTime
-import Telomare.TypeChecker
-import Telomare
-import Naturals
-import PrettyPrint
-import qualified Control.Monad.State as State
-import Control.Monad.IO.Class
-import Data.List
-import qualified Data.Map as Map
-import qualified System.IO.Strict as Strict
-import System.Exit (exitSuccess)
+import           Control.Monad.IO.Class
+import qualified Control.Monad.State      as State
+import           Data.List
+import qualified Data.Map                 as Map
+import           Naturals
+import           Options.Applicative      hiding (ParseError, (<|>))
+import qualified Options.Applicative      as O
+import           PrettyPrint
+import           System.Console.Haskeline
+import           System.Exit              (exitSuccess)
+import qualified System.IO.Strict         as Strict
+import           Telomare
+import           Telomare.Eval
+import           Telomare.Parser
+import           Telomare.RunTime
+import           Telomare.TypeChecker
+import           Text.Megaparsec
+import           Text.Megaparsec.Char
 
 foreign import capi "gc.h GC_INIT" gcInit :: IO ()
 foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
@@ -65,34 +65,56 @@ runReplParser :: [(String, UnprocessedParsedTerm)]
               -> Either String (ReplStep [(String, UnprocessedParsedTerm)])
 runReplParser prelude str = (fmap . fmap) (++  prelude) $ runTelomareParser parseReplStep str
 
--- Common functions 
+-- Common functions
 -- ~~~~~~~~~~~~~~~~
 
 -- |Forget Left helper function.
 rightToMaybe :: Either a b -> Maybe b
 rightToMaybe (Right b) = Just b
-rightToMaybe _ = Nothing
+rightToMaybe _         = Nothing
 
-flattenOuterLetUP :: UnprocessedParsedTerm -> UnprocessedParsedTerm
-flattenOuterLetUP (LetUP l (LetUP l' x)) = LetUP (l' <> l) x
-flattenOuterLetUP x = x
+maybeToRight :: Maybe a -> Either EvalError a
+maybeToRight (Just x) = Right x
+-- TODO: fix this
+maybeToRight Nothing  = Left CompileConversionError
+
 
 -- |Extra processing (see `Telomare.Parser.process`) useful for the MinRepl's context.
 process' :: [(String, UnprocessedParsedTerm)] -> UnprocessedParsedTerm -> Maybe Term3
-process' bindings x = rightToMaybe . process bindings . applyUntilNoChange flattenOuterLetUP $ x
+process' bindings x = rightToMaybe . process bindings $ x
 
 -- |Obtain expression from the bindings and transform them into maybe a Term3.
-resolveBinding' :: String -> [(String, UnprocessedParsedTerm)] -> Maybe Term3
-resolveBinding' name bindings = do
-  x <- lookup name bindings
-  process' bindings x
+-- resolveBinding' :: String -> [(String, UnprocessedParsedTerm)] -> Maybe Term3
+-- resolveBinding' name bindings = do
+--   x <- lookup name bindings
+--   process' bindings x
+resolveBinding' :: String
+                -> [(String, UnprocessedParsedTerm)]
+                -> Maybe Term3
+resolveBinding' name bindings = lookup name bindings >>= (rightToMaybe . process bindings)
 
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
+-- resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
+-- resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings >>= toTelomare
 resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
-resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings >>= toTelomare
+resolveBinding name bindings = rightToMaybe $ compile =<< (maybeToRight $ resolveBinding' name bindings)
 
--- |Print last expression bound to 
+-- |Print last expression bound to
 -- the _tmp_ variable in the bindings
+-- printLastExpr :: (MonadIO m)
+--               => (String -> m ())    -- ^Printing function
+--               -> (IExpr -> m IExpr) -- ^Telomare backend
+--               -> [(String, UnprocessedParsedTerm)]
+--               -> m ()
+-- printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
+--     Nothing -> printer "Could not find _tmp_ in bindings"
+--     Just e -> do
+--       let m_iexpr = findChurchSize <$> (process' bindings e) >>= toTelomare
+--       case m_iexpr of
+--         Nothing -> printer "conversion error"
+--         Just iexpr' -> do
+--           iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
+--           printer $ (show . PrettyIExpr) iexpr
 printLastExpr :: (MonadIO m)
               => (String -> m ())    -- ^Printing function
               -> (IExpr -> m IExpr) -- ^Telomare backend
@@ -101,17 +123,20 @@ printLastExpr :: (MonadIO m)
 printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
     Nothing -> printer "Could not find _tmp_ in bindings"
     Just e -> do
-      let m_iexpr = findChurchSize <$> (process' bindings e) >>= toTelomare
-      case m_iexpr of
-        Nothing -> printer "conversion error"
-        Just iexpr' -> do
+      let compile' x = case compile x of
+                         Left err -> Left . show $ err
+                         Right r  -> Right r
+      case compile' =<< (process bindings e) of
+        Left err -> printer err
+        Right iexpr' -> do
           iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
-          printer $ (show.PrettyIExpr) iexpr
+          printer $ (show . PrettyIExpr) iexpr
+
 
 -- REPL related logic
 -- ~~~~~~~~~~~~~~~~~~
 
-data ReplState = ReplState 
+data ReplState = ReplState
     { replBindings :: [(String, UnprocessedParsedTerm)]
       -- replBindings :: Bindings
     , replEval     :: (IExpr -> IO IExpr)
@@ -126,11 +151,11 @@ replStep :: (IExpr -> IO IExpr)
 replStep eval bindings s = do
     let e_new_bindings = runReplParser bindings s
     case e_new_bindings of
-        Left err -> do 
+        Left err -> do
             outputStrLn $ "Parse error: " ++ err
             return bindings
         Right (ReplExpr new_bindings) -> do
-            printLastExpr (outputStrLn)(liftIO.eval) new_bindings
+            printLastExpr (outputStrLn) (liftIO.eval) new_bindings
             return bindings
         Right (ReplAssignment new_bindings) -> do
             return new_bindings
@@ -140,20 +165,20 @@ replMultiline :: [String] -> InputT IO String
 replMultiline buffer = do
     minput <- getInputLine ""
     case minput of
-        Nothing -> return ""
+        Nothing   -> return ""
         Just ":}" -> return $ concat $ intersperse "\n" $ reverse buffer
-        Just s    -> replMultiline (s : buffer) 
+        Just s    -> replMultiline (s : buffer)
 
 -- | Main loop for the REPL.
 replLoop :: ReplState -> InputT IO ()
-replLoop (ReplState bs eval) = do 
+replLoop (ReplState bs eval) = do
     minput <- getInputLine "telomare> "
     case minput of
         Nothing   -> return ()
         Just ":q" -> liftIO exitSuccess
         Just ":{" -> do
             new_bs <- replStep eval bs =<< replMultiline []
-            replLoop $ ReplState new_bs eval 
+            replLoop $ ReplState new_bs eval
         Just s | ":dn" `isPrefixOf` s -> do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":dn" s of
                      Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
@@ -167,7 +192,7 @@ replLoop (ReplState bs eval) = do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":d" s of
                      Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
                        Just iexpr -> putStrLn $ showPIE iexpr
-                       _ -> putStrLn "some sort of error?"
+                       _          -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
   {-
@@ -186,7 +211,7 @@ replLoop (ReplState bs eval) = do
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
-        Just s    -> do 
+        Just s    -> do
             new_bs <- replStep eval bs s
             replLoop $ (ReplState new_bs eval)
 
@@ -194,7 +219,7 @@ replLoop (ReplState bs eval) = do
 -- ~~~~~~~~~~~~~~~~~~~~~
 
 data ReplBackend = SimpleBackend
-                 | LLVMBackend 
+                 | LLVMBackend
                  | NaturalsBackend
                  deriving (Show, Eq, Ord)
 
@@ -203,7 +228,7 @@ data ReplSettings = ReplSettings {
     , _expr    :: Maybe String
     } deriving (Show, Eq)
 
--- | Choose a backend option between Haskell, LLVM, Naturals. 
+-- | Choose a backend option between Haskell, LLVM, Naturals.
 -- Haskell is default.
 backendOpts :: Parser ReplBackend
 backendOpts = flag'       LLVMBackend     (long "llvm"     <> help "LLVM Backend")
@@ -213,7 +238,7 @@ backendOpts = flag'       LLVMBackend     (long "llvm"     <> help "LLVM Backend
 
 -- | Process a given expression instead of entering the repl.
 exprOpts :: Parser (Maybe String)
-exprOpts = optional $ strOption ( long "expr" <> short 'e' <> help "Expression to be computed") 
+exprOpts = optional $ strOption ( long "expr" <> short 'e' <> help "Expression to be computed")
 
 -- | Combined options
 opts :: ParserInfo ReplSettings
@@ -236,12 +261,12 @@ startExpr :: (IExpr -> IO IExpr)
           -> IO ()
 startExpr eval bindings s_expr = do
     case runReplParser bindings s_expr of
-        Left err -> putStrLn $ "Parse error: " ++ err
+        Left err                 -> putStrLn $ "Parse error: " ++ err
         Right (ReplAssignment _) -> putStrLn $ "Expression is an assignment"
-        Right (ReplExpr binds) -> printLastExpr putStrLn eval binds
+        Right (ReplExpr binds)   -> printLastExpr putStrLn eval binds
 
 main = do
-    e_prelude <- parsePrelude <$> Strict.readFile "Prelude.tel" 
+    e_prelude <- parsePrelude <$> Strict.readFile "Prelude.tel"
     settings  <- execParser opts
     eval <- case _backend settings of
         SimpleBackend -> return simpleEval
