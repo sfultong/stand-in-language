@@ -2,12 +2,14 @@
 {-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE TupleSections         #-}
+
 module Main where
 
 import           Control.Monad.IO.Class
 import qualified Control.Monad.State      as State
 import           Data.List
 import qualified Data.Map                 as Map
+import           Debug.Trace              (trace)
 import           Naturals
 import           Options.Applicative      hiding (ParseError, (<|>))
 import qualified Options.Applicative      as O
@@ -63,7 +65,7 @@ parseReplStep = try (parseReplAssignment >>= (pure . ReplAssignment))
 runReplParser :: [(String, UnprocessedParsedTerm)]
               -> String
               -> Either String (ReplStep [(String, UnprocessedParsedTerm)])
-runReplParser prelude str = (fmap . fmap) (++  prelude) $ runTelomareParser parseReplStep str
+runReplParser prelude str = (fmap . fmap) (prelude <>) $ runTelomareParser parseReplStep str
 
 -- Common functions
 -- ~~~~~~~~~~~~~~~~
@@ -75,7 +77,7 @@ rightToMaybe _         = Nothing
 
 maybeToRight :: Maybe a -> Either EvalError a
 maybeToRight (Just x) = Right x
--- TODO: fix this
+-- This will become a Maybe right after being used, so it doesn't matter what error is present
 maybeToRight Nothing  = Left CompileConversionError
 
 
@@ -84,37 +86,17 @@ process' :: [(String, UnprocessedParsedTerm)] -> UnprocessedParsedTerm -> Maybe 
 process' bindings x = rightToMaybe . process bindings $ x
 
 -- |Obtain expression from the bindings and transform them into maybe a Term3.
--- resolveBinding' :: String -> [(String, UnprocessedParsedTerm)] -> Maybe Term3
--- resolveBinding' name bindings = do
---   x <- lookup name bindings
---   process' bindings x
 resolveBinding' :: String
                 -> [(String, UnprocessedParsedTerm)]
                 -> Maybe Term3
 resolveBinding' name bindings = lookup name bindings >>= (rightToMaybe . process bindings)
 
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
--- resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
--- resolveBinding name bindings = findChurchSize <$> resolveBinding' name bindings >>= toTelomare
 resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
 resolveBinding name bindings = rightToMaybe $ compile =<< (maybeToRight $ resolveBinding' name bindings)
 
 -- |Print last expression bound to
 -- the _tmp_ variable in the bindings
--- printLastExpr :: (MonadIO m)
---               => (String -> m ())    -- ^Printing function
---               -> (IExpr -> m IExpr) -- ^Telomare backend
---               -> [(String, UnprocessedParsedTerm)]
---               -> m ()
--- printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
---     Nothing -> printer "Could not find _tmp_ in bindings"
---     Just e -> do
---       let m_iexpr = findChurchSize <$> (process' bindings e) >>= toTelomare
---       case m_iexpr of
---         Nothing -> printer "conversion error"
---         Just iexpr' -> do
---           iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
---           printer $ (show . PrettyIExpr) iexpr
 printLastExpr :: (MonadIO m)
               => (String -> m ())    -- ^Printing function
               -> (IExpr -> m IExpr) -- ^Telomare backend
@@ -122,11 +104,11 @@ printLastExpr :: (MonadIO m)
               -> m ()
 printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
     Nothing -> printer "Could not find _tmp_ in bindings"
-    Just e -> do
+    Just upt -> do
       let compile' x = case compile x of
                          Left err -> Left . show $ err
                          Right r  -> Right r
-      case compile' =<< (process bindings e) of
+      case compile' =<< (process bindings (LetUP bindings upt)) of
         Left err -> printer err
         Right iexpr' -> do
           iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
@@ -138,7 +120,6 @@ printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
 
 data ReplState = ReplState
     { replBindings :: [(String, UnprocessedParsedTerm)]
-      -- replBindings :: Bindings
     , replEval     :: (IExpr -> IO IExpr)
     -- ^ Backend function used to compile IExprs.
     }
@@ -155,7 +136,7 @@ replStep eval bindings s = do
             outputStrLn $ "Parse error: " ++ err
             return bindings
         Right (ReplExpr new_bindings) -> do
-            printLastExpr (outputStrLn) (liftIO.eval) new_bindings
+            printLastExpr (outputStrLn) (liftIO . eval) new_bindings
             return bindings
         Right (ReplAssignment new_bindings) -> do
             return new_bindings
@@ -213,7 +194,7 @@ replLoop (ReplState bs eval) = do
                    replLoop $ ReplState bs eval
         Just s    -> do
             new_bs <- replStep eval bs s
-            replLoop $ (ReplState new_bs eval)
+            replLoop $ ReplState new_bs eval
 
 -- Command line settings
 -- ~~~~~~~~~~~~~~~~~~~~~
