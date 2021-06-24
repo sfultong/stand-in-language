@@ -1,30 +1,30 @@
-{-#LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module Main where
 
-import Control.DeepSeq
-import Data.Char
-import qualified Data.Vector.Storable as S
+import           Control.DeepSeq
+import           Data.Char
+import qualified Data.Vector.Storable  as S
 
-import Foreign.Marshal.Alloc
-
-
-import Criterion.Main
-import Criterion.Types
-import Criterion.Measurement
+import           Foreign.Marshal.Alloc
 
 
-import Telomare
+import           Criterion.Main
+import           Criterion.Measurement
+import           Criterion.Types
+
+
+import           Telomare
 --import Telomare.Llvm
-import Telomare.Parser
-import Telomare.RunTime
-import Telomare.TypeChecker (typeCheck, inferType)
-import Telomare.Optimizer
-import Telomare.Eval
-import Telomare.Serializer
-import Telomare.Serializer.C
-import qualified System.IO.Strict as Strict
+import qualified System.IO.Strict      as Strict
+import           Telomare.Eval
+import           Telomare.Optimizer
+import           Telomare.Parser
+import           Telomare.RunTime
+import           Telomare.Serializer
+import           Telomare.Serializer.C
+import           Telomare.TypeChecker  (inferType, typeCheck)
 
-import System.Mem
+import           System.Mem
 
 performTests :: IExpr -> IO ()
 performTests iexpr = do
@@ -34,10 +34,10 @@ performTests iexpr = do
     performGC
     print =<< getGCStatistics
     putStrLn $ "The vector contains " ++ show len ++ " bytes."
-    c_rep        <- toC iexpr  
+    c_rep        <- toC iexpr
     c_serialized <- serializedToC serialized
 
-    defaultMain $ 
+    defaultMain $
       [ bgroup "Vector"
         [ bench "serialization"   $ nf serialize   iexpr
         , bench "deserialization" $ nf deserialize serialized
@@ -45,7 +45,7 @@ performTests iexpr = do
       , bgroup "CRep"
         [ bench "serialization"   $ nfIO (toC   iexpr)
         , bench "deserialization" $ nfIO (fromC c_rep)
-        ] 
+        ]
       , bgroup "Telomare_Serialized"
         [ bench "from Vector"   $ nfIO (free =<< serializedToC   serialized)
         , bench "to Vector" $ nfIO (serializedFromC c_serialized)
@@ -63,7 +63,7 @@ main = do
       Right p -> p
       Left pe -> error $ show pe
     runMain s = case parseMain prelude s of
-      Left e -> putStrLn $ concat ["failed to parse ", s, " ", show e]
+      Left e  -> putStrLn $ concat ["failed to parse ", s, " ", show e]
       Right g -> performTests g
 
   Strict.readFile "tictactoe.tel" >>= runMain

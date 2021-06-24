@@ -1,30 +1,30 @@
-{-#LANGUAGE DeriveGeneric#-}
-{-#LANGUAGE DeriveAnyClass#-}
-{-#LANGUAGE GeneralizedNewtypeDeriving#-}
-{-#LANGUAGE PatternSynonyms#-}
+{-# LANGUAGE DeriveAnyClass             #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PatternSynonyms            #-}
 -- {-# LANGUAGE GADTs #-}
 -- {-# LANGUAGE EmptyDataDecls #-}
 module Naturals where
 
-import Control.Applicative
-import Control.Monad.Fix
-import Control.Monad.Identity
-import Control.Monad.State.Lazy
-import Data.Binary
-import Data.Functor
-import Data.Int (Int64)
-import Data.Map (Map)
-import Data.Monoid
-import Data.Set (Set)
-import Debug.Trace
-import Control.DeepSeq
-import GHC.Generics
+import           Control.Applicative
+import           Control.DeepSeq
+import           Control.Monad.Fix
+import           Control.Monad.Identity
+import           Control.Monad.State.Lazy
+import           Data.Binary
+import           Data.Functor
+import           Data.Int                 (Int64)
+import           Data.Map                 (Map)
+import           Data.Monoid
+import           Data.Set                 (Set)
+import           Debug.Trace
+import           GHC.Generics
 
 import qualified Control.Monad.State.Lazy as State
-import qualified Data.Map as Map
-import qualified Data.Set as Set
+import qualified Data.Map                 as Map
+import qualified Data.Set                 as Set
 
-import Telomare
+import           Telomare
 
 debug :: Bool
 debug = True
@@ -126,7 +126,7 @@ instance Show NExprs where
           x -> show x
     in case Map.minView m of
       Just (x, _) -> showInner x
-      _ -> "ERROR no root to NExprs tree"
+      _           -> "ERROR no root to NExprs tree"
 
 type FragState = State (FragIndex, Map FragIndex ExprFrag)
 
@@ -158,7 +158,7 @@ fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
   FEnv -> Env
   (FSetEnv x) -> SetEnv $ recur x
   (FDefer fi) -> case Map.lookup fi fragMap of
-    Nothing -> error ("fromFrag bad index " ++ show fi)
+    Nothing      -> error ("fromFrag bad index " ++ show fi)
     Just subFrag -> Defer $ recur subFrag
   FGate l r -> Gate (recur l) (recur r)
   (FLeft x) -> PLeft $ recur x
@@ -169,13 +169,13 @@ fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
 matchChurchPlus :: Map FragIndex ExprFrag -> ExprFrag -> Maybe (ExprFrag, ExprFrag)
 matchChurchPlus fragMap frag =
   let lam (FPair (FDefer ind) FEnv) = Map.lookup ind fragMap
-      lam _ = Nothing
+      lam _                         = Nothing
       def (FDefer ind) = Map.lookup ind fragMap
-      def _ = Nothing
+      def _            = Nothing
       firstArg (FLeft FEnv) = Just ()
-      firstArg _ = Nothing
+      firstArg _            = Nothing
       secondArg (FLeft (FRight FEnv)) = Just ()
-      secondArg _ = Nothing
+      secondArg _                     = Nothing
       app = matchApp
   in lam frag >>= lam >>= app >>= (\(a, b) -> (,) <$> (app a >>= (\(m, sa) -> secondArg sa >> pure m))
                                               <*> (app b >>= (\(c, fa) -> firstArg fa >> app c
@@ -185,16 +185,16 @@ matchChurchPlus fragMap frag =
 matchChurchMult :: Map FragIndex ExprFrag -> ExprFrag -> Maybe (ExprFrag, ExprFrag)
 matchChurchMult fragMap frag =
   let lam (FPair (FDefer ind) FEnv) = Map.lookup ind fragMap
-      lam _ = Nothing
+      lam _                         = Nothing
       def (FDefer ind) = Map.lookup ind fragMap
-      def _ = Nothing
+      def _            = Nothing
       firstArg (FLeft FEnv) = Just ()
-      firstArg _ = Nothing
+      firstArg _            = Nothing
   in lam frag >>= matchApp >>= (\(m, a) -> (,) <$> pure m <*> (matchApp a >>= (\(n, fa) -> firstArg fa >> pure n)))
 
 matchApp :: ExprFrag -> Maybe (ExprFrag, ExprFrag)
 matchApp (FApp c i) = Just (c, i)
-matchApp _ = Nothing
+matchApp _          = Nothing
 
 fragmentExpr :: IExpr -> Map FragIndex ExprFrag
 fragmentExpr iexpr = let (expr, (li, m)) = State.runState (toFrag iexpr) ((FragIndex 1), Map.empty)
@@ -206,18 +206,18 @@ fragToNExpr :: Map FragIndex ExprFrag -> ExprFrag -> NExpr
 fragToNExpr fragMap frag =
         let recur = fragToNExpr fragMap
         in case frag of
-            FZero -> NZero
-            FEnv -> NEnv
-            (FPair a b) -> NPair (recur a) (recur b)
-            (FSetEnv x) -> NSetEnv $ recur x
-            FGate l r -> NGate (recur l) (recur r)
-            (FLeft x) -> NLeft $ recur x
-            (FRight x) -> NRight $ recur x
-            FTrace -> NTrace
+            FZero        -> NZero
+            FEnv         -> NEnv
+            (FPair a b)  -> NPair (recur a) (recur b)
+            (FSetEnv x)  -> NSetEnv $ recur x
+            FGate l r    -> NGate (recur l) (recur r)
+            (FLeft x)    -> NLeft $ recur x
+            (FRight x)   -> NRight $ recur x
+            FTrace       -> NTrace
             (FDefer ind) -> NDefer ind
-            (FNum x) -> NPair (NOldDefer (NPair (NNum x) NEnv)) NEnv
-            FToNum -> NToNum
-            (FApp c i) -> NApp (recur c) (recur i)
+            (FNum x)     -> NPair (NOldDefer (NPair (NNum x) NEnv)) NEnv
+            FToNum       -> NToNum
+            (FApp c i)   -> NApp (recur c) (recur i)
 
 fragsToNExpr :: Map FragIndex ExprFrag -> Map FragIndex NResult
 fragsToNExpr fragMap = Map.map (fragToNExpr fragMap) fragMap

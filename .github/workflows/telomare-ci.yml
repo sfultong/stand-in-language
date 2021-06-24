@@ -33,10 +33,38 @@ jobs:
         nix run .#telomare:test:telomare-serializer-test
         echo ${{ github.ref }}
         echo ${{ github.repository }}
-
-  release:
+  format:
     if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
     needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout telomare repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+          repository: Stand-In-Language/stand-in-language
+          token: ${{ secrets.API_TOKEN_GITHUB }}
+      - uses: cachix/install-nix-action@v12
+        with:
+          install_url: https://github.com/numtide/nix-flakes-installer/releases/download/nix-2.4pre20201221_9fab14a/install
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - uses: cachix/cachix-action@v8
+        with:
+          name: telomare
+          signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
+      - name: stylish-haskell formatting
+        run: |
+          ls
+          nix develop -c stylish-haskell -irv .
+          echo stylish-haskell formatting finished
+      - uses: EndBug/add-and-commit@v7
+        with:
+          message: 'stylish-haskell formatting automatically applied'
+          default_author: github_actions
+  release:
+    if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
+    needs: [tests, format]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository

@@ -1,14 +1,14 @@
-{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Telomare.Decompiler where
 
-import Control.Monad (foldM, liftM2)
+import           Control.Monad       (foldM, liftM2)
 import qualified Control.Monad.State as State
-import Data.List (intercalate)
-import qualified Data.Map              as Map
-import           Data.Semigroup (Max(..))
-import Telomare
-import Telomare.Parser
+import           Data.List           (intercalate)
+import qualified Data.Map            as Map
+import           Data.Semigroup      (Max (..))
+import           Telomare
+import           Telomare.Parser
 
 decompileUPT :: UnprocessedParsedTerm -> String
 decompileUPT =
@@ -19,19 +19,19 @@ decompileUPT =
       drawIndent = State.get >>= (\n -> pure $ replicate n ' ')
       drawList = fmap mconcat . sequence
       needsParens = \case -- will need parens if on right side of application
-        AppUP _ _ -> True
-        LamUP _ _ -> True
-        LeftUP _ -> True
-        RightUP _ -> True
-        TraceUP _ -> True
-        LetUP _ _ -> True
+        AppUP _ _   -> True
+        LamUP _ _   -> True
+        LeftUP _    -> True
+        RightUP _   -> True
+        TraceUP _   -> True
+        LetUP _ _   -> True
         ITEUP _ _ _ -> True
-        _ -> False
+        _           -> False
       needsFirstParens = \case
-        LamUP _ _ -> True
-        LetUP _ _ -> True
+        LamUP _ _   -> True
+        LetUP _ _   -> True
         ITEUP _ _ _ -> True
-        _ -> False
+        _           -> False
       drawParens x = if needsParens x
         then drawList [showS " (", draw x, showS ")"]
         else drawList [showS " ", draw x]
@@ -55,8 +55,8 @@ decompileUPT =
             displayedBindings <- mconcat <$> traverse drawOne bindingsXS
             State.put startIn
             mconcat <$> sequence [pure l, pure fb, pure displayedBindings, drawIndent, showS "in ", draw in_]
-          ListUP l -> let insertCommas [] = []
-                          insertCommas [x] = [x]
+          ListUP l -> let insertCommas []     = []
+                          insertCommas [x]    = [x]
                           insertCommas (x:xs) = x : showS "," : insertCommas xs
                       in drawList [showS "[", fmap concat . sequence . insertCommas $ fmap draw l, showS "]" ]
           IntUP x -> showS $ show x
@@ -82,16 +82,16 @@ decompileUPT =
           else State.modify (+ indent)
         pure s
       draw oneLine =
-        let showTwo a b = undefined --let long = 
+        let showTwo a b = undefined --let long =
             showLine l = do
               indent <- State.get
               let long = intercalate " " l
                          in if length long > lineLimit
-                            then 
+                            then
 
 -}
               {-m
-          drawLineOr x y = if not oneLine && draw 
+          drawLineOr x y = if not oneLine && draw
 -}
 
 decompileTerm1 :: Term1 -> UnprocessedParsedTerm
@@ -149,13 +149,13 @@ decompileTerm4 (Term4 tm) =
 
 decompileIExpr :: IExpr -> Term4
 decompileIExpr x = let build = \case
-                         Zero -> pure ZeroFrag
+                         Zero     -> pure ZeroFrag
                          Pair a b -> PairFrag <$> build a <*> build b
-                         Env -> pure EnvFrag
+                         Env      -> pure EnvFrag
                          SetEnv x -> SetEnvFrag <$> build x
                          Gate l r -> GateFrag <$> build l <*> build r
-                         PLeft x -> LeftFrag <$> build x
+                         PLeft x  -> LeftFrag <$> build x
                          PRight x -> RightFrag <$> build x
-                         Trace -> pure TraceFrag
-                         Defer x -> deferF $ build x
+                         Trace    -> pure TraceFrag
+                         Defer x  -> deferF $ build x
                    in Term4 . buildFragMap $ build x

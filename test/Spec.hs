@@ -1,32 +1,32 @@
 {-# LANGUAGE CApiFFI #-}
 module Main where
 
-import Control.Applicative (liftA2)
-import Control.Monad.IO.Class
-import Debug.Trace
-import Data.Bifunctor
-import Data.Char
-import Data.List (partition)
-import Data.Monoid
-import Telomare
-import Telomare.Eval
-import Telomare.Llvm (RunResult(..))
-import Naturals
-import Telomare.Decompiler
-import Telomare.Parser
-import Telomare.RunTime
-import Telomare.TypeChecker
-import Telomare.Optimizer
-import Telomare.Serializer
-import System.Exit
-import System.IO
-import Test.Hspec
-import Test.QuickCheck
-import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
-import qualified System.IO.Strict as Strict
+import           Control.Applicative        (liftA2)
+import           Control.Monad.IO.Class
+import           Data.Bifunctor
+import           Data.Char
+import           Data.List                  (partition)
+import           Data.Monoid
+import           Debug.Trace
+import           Naturals
+import           System.Exit
+import           System.IO
+import qualified System.IO.Strict           as Strict
+import           Telomare
+import           Telomare.Decompiler
+import           Telomare.Eval
+import           Telomare.Llvm              (RunResult (..))
+import           Telomare.Optimizer
+import           Telomare.Parser
+import           Telomare.RunTime
+import           Telomare.Serializer
+import           Telomare.TypeChecker
+import           Test.Hspec
+import           Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
+import           Test.QuickCheck
 
 -- Common datatypes for generating Telomare AST.
-import Common
+import           Common
 
 -- recursively finds shrink matching invariant, ordered simplest to most complex
 shrinkComplexCase :: Arbitrary a => (a -> Bool) -> [a] -> [a]
@@ -270,9 +270,9 @@ three_pow_two =
 
 -- unbound type errors should be allowed for purposes of testing runtime
 allowedTypeCheck :: Maybe TypeCheckError -> Bool
-allowedTypeCheck Nothing = True
+allowedTypeCheck Nothing                = True
 allowedTypeCheck (Just (UnboundType _)) = True
-allowedTypeCheck _ = False
+allowedTypeCheck _                      = False
 
 testEval :: IExpr -> IO IExpr
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
@@ -300,6 +300,17 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromTelo
   Left err -> do
     expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
 
+
+{-
+unitTestQC :: Testable p => String -> Int -> p -> Spec
+unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
+  (Success _ _ _ _ _ _) -> pure ()
+  x -> expectationFailure $ concat [name, " failed: ", show x]
+-}
+unitTestQC :: Testable p => String -> Int -> p -> Spec
+unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
+
+
 {-
 unitTestOptimization :: String -> IExpr -> IO Bool
 unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
@@ -318,18 +329,8 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
   in
     case (iexpr, iexpr') of
        (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
-       _ | iexpr == iexpr'-> True
-       _ | otherwise -> False
-
-{-
-unitTestQC :: Testable p => String -> Int -> p -> Spec
-unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
-  (Success _ _ _ _ _ _) -> pure ()
-  x -> expectationFailure $ concat [name, " failed: ", show x]
--}
-unitTestQC :: Testable p => String -> Int -> p -> Spec
-unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
-
+       _ | iexpr == iexpr'                 -> True
+       _ | otherwise                       -> False
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
@@ -345,13 +346,13 @@ qcDecompileIExprAndBackEvalsSame (IExprWrapper x) = pure (showResult $ eval' x)
   where eval' = pureIEval
         debruijinize' x = case debruijinize [] x of
           Just r -> r
-          _ -> error "debruijinize error"
+          _      -> error "debruijinize error"
         validateVariables' x = case validateVariables [] x of
           Right r -> r
-          Left e -> error ("validateVariables " <> e)
+          Left e  -> error ("validateVariables " <> e)
         parseLongExpr' x = case runTelomareParser (scn *> parseLongExpr <* scn) x of
           Just r -> r
-          _ -> error "parseLongExpr' should be impossible"
+          _      -> error "parseLongExpr' should be impossible"
         dec = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm4 . decompileIExpr
         comp = findChurchSize . splitExpr . debruijinize' . validateVariables' . optimizeBuiltinFunctions . parseLongExpr'
         showTrace x = x -- trace ("decompiled: " <> show x) x
@@ -437,10 +438,10 @@ unitTests_ parse = do
 c2dApp = "main = (c2dG $4 3) $2 succ 0"
 
 isInconsistentType (Just (InconsistentTypes _ _)) = True
-isInconsistentType _ = False
+isInconsistentType _                              = False
 
 isRecursiveType (Just (RecursiveType _)) = True
-isRecursiveType _ = False
+isRecursiveType _                        = False
 
 unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
 unitTestTypeP iexpr expected = if inferType (fromTelomare iexpr) == expected

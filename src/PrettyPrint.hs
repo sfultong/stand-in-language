@@ -4,7 +4,7 @@ module PrettyPrint where
 
 import           Data.Map (Map)
 import           Naturals
-import           Telomare      hiding (indent)
+import           Telomare hiding (indent)
 
 import qualified Data.Map as Map
 
@@ -111,16 +111,16 @@ showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
             showTwo c a b =
               concat [c, "\n", indent i, showExpr l (i + 1) a, "\n", indent i, showExpr l (i + 1) b]
         in \case
-          ZeroFrag -> "Z"
-          PairFrag a b -> showTwo "P" a b
-          EnvFrag -> "E"
-          SetEnvFrag x -> "S " <> recur x
+          ZeroFrag                  -> "Z"
+          PairFrag a b              -> showTwo "P" a b
+          EnvFrag                   -> "E"
+          SetEnvFrag x              -> "S " <> recur x
           DeferFrag (FragIndex ind) -> "[" <> show ind <> "]"
-          AbortFrag -> "A"
-          GateFrag l r -> showTwo "G" l r
-          LeftFrag x -> "L " <> recur x
-          RightFrag x -> "R " <> recur x
-          TraceFrag -> "T"
-          AuxFrag _ -> "?"
+          AbortFrag                 -> "A"
+          GateFrag l r              -> showTwo "G" l r
+          LeftFrag x                -> "L " <> recur x
+          RightFrag x               -> "R " <> recur x
+          TraceFrag                 -> "T"
+          AuxFrag _                 -> "?"
   in showFrag (FragIndex 0) rootType (rootFrag termMap) <> "\n"
      <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail $ Map.toAscList termMap)

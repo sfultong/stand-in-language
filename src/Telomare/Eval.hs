@@ -30,13 +30,13 @@ data ExpP = ZeroP
 
 instance Plated ExpP where
   plate f = \case
-    PairP a b -> PairP <$> f a <*> f b
+    PairP a b   -> PairP <$> f a <*> f b
     SetEnvP x b -> SetEnvP <$> f x <*> pure b
-    DeferP x -> DeferP <$> f x
-    GateP l r -> GateP <$> f l <*> f r
-    LeftP x -> LeftP <$> f x
-    RightP x -> RightP <$> f x
-    x -> pure x
+    DeferP x    -> DeferP <$> f x
+    GateP l r   -> GateP <$> f l <*> f r
+    LeftP x     -> LeftP <$> f x
+    RightP x    -> RightP <$> f x
+    x           -> pure x
 
 data EvalError = RTE RunTimeError
     | TCE TypeCheckError
@@ -103,7 +103,7 @@ removeChecks :: Term4 -> Term4
 removeChecks (Term4 m) =
   let f = \case
         AbortFrag -> DeferFrag ind
-        x -> x
+        x         -> x
       (ind, newM) = State.runState builder m
       builder = do
         envDefer <- insertAndGetKey EnvFrag

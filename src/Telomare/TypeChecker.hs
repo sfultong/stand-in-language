@@ -4,7 +4,7 @@
 module Telomare.TypeChecker where
 
 import           Control.Applicative
-import Control.Lens.Plated (transform)
+import           Control.Lens.Plated  (transform)
 import           Control.Monad.Except
 import           Control.Monad.State  (State)
 import qualified Control.Monad.State  as State
@@ -72,9 +72,9 @@ buildTypeMap assocSet =
         $ Set.toList assocSet
       getKeys = \case
         TypeVariable i -> DList.singleton i
-        ArrTypeP a b -> getKeys a <> getKeys b
-        PairTypeP a b -> getKeys a <> getKeys b
-        _ -> mempty
+        ArrTypeP a b   -> getKeys a <> getKeys b
+        PairTypeP a b  -> getKeys a <> getKeys b
+        _              -> mempty
       isRecursiveType resolvedSet k = case (Set.member k resolvedSet, Map.lookup k multiMap) of
         (True, _) -> Just k
         (_, Nothing) -> Nothing
@@ -199,4 +199,4 @@ typeCheck t tm@(Term3 typeMap) = convert (partiallyAnnotate tm >>= associate) wh
   traceAgain s = debugTrace ("Resulting thing " <> show s) s
   convert = \case
     Left er -> Just er
-    _ -> Nothing
+    _       -> Nothing

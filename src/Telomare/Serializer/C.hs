@@ -1,8 +1,8 @@
-{-#LANGUAGE ForeignFunctionInterface #-}
-{-#LANGUAGE DeriveGeneric  #-}
-{-#LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveAnyClass           #-}
+{-# LANGUAGE DeriveGeneric            #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 --{-# OPTIONS_GHC -fplugin=Foreign.Storable.Generic.Plugin #-}
---{-# OPTIONS_GHC -fplugin-opt=Foreign.Storable.Generic.Plugin:-v0 #-} 
+--{-# OPTIONS_GHC -fplugin-opt=Foreign.Storable.Generic.Plugin:-v0 #-}
 module Telomare.Serializer.C (
     -- Types
       CTypeId
@@ -41,20 +41,20 @@ module Telomare.Serializer.C (
     , telomare_free
 ) where
 
-import Telomare (IExpr(..))
+import           Telomare                 (IExpr (..))
 
-import Data.Word
-import           Data.Vector.Storable (Vector, fromList, (!))
-import qualified Data.Vector.Storable as S
+import           Data.Vector.Storable     (Vector, fromList, (!))
+import qualified Data.Vector.Storable     as S
+import           Data.Word
 
-import Foreign.ForeignPtr
-import Foreign.Ptr
-import Foreign.C.Types
-import Foreign.Marshal.Alloc
-import Foreign.Marshal.Array
-import Foreign.Storable.Generic
+import           Foreign.C.Types
+import           Foreign.ForeignPtr
+import           Foreign.Marshal.Alloc
+import           Foreign.Marshal.Array
+import           Foreign.Ptr
+import           Foreign.Storable.Generic
 
-import GHC.Generics (Generic)
+import           GHC.Generics             (Generic)
 
 -- | Type alias for expression tag for C
 type CTypeId = CUChar
@@ -81,16 +81,16 @@ typeId (PLeft   _) = pleft_type
 typeId (PRight  _) = pright_type
 typeId  Trace      = trace_type
 
-data CRep 
+data CRep
 
 -- | Root node, contains the whole tree.
-data CRoot = CRoot CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
+data CRoot = CRoot CTypeId (Ptr CRep) deriving(Show, Generic, GStorable)
 
 -- Telomare nodes. Correspond to C structs from Telomare.h files.
 -- General philosophy is: Contain the tag and pointer to next node in the tree. If the node is a leaf, set pointer to null.
 
-data CZero = CZero deriving(Show, Generic) 
-data CPair = CPair  
+data CZero = CZero deriving(Show, Generic)
+data CPair = CPair
     { left_type   :: CTypeId
     , right_type  :: CTypeId
     , left_value  :: Ptr CRep
@@ -102,12 +102,12 @@ data CGate = CGate
   , leftg_value  :: Ptr CRep
   , rightg_value :: Ptr CRep
   } deriving (Show, Generic, GStorable)
-data CEnv     = CEnv deriving(Show, Generic) 
-data CSetEnv  = CSetEnv  CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
-data CDefer   = CDefer   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
-data CPLeft   = CPLeft   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
-data CPRight  = CPRight  CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
-data CTrace   = CTrace   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable) 
+data CEnv     = CEnv deriving(Show, Generic)
+data CSetEnv  = CSetEnv  CTypeId (Ptr CRep) deriving(Show, Generic, GStorable)
+data CDefer   = CDefer   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable)
+data CPLeft   = CPLeft   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable)
+data CPRight  = CPRight  CTypeId (Ptr CRep) deriving(Show, Generic, GStorable)
+data CTrace   = CTrace   CTypeId (Ptr CRep) deriving(Show, Generic, GStorable)
 
 
 -- | Obtains (hopefully valid) IExpr from C representation.
@@ -115,7 +115,7 @@ fromC :: Ptr CRoot -> IO IExpr
 fromC ptr = do
     (CRoot t v) <- peek ptr
     fromC' t v
-    
+
 fromC' :: CTypeId -> Ptr CRep -> IO IExpr
 fromC' type_id ptr = case type_id of
     x | x == zero_type    -> return Zero
@@ -140,8 +140,8 @@ fromC' type_id ptr = case type_id of
         PRight <$> fromC' t v
     x | x == trace_type    -> return Trace
     otherwise -> error "Telomare.Serializer.fromC': Invalid type id - possibly corrupted data."
-    
-    
+
+
 
 -- | Saves the IExpr as a C representation.
 toC :: IExpr -> IO (Ptr CRoot)
@@ -165,7 +165,7 @@ toC' (Pair e1 e2) ptr_type ptr_value = do
     value <- malloc :: IO (Ptr CPair)
     let align = alignment (undefined :: CPair)
         ptr_left_type   = castPtr value
-        ptr_right_type  = castPtr $ value `plusPtr`        1 
+        ptr_right_type  = castPtr $ value `plusPtr`        1
         ptr_left_value  = castPtr $ value `plusPtr`    align
         ptr_right_value = castPtr $ value `plusPtr` (2*align)
     poke ptr_type pair_type
@@ -219,25 +219,25 @@ toC' (PRight e) ptr_type ptr_value = do
 toC' Trace ptr_type ptr_value = poke ptr_type trace_type >> poke ptr_value nullPtr
 
 -- | Tag for CSerialized structs
-data CSerialized 
+data CSerialized
 
--- | Convert serialized version to Telomare_Serialized 
+-- | Convert serialized version to Telomare_Serialized
 -- Copies the memory underneath.
 serializedToC :: Vector Word8 -> IO (Ptr CSerialized)
-serializedToC vec = do 
+serializedToC vec = do
     let len       = S.length vec
         max_align = max (alignment (undefined :: CULong)) (alignment (undefined :: CTypeId))
         size      = max_align + S.length vec
     ptr <- mallocBytes size
     poke (castPtr ptr) (fromIntegral len :: CULong)
-    S.unsafeWith vec (\ptr_vec -> copyArray (ptr `plusPtr` max_align) ptr_vec len) 
+    S.unsafeWith vec (\ptr_vec -> copyArray (ptr `plusPtr` max_align) ptr_vec len)
     return $ castPtr ptr
 
 -- | Convert Telomare_Serialized version to Vector of Word8.
 -- Copies the memory underneath.
 serializedFromC :: Ptr CSerialized -> IO (Vector Word8)
 serializedFromC ptr = do
-   clen <- peek $ castPtr ptr :: IO CULong 
+   clen <- peek $ castPtr ptr :: IO CULong
    let len = fromIntegral clen
        max_align = max (alignment (undefined :: CULong)) (alignment (undefined :: CTypeId))
    fptr_vec <- mallocForeignPtrBytes len
@@ -245,10 +245,10 @@ serializedFromC ptr = do
    return $ S.unsafeFromForeignPtr0 fptr_vec len
 
 -- Foreign calls from C code
- 
+
 foreign import ccall telomare_serialize   :: Ptr CRoot       -> IO (Ptr CSerialized)
 foreign import ccall telomare_deserialize :: Ptr CSerialized -> IO (Ptr CRoot)
 -- | Free the memory reserved for C dynamic representation
-foreign import ccall telomare_free        :: Ptr CRoot       
+foreign import ccall telomare_free        :: Ptr CRoot
                                      -> IO ()
 
