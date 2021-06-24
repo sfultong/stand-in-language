@@ -1,35 +1,36 @@
-{-# LANGUAGE CApiFFI #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE CApiFFI             #-}
 {-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import Data.Char
-import Data.Either
-import Control.Applicative
-import Control.Monad
-import Control.DeepSeq
-import Control.Exception
-import System.IO (hPutStrLn, stderr)
-import GHC.Generics (Generic)
+import           Control.Applicative
+import           Control.DeepSeq
+import           Control.Exception
+import           Control.Monad
+import           Data.Char
+import           Data.Either
+import           GHC.Generics         (Generic)
+import           System.IO            (hPutStrLn, stderr)
 
-import Telomare
-import Telomare.Parser
-import Telomare.RunTime
-import Telomare.TypeChecker (typeCheck, inferType, TypeCheckError(..))
-import Telomare.Optimizer
-import Telomare.Eval
-import qualified System.IO.Strict as Strict
+import qualified System.IO.Strict     as Strict
+import           Telomare
+import           Telomare.Eval
+import           Telomare.Optimizer
+import           Telomare.Parser
+import           Telomare.RunTime
+import           Telomare.TypeChecker (TypeCheckError (..), inferType,
+                                       typeCheck)
 
-import MemoryBench.LLVM
-import MemoryBench.Cases
-import Paths_telomare
+import           MemoryBench.Cases
+import           MemoryBench.LLVM
+import           Paths_telomare
 
-import Weigh hiding (Case, Max)
-import qualified Weigh as Weigh
-import Text.Parsec.Error (ParseError)
+import           Text.Parsec.Error    (ParseError)
+import           Weigh                hiding (Case, Max)
+import qualified Weigh                as Weigh
 
-import Debug.Trace
+import           Debug.Trace
 
 foreign import capi "gc.h GC_INIT" gcInit :: IO ()
 foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
@@ -57,13 +58,13 @@ processCase bindings (Case label code) = do
                   , io "optimizedEval" benchEvalOptimized parsed
                   , details
                   ]
-        weighs  = if isRight e_parsed 
-                     then sequence_ (parsing : evals) 
+        weighs  = if isRight e_parsed
+                     then sequence_ (parsing : evals)
                      else parsing
     wgroup label weighs
-        
+
 processAllCases :: Bindings -> [Case] -> Weigh ()
-processAllCases bindings cases = mapM_ (processCase bindings) cases 
+processAllCases bindings cases = mapM_ (processCase bindings) cases
 
 benchEvalSimple :: IExpr -> IO IExpr
 benchEvalSimple iexpr = simpleEval (SetEnv (Pair (Defer iexpr) Zero))

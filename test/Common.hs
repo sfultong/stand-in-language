@@ -1,20 +1,20 @@
+{-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
-{-# LANGUAGE DeriveFunctor              #-}
 
 module Common where
 
-import Data.Bifunctor
+import           Data.Bifunctor
 
-import Test.QuickCheck
-import Test.QuickCheck.Gen
+import           Test.QuickCheck
+import           Test.QuickCheck.Gen
 
-import Telomare.TypeChecker
-import Telomare.Parser
-import Telomare
+import           Telomare
+import           Telomare.Parser
+import           Telomare.TypeChecker
 
 class TestableIExpr a where
   getIExpr :: a -> IExpr
@@ -230,7 +230,7 @@ instance Arbitrary UnprocessedParsedTerm where
     ITEUP i t e -> i : t : e : [ITEUP ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
     ListUP l -> case l of
       [e] -> if null $ shrink e then [e] else e : map (ListUP . pure) (shrink e)
-      _ -> head l : ListUP (tail l) : map (ListUP . shrink) l
+      _   -> head l : ListUP (tail l) : map (ListUP . shrink) l
   {-
     LetUP l i -> i : case l of -- TODO make this do proper, full enumeration
       [(v,e)] -> if null $ shrink e then [e] else e : map (flip LetUP i . pure . (v,)) (shrink e) <> (map (LetUP l) (shrink i))

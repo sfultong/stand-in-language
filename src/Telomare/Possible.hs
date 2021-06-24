@@ -34,33 +34,33 @@ instance (Eq a, Eq b) => Semigroup (PossibleExpr a b) where
 
 booleanPossibilities :: PossibleExpr a b -> DList.DList Bool
 booleanPossibilities = \case
-  ZeroX -> DList.singleton False
-  PairX _ _ -> DList.singleton True
+  ZeroX       -> DList.singleton False
+  PairX _ _   -> DList.singleton True
   EitherX a b -> booleanPossibilities a <> booleanPossibilities b
-  _ -> DList.empty
+  _           -> DList.empty
 
 getFirstNonZero :: PossibleExpr a b -> Maybe (PossibleExpr a b)
 getFirstNonZero = \case
-  ZeroX -> Nothing
+  ZeroX         -> Nothing
   p@(PairX _ _) -> pure p
-  EitherX a b -> getFirstNonZero a <|> getFirstNonZero b
+  EitherX a b   -> getFirstNonZero a <|> getFirstNonZero b
   AnnotateX _ x -> getFirstNonZero x
-  FunctionX _ -> Nothing
-  AnyX -> pure AnyX
+  FunctionX _   -> Nothing
+  AnyX          -> pure AnyX
 
 possibleString :: PossibleExpr a b -> String
 possibleString =
   let p2i = \case
-        ZeroX -> pure 0
+        ZeroX     -> pure 0
         PairX a b -> fmap succ . (+) <$> p2i a <*> p2i b
-        _ -> Nothing
+        _         -> Nothing
       p2is = \case
-        ZeroX -> pure []
+        ZeroX     -> pure []
         PairX n g -> (:) <$> p2i n <*> p2is g
-        _ -> Nothing
+        _         -> Nothing
       cleanString = \case
         Just s -> s
-        _ -> "unknown error"
+        _      -> "unknown error"
   in cleanString . fmap (map chr) . p2is
 
 possibleString' :: PossibleExpr a b -> String
@@ -99,9 +99,9 @@ toPossible fragLookup setEval env =
   SetEnvFrag x -> recur x >>=
     let processSet = \case
           AnnotateX a px -> AnnotateX a <$> processSet px
-          PairX ft it -> setEval toPossible' env ft it
-          EitherX a b -> (<>) <$> processSet a <*> processSet b
-          z -> error $ "buildTestMap setenv not pair: " <> show z
+          PairX ft it    -> setEval toPossible' env ft it
+          EitherX a b    -> (<>) <$> processSet a <*> processSet b
+          z              -> error $ "buildTestMap setenv not pair: " <> show z
     in processSet
   DeferFrag ind -> pure . FunctionX $ fragLookup ind -- process Defer here rather than SetEnvFrag to reduce arguments to setEval
   g@(GateFrag _ _) -> pure $ FunctionX g

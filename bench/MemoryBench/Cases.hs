@@ -8,12 +8,12 @@
 
 module MemoryBench.Cases where
 
-import Text.Parsec hiding (label)
-import Text.Parsec.Char
+import           Text.Parsec      hiding (label)
+import           Text.Parsec.Char
 
 import qualified System.IO.Strict as Strict
 
-import Data.Maybe
+import           Data.Maybe
 
 type Label    = String
 
@@ -22,7 +22,7 @@ data SrcType = SrcString   String
              deriving (Show)
 
 
-data ParsedCase = ParsedCase Label SrcType 
+data ParsedCase = ParsedCase Label SrcType
             deriving(Show)
 
 data Case = Case Label String
@@ -45,12 +45,12 @@ srcType :: Stream s m Char => ParsecT s u m SrcType
 srcType = srcString <|> srcFilename
     where srcFilename = SrcFilePath <$> remove <$> ((:) <$> anyChar <*> manyTill anyChar (lookAhead endOfLineAndFile))
           srcString   = SrcString   <$> try label
-          remove s    = reverse $ takeWhile (not.(`elem` " \t")) $ reverse s 
+          remove s    = reverse $ takeWhile (not.(`elem` " \t")) $ reverse s
 
 aCase :: Stream s m Char => ParsecT s u m ParsedCase
 aCase = (try labeled <|> srced)
     where labeled = ParsedCase <$> label <*> (many1 (oneOf " \t") *> srcType)
-          srced   = (\x -> ParsedCase (getStr x) x ) <$> srcType 
+          srced   = (\x -> ParsedCase (getStr x) x ) <$> srcType
           getStr (SrcString  str) = str
           getStr (SrcFilePath fp) = fp
 
@@ -65,6 +65,6 @@ loadCases filepath = do
     let e_parsed = parse fileParser filepath loaded
     case e_parsed of
         Right cases -> mapM toCase cases
-        Left err -> print err >> return []
+        Left err    -> print err >> return []
 
 

@@ -1,12 +1,12 @@
 module Telomare.Optimizer where
 
-import Control.Lens.Plated (transform)
-import Data.Map (Map)
-import Data.Set (Set)
-import qualified Data.Map as Map
-import qualified Data.Set as Set
+import           Control.Lens.Plated (transform)
+import           Data.Map            (Map)
+import qualified Data.Map            as Map
+import           Data.Set            (Set)
+import qualified Data.Set            as Set
 
-import Telomare
+import           Telomare
 
 -- TODO think about how removing var indexing will make it hard to figure out closure arity
 -- oh wait, closures will all take one argument and return one argument, and closure
@@ -40,9 +40,9 @@ data IExprV
 -- converts nested grammar that can be computed locally
 precompute :: IExpr -> IExpr
 precompute = transform f where
-  f (PLeft (Pair x _)) = x
+  f (PLeft (Pair x _))  = x
   f (PRight (Pair _ x)) = x
-  f x = x
+  f x                   = x
 
 optimize :: IExpr -> IExpr
 optimize = precompute
