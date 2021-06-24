@@ -59,6 +59,7 @@ jobs:
         run: |
           ls
           sed -n '311,325p' test/Spec.hs
+          git log | head
           nix develop -c stylish-haskell -irv .
           echo stylish-haskell formatting finished
       - uses: EndBug/add-and-commit@v7
