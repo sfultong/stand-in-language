@@ -33,7 +33,6 @@ jobs:
         nix run .#telomare:test:telomare-serializer-test
         echo ${{ github.ref }}
         echo ${{ github.repository }}
-
   format:
     if: ${{ (github.repository == 'hhefesto/stand-in-language') }}
     # TODO: remove the above use the below comment
@@ -67,7 +66,6 @@ jobs:
           message: 'stylish-haskell formatting automatically applied'
           cwd: './stand-in-language.github.io/'
           default_author: github_actions
-
   release:
     if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
     needs: tests format
