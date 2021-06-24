@@ -67,7 +67,7 @@ jobs:
           default_author: github_actions
   release:
     if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
-    needs: tests format
+    needs: [tests, format]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository
