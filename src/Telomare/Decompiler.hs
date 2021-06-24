@@ -130,8 +130,8 @@ decompileTerm2 =
         TLimitedRecursion -> pure TLimitedRecursion
   in snd . go
 
-decompileTerm4 :: Term4 -> Term2
-decompileTerm4 (Term4 tm) =
+decompileFragMap :: Map.Map FragIndex (FragExpr a) -> Term2
+decompileFragMap tm =
   let decomp = let recur = decomp in \case
         ZeroFrag -> TZero
         PairFrag a b -> TPair (recur a) (recur b)
@@ -146,6 +146,12 @@ decompileTerm4 (Term4 tm) =
         TraceFrag -> TLam (Closed ()) $ TTrace (TVar 0)
         AuxFrag _ -> TLimitedRecursion
   in decomp $ rootFrag tm
+
+decompileTerm4 :: Term4 -> Term2
+decompileTerm4 (Term4 tm) = decompileFragMap tm
+
+decompileTerm3 :: Term3 -> Term2
+decompileTerm3 (Term3 tm) = decompileFragMap tm
 
 decompileIExpr :: IExpr -> Term4
 decompileIExpr x = let build = \case

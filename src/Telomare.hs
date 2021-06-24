@@ -177,6 +177,16 @@ indentWithTwoChildren str sl sr = do
   r <- sr
   pure $ indent i (str <> "\n") <> l <> "\n" <> r
 
+indentWithThreeChildren :: String -> State Int String -> State Int String -> State Int String -> State Int String
+indentWithThreeChildren str sa sb sc = do
+  i <- State.get
+  State.put $ i + 2
+  a <- sa
+  State.put $ i + 2
+  b <- sb
+  State.put $ i + 2
+  c <- sc
+  pure $ indent i (str <> "\n") <> a <> "\n" <> b <> "\n" <> c
 
 -- |`dropUntil p xs` drops leading elements until `p $ head xs` is satisfied.
 dropUntil :: (a -> Bool) -> [a] -> [a]
@@ -212,10 +222,8 @@ instance Plated (FragExpr a) where
     RightFrag x  -> RightFrag <$> f x
     x            -> pure x
 
-instance Show a => Show (FragExpr a) where
-  show fexp = State.evalState (cata alg fexp) 0 where
-    alg :: (Base (FragExpr a)) (State Int String) -> State Int String
-    alg = \case
+showFragAlg :: Show a => (Base (FragExpr a)) (State Int String) -> State Int String
+showFragAlg = \case
       ZeroFragF         -> sindent "ZeroF"
       (PairFragF sl sr) -> indentWithTwoChildren "PairF" sl sr
       EnvFragF          -> sindent "EnvF"
@@ -228,6 +236,8 @@ instance Show a => Show (FragExpr a) where
       TraceFragF        -> sindent "TraceF"
       (AuxFragF x)      -> sindent $ "AuxF " <> show x
 
+instance Show a => Show (FragExpr a) where
+  show fexp = State.evalState (cata showFragAlg fexp) 0
 
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
@@ -447,8 +457,8 @@ nextBreakToken = do
   State.put (succ token, fi, fm)
   pure token
 
-buildFragMap :: BreakState' a -> Map FragIndex (FragExpr a)
-buildFragMap bs = let (bf, (_,m)) = State.runState bs (FragIndex 1, Map.empty)
+buildFragMap :: BreakState' a b -> Map FragIndex (FragExpr a)
+buildFragMap bs = let (bf, (_,_,m)) = State.runState bs (undefined, FragIndex 1, Map.empty)
                   in Map.insert (FragIndex 0) bf m
 
 pattern FirstArgA :: ExprA a

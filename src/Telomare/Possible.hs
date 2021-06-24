@@ -1,15 +1,21 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DeriveTraversable          #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
 module Telomare.Possible where
 
 import           Control.Applicative
 import Control.Monad
 import Control.Monad.Reader (Reader)
 import qualified Control.Monad.Reader as Reader
-import Control.Monad.State (StateT)
+import Control.Monad.State (State, StateT)
 import qualified Control.Monad.State as State
 import Control.Monad.Trans.Class
 import qualified Data.DList          as DList
 import           Data.Foldable
+import           Data.Functor.Foldable
+import           Data.Functor.Foldable.TH
 import Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Monoid
@@ -26,7 +32,8 @@ data PossibleExpr a b
   | FunctionX (FragExpr b)
   | AnnotateX a (PossibleExpr a b)
   | ClosureX (FragExpr b) (PossibleExpr a b) -- hack for lazy evaluation
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord)
+makeBaseFunctor ''PossibleExpr
 
 instance (Eq a, Eq b) => Semigroup (PossibleExpr a b) where
   (<>) a b = case (a,b) of
@@ -39,7 +46,20 @@ instance (Eq a, Eq b) => Semigroup (PossibleExpr a b) where
     (PairX a b, PairX c d) | a == c     -> PairX a (b <> d)
     (PairX a b, PairX c d) | b == d     -> PairX (a <> c) b
     (EitherX a b, EitherX c d)          -> EitherX (a <> c) (b <> d)
+    _ | a == b                          -> a
     _                                   -> EitherX a b
+
+instance (Show a, Show b) => Show (PossibleExpr a b) where
+  show exp = State.evalState (cata alg exp) 0 where
+    alg :: (Show a, Show b) => (Base (PossibleExpr a b)) (State Int String) -> State Int String
+    alg = \case
+      ZeroXF -> sindent "ZeroX"
+      AnyXF  -> sindent "AnyX"
+      PairXF a b -> indentWithTwoChildren "PairX" a b
+      EitherXF a b -> indentWithTwoChildren "EitherX" a b
+      FunctionXF f -> cata showFragAlg f
+      AnnotateXF a x -> indentWithOneChild ("AnnotateX " <> show a) x
+      ClosureXF f x -> indentWithTwoChildren "ClosureX" (cata showFragAlg f) x
 
 -- notice that AnyX will translate to an empty list, which may not be expected
 toIExprList :: PossibleExpr a b -> DList.DList IExpr
@@ -49,6 +69,14 @@ toIExprList = \case
   EitherX a b -> toIExprList a <> toIExprList b
   AnnotateX _ x -> toIExprList x
   _ -> mempty
+
+toIExprList' :: (PossibleExpr a b -> FragExpr b -> PossibleExpr a b) -> PossibleExpr a b -> DList.DList IExpr
+toIExprList' setEval = let recur = toIExprList' setEval in \case
+  ZeroX -> pure Zero
+  PairX a b -> Pair <$> recur a <*> recur b
+  EitherX a b -> recur a <> recur b
+  AnnotateX _ x -> recur x
+  ClosureX f i -> recur $ setEval i f
 
 annotations :: Ord a => PossibleExpr a b -> Set a
 annotations = \case
@@ -64,13 +92,25 @@ noAnnotatedFunctions =
         AnnotateX _ x -> testF x
         FunctionX _ -> False
         EitherX a b -> testF a && testF b
+        ClosureX _ e -> noAnnotatedFunctions e
         x -> noAnnotatedFunctions x
   in \case
     PairX a b -> noAnnotatedFunctions a && noAnnotatedFunctions b
     EitherX a b -> noAnnotatedFunctions a && noAnnotatedFunctions b
     AnnotateX _ x -> testF x
-    -- ClosureX _ 
+    ClosureX _ e -> noAnnotatedFunctions e
     _ -> True
+
+truncatePossible :: PossibleExpr a b -> FragExpr b
+truncatePossible = cata alg where
+  alg = \case
+    ZeroXF -> ZeroFrag
+    AnyXF -> ZeroFrag
+    PairXF a b -> PairFrag a b
+    EitherXF a _ -> a
+    FunctionXF f -> f
+    AnnotateXF _ x -> x
+    ClosureXF f x -> SetEnvFrag (PairFrag f x)
 
 containsAux :: (FragIndex -> FragExpr a) -> FragExpr a -> Bool
 containsAux fragLookup = let recur = containsAux fragLookup in \case
@@ -172,17 +212,6 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
         ClosureX f i -> sRecur i f >>= toExprList'
       setEval ft it = case ft of
         FunctionX af -> case af of
-          {-
-          GateFrag l r -> case it of
-            AnnotateX _ px -> setEval ft px
-            ZeroX -> sRecur' l
-            PairX _ _ -> sRecur' r
-            -- zo | foldl (\b a -> a == Zero || b) False (toIExprList zo) -> (<>) <$> sRecur' l <*> sRecur' r -- this takes care of EitherX with an embedded ZeroX
-            zo | foldl (\b a -> a == Zero || b) False (toIExprList zo) -> (<>) <$> sRecur' l <*> sRecur' r -- this takes care of EitherX with an embedded ZeroX
-            EitherX _ _ -> sRecur' r
-            AnyX -> (<>) <$> sRecur' l <*> sRecur' r
-            z -> error $ "abortingSetEval Gate unexpected input: " <> show z
--}
           GateFrag l r -> case (it, toExprList' it) of
             (_, Left e) -> Left e -- if evaluating input aborts, bubble up abort result
             (AnyX, _) -> (<>) <$> sRecur' l <*> sRecur' r
@@ -190,16 +219,6 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
               (True, True) -> (<>) <$> sRecur' l <*> sRecur' r
               (True, False) -> sRecur' l
               _ -> sRecur' r
-  {-
-          AbortFrag -> case it of
-            AnnotateX _ px -> setEval ft px
-            ZeroX -> pure $ FunctionX EnvFrag
-            nzo | not . null . foldr abortCombine abortDefault $ toIExprList nzo
-                  -> case foldr abortCombine abortDefault $ toIExprList nzo of
-                    Nothing -> error "abortSetEval: impossible"
-                    Just x -> Left x
-            z -> error $ "abortingSetEval Abort unexpected input: " <> show z
--}
           AbortFrag -> case (filter (/= Zero) . toList) <$> toExprList' it of
             Left e -> Left e -- if evaluating input aborts, bubble up abort result
             Right l -> case foldr abortCombine abortDefault $ l of
@@ -287,12 +306,6 @@ testBuildingSetEval sRecur env ft' it' =
                     _ -> error ("extractR bad " <> show pairA)
             itResult <- iterate (>>= appP) (pure $ AnnotateX ind it) !! cLimit
             extractR $ pruneAnnotations (mempty, itResult)
-  {-
-            case pruneAnnotations (mempty, itResult) of
-              --PairX (PairX _ (PairX _ (PairX _ r))) _ -> pure r
-              (aSet, PairX _ (PairX _ (PairX _ (PairX r _)))) -> pure $ foldr AnnotateX r aSet -- pure r
-              z -> error ("testBuildingSetEval AuxFrag part, unexpected " <> show z)
--}
           x -> let alterSizeTest v = \case
                      Nothing -> pure v
                      Just e -> pure $ (<>) <$> e <*> v
@@ -314,13 +327,9 @@ testBuildingSetEval sRecur env ft' it' =
                          -- mapM_ (flip addSizeTest (pure . PairX ft $ deepForce it)) poisonedSet
                          fit <- deepForce it
                          mapM_ (flip addSizeTest (pure $ PairX ft fit)) poisonedSet
-			 {-
-                       if not (null poisonedSet)
-		       then trace ("contaminated thing " <> show ft') pure ()
-		       else pure ()
-		       -}
                        -- trace ("hc " <> show hasContamination <> " naf " <> show (noAnnotatedFunctions truncatedResult)) opt
                        -- trace ("itdump " <> show it') opt
                        opt
                in conditionallyAddTests $ sRecur it x
+        z -> error ("tbse setEval unexpected " <> show z)
   in setEval initialPoisoned ft' it'

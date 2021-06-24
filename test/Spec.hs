@@ -3,6 +3,7 @@ module Main where
 
 import Control.Applicative (liftA2)
 import Control.Monad.IO.Class
+import Control.Monad.Reader (Reader, runReader)
 import Debug.Trace
 import Data.Bifunctor
 import Data.Char
@@ -17,12 +18,16 @@ import Telomare.Parser
 import Telomare.RunTime
 import Telomare.TypeChecker
 import Telomare.Optimizer
+import Telomare.Possible
 import Telomare.Serializer
 import System.Exit
 import System.IO
 import Test.Hspec
 import Test.QuickCheck
 import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
+import qualified Control.Monad.State as State
+import qualified Data.DList          as DList
+import qualified Data.Map as Map
 import qualified System.IO.Strict as Strict
 
 -- Common datatypes for generating Telomare AST.
@@ -303,7 +308,6 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromTelo
 unitTestQC :: Testable p => String -> Int -> p -> Spec
 unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
 
-
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
 -- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
@@ -325,12 +329,6 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
        _ | otherwise -> False
 -}
 
-unitTestQC :: Testable p => String -> Int -> p -> Spec
-unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
-
-
-churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
-
 -- unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
   -- inferType (fromTelomare iexpr)
 quickcheckDataTypedCorrectlyTypeChecks :: DataTypedIExpr -> Bool
@@ -350,12 +348,32 @@ qcDecompileIExprAndBackEvalsSame (IExprWrapper x) = pure (showResult $ eval' x)
         parseLongExpr' x = case runTelomareParser (scn *> parseLongExpr <* scn) x of
           Just r -> r
           _ -> error "parseLongExpr' should be impossible"
+        findChurchSize' x = case findChurchSize x of
+          Right r -> r
+          Left e -> error ("findChurchSize' error: " <> show e)
         dec = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm4 . decompileIExpr
-        comp = findChurchSize . splitExpr . debruijinize' . validateVariables' . optimizeBuiltinFunctions . parseLongExpr'
+        comp = findChurchSize' . splitExpr . debruijinize' . validateVariables' . optimizeBuiltinFunctions . parseLongExpr'
         showTrace x = x -- trace ("decompiled: " <> show x) x
         showTrace' x = x -- trace ("recompiled: " <> show x) x
         showResult x = x -- trace ("desired result: " <> show x) x
         showResult' x = x -- trace ("actual result: " <> show x) x
+
+qcTestMapBuilderEqualsRegularEval :: DataTypedIExpr -> Bool
+qcTestMapBuilderEqualsRegularEval (IExprWrapper x) = (showResult $ eval' x)
+  == pure (showResult' . decodePossible . showIntermediate $ possibleConvert AnyX (rootFrag termMap))
+  where eval' = pureIEval
+        (Term3 termMap) = splitExpr . decompileTerm4 $ decompileIExpr x
+        annotateAux ur = pure . AnnotateX ur . FunctionX $ AuxFrag ur -- should never actually be called
+        possibleConvert i f = (\tmb -> runReader (State.evalStateT tmb mempty) (const 0)) $
+          toPossible (termMap Map.!) testBuildingSetEval annotateAux i f
+        -- tmb = toPossible (termMap Map.!) testBuildingSetEval annotateAux AnyX (rootFrag termMap)
+        -- possibleResult = runReader (State.evalStateT tmb mempty) (const 0)
+        decodePossible x' = case toIExprList' possibleConvert x' of
+          DList.Cons r [] -> r
+          _ -> error ("bad possible from " <> show x)
+        showIntermediate x = trace ("intermediate possible: " <> show x) x
+        showResult x = trace ("desired result: " <> show x) x
+        showResult' x = trace ("actual result: " <> show x) x
 
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
@@ -367,26 +385,32 @@ unitTests_ parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
       unitTestStaticChecks = unitTestStaticChecks' parse
-      decomplleExample = IExprWrapper (PLeft (PLeft (SetEnv (PRight (PLeft (SetEnv (Pair (Defer (Pair (Pair Zero (Pair (Gate (Pair (Pair Zero (Defer Env)) Zero) (Pair (Pair Env (Defer Zero)) Env)) (SetEnv (Pair (Defer Env) Env)))) Env)) (SetEnv (Pair (PRight (SetEnv (SetEnv (Pair (Defer (Pair (Defer (Pair Zero (Defer (Pair Zero Zero)))) Zero)) Zero)))) Zero)))))))))
-
+      -- decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero Zero))) (SetEnv (SetEnv (SetEnv (PLeft (Pair (Pair (Defer (Pair (Defer (Pair (Defer Zero) Env)) Env)) Zero) Zero))))))))
+      -- decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero Zero))) Zero)))
+      decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero (Pair Zero Zero)))) Zero)))
+      -- decompileExample = IExprWrapper (SetEnv (SetEnv (SetEnv (Pair (Defer (Pair (Defer (Pair (Defer Zero) Env)) Env)) Zero))))
   {-
       unitTestRuntime = unitTestRuntime' parse
       unitTestSameResult = unitTestSameResult' parse
 -}
-  unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprAndBackEvalsSame
+  -- unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprAndBackEvalsSame
+  -- unitTestQC "possibleEvalIsLikeRegularEval" 15000 qcTestMapBuilderEqualsRegularEval
+
+  -- unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0"
+  -- unitTest2 "main = ? (\\r x -> r (left x)) (\\a -> 0) 1" "0"
+  -- unitTest2 "main = ? (\\r x -> left x) (\\a -> 0) 1" "0"
+  -- unitTest2 "main = ? (\\x -> (x,0)) 0" "5"
+  unitTest2 "main = $5 (\\x -> (x,0)) 0" "5"
+
   {-
   it "decompileExample" $ if qcDecompileIExprAndBackEvalsSame decompileExample
     then pure ()
     else expectationFailure "not equal"
 -}
   {-
-  1) decompileIexprToTerm2AndBackEvalsSame
-       uncaught exception: ErrorCall
-       validateVariables No definition found for a
-       CallStack (from HasCallStack):
-         error, called at test/Spec.hs:351:21 in main:Main
-       (after 974 tests and 61 shrinks)
-         IExprWrapper Env
+  it "decompileExample" $ if qcTestMapBuilderEqualsRegularEval decompileExample
+    then pure ()
+    else expectationFailure "not equal"
 -}
 
 --        IExprWrapper (SetEnv (PRight (PLeft (PLeft (PLeft (SetEnv (Pair (Defer (Pair (Pair (Pair (Pair Zero (Pair (Defer Env) Zero)) Zero) Zero) Zero)) (Defer Zero))))))))
