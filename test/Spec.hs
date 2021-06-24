@@ -300,6 +300,17 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromTelo
   Left err -> do
     expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
 
+
+{-
+unitTestQC :: Testable p => String -> Int -> p -> Spec
+unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
+  (Success _ _ _ _ _ _) -> pure ()
+  x -> expectationFailure $ concat [name, " failed: ", show x]
+-}
+unitTestQC :: Testable p => String -> Int -> p -> Spec
+unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
+
+
 {-
 unitTestOptimization :: String -> IExpr -> IO Bool
 unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
@@ -320,16 +331,6 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
        (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
        _ | iexpr == iexpr'  -> True
        _ | otherwise -> False
-
-{-
-unitTestQC :: Testable p => String -> Int -> p -> Spec
-unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
-  (Success _ _ _ _ _ _) -> pure ()
-  x -> expectationFailure $ concat [name, " failed: ", show x]
--}
-unitTestQC :: Testable p => String -> Int -> p -> Spec
-unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
-
 
 churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
