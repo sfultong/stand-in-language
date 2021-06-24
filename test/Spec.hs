@@ -318,7 +318,7 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
   in
     case (iexpr, iexpr') of
        (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
-       _ | iexpr == iexpr' -> True
+       _ | iexpr == iexpr'  -> True
        _ | otherwise -> False
 
 {-
