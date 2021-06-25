@@ -94,7 +94,7 @@ jobs:
         run: |
           ls
           cd telomare
-          nix run .#haddockScript
+          nix develop -c cabal haddock --haddock-hyperlink-source
           echo OK Haddock build
       - name: haddock copy
         run: |
