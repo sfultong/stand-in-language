@@ -63,27 +63,22 @@ jobs:
           message: 'stylish-haskell formatting automatically applied'
           default_author: github_actions
   release:
-    # TODO: un-comment these
-    # if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
-    # needs: [tests, format]
+    if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
+    needs: [tests, format]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
-          # TODO: return
-          # repository: Stand-In-Language/stand-in-language
-          repository: hhefesto/stand-in-language
+          repository: Stand-In-Language/stand-in-language
           token: ${{ secrets.API_TOKEN_GITHUB }}
           path: ./telomare
       - name: Checkout telomare site repository
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
-          # TODO: return
-          # repository: Stand-In-Language/stand-in-language.github.io
-          repository: hhefesto/stand-in-language.github.io
+          repository: Stand-In-Language/stand-in-language.github.io
           token: ${{ secrets.API_TOKEN_GITHUB }}
           path: ./stand-in-language.github.io
       - uses: cachix/install-nix-action@v12
