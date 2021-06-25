@@ -27,10 +27,14 @@ jobs:
     - name: Build and test
       run: |
         cachix use iohk
-        nix build .#telomare:exe:telomare
+        nix build .#telomare:exe:telomare | cachix push telomare
         nix run .#telomare:test:telomare-test
         nix run .#telomare:test:telomare-parser-test
         nix run .#telomare:test:telomare-serializer-test
+        echo building for legacy nix-shell
+        nix-build | cachix push telomare
+        nix-shell --run "echo OK"
+        nix-store --query --references $(nix-instantiate shell.nix) | xargs nix-store --realise | xargs nix-store --query --requisites | cachix push telomare
         echo ${{ github.ref }}
         echo ${{ github.repository }}
   format:
