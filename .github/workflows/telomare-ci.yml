@@ -7,18 +7,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     # - uses: actions/checkout@v2.3.4
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v2.3.4
       with:
           # Nix Flakes doesn't work on shallow clones
           fetch-depth: 0
-    - uses: cachix/install-nix-action@v12
+    - uses: cachix/install-nix-action@v13
       with:
         # nix_path: nixpkgs=channel:nixos-unstable
         # skip_adding_nixpkgs_channel: true
-        install_url: https://github.com/numtide/nix-flakes-installer/releases/download/nix-2.4pre20201221_9fab14a/install
+        install_url: https://nixos-nix-install-tests.cachix.org/serve/i6laym9jw3wg9mw6ncyrk6gjx4l34vvx/install
+        install_options: '--tarball-url-prefix https://nixos-nix-install-tests.cachix.org/serve'
         extra_nix_config: |
           experimental-features = nix-command flakes
-    - uses: cachix/cachix-action@v8
+    - uses: cachix/cachix-action@v10
       with:
         name: telomare
         signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
@@ -43,17 +44,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v2.3.4
         with:
           fetch-depth: 0
           repository: Stand-In-Language/stand-in-language
           token: ${{ secrets.API_TOKEN_GITHUB }}
-      - uses: cachix/install-nix-action@v12
+      - uses: cachix/install-nix-action@v13
         with:
-          install_url: https://github.com/numtide/nix-flakes-installer/releases/download/nix-2.4pre20201221_9fab14a/install
+          install_url: https://nixos-nix-install-tests.cachix.org/serve/i6laym9jw3wg9mw6ncyrk6gjx4l34vvx/install
+          install_options: '--tarball-url-prefix https://nixos-nix-install-tests.cachix.org/serve'
           extra_nix_config: |
             experimental-features = nix-command flakes
-      - uses: cachix/cachix-action@v8
+      - uses: cachix/cachix-action@v10
         with:
           name: telomare
           signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
@@ -72,25 +74,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v2.3.4
         with:
           fetch-depth: 0
           repository: Stand-In-Language/stand-in-language
           token: ${{ secrets.API_TOKEN_GITHUB }}
           path: ./telomare
       - name: Checkout telomare site repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v2.3.4
         with:
           fetch-depth: 0
           repository: Stand-In-Language/stand-in-language.github.io
           token: ${{ secrets.API_TOKEN_GITHUB }}
           path: ./stand-in-language.github.io
-      - uses: cachix/install-nix-action@v12
+      - uses: cachix/install-nix-action@v13
         with:
-          install_url: https://github.com/numtide/nix-flakes-installer/releases/download/nix-2.4pre20201221_9fab14a/install
+          install_url: https://nixos-nix-install-tests.cachix.org/serve/i6laym9jw3wg9mw6ncyrk6gjx4l34vvx/install
+          install_options: '--tarball-url-prefix https://nixos-nix-install-tests.cachix.org/serve'
           extra_nix_config: |
             experimental-features = nix-command flakes
-      - uses: cachix/cachix-action@v8
+      - uses: cachix/cachix-action@v10
         with:
           name: telomare
           signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
