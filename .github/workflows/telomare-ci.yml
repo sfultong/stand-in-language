@@ -28,16 +28,14 @@ jobs:
         #authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
     - name: Build and test
       run: |
-        export CACHIX_SIGNING_KEY=${{ secrets.CACHIX_SIGNING_KEY }}
         cachix use iohk
-        nix build .#telomare:exe:telomare | cachix push telomare
+        nix build .#telomare:exe:telomare
         nix run .#telomare:test:telomare-test
         nix run .#telomare:test:telomare-parser-test
         nix run .#telomare:test:telomare-serializer-test
         echo building for legacy nix-shell
-        nix-build | cachix push telomare
+        nix-build
         nix-shell --run "echo OK"
-        nix-store --query --references $(nix-instantiate shell.nix) | xargs nix-store --realise | xargs nix-store --query --requisites | cachix push telomare
         echo ${{ github.ref }}
         echo ${{ github.repository }}
   format:
