@@ -28,7 +28,7 @@ jobs:
         #authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
     - name: Build and test
       run: |
-        cat ${{ secrets.CACHIX_SIGNING_KEY }}
+        export CACHIX_SIGNING_KEY=${{ secrets.CACHIX_SIGNING_KEY }}
         cachix use iohk
         nix build .#telomare:exe:telomare | cachix push telomare
         nix run .#telomare:test:telomare-test
