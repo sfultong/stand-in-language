@@ -1,8 +1,5 @@
-{-# LANGUAGE DeriveFoldable      #-}
-{-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE DeriveTraversable   #-}
 {-# LANGUAGE FlexibleInstances   #-}
-{-# LANGUAGE KindSignatures      #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
@@ -24,6 +21,7 @@ import           Data.ByteString            (ByteString)
 import qualified Data.ByteString            as BS
 import           Data.Char
 import qualified Data.Foldable              as F
+import           Data.Functor               (($>))
 import           Data.Functor.Foldable
 import           Data.Functor.Foldable.TH
 import           Data.List                  (delete, elem, elemIndex)
@@ -98,7 +96,7 @@ i2t = ana coalg where
 
 -- |List of Int's to ParserTerm
 ints2t :: [Int] -> ParserTerm l v
-ints2t = foldr (\i t -> TPair (i2t i) t) TZero
+ints2t = foldr (TPair . i2t) TZero
 
 -- |String to ParserTerm
 s2t :: String -> ParserTerm l v
@@ -117,7 +115,7 @@ instance MonadFail (Either String) where
   fail = Left
 
 debruijinize :: MonadFail m => VarList -> Term1 -> m Term2
-debruijinize _ (TZero) = pure $ TZero
+debruijinize _ TZero = pure TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize vl (TVar n) = case elemIndex n vl of
                              Just i  -> pure $ TVar i
@@ -132,7 +130,7 @@ debruijinize vl (TRight x) = TRight <$> debruijinize vl x
 debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
 debruijinize vl (TLam (Open n) x) = TLam (Open ()) <$> debruijinize (n : vl) x
 debruijinize vl (TLam (Closed n) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
-debruijinize _ (TLimitedRecursion) = pure TLimitedRecursion
+debruijinize _ TLimitedRecursion = pure TLimitedRecursion
 
 splitExpr' :: Term2 -> BreakState' BreakExtras
 splitExpr' = \case
@@ -141,14 +139,14 @@ splitExpr' = \case
   TVar n -> pure $ varNF n
   TApp c i -> appF (splitExpr' c) (splitExpr' i)
   TCheck tc c ->
-    let performTC = deferF ((\ia -> (SetEnvFrag (PairFrag (SetEnvFrag (PairFrag AbortFrag ia)) (RightFrag EnvFrag)))) <$> appF (pure $ LeftFrag EnvFrag) (pure $ RightFrag EnvFrag))
+    let performTC = deferF ((\ia -> SetEnvFrag (PairFrag (SetEnvFrag (PairFrag AbortFrag ia)) (RightFrag EnvFrag))) <$> appF (pure $ LeftFrag EnvFrag) (pure $ RightFrag EnvFrag))
     in (\ptc nc ntc -> SetEnvFrag (PairFrag ptc (PairFrag ntc nc))) <$> performTC <*> splitExpr' c <*> splitExpr' tc
   TITE i t e -> (\ni nt ne -> SetEnvFrag (PairFrag (GateFrag ne nt) ni)) <$> splitExpr' i <*> splitExpr' t <*> splitExpr' e
   TLeft x -> LeftFrag <$> splitExpr' x
   TRight x -> RightFrag <$> splitExpr' x
   TTrace x -> (\tf nx -> SetEnvFrag (PairFrag tf nx)) <$> deferF (pure TraceFrag) <*> splitExpr' x
-  TLam (Open ()) x -> (\f -> PairFrag f EnvFrag) <$> deferF (splitExpr' x)
-  TLam (Closed ()) x -> (\f -> PairFrag f ZeroFrag) <$> deferF (splitExpr' x)
+  TLam (Open ()) x -> (`PairFrag` EnvFrag) <$> deferF (splitExpr' x)
+  TLam (Closed ()) x -> (`PairFrag` ZeroFrag) <$> deferF (splitExpr' x)
   TLimitedRecursion -> pure $ AuxFrag UnsizedRecursion
 
 splitExpr :: Term2 -> Term3
@@ -173,15 +171,14 @@ convertPT n (Term3 termMap) =
       startKey = succ . fst $ Map.findMax termMap
       newMapBuilder = do
         changedTermMap <- mmap
-        State.modify (\(i,m) -> (i, Map.union changedTermMap m))
+        State.modify (second (Map.union changedTermMap))
       (_,newMap) = State.execState newMapBuilder (startKey, Map.empty)
   in Term4 newMap
 
 -- |Parse a variable.
 parseVariable :: TelomareParser UnprocessedParsedTerm
-parseVariable = do
-  varName <- identifier
-  pure $ VarUP varName
+parseVariable =
+  VarUP <$> identifier
 
 -- |Line comments start with "--".
 lineComment :: TelomareParser ()
@@ -224,7 +221,7 @@ rws = ["let", "in", "if", "then", "else"]
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
 identifier :: TelomareParser String
-identifier = (lexeme . try) $ p >>= check
+identifier = lexeme . try $ p >>= check
     where
       p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
       check x = if x `elem` rws
@@ -241,7 +238,7 @@ brackets = between (symbol "[") (symbol "]")
 
 -- |Comma sepparated TelomareParser that will be useful for lists
 commaSep :: TelomareParser a -> TelomareParser [a]
-commaSep p = p `sepBy` (symbol ",")
+commaSep p = p `sepBy` symbol ","
 
 -- |Integer TelomareParser used by `parseNumber` and `parseChurch`
 integer :: TelomareParser Integer
@@ -253,7 +250,7 @@ parseString = StringUP <$> (symbol "\"" *> manyTill L.charLiteral (symbol "\""))
 
 -- |Parse number (Integer).
 parseNumber :: TelomareParser UnprocessedParsedTerm
-parseNumber = (IntUP . fromInteger) <$> integer
+parseNumber = IntUP . fromInteger <$> integer
 
 -- |Parse a pair.
 parsePair :: TelomareParser UnprocessedParsedTerm
@@ -323,9 +320,7 @@ parseLambda = do
 parseSameLvl :: Pos -> TelomareParser a -> TelomareParser a
 parseSameLvl pos parser = do
   lvl <- L.indentLevel
-  case pos == lvl of
-    True  -> parser
-    False -> fail "Expected same indentation."
+  if pos == lvl then parser else fail "Expected same indentation."
 
 -- |Parse let expression.
 parseLet :: TelomareParser UnprocessedParsedTerm
@@ -347,10 +342,10 @@ parseLongExpr = choice $ try <$> [ parseLet
 
 -- |Parse church numerals (church numerals are a "$" appended to an integer, without any whitespace separation).
 parseChurch :: TelomareParser UnprocessedParsedTerm
-parseChurch = (ChurchUP . fromInteger) <$> (symbol "$" *> integer)
+parseChurch = ChurchUP . fromInteger <$> (symbol "$" *> integer)
 
 parsePartialFix :: TelomareParser UnprocessedParsedTerm
-parsePartialFix = symbol "?" *> pure UnsizedRecursionUP
+parsePartialFix = symbol "?" $> UnsizedRecursionUP
 
 -- |Parse refinement check.
 parseRefinementCheck :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
@@ -386,11 +381,11 @@ parseDefinitions = do
 
 -- |Helper function to test parsers without a result.
 runTelomareParser_ :: Show a => TelomareParser a -> String -> IO ()
-runTelomareParser_ parser str = show <$> runTelomareParser parser str >>= putStrLn
+runTelomareParser_ parser str = runTelomareParser parser str >>= print
 
 -- |Helper function to debug parsers without a result.
 runTelomareParserWDebug :: Show a => TelomareParser a -> String -> IO ()
-runTelomareParserWDebug parser str = show <$> runTelomareParser (dbg "debug" parser) str >>= putStrLn
+runTelomareParserWDebug parser str = runTelomareParser (dbg "debug" parser) str >>= print
 
 -- |Helper function to test Telomare parsers with any result.
 runTelomareParser :: Monad m => TelomareParser a -> String -> m a
@@ -430,9 +425,7 @@ vars = cata alg where
   alg (TLamF (Closed n) x) = del n x
   alg e                    = F.fold e
   del :: String -> Set String -> Set String
-  del n x = case Set.member n x of
-              False -> x
-              True  -> Set.delete n x
+  del n x = if Set.member n x then Set.delete n x else x
 
 -- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
 -- Automatic recognition of Close or Open type of `TLam`.
@@ -441,12 +434,10 @@ makeLambda :: [(String, UnprocessedParsedTerm)] -- ^Bindings
            -> Term1                             -- ^Lambda body
            -> Term1
 makeLambda bindings str term1 =
-  case unbound == Set.empty of
-    True -> TLam (Closed str) term1
-    _    -> TLam (Open str) term1
+  if unbound == Set.empty then TLam (Closed str) term1 else TLam (Open str) term1
   where bindings' = Set.fromList $ fst <$> bindings
         v = vars term1
-        unbound = ((v \\ bindings') \\ Set.singleton str)
+        unbound = (v \\ bindings') \\ Set.singleton str
 
 validateVariables :: [(String, UnprocessedParsedTerm)] -- ^ Prelude
                   -> UnprocessedParsedTerm
@@ -520,7 +511,7 @@ generateAllUniques upt = State.evalState (makeUnique upt) 0 where
   uptHash :: UnprocessedParsedTerm -> ByteString
   uptHash = hash . BS.pack . encode . show
   bs2IntUPList :: ByteString -> [UnprocessedParsedTerm]
-  bs2IntUPList bs = (IntUP . fromInteger . toInteger) <$> (BS.unpack bs)
+  bs2IntUPList bs = IntUP . fromInteger . toInteger <$> BS.unpack bs
   makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
   makeUnique upt = transformM interm upt
     where
@@ -538,8 +529,7 @@ process :: [(String, UnprocessedParsedTerm)] -- ^Prelude
         -> UnprocessedParsedTerm
         -> Either String Term3
 process prelude = fmap splitExpr
-                . (>>= debruijinize [])
-                . validateVariables prelude
+                . debruijinize [] <=< validateVariables prelude
                 . optimizeBuiltinFunctions
                 . generateAllUniques
 
