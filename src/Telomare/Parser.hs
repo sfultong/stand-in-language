@@ -177,8 +177,7 @@ convertPT n (Term3 termMap) =
 
 -- |Parse a variable.
 parseVariable :: TelomareParser UnprocessedParsedTerm
-parseVariable =
-  VarUP <$> identifier
+parseVariable = VarUP <$> identifier
 
 -- |Line comments start with "--".
 lineComment :: TelomareParser ()
@@ -222,11 +221,11 @@ rws = ["let", "in", "if", "then", "else"]
 -- and must start with an English alphabet letter
 identifier :: TelomareParser String
 identifier = lexeme . try $ p >>= check
-    where
-      p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
-      check x = if x `elem` rws
-                then fail $ "keyword " ++ show x ++ " cannot be an identifier"
-                else pure x
+  where
+    p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
+    check x = if x `elem` rws
+              then fail $ "keyword " ++ show x ++ " cannot be an identifier"
+              else pure x
 
 -- |Parser for parenthesis.
 parens :: TelomareParser a -> TelomareParser a

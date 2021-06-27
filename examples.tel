@@ -1,15 +1,15 @@
 -- File for small illustrative telomare programs and for testing
 
 -- Hello World example.
--- main = \input -> ("Hello, World!", 0)
+main = \input -> ("Hello, World!", 0)
 
 -- Simple example of ad-hoc user defined types
-MyInt = let intTag = unique
-        in ( \i -> if not i
-                   then "MyInt must not be 0"
-                   else (intTag, i)
-           , \i -> if dEqual (left i) intTag
-                   then 0
-                   else "expecting MyInt"
-           )
-main = \i -> ((left MyInt) 8, 0)
+-- MyInt = let intTag = unique
+--         in ( \i -> if not i
+--                    then "MyInt must not be 0"
+--                    else (intTag, i)
+--            , \i -> if dEqual (left i) intTag
+--                    then 0
+--                    else "expecting MyInt"
+--            )
+-- main = \i -> ((left MyInt) 8, 0)
