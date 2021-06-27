@@ -242,8 +242,8 @@ startExpr :: (IExpr -> IO IExpr)
           -> IO ()
 startExpr eval bindings s_expr = do
     case runReplParser bindings s_expr of
-        Left err                 -> putStrLn $ "Parse error: " ++ err
-        Right (ReplAssignment _) -> putStrLn $ "Expression is an assignment"
+        Left err                 -> error $ "Parse error: " ++ err
+        Right (ReplAssignment _) -> error $ "Expression is an assignment"
         Right (ReplExpr binds)   -> printLastExpr putStrLn eval binds
 
 main = do
