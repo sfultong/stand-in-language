@@ -6,11 +6,14 @@ module Telomare.Llvm where
 
 import           Control.Monad.Except
 import           Control.Monad.State.Strict
-import           Crypto.Hash.SHA256          (hashlazy)
+import           Crypto.Hash                 (Digest, SHA256, hashlazy)
 import           Data.Binary                 (encode)
+import qualified Data.ByteArray              as BA (unpack)
+import qualified Data.ByteString             as BS
 import           Data.ByteString             (ByteString)
 import qualified Data.ByteString.Base16      as Base16
 import qualified Data.ByteString.Char8       as BSC
+import qualified Data.ByteString.Lazy        as BSL
 import           Data.ByteString.Short       (toShort)
 import           Data.Int                    (Int64)
 import           Data.Map.Strict             (Map)
@@ -340,7 +343,9 @@ doFunction body = do
       let r = ConstantOperand (C.PtrToInt (C.GlobalReference funT name) intT)
       modify (\(m, i) -> (Map.insert h r m, i))
       pure r
-  where h = hashlazy (encode body)
+  where h = BS.pack . BA.unpack . hash' $ encode body
+        hash' :: BSL.ByteString -> Digest SHA256
+        hash' = hashlazy
 
 doAnonFunction :: TelomareBuilder Operand -> TelomareBuilder Operand
 doAnonFunction doBody = do

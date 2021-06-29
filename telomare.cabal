@@ -62,6 +62,7 @@ library
                      , llvm-hs-pure
                      , text
                      , megaparsec
+                     , memory
                      , strict
                      , tasty
                      , tasty-hunit
@@ -69,7 +70,7 @@ library
                      , lens
                      , hspec
                      , QuickCheck
-                     , cryptohash
+                     , cryptonite
                      , bytestring
                      , crypto-api
                      , utf8-string

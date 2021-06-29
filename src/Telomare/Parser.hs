@@ -14,9 +14,9 @@ import           Control.Lens.Plated
 import           Control.Monad
 import           Control.Monad.State        (State)
 import qualified Control.Monad.State        as State
-import           Crypto.Hash.SHA256         (hash)
-import           Crypto.Util                (bs2i)
+import           Crypto.Hash                (Digest, SHA256, hash)
 import           Data.Bifunctor
+import qualified Data.ByteArray             as BA
 import           Data.ByteString            (ByteString)
 import qualified Data.ByteString            as BS
 import           Data.Char
@@ -507,8 +507,10 @@ optimizeBuiltinFunctions = transform optimize where
 -- adding one for all consecutive UniqueUP's.
 generateAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
 generateAllUniques upt = State.evalState (makeUnique upt) 0 where
+  hash' :: ByteString -> Digest SHA256
+  hash' = hash
   uptHash :: UnprocessedParsedTerm -> ByteString
-  uptHash = hash . BS.pack . encode . show
+  uptHash = BS.pack . BA.unpack . hash' . BS.pack . encode . show
   bs2IntUPList :: ByteString -> [UnprocessedParsedTerm]
   bs2IntUPList bs = IntUP . fromInteger . toInteger <$> BS.unpack bs
   makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
