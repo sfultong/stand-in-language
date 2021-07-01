@@ -9,8 +9,8 @@ import           Control.Monad.State.Strict
 import           Crypto.Hash                 (Digest, SHA256, hashlazy)
 import           Data.Binary                 (encode)
 import qualified Data.ByteArray              as BA (unpack)
-import qualified Data.ByteString             as BS
 import           Data.ByteString             (ByteString)
+import qualified Data.ByteString             as BS
 import qualified Data.ByteString.Base16      as Base16
 import qualified Data.ByteString.Char8       as BSC
 import qualified Data.ByteString.Lazy        as BSL
