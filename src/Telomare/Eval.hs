@@ -268,9 +268,10 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                                     testsMapLookup m = case Map.lookup churchSizingIndex m of
                                       Just v -> v
                                       _ -> error ("calculateRecursionLimits findlimit testsMapLookup bad key " <> show churchSizingIndex)
-                                    runTest (frag, inp) = traceIfTrue (frag, inp) . null . traceAuxes $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
+                                    -- runTest (frag, inp) = traceIfTrue (frag, inp) . null . traceAuxes $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
+                                    runTest (frag, inp) = trace ("running test of " <> show (frag,inp)) . null . traceAuxes $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
                                 in or . traceResults $ fmap runTest tests'
-                   (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
+                   (ib, ie) = if not (abortsAt 255) then (1, 255) else error "findchurchsize TODO" -- (256, maxBound)
                    findC b e | b > e = trace ("crl b is found at " <> show b) b
                    findC b e = let midpoint = div (b + e) 2
                                in trace ("midpoint is now " <> show midpoint) $ if abortsAt midpoint then findC (midpoint + 1) e else findC b (midpoint - 1)
