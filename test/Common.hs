@@ -7,6 +7,7 @@
 
 module Common where
 
+import Control.Applicative
 import Data.Bifunctor
 
 import Test.QuickCheck
@@ -24,6 +25,8 @@ data TestIExpr = TestIExpr IExpr
 data ValidTestIExpr = ValidTestIExpr TestIExpr
 
 data ArrowTypedTestIExpr = ArrowTypedTestIExpr TestIExpr
+
+newtype URTestExpr = URTestExpr {unURTest :: Term3} deriving Show
 
 data IExprWrapper a = IExprWrapper a
   deriving (Eq, Show, Functor)
@@ -115,7 +118,7 @@ genTypedTree ti t i =
         makeSetEnv ti' = SetEnv <$> genTypedTree ti (PairType (ArrType ti' to) ti') (i - 1)
       leftOption to = arbitrary >>= (\ti' -> pleft <$> genTypedTree ti (PairType to ti') (i - 1))
       rightOption to = arbitrary >>= (\ti' -> pright <$> genTypedTree ti (PairType ti' to) (i - 1))
-              in oneof . optionEnv $ case t of
+  in oneof . optionEnv $ case t of
                     ZeroType ->
                       pure zero : if i < 1
                       then []
@@ -141,9 +144,60 @@ genTypedTree ti t i =
                       , rightOption (ArrType ti' to)
                       ]
 
+genTypedTree' :: Maybe DataType -> DataType -> Int -> Gen (BreakState' BreakExtras BreakExtras)
+genTypedTree' ti t i =
+  let half = div i 2
+      optionEnv = if ti == Just t
+                  then (pure (pure EnvFrag) :)
+                  else id
+      optionGate ti' to = if ti' == ZeroType
+                          then ((liftA2 GateFrag <$> genTypedTree' ti to half <*> genTypedTree' ti to half) :)
+                          else id
+      setEnvOption to = arbitrary >>= makeSetEnv where
+        makeSetEnv ti' = fmap SetEnvFrag <$> genTypedTree' ti (PairType (ArrType ti' to) ti') (i - 1)
+      leftOption to = arbitrary >>= (\ti' -> fmap LeftFrag <$> genTypedTree' ti (PairType to ti') (i - 1))
+      rightOption to = arbitrary >>= (\ti' -> fmap RightFrag <$> genTypedTree' ti (PairType ti' to) (i - 1))
+  in oneof . optionEnv $ case t of
+    ZeroType -> pure (pure ZeroFrag) :
+     if i < 1
+     then []
+     else [ genTypedTree' ti (PairType ZeroType ZeroType) i
+          , setEnvOption ZeroType
+          , leftOption ZeroType
+          , rightOption ZeroType
+          ]
+    PairType ta tb ->
+      (liftA2 PairFrag <$> genTypedTree' ti ta half <*> genTypedTree' ti tb half) :
+      if i < 1
+      then []
+      else [ setEnvOption (PairType ta tb)
+           , leftOption (PairType ta tb)
+           , rightOption (PairType ta tb)
+           ]
+    ArrType ti' to ->
+      (deferF <$> genTypedTree' (Just ti') to (i - 1)) :
+      if i < 1
+      then []
+      else optionGate ti' to
+      [ leftOption (ArrType ti' to)
+      , rightOption (ArrType ti' to)
+      ]
+
 instance Arbitrary DataTypedIExpr where
   arbitrary = IExprWrapper <$> sized (genTypedTree Nothing ZeroType)
   shrink (IExprWrapper x) = map (IExprWrapper . getIExpr) . filter zeroTyped . shrink $ TestIExpr x
+
+instance Arbitrary URTestExpr where
+  arbitrary = fmap (URTestExpr . Term3 . buildFragMap . wrapWithUR)
+    . sequence $ map sized
+    [genTypedTree' Nothing ((ArrType (PairType ZeroType (PairType (ArrType ZeroType ZeroType) ZeroType))) ZeroType)
+    ,genTypedTree' Nothing (ArrType ZeroType ZeroType)
+    ,genTypedTree' Nothing ZeroType
+    ]
+    where wrapWithUR [rf, bf, i] =
+            appF (appF (appF (unsizedRecursionWrapper (toEnum 0)) (clamF (PairFrag <$> rf <*> pure ZeroFrag)))
+                  (PairFrag <$> bf <*> pure ZeroFrag))
+                   i
 
 typeable x = case inferType (fromTelomare $ getIExpr x) of
   Left _ -> False
