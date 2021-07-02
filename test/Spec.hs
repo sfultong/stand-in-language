@@ -8,6 +8,7 @@ import Debug.Trace
 import Data.Bifunctor
 import Data.Char
 import Data.List (partition)
+import Data.Void
 import Data.Monoid
 import Telomare
 import Telomare.Eval
@@ -375,6 +376,22 @@ qcTestMapBuilderEqualsRegularEval (IExprWrapper x) = (showResult $ eval' x)
         showResult x = trace ("desired result: " <> show x) x
         showResult' x = trace ("actual result: " <> show x) x
 
+qcTestAbortExtract :: (URTestExpr, Int) -> Bool
+qcTestAbortExtract (URTestExpr (Term3 termMap), i) =
+  null staticToPossible
+  == extractedTestResult where
+  staticToPossible :: Either IExpr (PossibleExpr BreakExtras Void)
+  staticToPossible = toPossible (termMap' Map.!) staticAbortSetEval (pure . FunctionX . AuxFrag) AnyX (rootFrag termMap')
+  sizer = const i
+  (Term4 termMap') = convertPT sizer (Term3 termMap)
+  mapLookup' = (termMap Map.!)
+  annotateAux ur = pure . AnnotateX ur . FunctionX $ AuxFrag ur
+  testMapBuilder = toPossible mapLookup' testBuildingSetEval annotateAux AnyX (rootFrag termMap)
+  tests = splitTests . ($ i) . runReader .  (Map.! toEnum 0) . ($ sizer) . runReader $ State.execStateT testMapBuilder mempty
+  wrapAux = pure . FunctionX . AuxFrag
+  runTest (frag, inp) = null $ toPossible mapLookup' sizingAbortSetEval wrapAux inp frag
+  extractedTestResult = or $ fmap runTest tests
+
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
   , "       in $3 layer (\\x -> x) 0"
@@ -395,12 +412,14 @@ unitTests_ parse = do
 -}
   -- unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprAndBackEvalsSame
   -- unitTestQC "possibleEvalIsLikeRegularEval" 15000 qcTestMapBuilderEqualsRegularEval
+  -- unitTestQC "qcTestAbortExtract" 2000 qcTestAbortExtract
 
-  -- unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0"
+  unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\r x -> r (left x)) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\r x -> left x) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\x -> (x,0)) 0" "5"
-  unitTest2 "main = $5 (\\x -> (x,0)) 0" "5"
+  -- unitTest2 "main = $5 (\\x -> (x,0)) 0" "5"
+
 
   {-
   it "decompileExample" $ if qcDecompileIExprAndBackEvalsSame decompileExample
