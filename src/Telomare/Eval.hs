@@ -254,13 +254,13 @@ limitedMFix f x = iterate (>>= trace "fixing again" f) x !! 10
 
 calculateRecursionLimits' :: Term3 -> Either EvalError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
-  let testMapBuilder :: StateT (Map BreakExtras RecursionTest) (Reader (BreakExtras -> Int)) BasicPossible
+  let testMapBuilder :: StateT (DList RecursionTest) (Reader (BreakExtras -> Int)) BasicPossible
+      testMapBuilder = toPossible mapLookup' testBuildingSetEval annotateAux AnyX (rootFrag termMap)
       mapLookup' k = case Map.lookup k termMap of
           Just v -> v
           _ -> error ("calculateRecursionLimits outside mapLookup bad key " <> show k)
-      testMapBuilder = toPossible mapLookup' testBuildingSetEval annotateAux AnyX (rootFrag termMap)
       annotateAux ur = trace "annotating AUX" . pure . AnnotateX ur . FunctionX $ AuxFrag ur
-      step1 :: Reader (BreakExtras -> Int) (Map BreakExtras RecursionTest)
+      step1 :: Reader (BreakExtras -> Int) (DList RecursionTest)
       step1 = State.execStateT testMapBuilder mempty
       findLimit :: BreakExtras -> RecursionTest -> Either BreakExtras Int
       findLimit churchSizingIndex tests =
