@@ -59,7 +59,7 @@ data UnprocessedParsedTerm
   | RightUP UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
-  | UniqueUP -- ^ On ad hoc user defined types, this term will be substitued to a unique Int.
+  | UniqueUP UnprocessedParsedTerm -- ^ On ad hoc user defined types, this term will be substitued to a unique Int.
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
@@ -80,7 +80,6 @@ instance Plated UnprocessedParsedTerm where
     x           -> pure x
 
 type VarList = [String]
-
 -- |TelomareParser :: * -> *
 --type TelomareParser = State.StateT ParserState (Parsec Void String)
 type TelomareParser = Parsec Void String
@@ -279,8 +278,9 @@ parseITE = do
 
 parseUnique :: TelomareParser UnprocessedParsedTerm
 parseUnique = do
-  reserved "unique" <* scn
-  pure UniqueUP
+  symbol "#" <* scn
+  upt <- parseSingleExpr :: TelomareParser UnprocessedParsedTerm
+  pure $ UniqueUP upt
 
 -- |Parse a single expression.
 parseSingleExpr :: TelomareParser UnprocessedParsedTerm
@@ -506,24 +506,20 @@ optimizeBuiltinFunctions = transform optimize where
 -- The unique number is constructed by doing a SHA1 hash of the UnprocessedParsedTerm and
 -- adding one for all consecutive UniqueUP's.
 generateAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
-generateAllUniques upt = State.evalState (makeUnique upt) 0 where
+generateAllUniques upt = makeUnique upt where
   hash' :: ByteString -> Digest SHA256
   hash' = hash
   uptHash :: UnprocessedParsedTerm -> ByteString
   uptHash = BS.pack . BA.unpack . hash' . BS.pack . encode . show
   bs2IntUPList :: ByteString -> [UnprocessedParsedTerm]
-  bs2IntUPList bs = IntUP . fromInteger . toInteger <$> BS.unpack bs
-  makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
-  makeUnique upt = transformM interm upt
+  bs2IntUPList bs = (IntUP . fromInteger . toInteger) <$> (BS.unpack bs)
+  makeUnique :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+  makeUnique upt = transform interm upt
     where
-      ls = bs2IntUPList . uptHash $ upt
-      interm :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
-      interm = \case
-        UniqueUP -> do
-          State.modify (+1)
-          i <- State.get
-          pure $ ListUP (ls <> [IntUP i])
-        x -> pure x
+      interm :: UnprocessedParsedTerm ->  UnprocessedParsedTerm
+      interm u = case u of
+                  UniqueUP upt -> ListUP $ bs2IntUPList . uptHash $ upt
+                  x -> x
 
 -- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
 process :: [(String, UnprocessedParsedTerm)] -- ^Prelude

@@ -4,12 +4,12 @@
 main = \input -> ("Hello, World!", 0)
 
 -- Simple example of ad-hoc user defined types
--- MyInt = let intTag = unique
---         in ( \i -> if not i
---                    then "MyInt must not be 0"
---                    else (intTag, i)
---            , \i -> if dEqual (left i) intTag
---                    then 0
---                    else "expecting MyInt"
---            )
+-- MyInt = let wrapper = \h -> ( \i -> if not i
+--                               	    then "MyInt must n"
+--                                     else  i
+--                             , \i -> if dEqual (left i)
+--                                     then 0
+--                                     else "expecting MyInt"
+--                             )
+--         in wrapper (# wrapper)
 -- main = \i -> ((left MyInt) 8, 0)

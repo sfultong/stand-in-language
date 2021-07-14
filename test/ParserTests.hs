@@ -66,7 +66,7 @@ checkNumberOfUniques upt = let tupt = generateAllUniques upt
 
 containsUniqueUP :: UnprocessedParsedTerm -> Bool
 containsUniqueUP = \case
-  UniqueUP    -> True
+  UniqueUP _  -> True
   LetUP xs a  -> containsUniqueUP a || (or $ (containsUniqueUP . snd) <$> xs)
   ITEUP a b c -> containsUniqueUP a || containsUniqueUP b || containsUniqueUP c
   ListUP ls   -> or $ containsUniqueUP <$> ls
@@ -83,7 +83,7 @@ onlyUniqueUPAndIntUP :: UnprocessedParsedTerm -> Bool
 onlyUniqueUPAndIntUP upt = let diffList = diffUPT (upt, generateAllUniques upt)
                                isUniqueUP :: UnprocessedParsedTerm -> Bool
                                isUniqueUP = \case
-                                 UniqueUP -> True
+                                 UniqueUP _ -> True
                                  _        -> False
                                isListUP :: UnprocessedParsedTerm -> Bool
                                isListUP = \case
@@ -119,10 +119,10 @@ noDups = not . f []
 
 allUniquesToIntUPList :: UnprocessedParsedTerm -> [[UnprocessedParsedTerm]]
 allUniquesToIntUPList upt =
-  let utpWithUniquesAsInts = generateAllUniques upt
+  let uptWithUniquesAsInts = generateAllUniques upt
       interm :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [[UnprocessedParsedTerm]]
       interm = \case
-        (UniqueUP, ListUP x) -> [x]
+        (UniqueUP _ , ListUP x) -> [x]
         (ITEUP a b c, ITEUP a' b' c') -> interm (a, a') ++ interm (b, b') ++ interm (c, c')
         (ListUP ls, ListUP ls') -> concat $ interm <$> (zip ls ls')
         (PairUP a b, PairUP a' b') -> interm (a, a') ++ interm (b, b')
@@ -138,14 +138,40 @@ allUniquesToIntUPList upt =
                 zs = zip ys ys'
         (x, x') | x /= x' -> error "x and x' should be the same (inside of allUniquesToIntUPList, within interm)"
         (x, x') -> []
-  in curry interm upt utpWithUniquesAsInts
+  in curry interm upt uptWithUniquesAsInts
 
+aux1 = unlines ["let wrapper1 = \\x -> x",
+                "  in (#wrapper1)"]
+aux2 = unlines ["let wrapper2 = \\x -> x",
+                "  in (#wrapper2)"]
+extract :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+extract (LetUP _ x) = x
+extract y = error "not LetUP in test: same functions have the same hash"
+
+hashtest0 = unlines ["let wrapper = 2",
+                "  in (# wrapper)"]
+
+hashtest1 = unlines ["let var = 3",
+                "  in (# var)"]
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [ testCase "Ad hoc user defined types success" $ do
+  [ testCase "different variable names get different hashes" $ do
+      res1 <- extract <$> generateAllUniques <$> runTelomareParser parseLet hashtest0
+      res2 <- extract <$> generateAllUniques <$>  runTelomareParser parseLet hashtest1
+      (res1 == res2) `compare` False @?= EQ
+      -- #^This commmented test tests if two variables having the same value are assigned the same hash
+  --,
+    --testCase "same functions have the same hash" $ do
+    --  res1 <- extract <$> generateAllUniques <$> runTelomareParser parseLet aux1
+    --  res2 <- extract <$> generateAllUniques <$>  runTelomareParser parseLet aux2
+    --  res1 `compare` res2  @?= EQ
+  , testCase "parse uniqueUP" $ do
+      res <- parseSuccessful parseUnique "# (\\x -> x)"
+      res `compare` True @?= EQ
+  , testCase "Ad hoc user defined types success" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
       -- res `compare` "\n\4603\a\ndone" @?= EQ
-      (length res) `compare` 8 @?= EQ -- This might be weak, but the above is too fragil. The number 4603 can change and the test should still be successful.
+      (length res) `compare` 7 @?= EQ -- This might be weak, but the above is too fragil. The number 4603 can change and the test should still be successful.
   , testCase "Ad hoc user defined types failure" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesFailure
       res `compare` "\nMyInt must not be 0\ndone" @?= EQ
@@ -328,26 +354,26 @@ testUserDefAdHocTypes input = do
   runMain input
 
 userDefAdHocTypesSuccess = unlines $
-  [ "MyInt = let intTag = unique"
-  , "        in ( \\i -> if not i"
-  , "                   then \"MyInt must not be 0\""
-  , "                   else (intTag, i)"
-  , "           , \\i -> if dEqual (left i) intTag"
+  [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
+  , "                        then \"MyInt must not be 0\""
+  , "                   else  i"
+  , "           , \\i -> if dEqual (left i)"
   , "                   then 0"
   , "                   else \"expecting MyInt\""
   , "           )"
+  , "in wrapper (# wrapper)"
   , "main = \\i -> ((left MyInt) 8, 0)"
   ]
 
 userDefAdHocTypesFailure = unlines $
-  [ "MyInt = let intTag = unique"
-  , "        in ( \\i -> if not i"
-  , "                   then \"MyInt must not be 0\""
-  , "                   else (intTag, i)"
-  , "           , \\i -> if dEqual (left i) intTag"
+  [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
+  , "                        then \"MyInt must not be 0\""
+  , "                   else  i"
+  , "           , \\i -> if dEqual (left i)"
   , "                   then 0"
   , "                   else \"expecting MyInt\""
   , "           )"
+  , "in wrapper (# wrapper)"
   , "main = \\i -> ((left MyInt) 0, 0)"
   ]
 
@@ -824,7 +850,7 @@ parseApplied0 = unlines
   ]
 parseApplied1 = unlines
   [ "foo (bar baz"
-  , "      )"
+  , "         )"
   ]
 
 

@@ -167,7 +167,6 @@ instance Arbitrary UnprocessedParsedTerm where
           , (IntUP <$> elements [0..9])
           , (ChurchUP <$> elements [0..9])
           , (pure UnsizedRecursionUP)
-          , (pure UniqueUP)
           ]
     lambdaTerms = ["w", "x", "y", "z"]
     letTerms = map (("l" <>) . show) [1..255]
@@ -189,6 +188,7 @@ instance Arbitrary UnprocessedParsedTerm where
                                  0 -> leaves varList
                                  x -> oneof
                                    [ leaves varList
+                                   , UniqueUP <$> recur (i - 1)
                                    , LeftUP <$> recur (i - 1)
                                    , RightUP <$> recur (i - 1)
                                    , TraceUP <$> recur (i - 1)
@@ -211,7 +211,6 @@ instance Arbitrary UnprocessedParsedTerm where
                                    , AppUP <$> recur half <*> recur half
                                    ]
   shrink = \case
-    UniqueUP -> []
     StringUP s -> case s of
       [] -> []
       _  -> pure . StringUP $ tail s
@@ -223,6 +222,7 @@ instance Arbitrary UnprocessedParsedTerm where
       x -> pure . ChurchUP $ x - 1
     UnsizedRecursionUP -> []
     VarUP _ -> []
+    UniqueUP x -> x : map UniqueUP (shrink x)
     LeftUP x -> x : map LeftUP (shrink x)
     RightUP x -> x : map RightUP (shrink x)
     TraceUP x -> x : map TraceUP (shrink x)
