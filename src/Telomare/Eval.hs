@@ -231,63 +231,51 @@ limitedMFix f x = iterate (>>= trace "fixing again" f) x !! 10
 
 calculateRecursionLimits' :: Term3 -> Either EvalError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
-  let testMapBuilder :: StateT (DList RecursionTest) (Reader (BreakExtras -> Int)) BasicPossible
+  let testMapBuilder :: StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int)) BasicPossible
       testMapBuilder = toPossible mapLookup' testBuildingSetEval annotateAux AnyX (rootFrag termMap)
       mapLookup' k = case Map.lookup k termMap of
           Just v -> v
           _ -> error ("calculateRecursionLimits outside mapLookup bad key " <> show k)
       annotateAux ur = trace "annotating AUX" . pure . AnnotateX ur . FunctionX $ AuxFrag ur
-      step1 :: Reader (BreakExtras -> Int) (DList RecursionTest)
+      step1 :: Reader (BreakExtras -> Int) [(Set BreakExtras, BasicPossible)]
       step1 = State.execStateT testMapBuilder mempty
-      findLimit :: BreakExtras -> RecursionTest -> Either BreakExtras Int
-      findLimit churchSizingIndex tests =
-        {-
-        let unhandleableOther =
-              let (lMap, kTests, gMap) = Map.splitLookup churchSizingIndex . unBetterMap . contaminationMap $ runReader tests 1
-                  otherMap = lMap <> gMap
-              in Set.lookupMin $ Map.keysSet otherMap
--}
-        let unhandleableOther = Nothing
-        in case unhandleableOther of
-          Just o -> Left o
-          _ -> let abortsAt i = let tests' = splitTests $ runReader tests i -- testsMapLookup . unBetterMap . contaminationMap $ runReader tests i
-                                    traceTest (f, bp) t = if containsAux mapLookup' f || containsAux' mapLookup' bp
-                                      -- then trace ("test with aux: " <> show f <> " *** " <> show bp) . t
-                                      then t
-                                      else t
-                                    traceAuxes = foldr traceTest id tests'
-                                    -- traceResults r = trace ("test results are: " <> show r) r
-                                    traceResults = id
-                                    traceIfTrue p t = if t
-                                      then trace ("true test of " <> show p) t
-                                      else t
-                                    wrapAux = pure . FunctionX . AuxFrag
-                                    mapLookup k = case Map.lookup k termMap of
+      findLimit :: Term3 -> Either BreakExtras (Map BreakExtras Int)
+      findLimit frag =
+        let abortsAt sizeMap = let wrapAux = pure . FunctionX . AuxFrag
+                                   mapLookup k = case Map.lookup k termMap' of
                                       Just v -> v
                                       _ -> error ("calculateRecursionLimits findlimit mapLookup bad key " <> show k)
-                                    testsMapLookup m = case Map.lookup churchSizingIndex m of
-                                      Just v -> v
-                                      _ -> error ("calculateRecursionLimits findlimit testsMapLookup bad key " <> show churchSizingIndex)
-                                    -- runTest (frag, inp) = traceIfTrue (frag, inp) . null . traceAuxes $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
-                                    runTest (frag, inp) = trace ("running test of " <> show (frag,inp)) . null . traceAuxes $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
-                                in or . traceResults $ fmap runTest tests'
-                   (ib, ie) = if not (abortsAt 255) then (1, 255) else error "findchurchsize TODO" -- (256, maxBound)
-                   findC b e | b > e = trace ("crl b is found at " <> show b) b
-                   findC b e = let midpoint = div (b + e) 2
-                               in trace ("midpoint is now " <> show midpoint) $ if abortsAt midpoint then findC (midpoint + 1) e else findC b (midpoint - 1)
-               in pure $ findC ib ie
-      mapLimits :: Map BreakExtras RecursionTest -> Either BreakExtras (Map BreakExtras Int)
-      mapLimits = sequence . Map.mapWithKey findLimit
-      unwrappedReader :: (BreakExtras -> Int) -> Map BreakExtras RecursionTest
+                                   sizeLookup k = case Map.lookup k sizeMap of
+                                     Just v -> v
+                                     _ -> error ("calculateRecursionLimits findLimit sizeLookup bad key " <> show k)
+                                   (Term4 termMap') = convertPT sizeLookup t3
+                                   frag = rootFrag termMap'
+                                   inp :: PossibleExpr Void Void
+                                   inp = AnyX
+                                   runTest = null $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
+                               in runTest
+            hackSizingLimit = 255
+            findBE = \case
+              (ib, _) | ib > hackSizingLimit -> error "findChurchSize TODO max recursions over 255 not supported yet"
+              r@(_, ie) | not (abortsAt $ mm ie) -> trace ("found beginning sizes of " <> show r) r
+              (ib, ie) -> findBE (ib * 2, ie * 2)
+            (ib, ie) = findBE (1,2)
+            unsizedSet = foldMap fst $ unwrappedReader (const 1)
+            beIndex = case Set.toList unsizedSet of
+              [singleIndex] -> singleIndex
+              _ -> error "TODO calculateRecursionLimits need to handle multiple sizes at once"
+            mm x = Map.fromList [(beIndex, x)]
+            findC b e | b > e = trace ("crl b is found at " <> show b) mm b
+            findC b e = let midpoint = div (b + e) 2
+                        in trace ("midpoint is now " <> show midpoint) $ if abortsAt (mm $ midpoint)
+                                                                         then findC (midpoint + 1) e
+                                                                         else findC b (midpoint - 1)
+        in trace "fingLimit doing" pure $ findC ib ie
+      unwrappedReader :: (BreakExtras -> Int) -> [(Set BreakExtras, BasicPossible)]
       unwrappedReader = runReader step1
-      fixableMapLookup m k = case (trace ("fml is m null? " <> show (null m)) null m, Map.lookup k m) of
-          (True, _) -> 0
-          (_, Just v) -> v
-          _ -> error ("calculateRecursionLimits fixableMapLookup bad key " <> show k)
-      fixable :: (BreakExtras -> Int) -> Either BreakExtras (BreakExtras -> Int)
-      fixable = fmap fixableMapLookup . mapLimits . unwrappedReader
-  -- in case mfix fixable of
-  -- this limitedMFix solution is bad, and will eventually break on deeply-nested referentiality.
-  in case limitedMFix fixable (Right (const 1)) of
-    Left be -> Left $ RecursionLimitError be
-    Right limits -> trace "found limits!" . pure $ convertPT limits t3
+  in case findLimit t3 of
+    Left e -> Left $ RecursionLimitError e
+    Right m -> let sizeLookup k = case Map.lookup k m of
+                     Just v -> v
+                     _ -> error ("calculateRecursionLimits' found size map unexpectd key " <> show k)
+               in Right $ convertPT sizeLookup t3
