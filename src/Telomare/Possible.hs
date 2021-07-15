@@ -7,7 +7,7 @@ module Telomare.Possible where
 
 import           Control.Applicative
 import Control.Monad
-import Control.Monad.Reader (Reader)
+import Control.Monad.Reader (Reader, ReaderT)
 import qualified Control.Monad.Reader as Reader
 import Control.Monad.State (State, StateT)
 import qualified Control.Monad.State as State
@@ -134,8 +134,7 @@ containsAux' fragLookup = let recur = containsAux' fragLookup in \case
   _ -> False
 
 type BasicPossible = PossibleExpr BreakExtras BreakExtras
-type RecursionTest = (Set BreakExtras, Reader (BreakExtras -> Int) BasicPossible)
-type TestMapBuilder = StateT (DList RecursionTest) (Reader (BreakExtras -> Int))
+type TestMapBuilder = StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int))
 
 toPossible :: (Show a, Eq a, Show b, Eq b, Monad m) => (FragIndex -> FragExpr b)
   -> ((PossibleExpr a b -> FragExpr b -> m (PossibleExpr a b)) -> PossibleExpr a b-> PossibleExpr a b-> PossibleExpr a b -> m (PossibleExpr a b))
@@ -251,39 +250,6 @@ sizingAbortSetEval = let combine a b = case (a,b) of
                                          _ -> Nothing
                      in abortSetEval combine Nothing
 
-{-
-data BuildWrapper a
-  = BasicWrapper a
-  | ReaderWrapper (Set BreakExtras) (Reader (BreakExtras -> Int) a)
-  deriving (Functor, Traversable)
-
-instance Applicative BuildWrapper where
-  pure = BasicWrapper
-  f <*> x = case (f,x) of
-    (BasicWrapper f', BasicWrapper x') -> BasicWrapper $ f' x'
-    (BasicWrapper f', ReaderWrapper s rx) -> ReaderWrapper s $ fmap f' rx
-    (ReaderWrapper s f', BasicWrapper x') -> ReaderWrapper s $ f' <*> pure x'
-    (ReaderWrapper sa f', ReaderWrapper sb x') -> ReaderWrapper (sa <> sb) $ f' <*> x'
--}
-
-{-
-
-joinBW :: BuildWrapper (BuildWrapper a) -> BuildWrapper a
-joinBW = \case
-  BasicWrapper (BasicWrapper x) -> BasicWrapper x
-  BasicWrapper (ReaderWrapper s x) -> ReaderWrapper s x
-  BasicWrapper x -> x
-  ReaderWrapper s x -> 
--}
-
-{-
-instance Monad BuildWrapper where
-  x >>= f = case x of
-    BasicWrapper x' -> f x'
-    ReaderWrapper s x' -> case traverse f x' of
-      BasicWrapper ir -> 
--}
-
 testBuildingSetEval :: (BasicPossible -> FragExpr BreakExtras -> TestMapBuilder BasicPossible)
   -> BasicPossible -> BasicPossible -> BasicPossible -> TestMapBuilder BasicPossible
 testBuildingSetEval sRecur env ft' it' =
@@ -345,11 +311,8 @@ testBuildingSetEval sRecur env ft' it' =
           _ -> let alterSizeTest v = \case
                      Nothing -> pure v
                      Just e -> pure $ (<>) <$> e <*> v
-                   -- addSizeTest :: BreakExtras -> RecursionTest -> TestMapBuilder ()
-                   addSizeTest :: RecursionTest -> TestMapBuilder ()
-                   --addSizeTest k v = State.modify $ Map.alter (alterSizeTest v) k
-                   addSizeTest x = State.modify (DList.cons x)
-                   -- hasContamination = not . null . annotations
+                   addSizeTest :: (Set BreakExtras, BasicPossible) -> TestMapBuilder ()
+                   addSizeTest x = State.modify (x :)
 		   hasContamination = not . null $ poisonedSet
                    conditionallyAddTests :: TestMapBuilder BasicPossible -> TestMapBuilder BasicPossible
                    conditionallyAddTests opt =
@@ -362,12 +325,8 @@ testBuildingSetEval sRecur env ft' it' =
 -}
                        let showAuxed = id
                        when (hasContamination && noAnnotatedFunctions truncatedResult) . showAuxed $ do
-                         -- mapM_ (flip addSizeTest (pure . PairX ft $ deepForce it)) poisonedSet
                          fit <- deepForce it
-                         -- mapM_ (flip addSizeTest (pure $ PairX ft fit)) poisonedSet
-                         addSizeTest (poisonedSet, pure $ PairX ft fit)
-                       -- trace ("hc " <> show hasContamination <> " naf " <> show (noAnnotatedFunctions truncatedResult)) opt
-                       -- trace ("itdump " <> show it') opt
+                         addSizeTest (poisonedSet, PairX ft fit)
                        opt
                in conditionallyAddTests $ sRecur it af
         z -> error ("tbse setEval unexpected " <> show z)
