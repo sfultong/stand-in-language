@@ -14,6 +14,7 @@ import qualified Data.Set as Set
 import           Data.Void
 import           Debug.Trace
 import           Telomare
+import           Telomare.Decompiler
 import           Telomare.Optimizer
 import           Telomare.Parser
 import           Telomare.Possible
@@ -252,6 +253,17 @@ splitTests =
 limitedMFix :: Monad m => (a -> m a) -> m a -> m a
 limitedMFix f x = iterate (>>= trace "fixing again" f) x !! 10
 
+runPossible :: Term4 -> Either IExpr (PossibleExpr Void Void)
+runPossible (Term4 termMap) =
+  let wrapAux = pure . FunctionX . AuxFrag
+      eval = toPossible (termMap Map.!) staticAbortSetEval wrapAux
+      deepForce = \case
+        PairX a b -> PairX <$> deepForce a <*> deepForce b
+        EitherX a b -> EitherX <$> deepForce a <*> deepForce b
+        ClosureX f i -> eval i f
+        x -> pure x
+  in eval AnyX (rootFrag termMap) >>= deepForce
+
 calculateRecursionLimits' :: Term3 -> Either EvalError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
   let testMapBuilder :: StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int)) BasicPossible
@@ -296,6 +308,7 @@ calculateRecursionLimits' t3@(Term3 termMap) =
         in trace "fingLimit doing" pure $ findC ib ie
       unwrappedReader :: (BreakExtras -> Int) -> [(Set BreakExtras, BasicPossible)]
       unwrappedReader = runReader step1
+      prettyTerm = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm3 $ t3
   in case findLimit t3 of
     Left e -> Left $ RecursionLimitError e
     Right m -> let sizeLookup k = case Map.lookup k m of
