@@ -376,6 +376,12 @@ qcTestMapBuilderEqualsRegularEval (IExprWrapper x) = (showResult $ eval' x)
         showResult x = trace ("desired result: " <> show x) x
         showResult' x = trace ("actual result: " <> show x) x
 
+qcTestURSizing :: URTestExpr -> Bool
+qcTestURSizing (URTestExpr t3) = 
+  let compile x = toTelomare <$> findChurchSize x
+      compile' x = pure . toTelomare $ convertPT (const 255) x
+  in (fmap . fmap) pureIEval (compile t3) == (fmap . fmap) pureIEval (compile' t3)
+{-
 qcTestAbortExtract :: (URTestExpr, Int) -> Bool
 qcTestAbortExtract (URTestExpr (Term3 termMap), i) =
   null staticToPossible
@@ -391,6 +397,7 @@ qcTestAbortExtract (URTestExpr (Term3 termMap), i) =
   wrapAux = pure . FunctionX . AuxFrag
   runTest (frag, inp) = null $ toPossible mapLookup' sizingAbortSetEval wrapAux inp frag
   extractedTestResult = or $ fmap runTest tests
+-}
 
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
@@ -402,6 +409,7 @@ unitTests_ parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
       unitTestStaticChecks = unitTestStaticChecks' parse
+      unitTestPossible = unitTestPossible' parse
       -- decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero Zero))) (SetEnv (SetEnv (SetEnv (PLeft (Pair (Pair (Defer (Pair (Defer (Pair (Defer Zero) Env)) Env)) Zero) Zero))))))))
       -- decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero Zero))) Zero)))
       decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero (Pair Zero Zero)))) Zero)))
@@ -413,8 +421,19 @@ unitTests_ parse = do
   -- unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprAndBackEvalsSame
   -- unitTestQC "possibleEvalIsLikeRegularEval" 15000 qcTestMapBuilderEqualsRegularEval
   -- unitTestQC "qcTestAbortExtract" 2000 qcTestAbortExtract
+  -- unitTestQC "qcTestURSizing" 2000 qcTestURSizing
 
-  unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0"
+  -- unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0" -- we're good now, for every n
+  -- unitTest2 "main = listLength [1,2,3]" "3" -- fails
+  -- unitTest2 "main = foldr (\\a b -> (a,b)) [] [1,2]" "[1,2]"
+  -- unitTestPossible "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+  -- unitTestPossible "main = let x : ((\\x -> assert (not x) \"fail\")) = 1 in x" null
+  -- unitTestPossible "main = let x : ((\\x -> assert (not x) \"fail\")) = 1 in left (1, x)" (== Right (PairX ZeroX ZeroX))
+  -- unitTestPossible "main = let x : ((\\x -> assert (not x) \"fail\")) = 1 in left (1, x)" (== Right (PairX ZeroX ZeroX))
+  -- unitTestPossible "main = let f = (\\x -> let xb : (\\xb -> assert 0 \"fail\") = 0 in xb) in $1 (\\r l -> if l then r (left l) else 0) f [1,2]" null
+  -- unitTestPossible "main = let f = (\\x -> let xb : (\\xb -> assert 0 \"fail\") = 0 in xb) in $1 (\\r mf l -> if l then (mf (left l), r (right l)) else 0) f succ [1,2]" null -- works fine
+  unitTestPossible "main = let f = (\\x -> let xb : (\\xb -> assert 0 \"fail\") = 0 in xb) in $1 (\\r mf l -> if l then (mf (left l), r (right l)) else 0) f succ [1,2]" null -- works fine
+  -- unitTest2 "main = map succ [1,2]" "[2,3]" -- fails (CURRENTLY BEST FAIL?)
   -- unitTest2 "main = ? (\\r x -> r (left x)) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\r x -> left x) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\x -> (x,0)) 0" "5"
@@ -687,6 +706,12 @@ unitTest2' parse s r = it s $ case fmap compile (parse s) of
     then pure ()
     else expectationFailure $ concat [s, " result ", r2]
   Right (Left e) -> expectationFailure $ concat ["failed to compile: ", show e]
+
+unitTestPossible' parse s f = it s $ case fmap (runPossible . convertPT (const 255)) (parse s) of
+  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+  Right r' -> if f r'
+    then pure ()
+    else expectationFailure $ s <> " result " <> show (r')
 
 unitTestType' parse s t tef = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
