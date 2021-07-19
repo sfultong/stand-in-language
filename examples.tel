@@ -3,13 +3,13 @@
 -- Hello World example.
 main = \input -> ("Hello, World!", 0)
 
--- Simple example of ad-hoc user defined types
+-- Ad hoc user defined types example:
 -- MyInt = let wrapper = \h -> ( \i -> if not i
---                               	    then "MyInt must n"
+--                                     then "MyInt must not be 0"
 --                                     else  i
 --                             , \i -> if dEqual (left i)
 --                                     then 0
 --                                     else "expecting MyInt"
 --                             )
 --         in wrapper (# wrapper)
--- main = \i -> ((left MyInt) 8, 0)
+-- main = \i -> ((right MyInt) 8, 0)
