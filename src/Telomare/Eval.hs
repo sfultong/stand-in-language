@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 module Telomare.Eval where
 
@@ -243,15 +244,7 @@ runPossible (Term4 termMap) =
 
 calculateRecursionLimits' :: Term3 -> Either EvalError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
-  let testMapBuilder :: StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int)) BasicPossible
-      testMapBuilder = toPossible mapLookup' testBuildingSetEval annotateAux AnyX (rootFrag termMap)
-      mapLookup' k = case Map.lookup k termMap of
-          Just v -> v
-          _ -> error ("calculateRecursionLimits outside mapLookup bad key " <> show k)
-      annotateAux ur = trace "annotating AUX" . pure . AnnotateX ur . FunctionX $ AuxFrag ur
-      step1 :: Reader (BreakExtras -> Int) [(Set BreakExtras, BasicPossible)]
-      step1 = State.execStateT testMapBuilder mempty
-      findLimit :: Term3 -> Either BreakExtras (Map BreakExtras Int)
+  let findLimit :: Term3 -> Either BreakExtras (Map BreakExtras Int)
       findLimit frag =
         let abortsAt sizeMap = let wrapAux = pure . FunctionX . AuxFrag
                                    mapLookup k = case Map.lookup k termMap' of
@@ -279,19 +272,29 @@ calculateRecursionLimits' t3@(Term3 termMap) =
               r@(_, ie) | not (abortsAt $ mm ie) -> trace ("found beginning sizes of " <> show r) r
               (ib, ie) -> findBE (ib * 2, ie * 2)
             (ib, ie) = findBE (1,2)
-            unsizedSet = foldMap fst $ unwrappedReader (const 1)
+            getIndexFromFrag = \case
+              PairFrag a b -> getIndexFromFrag a <> getIndexFromFrag b
+              SetEnvFrag x -> getIndexFromFrag x
+              GateFrag l r -> getIndexFromFrag l <> getIndexFromFrag r
+              LeftFrag x -> getIndexFromFrag x
+              RightFrag x -> getIndexFromFrag x
+              AuxFrag i -> Set.singleton i
+              _ -> mempty
+            -- unsizedSet = foldMap fst $ unwrappedReader (const 1)
+            unsizedSet = foldr (\a b -> getIndexFromFrag a <> b) mempty termMap
+  {-
             beIndex = case Set.toList unsizedSet of
               [singleIndex] -> singleIndex
               _ -> error "TODO calculateRecursionLimits need to handle multiple sizes at once"
-            mm x = Map.fromList [(beIndex, x)]
+-}
+            -- mm x = Map.fromList [(beIndex, x)]
+            mm x = Map.fromList . fmap (, x) $ Set.toList unsizedSet
             findC b e | b > e = trace ("crl b is found at " <> show b) mm b
             findC b e = let midpoint = div (b + e) 2
-                        in trace ("midpoint is now " <> show midpoint) $ if abortsAt (mm $ midpoint)
+                        in trace ("midpoint is now " <> show midpoint) $ if abortsAt (mm midpoint)
                                                                          then findC (midpoint + 1) e
                                                                          else findC b (midpoint - 1)
-        in trace "fingLimit doing" pure $ findC ib ie
-      unwrappedReader :: (BreakExtras -> Int) -> [(Set BreakExtras, BasicPossible)]
-      unwrappedReader = runReader step1
+        in pure $ findC ib ie
       prettyTerm = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm3 $ t3
   in case findLimit t3 of
     Left e -> Left $ RecursionLimitError e

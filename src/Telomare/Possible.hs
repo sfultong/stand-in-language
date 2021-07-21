@@ -221,12 +221,12 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
               (True, True) -> (<>) <$> sRecur' l <*> sRecur' r
               (True, False) -> sRecur' l
               _ -> sRecur' r
-          AbortFrag -> case (filter (/= Zero) . toList) <$> toExprList' it of
+          AbortFrag -> case toList <$> toExprList' it of
             Left e -> Left e -- if evaluating input aborts, bubble up abort result
             Right l -> case foldr abortCombine abortDefault $ l of
               Nothing -> pure $ FunctionX EnvFrag
               -- Just e -> trace ("aborting from input of " <> show it) Left e
-              Just e -> trace ("aborting with " <> show l) Left e
+              Just e -> Left e
           -- From Defer
           AuxFrag _ -> error "abortSetEval: should be no AuxFrag here"
           x -> sRecur it x
@@ -265,7 +265,7 @@ testBuildingSetEval sRecur env ft' it' =
         x -> pure x
       initialPoisoned = annotations it'
       setEval poisonedSet ft it = case ft of
-        AnnotateX p pf -> AnnotateX p <$> trace "tbse doing some annotate" setEval (Set.insert p poisonedSet) pf it
+        AnnotateX p pf -> AnnotateX p <$> setEval (Set.insert p poisonedSet) pf it
         FunctionX af -> case af of
           AbortFrag -> pure $ FunctionX EnvFrag
           GateFrag l r -> let doGate = \case
