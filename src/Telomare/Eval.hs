@@ -237,7 +237,7 @@ runPossible (Term4 termMap) =
       deepForce = \case
         PairX a b -> PairX <$> deepForce a <*> deepForce b
         EitherX a b -> EitherX <$> deepForce a <*> deepForce b
-        ClosureX f i -> eval i f
+        ClosureX f i -> eval i f >>= deepForce
         x -> pure x
   in eval AnyX (rootFrag termMap) >>= deepForce
 
@@ -264,7 +264,14 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                                    frag = rootFrag termMap'
                                    inp :: PossibleExpr Void Void
                                    inp = AnyX
-                                   runTest = null $ toPossible mapLookup sizingAbortSetEval wrapAux inp frag
+                                   pEval = toPossible mapLookup sizingAbortSetEval wrapAux
+                                   deepForce = \case
+                                     PairX a b -> PairX <$> deepForce a <*> deepForce b
+                                     EitherX a b -> EitherX <$> deepForce a <*> deepForce b
+                                     ClosureX f i -> pEval i f >>= deepForce
+                                     x -> pure x
+                                   traceResult x = x -- trace ("result for " <> show sizeMap <> " is " <> show x) x
+                                   runTest = null . traceResult $ pEval inp frag >>= deepForce
                                in runTest
             hackSizingLimit = 255
             findBE = \case
