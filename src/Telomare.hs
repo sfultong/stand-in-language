@@ -117,10 +117,25 @@ data ParserTerm l v
   | TLeft (ParserTerm l v)
   | TRight (ParserTerm l v)
   | TTrace (ParserTerm l v)
+  | THash (ParserTerm l v)
   | TLam (LamType l) (ParserTerm l v)
   | TLimitedRecursion
   deriving (Eq, Ord, Functor, Foldable, Traversable)
 makeBaseFunctor ''ParserTerm -- Functorial version ParserTermF
+
+instance Plated (ParserTerm l v) where
+  plate f = \case
+    TITE i t e -> TITE <$> f i <*> f t <*> f e
+    TPair a b  -> TPair <$> f a <*> f b
+    TApp u x   -> TApp <$> f u <*> f x
+    TLam s x   -> TLam s <$> f x
+    TLeft x    -> TLeft <$> f x
+    TRight x   -> TRight <$> f x
+    TTrace x   -> TTrace <$> f x
+    THash x    -> THash <$> f x
+    TCheck c x -> TCheck <$> f c <*> f x
+    x          -> pure x
+
 
 instance (Show l, Show v) => Show (ParserTerm l v) where
   show x = State.evalState (cata alg $ x) 0 where

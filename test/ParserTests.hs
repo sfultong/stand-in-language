@@ -49,47 +49,47 @@ tests :: TestTree
 tests = testGroup "Tests" [unitTests, qcProps]
 
 qcProps = testGroup "Property tests (QuickCheck)"
-  [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
+  [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of HashUP's" $
       \x ->
-        containsUniqueUP x QC.==> checkAllUniques . generateAllUniques $ x
-  , QC.testProperty "Have the total amount of UniqueUP + ListUP be equal to total ListUP after generateAllUniques" $
+        containsHashUP x QC.==> checkAllUniques . generateAllUniques $ x
+  , QC.testProperty "Have the total amount of HashUP + ListUP be equal to total ListUP after generateAllUniques" $
       \x ->
-        containsUniqueUP x QC.==> checkNumberOfUniques x
-  , QC.testProperty "See that generateAllUniques only changes UniqueUP to ListUP" $
+        containsHashUP x QC.==> checkNumberOfUniques x
+  , QC.testProperty "See that generateAllUniques only changes HashUP to ListUP" $
       \x ->
-        containsUniqueUP x QC.==> onlyUniqueUPAndIntUP x
+        containsHashUP x QC.==> onlyHashUPAndIntUP x
   ]
 
 checkNumberOfUniques :: UnprocessedParsedTerm -> Bool
 checkNumberOfUniques upt = let tupt = generateAllUniques upt
-                           in ((length $ upt ^.. (cosmos . _UniqueUP)) + (length $ upt ^.. (cosmos . _ListUP))) == (length $ tupt ^.. (cosmos . _ListUP))
+                           in ((length $ upt ^.. (cosmos . _HashUP)) + (length $ upt ^.. (cosmos . _ListUP))) == (length $ tupt ^.. (cosmos . _ListUP))
 
-containsUniqueUP :: UnprocessedParsedTerm -> Bool
-containsUniqueUP = \case
-  UniqueUP _  -> True
-  LetUP xs a  -> containsUniqueUP a || (or $ (containsUniqueUP . snd) <$> xs)
-  ITEUP a b c -> containsUniqueUP a || containsUniqueUP b || containsUniqueUP c
-  ListUP ls   -> or $ containsUniqueUP <$> ls
-  PairUP a b  -> containsUniqueUP a || containsUniqueUP b
-  AppUP a b   -> containsUniqueUP a || containsUniqueUP b
-  CheckUP a b -> containsUniqueUP a || containsUniqueUP b
-  LamUP _ a   -> containsUniqueUP a
-  LeftUP a    -> containsUniqueUP a
-  RightUP a   -> containsUniqueUP a
-  TraceUP a   -> containsUniqueUP a
+containsHashUP :: UnprocessedParsedTerm -> Bool
+containsHashUP = \case
+  HashUP _    -> True
+  LetUP xs a  -> containsHashUP a || (or $ (containsHashUP . snd) <$> xs)
+  ITEUP a b c -> containsHashUP a || containsHashUP b || containsHashUP c
+  ListUP ls   -> or $ containsHashUP <$> ls
+  PairUP a b  -> containsHashUP a || containsHashUP b
+  AppUP a b   -> containsHashUP a || containsHashUP b
+  CheckUP a b -> containsHashUP a || containsHashUP b
+  LamUP _ a   -> containsHashUP a
+  LeftUP a    -> containsHashUP a
+  RightUP a   -> containsHashUP a
+  TraceUP a   -> containsHashUP a
   x           -> False
 
-onlyUniqueUPAndIntUP :: UnprocessedParsedTerm -> Bool
-onlyUniqueUPAndIntUP upt = let diffList = diffUPT (upt, generateAllUniques upt)
-                               isUniqueUP :: UnprocessedParsedTerm -> Bool
-                               isUniqueUP = \case
-                                 UniqueUP _ -> True
-                                 _        -> False
-                               isListUP :: UnprocessedParsedTerm -> Bool
-                               isListUP = \case
-                                 ListUP _ -> True
-                                 _        -> False
-                           in and $ fmap (isUniqueUP . fst) diffList ++ fmap (isListUP . snd) diffList
+onlyHashUPAndIntUP :: UnprocessedParsedTerm -> Bool
+onlyHashUPAndIntUP upt = let diffList = diffUPT (upt, generateAllUniques upt)
+                             isHashUP :: UnprocessedParsedTerm -> Bool
+                             isHashUP = \case
+                               HashUP _ -> True
+                               _        -> False
+                             isListUP :: UnprocessedParsedTerm -> Bool
+                             isListUP = \case
+                               ListUP _ -> True
+                               _        -> False
+                         in and $ fmap (isHashUP . fst) diffList ++ fmap (isListUP . snd) diffList
 
 diffUPT :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [(UnprocessedParsedTerm, UnprocessedParsedTerm)]
 diffUPT = \case
@@ -122,7 +122,7 @@ allUniquesToIntUPList upt =
   let uptWithUniquesAsInts = generateAllUniques upt
       interm :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [[UnprocessedParsedTerm]]
       interm = \case
-        (UniqueUP _ , ListUP x) -> [x]
+        (HashUP _ , ListUP x) -> [x]
         (ITEUP a b c, ITEUP a' b' c') -> interm (a, a') ++ interm (b, b') ++ interm (c, c')
         (ListUP ls, ListUP ls') -> concat $ interm <$> (zip ls ls')
         (PairUP a b, PairUP a' b') -> interm (a, a') ++ interm (b, b')
@@ -140,10 +140,17 @@ allUniquesToIntUPList upt =
         (x, x') -> []
   in curry interm upt uptWithUniquesAsInts
 
-aux1 = unlines ["let wrapper1 = \\x -> x",
-                "  in (#wrapper1)"]
-aux2 = unlines ["let wrapper2 = \\x -> x",
-                "  in (#wrapper2)"]
+-- debruijinize [] <=< validateVariables prelude
+--                 . optimizeBuiltinFunctions
+--                 . generateAllUniques
+
+aux1 = unlines [ "let a = \\y -> y"
+               , "in (# a)"
+               ]
+aux2 = unlines [ "let a = \\x -> x"
+               , "in (# a)"
+               ]
+
 extract :: UnprocessedParsedTerm -> UnprocessedParsedTerm
 extract (LetUP _ x) = x
 extract y = error "not LetUP in test: same functions have the same hash"
