@@ -122,6 +122,7 @@ data ParserTerm l v
   | TLimitedRecursion
   deriving (Eq, Ord, Functor, Foldable, Traversable)
 makeBaseFunctor ''ParserTerm -- Functorial version ParserTermF
+makePrisms ''ParserTerm
 
 instance Plated (ParserTerm l v) where
   plate f = \case

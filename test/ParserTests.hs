@@ -51,98 +51,82 @@ tests = testGroup "Tests" [unitTests, qcProps]
 qcProps = testGroup "Property tests (QuickCheck)"
   [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of HashUP's" $
       \x ->
-        containsHashUP x QC.==> checkAllUniques . generateAllUniques $ x
-  , QC.testProperty "Have the total amount of HashUP + ListUP be equal to total ListUP after generateAllUniques" $
+        containsTHash x QC.==> checkAllHashes . generateAllHashes $ x
+  , QC.testProperty "Have the total amount of HashUP + ListUP be equal to total ListUP after generateAllHashes" $
       \x ->
-        containsHashUP x QC.==> checkNumberOfUniques x
-  , QC.testProperty "See that generateAllUniques only changes HashUP to ListUP" $
+        containsTHash x QC.==> checkNumberOfHashes x
+  , QC.testProperty "See that generateAllHashes only changes HashUP to ListUP" $
       \x ->
-        containsHashUP x QC.==> onlyHashUPAndIntUP x
+        containsTHash x QC.==> onlyHashUPAndIntUP x
   ]
 
-checkNumberOfUniques :: UnprocessedParsedTerm -> Bool
-checkNumberOfUniques upt = let tupt = generateAllUniques upt
-                           in ((length $ upt ^.. (cosmos . _HashUP)) + (length $ upt ^.. (cosmos . _ListUP))) == (length $ tupt ^.. (cosmos . _ListUP))
+checkNumberOfHashes :: Term2 -> Bool
+checkNumberOfHashes term2 = let tterm2 = generateAllHashes term2
+                            in (length (term2 ^.. (cosmos . _THash)) + length (term2 ^.. (cosmos . _TPair))) == length (tterm2 ^.. (cosmos . _TPair))
 
-containsHashUP :: UnprocessedParsedTerm -> Bool
-containsHashUP = \case
-  HashUP _    -> True
-  LetUP xs a  -> containsHashUP a || (or $ (containsHashUP . snd) <$> xs)
-  ITEUP a b c -> containsHashUP a || containsHashUP b || containsHashUP c
-  ListUP ls   -> or $ containsHashUP <$> ls
-  PairUP a b  -> containsHashUP a || containsHashUP b
-  AppUP a b   -> containsHashUP a || containsHashUP b
-  CheckUP a b -> containsHashUP a || containsHashUP b
-  LamUP _ a   -> containsHashUP a
-  LeftUP a    -> containsHashUP a
-  RightUP a   -> containsHashUP a
-  TraceUP a   -> containsHashUP a
-  x           -> False
+containsTHash :: Term2 -> Bool
+containsTHash = \case
+  THash _    -> True
+  TITE a b c -> containsTHash a || containsTHash b || containsTHash c
+  TPair a b  -> containsTHash a || containsTHash b
+  TApp a b   -> containsTHash a || containsTHash b
+  TCheck a b -> containsTHash a || containsTHash b
+  TLam _ a   -> containsTHash a
+  TLeft a    -> containsTHash a
+  TRight a   -> containsTHash a
+  TTrace a   -> containsTHash a
+  x          -> False
 
-onlyHashUPAndIntUP :: UnprocessedParsedTerm -> Bool
-onlyHashUPAndIntUP upt = let diffList = diffUPT (upt, generateAllUniques upt)
-                             isHashUP :: UnprocessedParsedTerm -> Bool
-                             isHashUP = \case
-                               HashUP _ -> True
-                               _        -> False
-                             isListUP :: UnprocessedParsedTerm -> Bool
-                             isListUP = \case
-                               ListUP _ -> True
-                               _        -> False
-                         in and $ fmap (isHashUP . fst) diffList ++ fmap (isListUP . snd) diffList
+onlyHashUPAndIntUP :: Term2 -> Bool
+onlyHashUPAndIntUP term2 = let diffList = diffTerm2 (term2, generateAllHashes term2)
+                               isHash :: Term2 -> Bool
+                               isHash = \case
+                                 THash _ -> True
+                                 _       -> False
+                         in and $ fmap (isHash . fst) diffList
 
-diffUPT :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [(UnprocessedParsedTerm, UnprocessedParsedTerm)]
-diffUPT = \case
-  (ITEUP a b c, ITEUP a' b' c') -> diffUPT (a, a') ++ diffUPT (b, b') ++ diffUPT (c, c')
-  (ListUP ls, ListUP ls') -> concat $ diffUPT <$> (zip ls ls')
-  (PairUP a b, PairUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
-  (AppUP a b, AppUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
-  (CheckUP a b, CheckUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
-  (LamUP _ a, LamUP _ a') -> diffUPT (a, a')
-  (LeftUP a, LeftUP a') -> diffUPT (a, a')
-  (RightUP a, RightUP a') -> diffUPT (a, a')
-  (TraceUP a, TraceUP a') -> diffUPT (a, a')
-  (LetUP xs a, LetUP xs' a') -> diffUPT (a, a') ++ (concat $ diffUPT <$> zs)
-    where ys = snd <$> xs
-          ys'= snd <$> xs'
-          zs = zip ys ys'
+diffTerm2 :: (Term2, Term2) -> [(Term2, Term2)]
+diffTerm2 = \case
+  (TITE a b c, TITE a' b' c') -> diffTerm2 (a, a') <> diffTerm2 (b, b') <> diffTerm2 (c, c')
+  (TPair a b, TPair a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
+  (TApp a b, TApp a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
+  (TCheck a b, TCheck a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
+  (TLam _ a, TLam _ a') -> diffTerm2 (a, a')
+  (TLeft a, TLeft a') -> diffTerm2 (a, a')
+  (TRight a, TRight a') -> diffTerm2 (a, a')
+  (TTrace a, TTrace a') -> diffTerm2 (a, a')
   (x, x') | x /= x' -> [(x, x')]
   _ -> []
 
-checkAllUniques :: UnprocessedParsedTerm -> Bool
-checkAllUniques = noDups . allUniquesToIntUPList
+checkAllHashes :: Term2 -> Bool
+checkAllHashes = noDups . allHashesToTerm2
 
 noDups = not . f []
   where
     f seen (x:xs) = x `elem` seen || f (x:seen) xs
     f seen []     = False
 
-allUniquesToIntUPList :: UnprocessedParsedTerm -> [[UnprocessedParsedTerm]]
-allUniquesToIntUPList upt =
-  let uptWithUniquesAsInts = generateAllUniques upt
-      interm :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [[UnprocessedParsedTerm]]
+allHashesToTerm2 :: Term2 -> [Term2]
+allHashesToTerm2 term2 =
+  let term2WithoutTHash = generateAllHashes term2
+      interm :: (Term2, Term2) -> [Term2]
       interm = \case
-        (HashUP _ , ListUP x) -> [x]
-        (ITEUP a b c, ITEUP a' b' c') -> interm (a, a') ++ interm (b, b') ++ interm (c, c')
-        (ListUP ls, ListUP ls') -> concat $ interm <$> (zip ls ls')
-        (PairUP a b, PairUP a' b') -> interm (a, a') ++ interm (b, b')
-        (AppUP a b, AppUP a' b') -> interm (a, a') ++ interm (b, b')
-        (CheckUP a b, CheckUP a' b') -> interm (a, a') ++ interm (b, b')
-        (LamUP _ a, LamUP _ a') -> interm (a, a')
-        (LeftUP a, LeftUP a') -> interm (a, a')
-        (RightUP a, RightUP a') -> interm (a, a')
-        (TraceUP a, TraceUP a') -> interm (a, a')
-        (LetUP xs a, LetUP xs' a') -> interm (a, a') ++ (concat $ interm <$> zs)
-          where ys = snd <$> xs
-                ys'= snd <$> xs'
-                zs = zip ys ys'
-        (x, x') | x /= x' -> error "x and x' should be the same (inside of allUniquesToIntUPList, within interm)"
+        (THash _ , x) -> [x]
+        (TITE a b c, TITE a' b' c') -> interm (a, a') <> interm (b, b') <> interm (c, c')
+        (TPair a b, TPair a' b') -> interm (a, a') <> interm (b, b')
+        (TApp a b, TApp a' b') -> interm (a, a') <> interm (b, b')
+        (TCheck a b, TCheck a' b') -> interm (a, a') <> interm (b, b')
+        (TLam _ a, TLam _ a') -> interm (a, a')
+        (TLeft a, TLeft a') -> interm (a, a')
+        (TRight a, TRight a') -> interm (a, a')
+        (TTrace a, TTrace a') -> interm (a, a')
+        (x, x') | x /= x' -> error "x and x' should be the same (inside of allHashesToTerm2, within interm)"
         (x, x') -> []
-  in curry interm upt uptWithUniquesAsInts
+  in curry interm term2 term2WithoutTHash
 
 -- debruijinize [] <=< validateVariables prelude
 --                 . optimizeBuiltinFunctions
---                 . generateAllUniques
+--                 . generateAllHashes
 
 aux1 = unlines [ "let a = \\y -> y"
                , "in (# a)"
@@ -162,18 +146,19 @@ hashtest1 = unlines ["let var = 3",
                 "  in (# var)"]
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [ testCase "different variable names get different hashes" $ do
-      res1 <- extract <$> generateAllUniques <$> runTelomareParser parseLet hashtest0
-      res2 <- extract <$> generateAllUniques <$>  runTelomareParser parseLet hashtest1
-      (res1 == res2) `compare` False @?= EQ
+  -- [
+    -- testCase "different variable names get different hashes" $ do
+    --   res1 <- extract . generateAllHashes <$> runTelomareParser parseLet hashtest0
+    --   res2 <- extract . generateAllHashes <$> runTelomareParser parseLet hashtest1
+    --   (res1 == res2) `compare` False @?= EQ
       -- #^This commmented test tests if two variables having the same value are assigned the same hash
   --,
     --testCase "same functions have the same hash" $ do
-    --  res1 <- extract <$> generateAllUniques <$> runTelomareParser parseLet aux1
-    --  res2 <- extract <$> generateAllUniques <$>  runTelomareParser parseLet aux2
+    --  res1 <- extract <$> generateAllHashes <$> runTelomareParser parseLet aux1
+    --  res2 <- extract <$> generateAllHashes <$>  runTelomareParser parseLet aux2
     --  res1 `compare` res2  @?= EQ
-  , testCase "parse uniqueUP" $ do
-      res <- parseSuccessful parseUnique "# (\\x -> x)"
+  [ testCase "parse uniqueUP" $ do
+      res <- parseSuccessful parseHash "# (\\x -> x)"
       res `compare` True @?= EQ
   , testCase "Ad hoc user defined types success" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
@@ -354,7 +339,7 @@ testUserDefAdHocTypes input = do
       Right p -> p
       Left pe -> error pe
     runMain :: String -> IO String
-    runMain s = case compile <$> parseMain prelude s of
+    runMain s = case compileUnitTest <$> parseMain prelude s of
       Left e -> error $ concat ["failed to parse ", s, " ", e]
       Right (Right g) -> evalLoop_ g
       Right z -> error $ "compilation failed somehow, with result " <> show z
@@ -824,8 +809,8 @@ testList5 = unlines $
 --       p str = State.runStateT $ parseMain prelude str
 --   case runParser (dbg "debug" p) "" tictactoe of
 --     Right (a, s) -> do
---       putStrLn ("Result:      " ++ show a)
---       putStrLn ("Final state: " ++ show s)
+--       putStrLn ("Result:      " <> show a)
+--       putStrLn ("Final state: " <> show s)
 --     Left err -> putStr (errorBundlePretty err)
 
 -- runTictactoe = do
@@ -834,11 +819,11 @@ testList5 = unlines $
 --   let
 --     prelude = case parsePrelude preludeFile of
 --       Right p -> p
---       Left pe -> error $ "woot2!!!" ++ getErrorString pe
+--       Left pe -> error $ "woot2!!!" <> getErrorString pe
 --   putStrLn "Not broken till here."
 --   case parseMain' prelude $ tictactoe of
 --     Right x -> putStrLn . show $ x
---     Left err -> putStrLn $ "woot!!! " ++ getErrorString err
+--     Left err -> putStrLn $ "woot!!! " <> getErrorString err
 
 
 -- -- |Parse main.

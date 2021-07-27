@@ -89,3 +89,6 @@ quicksort = let layer = \recur l -> if right l
                                             in listPlus (recur p2) (t,(recur p1))
                                        else l
             in ? layer (\l -> 0)
+
+abort = \str -> let x : (\y -> listPlus "abort: " str) = 1
+                in x

@@ -297,3 +297,17 @@ instance Arbitrary Term1 where
     TITE i t e -> i : t : e : [TITE ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
     TPair a b -> a : b : [TPair na nb | (na, nb) <- shrink (a,b)]
     TApp f i -> f : i : [TApp nf ni | (nf, ni) <- shrink (f,i)]
+
+instance Arbitrary Term2 where
+  arbitrary =  (arbitrary :: Gen Term1)
+  shrink = \case
+    TZero -> []
+    TLimitedRecursion -> []
+    TVar _ -> []
+    TLeft x -> x : map TLeft (shrink x)
+    TRight x -> x : map TRight (shrink x)
+    TTrace x -> x : map TTrace (shrink x)
+    TLam v x -> x : map (TLam v) (shrink x)
+    TITE i t e -> i : t : e : [TITE ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
+    TPair a b -> a : b : [TPair na nb | (na, nb) <- shrink (a,b)]
+    TApp f i -> f : i : [TApp nf ni | (nf, ni) <- shrink (f,i)]

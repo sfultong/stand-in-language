@@ -40,7 +40,7 @@ main = do
       prelude = case parsePrelude preludeString of
         Right p -> p
         Left pe -> error pe
-      runMain s = case compile <$> parseMain prelude s of
+      runMain s = case compileMain <$> parseMain prelude s of
         Left e -> putStrLn $ concat ["failed to parse ", s, " ", e]
         Right (Right g) -> evalLoop g
         Right z -> putStrLn $ "compilation failed somehow, with result " <> show z

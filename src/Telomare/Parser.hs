@@ -278,15 +278,15 @@ parseITE = do
   elseExpr <- parseLongExpr <* scn
   pure $ ITEUP cond thenExpr elseExpr
 
-parseUnique :: TelomareParser UnprocessedParsedTerm
-parseUnique = do
+parseHash :: TelomareParser UnprocessedParsedTerm
+parseHash = do
   symbol "#" <* scn
   upt <- parseSingleExpr :: TelomareParser UnprocessedParsedTerm
   pure $ HashUP upt
 
 -- |Parse a single expression.
 parseSingleExpr :: TelomareParser UnprocessedParsedTerm
-parseSingleExpr = choice $ try <$> [ parseUnique
+parseSingleExpr = choice $ try <$> [ parseHash
                                    , parseString
                                    , parseNumber
                                    , parsePair
@@ -448,6 +448,7 @@ makeLambda bindings str term1 =
         v = vars term1
         unbound = (v \\ bindings') \\ Set.singleton str
 
+-- |Transformation from `UnprocessedParsedTerm` to `Term1` validating and inlining `VarUP`s
 validateVariables :: [(String, UnprocessedParsedTerm)] -- ^ Prelude
                   -> UnprocessedParsedTerm
                   -> Either String Term1
@@ -516,8 +517,8 @@ optimizeBuiltinFunctions = transform optimize where
 -- |Process an `Term2` to have all `HashUP` replaced by a unique number.
 -- The unique number is constructed by doing a SHA1 hash of the Term2 and
 -- adding one for all consecutive HashUP's.
-generateAllUniques :: Term2 -> Term2
-generateAllUniques = transform interm where
+generateAllHashes :: Term2 -> Term2
+generateAllHashes = transform interm where
   hash' :: ByteString -> Digest SHA256
   hash' = hash
   term2Hash :: Term2 -> ByteString
@@ -529,10 +530,6 @@ generateAllUniques = transform interm where
     THash term1 -> bs2Term2 . term2Hash $ term1
     x           -> x
 
--- |All HashUP arguments of the form VarUP should be resolved
-resolveAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
-resolveAllUniques = id
-
 -- |Process an `UnprocessedParsedTerm` to a `Term3` with failing capability.
 process :: [(String, UnprocessedParsedTerm)] -- ^Prelude
         -> UnprocessedParsedTerm
@@ -542,10 +539,9 @@ process prelude upt = splitExpr <$> process2Term2 prelude upt
 process2Term2 :: [(String, UnprocessedParsedTerm)] -- ^Prelude
               -> UnprocessedParsedTerm
               -> Either String Term2
-process2Term2 prelude = fmap generateAllUniques
+process2Term2 prelude = fmap generateAllHashes
                       . debruijinize [] <=< validateVariables prelude
                       . optimizeBuiltinFunctions
-                      . resolveAllUniques
 
 -- |Parse with specified prelude
 parseWithPrelude :: [(String, UnprocessedParsedTerm)]   -- ^Prelude
@@ -558,3 +554,11 @@ parseMain :: [(String, UnprocessedParsedTerm)] -- ^Prelude: [(VariableName, Bind
           -> String                            -- ^Raw string to be parserd.
           -> Either String Term3               -- ^Error on Left.
 parseMain prelude s = parseWithPrelude prelude s >>= process prelude
+
+
+aux1 = unlines [ "let b = \\y -> y"
+               , "in (# b)"
+               ]
+aux2 = unlines [ "let a = \\x -> x"
+               , "in (# a)"
+               ]

@@ -6,16 +6,16 @@
 -- -- refinement fail
 -- main : (\x -> if x then "fail" else 0) = 1
 
-abort : (\x -> "abort") = 1
+-- abort : (\x -> "abort") = 1
 
 -- Ad hoc user defined types example:
 MyInt = let wrapper = \h -> ( \i -> if not i
-                                    then abort
+                                    then abort "MyInt cannot be 0"
                                     else  i
                             , \i -> if dEqual (left i) h
                                     then 0
-                                    else abort
+                                    else abort "Not a MyInt"
                             )
         in wrapper (# wrapper)
--- main = \i -> ((left MyInt) 0, 0)
-main = abort
+main = \i -> ((left MyInt) 0, 0)
+-- main = abort

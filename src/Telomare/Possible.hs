@@ -70,9 +70,12 @@ possibleString' x = case getFirstNonZero x of
 
 type BasicPossible = PossibleExpr Void
 
-toPossible :: (Show a, Eq a, Show b, Eq b, Monad m) => (FragIndex -> FragExpr b)
-  -> ((PossibleExpr a b -> FragExpr b -> m (PossibleExpr a b)) -> PossibleExpr a b-> PossibleExpr a b-> PossibleExpr a b -> m (PossibleExpr a b))
-  -> PossibleExpr a b -> FragExpr b -> m (PossibleExpr a b)
+toPossible :: (Show a, Eq a, Show b, Eq b, Monad m)
+           => (FragIndex -> FragExpr b)
+           -> ((PossibleExpr a b -> FragExpr b -> m (PossibleExpr a b)) -> PossibleExpr a b-> PossibleExpr a b-> PossibleExpr a b -> m (PossibleExpr a b))
+           -> PossibleExpr a b
+           -> FragExpr b
+           -> m (PossibleExpr a b)
 toPossible fragLookup setEval env =
   let toPossible' = toPossible fragLookup setEval
       recur = toPossible' env
