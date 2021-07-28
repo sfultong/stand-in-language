@@ -278,6 +278,7 @@ instance Arbitrary Term1 where
                                  0 -> leaves varList
                                  x -> oneof
                                    [ leaves varList
+                                   , THash <$> recur (i - 1)
                                    , TLeft <$> recur (i - 1)
                                    , TRight <$> recur (i - 1)
                                    , TTrace <$> recur (i - 1)
@@ -290,6 +291,7 @@ instance Arbitrary Term1 where
     TZero -> []
     TLimitedRecursion -> []
     TVar _ -> []
+    THash x -> x : map THash (shrink x)
     TLeft x -> x : map TLeft (shrink x)
     TRight x -> x : map TRight (shrink x)
     TTrace x -> x : map TTrace (shrink x)
@@ -299,11 +301,20 @@ instance Arbitrary Term1 where
     TApp f i -> f : i : [TApp nf ni | (nf, ni) <- shrink (f,i)]
 
 instance Arbitrary Term2 where
-  arbitrary =  (arbitrary :: Gen Term1)
+  arbitrary = do
+    term1 <- arbitrary :: Gen Term1
+    let term2 = case debruijinize [] term1 of
+                  Left str -> error $ "Non valid `Term1` generated from `arbitrarry :: Gen Term1`: "
+                                        <> show term1
+                                        <> " With error message: "
+                                        <> str
+                  Right t2 -> t2
+    pure term2
   shrink = \case
     TZero -> []
     TLimitedRecursion -> []
     TVar _ -> []
+    THash x -> x : map THash (shrink x)
     TLeft x -> x : map TLeft (shrink x)
     TRight x -> x : map TRight (shrink x)
     TTrace x -> x : map TTrace (shrink x)
