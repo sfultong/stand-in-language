@@ -524,7 +524,7 @@ generateAllHashes = transform interm where
   term2Hash :: Term2 -> ByteString
   term2Hash = BS.pack . BA.unpack . hash' . BS.pack . encode . show
   bs2Term2 :: ByteString -> Term2
-  bs2Term2 bs = ints2t $ fromInteger . toInteger <$> BS.unpack bs
+  bs2Term2 bs = ints2t . drop 16 $ fromInteger . toInteger <$> BS.unpack bs
   interm :: Term2 -> Term2
   interm = \case
     THash term1 -> bs2Term2 . term2Hash $ term1
@@ -554,11 +554,3 @@ parseMain :: [(String, UnprocessedParsedTerm)] -- ^Prelude: [(VariableName, Bind
           -> String                            -- ^Raw string to be parserd.
           -> Either String Term3               -- ^Error on Left.
 parseMain prelude s = parseWithPrelude prelude s >>= process prelude
-
-
-aux1 = unlines [ "let b = \\y -> y"
-               , "in (# b)"
-               ]
-aux2 = unlines [ "let a = \\x -> x"
-               , "in (# a)"
-               ]

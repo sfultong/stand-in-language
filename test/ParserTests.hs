@@ -50,19 +50,25 @@ tests = testGroup "Tests" [unitTests, qcProps]
 
 qcProps = testGroup "Property tests (QuickCheck)"
   [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of HashUP's" $
-      \x ->
+      \x -> withMaxSuccess 16 $
         containsTHash x QC.==> checkAllHashes . generateAllHashes $ x
-  , QC.testProperty "Have the total amount of HashUP + ListUP be equal to total ListUP after generateAllHashes" $
-      \x ->
-        containsTHash x QC.==> checkNumberOfHashes x
+  -- , QC.testProperty "Have the total amount of THash + ? be equal to total ? after generateAllHashes" $
+  --     \x -> withMaxSuccess 10 $
+  --       containsTHash x QC.==> checkNumberOfHashes x
   , QC.testProperty "See that generateAllHashes only changes HashUP to ListUP" $
-      \x ->
-        containsTHash x QC.==> onlyHashUPAndIntUP x
+      \x -> withMaxSuccess 16 $
+        containsTHash x QC.==> onlyHashUPsChanged x
   ]
 
-checkNumberOfHashes :: Term2 -> Bool
-checkNumberOfHashes term2 = let tterm2 = generateAllHashes term2
-                            in (length (term2 ^.. (cosmos . _THash)) + length (term2 ^.. (cosmos . _TPair))) == length (tterm2 ^.. (cosmos . _TPair))
+-- -- The trace statements help showing why this doesn't work: the number of TPair's isn't cosntat for all processed `THash`es
+-- checkNumberOfHashes :: Term2 -> Bool
+-- checkNumberOfHashes term2 = let tterm2 = generateAllHashes term2
+--                             in trace
+--                                 ("!!!!!!!!!!!!!!!!!!! 1: " <> (show $ length (term2 ^.. (cosmos . _THash)) + length (term2 ^.. (cosmos . _TZero))))
+--                                 (1675 * (length (term2 ^.. (cosmos . _THash))) + length (term2 ^.. (cosmos . _TZero))) ==
+--                                   trace
+--                                     ("!!!!!!!!!!!!!!!!!!! 2: " <> (show $ length (tterm2 ^.. (cosmos . _TZero))))
+--                                     (length (tterm2 ^.. (cosmos . _TZero)))
 
 containsTHash :: Term2 -> Bool
 containsTHash = \case
@@ -77,13 +83,13 @@ containsTHash = \case
   TTrace a   -> containsTHash a
   x          -> False
 
-onlyHashUPAndIntUP :: Term2 -> Bool
-onlyHashUPAndIntUP term2 = let diffList = diffTerm2 (term2, generateAllHashes term2)
+onlyHashUPsChanged :: Term2 -> Bool
+onlyHashUPsChanged term2 = let diffList = diffTerm2 (term2, generateAllHashes term2)
                                isHash :: Term2 -> Bool
                                isHash = \case
                                  THash _ -> True
                                  _       -> False
-                         in and $ fmap (isHash . fst) diffList
+                           in and $ fmap (isHash . fst) diffList
 
 diffTerm2 :: (Term2, Term2) -> [(Term2, Term2)]
 diffTerm2 = \case
@@ -146,18 +152,18 @@ hashtest1 = unlines ["let var = 3",
                 "  in (# var)"]
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  -- [
-    -- testCase "different variable names get different hashes" $ do
-    --   res1 <- extract . generateAllHashes <$> runTelomareParser parseLet hashtest0
-    --   res2 <- extract . generateAllHashes <$> runTelomareParser parseLet hashtest1
-    --   (res1 == res2) `compare` False @?= EQ
+  [
+    testCase "different variable names get different hashes" $ do
+      res1 <- extract . generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest0
+      res2 <- extract . generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest1
+      (res1 == res2) `compare` False @?= EQ
       -- #^This commmented test tests if two variables having the same value are assigned the same hash
-  --,
-    --testCase "same functions have the same hash" $ do
-    --  res1 <- extract <$> generateAllHashes <$> runTelomareParser parseLet aux1
-    --  res2 <- extract <$> generateAllHashes <$>  runTelomareParser parseLet aux2
-    --  res1 `compare` res2  @?= EQ
-  [ testCase "parse uniqueUP" $ do
+  -- ,
+  --   testCase "same functions have the same hash" $ do
+  --    res1 <- extract <$> generateAllHashes <$> runTelomareParser parseLet aux1
+  --    res2 <- extract <$> generateAllHashes <$>  runTelomareParser parseLet aux2
+  --    res1 `compare` res2  @?= EQ
+  , testCase "parse uniqueUP" $ do
       res <- parseSuccessful parseHash "# (\\x -> x)"
       res `compare` True @?= EQ
   , testCase "Ad hoc user defined types success" $ do

@@ -163,10 +163,10 @@ instance Arbitrary UnprocessedParsedTerm where
     leaves varList =
       oneof $
           (if not (null varList) then ((VarUP <$> elements varList) :) else id)
-          [ StringUP <$> elements (map ((("s") <>) . show) [1..9]) -- chooseAny
-          , (IntUP <$> elements [0..9])
-          , (ChurchUP <$> elements [0..9])
-          , (pure UnsizedRecursionUP)
+          [ StringUP <$> elements (map (("s" <>) . show) [1..9]) -- chooseAny
+          , IntUP <$> elements [0..9]
+          , ChurchUP <$> elements [0..9]
+          , pure UnsizedRecursionUP
           ]
     lambdaTerms = ["w", "x", "y", "z"]
     letTerms = map (("l" <>) . show) [1..255]
@@ -301,15 +301,40 @@ instance Arbitrary Term1 where
     TApp f i -> f : i : [TApp nf ni | (nf, ni) <- shrink (f,i)]
 
 instance Arbitrary Term2 where
-  arbitrary = do
-    term1 <- arbitrary :: Gen Term1
-    let term2 = case debruijinize [] term1 of
-                  Left str -> error $ "Non valid `Term1` generated from `arbitrarry :: Gen Term1`: "
-                                        <> show term1
-                                        <> " With error message: "
-                                        <> str
-                  Right t2 -> t2
-    pure term2
+  -- arbitrary = do
+  --   term1 <- arbitrary :: Gen Term1
+  --   let term2 = case debruijinize [] term1 of
+  --                 Left str -> error $ "Non valid `Term1` generated from `arbitrarry :: Gen Term1`: "
+  --                                       <> show term1
+  --                                       <> " With error message: "
+  --                                       <> str
+  --                 Right t2 -> t2
+  --   pure term2
+  arbitrary = sized genTree where
+    -- leaves :: [Int] -> Gen Term2
+    -- leaves is =
+    --   oneof $ [ pure TZero
+    --           , pure TLimitedRecursion
+    --           ] <> (pure . TVar <$> is)
+    leaves :: Gen Term2
+    leaves = oneof [ pure TZero
+                   , pure TLimitedRecursion
+                   ]
+    genTree :: Int -> Gen Term2
+    genTree i = let half = div i 2
+                    third = div i 3
+                in case i of
+                     0 -> leaves
+                     x -> oneof [ leaves
+                                , THash <$> genTree (i - 1)
+                                , TLeft <$> genTree (i - 1)
+                                , TRight <$> genTree (i - 1)
+                                , TTrace <$> genTree (i - 1)
+                                , TLam (Open ()) <$> genTree (i - 1)
+                                , TITE <$> genTree third <*> genTree third <*> genTree third
+                                , TPair <$> genTree half <*> genTree half
+                                , TApp <$> genTree half <*> genTree half
+                                ]
   shrink = \case
     TZero -> []
     TLimitedRecursion -> []

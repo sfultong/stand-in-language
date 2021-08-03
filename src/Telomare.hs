@@ -158,6 +158,7 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
     alg (TLeftF l) = indentWithOneChild "TLeft" l
     alg (TRightF r) = indentWithOneChild "TRight" r
     alg (TTraceF x) = indentWithOneChild "TTrace" x
+    alg (THashF x) = indentWithOneChild "THash" x
     alg (TLamF l x) = indentWithOneChild ("TLam " <> show l) x
     alg TLimitedRecursionF = sindent "TLimitedRecursion"
 
