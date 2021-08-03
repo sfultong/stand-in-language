@@ -6,6 +6,7 @@
 module Telomare.Possible where
 
 import           Control.Applicative
+import           Control.Lens.Plated
 import Control.Monad
 import Control.Monad.Reader (Reader, ReaderT)
 import qualified Control.Monad.Reader as Reader
@@ -31,7 +32,6 @@ data PossibleExpr a b
   | PairX (PossibleExpr a b) (PossibleExpr a b)
   | EitherX (PossibleExpr a b) (PossibleExpr a b)
   | FunctionX (FragExpr b)
-  | AnnotateX a (PossibleExpr a b)
   | ClosureX (FragExpr b) (PossibleExpr a b) -- hack for lazy evaluation
   deriving (Eq, Ord)
 makeBaseFunctor ''PossibleExpr
@@ -41,8 +41,6 @@ instance (Eq a, Eq b) => Semigroup (PossibleExpr a b) where
     (ZeroX, ZeroX)                      -> ZeroX
     (AnyX, _)                           -> AnyX
     (_, AnyX)                           -> AnyX
-    (AnnotateX x a, b)                  -> AnnotateX x $ a <> b
-    (a, AnnotateX x b)                  -> AnnotateX x $ a <> b
     (FunctionX a, FunctionX b) | a == b -> FunctionX a
     (PairX a b, PairX c d) | a == c     -> PairX a (b <> d)
     (PairX a b, PairX c d) | b == d     -> PairX (a <> c) b
@@ -59,8 +57,16 @@ instance (Show a, Show b) => Show (PossibleExpr a b) where
       PairXF a b -> indentWithTwoChildren "PairX" a b
       EitherXF a b -> indentWithTwoChildren "EitherX" a b
       FunctionXF f -> cata showFragAlg f
-      AnnotateXF a x -> indentWithOneChild ("AnnotateX " <> show a) x
       ClosureXF f x -> indentWithTwoChildren "ClosureX" (cata showFragAlg f) x
+
+instance Plated (PossibleExpr a b) where
+  plate f = \case
+    ZeroX -> pure ZeroX
+    AnyX  -> pure AnyX
+    PairX a b -> PairX <$> f a <*> f b
+    EitherX a b -> EitherX <$> f a <*> f b
+    FunctionX frag -> pure $ FunctionX frag
+    ClosureX frag i -> ClosureX frag <$> f i
 
 -- notice that AnyX will translate to an empty list, which may not be expected
 toIExprList :: PossibleExpr a b -> DList.DList IExpr
@@ -68,7 +74,6 @@ toIExprList = \case
   ZeroX -> pure Zero
   PairX a b -> Pair <$> toIExprList a <*> toIExprList b
   EitherX a b -> toIExprList a <> toIExprList b
-  AnnotateX _ x -> toIExprList x
   _ -> mempty
 
 toIExprList' :: (PossibleExpr a b -> FragExpr b -> PossibleExpr a b) -> PossibleExpr a b -> DList.DList IExpr
@@ -76,9 +81,9 @@ toIExprList' setEval = let recur = toIExprList' setEval in \case
   ZeroX -> pure Zero
   PairX a b -> Pair <$> recur a <*> recur b
   EitherX a b -> recur a <> recur b
-  AnnotateX _ x -> recur x
   ClosureX f i -> recur $ setEval i f
 
+{-
 annotations :: Ord a => PossibleExpr a b -> Set a
 annotations = \case
   PairX a b -> annotations a <> annotations b
@@ -101,6 +106,7 @@ noAnnotatedFunctions =
     AnnotateX _ x -> testF x
     ClosureX _ e -> noAnnotatedFunctions e
     _ -> True
+-}
 
 truncatePossible :: PossibleExpr a b -> FragExpr b
 truncatePossible = cata alg where
@@ -110,7 +116,6 @@ truncatePossible = cata alg where
     PairXF a b -> PairFrag a b
     EitherXF a _ -> a
     FunctionXF f -> f
-    AnnotateXF _ x -> x
     ClosureXF f x -> SetEnvFrag (PairFrag f x)
 
 containsAux :: (FragIndex -> FragExpr a) -> FragExpr a -> Bool
@@ -129,11 +134,11 @@ containsAux' fragLookup = let recur = containsAux' fragLookup in \case
   PairX a b -> recur a || recur b
   EitherX a b -> recur a || recur b
   FunctionX f -> containsAux fragLookup f
-  AnnotateX _ x -> recur x
   ClosureX f i -> containsAux fragLookup f || recur i
   _ -> False
 
 type BasicPossible = PossibleExpr BreakExtras BreakExtras
+-- type TestMapBuilder = StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int))
 type TestMapBuilder = StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int))
 
 toPossible :: (Show a, Eq a, Show b, Eq b, Monad m) => (FragIndex -> FragExpr b)
@@ -152,12 +157,9 @@ toPossible fragLookup setEval doAnnotation env =
         _ -> pure x
   in \case
   ZeroFrag -> pure ZeroX
-  -- PairFrag a b -> PairX <$> recur a <*> recur b
   PairFrag a b -> pure $ PairX (envWrap a) (envWrap b)
   EnvFrag -> pure env
   LeftFrag x -> let process = \case
-                      AnnotateX a px -> AnnotateX a <$> process px
-                      -- PairX ln _ -> pure ln
                       PairX ln _ -> force ln
                       z@ZeroX -> pure z
                       a@AnyX -> pure a
@@ -165,8 +167,6 @@ toPossible fragLookup setEval doAnnotation env =
                       z -> error $ "toPossible leftFrag unexpected: " <> show z
                 in recur x >>= process
   RightFrag x -> let process = \case
-                       AnnotateX a px -> AnnotateX a <$> process px
-                       -- PairX _ rn -> pure rn
                        PairX _ rn -> force rn
                        z@ZeroX -> pure z
                        a@AnyX -> pure a
@@ -175,8 +175,6 @@ toPossible fragLookup setEval doAnnotation env =
                  in recur x >>= process
   SetEnvFrag x -> recur x >>=
     let processSet = \case
-          AnnotateX a px -> AnnotateX a <$> processSet px
-          -- PairX ft it -> setEval toPossible' env ft it
           PairX ft it -> do
             ft' <- force ft
             it' <- force it
@@ -210,7 +208,6 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
         EitherX a b -> let comb :: DList.DList a -> DList.DList a -> DList.DList a
                            comb = (<>)
                        in comb <$> toExprList' a <*> toExprList' b
-        AnnotateX _ x -> toExprList' x
         ClosureX f i -> sRecur i f >>= toExprList'
       setEval ft it = case ft of
         FunctionX af -> case af of
@@ -230,7 +227,6 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
           -- From Defer
           AuxFrag _ -> error "abortSetEval: should be no AuxFrag here"
           x -> sRecur it x
-        AnnotateX _ nf -> setEval nf it
   in setEval ft' it'
 
 staticAbortSetEval :: (Show a, Eq a, Show b, Eq b) =>
@@ -250,6 +246,7 @@ sizingAbortSetEval = let combine a b = case (a,b) of
                                          _ -> Nothing
                      in abortSetEval combine Nothing
 
+{-
 testBuildingSetEval :: (BasicPossible -> FragExpr BreakExtras -> TestMapBuilder BasicPossible)
   -> BasicPossible -> BasicPossible -> BasicPossible -> TestMapBuilder BasicPossible
 testBuildingSetEval sRecur env ft' it' =
@@ -331,3 +328,4 @@ testBuildingSetEval sRecur env ft' it' =
                in conditionallyAddTests $ sRecur it af
         z -> error ("tbse setEval unexpected " <> show z)
   in setEval initialPoisoned ft' it'
+-}
