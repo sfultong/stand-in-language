@@ -111,17 +111,35 @@ removeChecks (Term4 m) =
   in Term4 $ Map.map (transform f) newM
 
 runStaticChecks :: Term4 -> Maybe String
-runStaticChecks (Term4 termMap) = case ((toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap)) :: Either String (PossibleExpr Void Void)) of
-  Left s -> pure s
-  _      -> Nothing
+runStaticChecks (Term4 termMap) =
+  case (toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap) :: Either String (PossibleExpr Void Void)) of
+    Left s -> pure s
+    _      -> Nothing
 
-compile :: Term3 -> Either EvalError IExpr
-compile t = let sized = findChurchSize t
-            in case runStaticChecks sized of
-                 Nothing -> case toTelomare $ removeChecks sized of
-                   Just i  -> pure i
-                   Nothing -> Left CompileConversionError
-                 Just s -> Left $ StaticCheckError s
+runStaticChecksMain :: Term4 -> Maybe String
+runStaticChecksMain (Term4 termMap) =
+  let (PairFrag (DeferFrag i) y) = rootFrag termMap
+  in case (toPossible (termMap Map.!) staticAbortSetEval AnyX (termMap Map.! i) :: Either String (PossibleExpr Void Void)) of
+       Left s -> pure s
+       _      -> Nothing
+
+
+compileMain :: Term3 -> Either EvalError IExpr
+compileMain = compile runStaticChecksMain
+
+compileUnitTest :: Term3 -> Either EvalError IExpr
+compileUnitTest = compile runStaticChecks
+
+compile :: (Term4 -> Maybe String) -> Term3 -> Either EvalError IExpr
+compile f t =
+  let sized = findChurchSize t
+  in case f sized of
+       Nothing -> case toTelomare $ removeChecks sized of
+                    Just i  -> pure i
+                    Nothing -> Left CompileConversionError
+       Just s -> Left $ StaticCheckError s
+
+
 {-
 findAllSizes :: Term2 -> (Bool, Term3)
 findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x

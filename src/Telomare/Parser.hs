@@ -59,7 +59,7 @@ data UnprocessedParsedTerm
   | RightUP UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
-  | UniqueUP -- ^ On ad hoc user defined types, this term will be substitued to a unique Int.
+  | HashUP UnprocessedParsedTerm -- ^ On ad hoc user defined types, this term will be substitued to a unique Int.
   -- TODO check
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
@@ -76,11 +76,11 @@ instance Plated UnprocessedParsedTerm where
     LeftUP x    -> LeftUP <$> f x
     RightUP x   -> RightUP <$> f x
     TraceUP x   -> TraceUP <$> f x
+    HashUP x    -> HashUP <$> f x
     CheckUP c x -> CheckUP <$> f c <*> f x
     x           -> pure x
 
 type VarList = [String]
-
 -- |TelomareParser :: * -> *
 --type TelomareParser = State.StateT ParserState (Parsec Void String)
 type TelomareParser = Parsec Void String
@@ -128,6 +128,7 @@ debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i
 debruijinize vl (TLeft x) = TLeft <$> debruijinize vl x
 debruijinize vl (TRight x) = TRight <$> debruijinize vl x
 debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
+debruijinize vl (THash x) = THash <$> debruijinize vl x
 debruijinize vl (TLam (Open n) x) = TLam (Open ()) <$> debruijinize (n : vl) x
 debruijinize vl (TLam (Closed n) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ TLimitedRecursion = pure TLimitedRecursion
@@ -277,14 +278,15 @@ parseITE = do
   elseExpr <- parseLongExpr <* scn
   pure $ ITEUP cond thenExpr elseExpr
 
-parseUnique :: TelomareParser UnprocessedParsedTerm
-parseUnique = do
-  reserved "unique" <* scn
-  pure UniqueUP
+parseHash :: TelomareParser UnprocessedParsedTerm
+parseHash = do
+  symbol "#" <* scn
+  upt <- parseSingleExpr :: TelomareParser UnprocessedParsedTerm
+  pure $ HashUP upt
 
 -- |Parse a single expression.
 parseSingleExpr :: TelomareParser UnprocessedParsedTerm
-parseSingleExpr = choice $ try <$> [ parseUnique
+parseSingleExpr = choice $ try <$> [ parseHash
                                    , parseString
                                    , parseNumber
                                    , parsePair
@@ -393,6 +395,14 @@ runTelomareParser parser str =
     Right x -> pure x
     Left e  -> error $ errorBundlePretty e
 
+-- |Helper function to compile to Term2
+runTelomareParser2Term2 :: TelomareParser UnprocessedParsedTerm -- ^Parser to run
+                        -> [(String, UnprocessedParsedTerm)]    -- ^Prelude
+                        -> String                               -- ^Raw string to be parsed
+                        -> Either String Term2                  -- ^Error on Left
+runTelomareParser2Term2 parser prelude str =
+  first errorBundlePretty (runParser parser "" str) >>= process2Term2 prelude
+
 -- |Helper function to test if parser was successful.
 parseSuccessful :: Monad m => TelomareParser a -> String -> m Bool
 parseSuccessful parser str =
@@ -438,6 +448,7 @@ makeLambda bindings str term1 =
         v = vars term1
         unbound = (v \\ bindings') \\ Set.singleton str
 
+-- |Transformation from `UnprocessedParsedTerm` to `Term1` validating and inlining `VarUP`s
 validateVariables :: [(String, UnprocessedParsedTerm)] -- ^ Prelude
                   -> UnprocessedParsedTerm
                   -> Either String Term1
@@ -481,6 +492,7 @@ validateVariables prelude term =
         RightUP x -> TRight <$> validateWithEnvironment x
         TraceUP x -> TTrace <$> validateWithEnvironment x
         CheckUP cf x -> TCheck <$> validateWithEnvironment cf <*> validateWithEnvironment x
+        HashUP x -> THash <$> validateWithEnvironment x
   in State.evalStateT (validateWithEnvironment term) Map.empty
 
 optimizeBuiltinFunctions :: UnprocessedParsedTerm -> UnprocessedParsedTerm
@@ -502,37 +514,34 @@ optimizeBuiltinFunctions = transform optimize where
         -- VarUP "check" TODO
     x -> x
 
--- |Process an `UnprocessedParesedTerm` to have all `UniqueUP` replaced by a unique number.
--- The unique number is constructed by doing a SHA1 hash of the UnprocessedParsedTerm and
--- adding one for all consecutive UniqueUP's.
-generateAllUniques :: UnprocessedParsedTerm -> UnprocessedParsedTerm
-generateAllUniques upt = State.evalState (makeUnique upt) 0 where
+-- |Process an `Term2` to have all `HashUP` replaced by a unique number.
+-- The unique number is constructed by doing a SHA1 hash of the Term2 and
+-- adding one for all consecutive HashUP's.
+generateAllHashes :: Term2 -> Term2
+generateAllHashes = transform interm where
   hash' :: ByteString -> Digest SHA256
   hash' = hash
-  uptHash :: UnprocessedParsedTerm -> ByteString
-  uptHash = BS.pack . BA.unpack . hash' . BS.pack . encode . show
-  bs2IntUPList :: ByteString -> [UnprocessedParsedTerm]
-  bs2IntUPList bs = IntUP . fromInteger . toInteger <$> BS.unpack bs
-  makeUnique :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
-  makeUnique upt = transformM interm upt
-    where
-      ls = bs2IntUPList . uptHash $ upt
-      interm :: UnprocessedParsedTerm -> State Int UnprocessedParsedTerm
-      interm = \case
-        UniqueUP -> do
-          State.modify (+1)
-          i <- State.get
-          pure $ ListUP (ls <> [IntUP i])
-        x -> pure x
+  term2Hash :: Term2 -> ByteString
+  term2Hash = BS.pack . BA.unpack . hash' . BS.pack . encode . show
+  bs2Term2 :: ByteString -> Term2
+  bs2Term2 bs = ints2t . drop 24 $ fromInteger . toInteger <$> BS.unpack bs
+  interm :: Term2 -> Term2
+  interm = \case
+    THash term1 -> bs2Term2 . term2Hash $ term1
+    x           -> x
 
--- |Process an `UnprocessedParesedTerm` to a `Term3` with failing capability.
+-- |Process an `UnprocessedParsedTerm` to a `Term3` with failing capability.
 process :: [(String, UnprocessedParsedTerm)] -- ^Prelude
         -> UnprocessedParsedTerm
         -> Either String Term3
-process prelude = fmap splitExpr
-                . debruijinize [] <=< validateVariables prelude
-                . optimizeBuiltinFunctions
-                . generateAllUniques
+process prelude upt = splitExpr <$> process2Term2 prelude upt
+
+process2Term2 :: [(String, UnprocessedParsedTerm)] -- ^Prelude
+              -> UnprocessedParsedTerm
+              -> Either String Term2
+process2Term2 prelude = fmap generateAllHashes
+                      . debruijinize [] <=< validateVariables prelude
+                      . optimizeBuiltinFunctions
 
 -- |Parse with specified prelude
 parseWithPrelude :: [(String, UnprocessedParsedTerm)]   -- ^Prelude

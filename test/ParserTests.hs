@@ -49,103 +49,105 @@ tests :: TestTree
 tests = testGroup "Tests" [unitTests, qcProps]
 
 qcProps = testGroup "Property tests (QuickCheck)"
-  [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of UniqueUP's" $
-      \x ->
-        containsUniqueUP x QC.==> checkAllUniques . generateAllUniques $ x
-  , QC.testProperty "Have the total amount of UniqueUP + ListUP be equal to total ListUP after generateAllUniques" $
-      \x ->
-        containsUniqueUP x QC.==> checkNumberOfUniques x
-  , QC.testProperty "See that generateAllUniques only changes UniqueUP to ListUP" $
-      \x ->
-        containsUniqueUP x QC.==> onlyUniqueUPAndIntUP x
+  [ QC.testProperty "Arbitrary UnprocessedParsedTerm to test hash uniqueness of HashUP's" $
+      \x -> withMaxSuccess 16 $
+        containsTHash x QC.==> checkAllHashes . generateAllHashes $ x
+  -- , QC.testProperty "Have the total amount of THash + ? be equal to total ? after generateAllHashes" $
+  --     \x -> withMaxSuccess 10 $
+  --       containsTHash x QC.==> checkNumberOfHashes x
+  , QC.testProperty "See that generateAllHashes only changes HashUP to ListUP" $
+      \x -> withMaxSuccess 16 $
+        containsTHash x QC.==> onlyHashUPsChanged x
   ]
 
-checkNumberOfUniques :: UnprocessedParsedTerm -> Bool
-checkNumberOfUniques upt = let tupt = generateAllUniques upt
-                           in ((length $ upt ^.. (cosmos . _UniqueUP)) + (length $ upt ^.. (cosmos . _ListUP))) == (length $ tupt ^.. (cosmos . _ListUP))
+-- -- The trace statements help showing why this doesn't work: the number of TPair's isn't cosntat for all processed `THash`es
+-- checkNumberOfHashes :: Term2 -> Bool
+-- checkNumberOfHashes term2 = let tterm2 = generateAllHashes term2
+--                             in trace
+--                                 ("!!!!!!!!!!!!!!!!!!! 1: " <> (show $ length (term2 ^.. (cosmos . _THash)) + length (term2 ^.. (cosmos . _TZero))))
+--                                 (1675 * (length (term2 ^.. (cosmos . _THash))) + length (term2 ^.. (cosmos . _TZero))) ==
+--                                   trace
+--                                     ("!!!!!!!!!!!!!!!!!!! 2: " <> (show $ length (tterm2 ^.. (cosmos . _TZero))))
+--                                     (length (tterm2 ^.. (cosmos . _TZero)))
 
-containsUniqueUP :: UnprocessedParsedTerm -> Bool
-containsUniqueUP = \case
-  UniqueUP    -> True
-  LetUP xs a  -> containsUniqueUP a || (or $ (containsUniqueUP . snd) <$> xs)
-  ITEUP a b c -> containsUniqueUP a || containsUniqueUP b || containsUniqueUP c
-  ListUP ls   -> or $ containsUniqueUP <$> ls
-  PairUP a b  -> containsUniqueUP a || containsUniqueUP b
-  AppUP a b   -> containsUniqueUP a || containsUniqueUP b
-  CheckUP a b -> containsUniqueUP a || containsUniqueUP b
-  LamUP _ a   -> containsUniqueUP a
-  LeftUP a    -> containsUniqueUP a
-  RightUP a   -> containsUniqueUP a
-  TraceUP a   -> containsUniqueUP a
-  x           -> False
+containsTHash :: Term2 -> Bool
+containsTHash = \case
+  THash _    -> True
+  TITE a b c -> containsTHash a || containsTHash b || containsTHash c
+  TPair a b  -> containsTHash a || containsTHash b
+  TApp a b   -> containsTHash a || containsTHash b
+  TCheck a b -> containsTHash a || containsTHash b
+  TLam _ a   -> containsTHash a
+  TLeft a    -> containsTHash a
+  TRight a   -> containsTHash a
+  TTrace a   -> containsTHash a
+  x          -> False
 
-onlyUniqueUPAndIntUP :: UnprocessedParsedTerm -> Bool
-onlyUniqueUPAndIntUP upt = let diffList = diffUPT (upt, generateAllUniques upt)
-                               isUniqueUP :: UnprocessedParsedTerm -> Bool
-                               isUniqueUP = \case
-                                 UniqueUP -> True
-                                 _        -> False
-                               isListUP :: UnprocessedParsedTerm -> Bool
-                               isListUP = \case
-                                 ListUP _ -> True
-                                 _        -> False
-                           in and $ fmap (isUniqueUP . fst) diffList ++ fmap (isListUP . snd) diffList
+onlyHashUPsChanged :: Term2 -> Bool
+onlyHashUPsChanged term2 = let diffList = diffTerm2 (term2, generateAllHashes term2)
+                               isHash :: Term2 -> Bool
+                               isHash = \case
+                                 THash _ -> True
+                                 _       -> False
+                           in and $ fmap (isHash . fst) diffList
 
-diffUPT :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [(UnprocessedParsedTerm, UnprocessedParsedTerm)]
-diffUPT = \case
-  (ITEUP a b c, ITEUP a' b' c') -> diffUPT (a, a') ++ diffUPT (b, b') ++ diffUPT (c, c')
-  (ListUP ls, ListUP ls') -> concat $ diffUPT <$> (zip ls ls')
-  (PairUP a b, PairUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
-  (AppUP a b, AppUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
-  (CheckUP a b, CheckUP a' b') -> diffUPT (a, a') ++ diffUPT (b, b')
-  (LamUP _ a, LamUP _ a') -> diffUPT (a, a')
-  (LeftUP a, LeftUP a') -> diffUPT (a, a')
-  (RightUP a, RightUP a') -> diffUPT (a, a')
-  (TraceUP a, TraceUP a') -> diffUPT (a, a')
-  (LetUP xs a, LetUP xs' a') -> diffUPT (a, a') ++ (concat $ diffUPT <$> zs)
-    where ys = snd <$> xs
-          ys'= snd <$> xs'
-          zs = zip ys ys'
+diffTerm2 :: (Term2, Term2) -> [(Term2, Term2)]
+diffTerm2 = \case
+  (TITE a b c, TITE a' b' c') -> diffTerm2 (a, a') <> diffTerm2 (b, b') <> diffTerm2 (c, c')
+  (TPair a b, TPair a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
+  (TApp a b, TApp a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
+  (TCheck a b, TCheck a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
+  (TLam _ a, TLam _ a') -> diffTerm2 (a, a')
+  (TLeft a, TLeft a') -> diffTerm2 (a, a')
+  (TRight a, TRight a') -> diffTerm2 (a, a')
+  (TTrace a, TTrace a') -> diffTerm2 (a, a')
   (x, x') | x /= x' -> [(x, x')]
   _ -> []
 
-checkAllUniques :: UnprocessedParsedTerm -> Bool
-checkAllUniques = noDups . allUniquesToIntUPList
+checkAllHashes :: Term2 -> Bool
+checkAllHashes = noDups . allHashesToTerm2
 
 noDups = not . f []
   where
     f seen (x:xs) = x `elem` seen || f (x:seen) xs
     f seen []     = False
 
-allUniquesToIntUPList :: UnprocessedParsedTerm -> [[UnprocessedParsedTerm]]
-allUniquesToIntUPList upt =
-  let utpWithUniquesAsInts = generateAllUniques upt
-      interm :: (UnprocessedParsedTerm, UnprocessedParsedTerm) -> [[UnprocessedParsedTerm]]
+allHashesToTerm2 :: Term2 -> [Term2]
+allHashesToTerm2 term2 =
+  let term2WithoutTHash = generateAllHashes term2
+      interm :: (Term2, Term2) -> [Term2]
       interm = \case
-        (UniqueUP, ListUP x) -> [x]
-        (ITEUP a b c, ITEUP a' b' c') -> interm (a, a') ++ interm (b, b') ++ interm (c, c')
-        (ListUP ls, ListUP ls') -> concat $ interm <$> (zip ls ls')
-        (PairUP a b, PairUP a' b') -> interm (a, a') ++ interm (b, b')
-        (AppUP a b, AppUP a' b') -> interm (a, a') ++ interm (b, b')
-        (CheckUP a b, CheckUP a' b') -> interm (a, a') ++ interm (b, b')
-        (LamUP _ a, LamUP _ a') -> interm (a, a')
-        (LeftUP a, LeftUP a') -> interm (a, a')
-        (RightUP a, RightUP a') -> interm (a, a')
-        (TraceUP a, TraceUP a') -> interm (a, a')
-        (LetUP xs a, LetUP xs' a') -> interm (a, a') ++ (concat $ interm <$> zs)
-          where ys = snd <$> xs
-                ys'= snd <$> xs'
-                zs = zip ys ys'
-        (x, x') | x /= x' -> error "x and x' should be the same (inside of allUniquesToIntUPList, within interm)"
+        (THash _ , x) -> [x]
+        (TITE a b c, TITE a' b' c') -> interm (a, a') <> interm (b, b') <> interm (c, c')
+        (TPair a b, TPair a' b') -> interm (a, a') <> interm (b, b')
+        (TApp a b, TApp a' b') -> interm (a, a') <> interm (b, b')
+        (TCheck a b, TCheck a' b') -> interm (a, a') <> interm (b, b')
+        (TLam _ a, TLam _ a') -> interm (a, a')
+        (TLeft a, TLeft a') -> interm (a, a')
+        (TRight a, TRight a') -> interm (a, a')
+        (TTrace a, TTrace a') -> interm (a, a')
+        (x, x') | x /= x' -> error "x and x' should be the same (inside of allHashesToTerm2, within interm)"
         (x, x') -> []
-  in curry interm upt utpWithUniquesAsInts
+  in curry interm term2 term2WithoutTHash
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [ testCase "Ad hoc user defined types success" $ do
+  [ testCase "different values get different hashes" $ do
+      let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest0
+          res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest1
+      (res1 == res2) `compare` False @?= EQ
+      -- #^This commmented test tests if two variables having the same value are assigned the same hash
+  , testCase "same functions have the same hash even with different variable names" $ do
+     let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest2
+         res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest3
+     res1 `compare` res2  @?= EQ
+  , testCase "parse uniqueUP" $ do
+      res <- parseSuccessful parseHash "# (\\x -> x)"
+      res `compare` True @?= EQ
+  , testCase "Ad hoc user defined types success" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
       -- res `compare` "\n\4603\a\ndone" @?= EQ
-      (length res) `compare` 8 @?= EQ -- This might be weak, but the above is too fragil. The number 4603 can change and the test should still be successful.
+      (length res) `compare` 7 @?= EQ -- This might be weak, but the above is too fragil. The number 4603 can change and the test should still be successful.
   , testCase "Ad hoc user defined types failure" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesFailure
       res `compare` "\nMyInt must not be 0\ndone" @?= EQ
@@ -284,12 +286,6 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetIncorrectIndentation2" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
-  -- , testCase "collect vars" $ do
-  --     let fv = vars expr
-  --     fv `compare` (Set.empty) @?= EQ
-  -- , testCase "collect vars many x's" $ do
-  --     let fv = vars expr1
-  --     fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
       (fromRight TZero $ validateVariables [] res) `compare` closedLambdaPair @?= EQ
@@ -313,6 +309,18 @@ unitTests = testGroup "Unit tests"
       (fromRight TZero $ validateVariables [] res) `compare` expr2 @?= EQ
   ]
 
+hashtest0 = unlines ["let wrapper = 2",
+                "  in (# wrapper)"]
+
+hashtest1 = unlines ["let var = 3",
+                "  in (# var)"]
+hashtest2 = unlines [ "let a = \\y -> y"
+               , "in (# a)"
+               ]
+hashtest3 = unlines [ "let b = \\x -> x"
+               , "in (# b)"
+               ]
+
 testUserDefAdHocTypes :: String -> IO String
 testUserDefAdHocTypes input = do
   preludeFile <- Strict.readFile "Prelude.tel"
@@ -321,33 +329,33 @@ testUserDefAdHocTypes input = do
       Right p -> p
       Left pe -> error pe
     runMain :: String -> IO String
-    runMain s = case compile <$> parseMain prelude s of
+    runMain s = case compileUnitTest <$> parseMain prelude s of
       Left e -> error $ concat ["failed to parse ", s, " ", e]
       Right (Right g) -> evalLoop_ g
       Right z -> error $ "compilation failed somehow, with result " <> show z
   runMain input
 
 userDefAdHocTypesSuccess = unlines $
-  [ "MyInt = let intTag = unique"
-  , "        in ( \\i -> if not i"
-  , "                   then \"MyInt must not be 0\""
-  , "                   else (intTag, i)"
-  , "           , \\i -> if dEqual (left i) intTag"
+  [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
+  , "                        then \"MyInt must not be 0\""
+  , "                   else  i"
+  , "           , \\i -> if dEqual (left i)"
   , "                   then 0"
   , "                   else \"expecting MyInt\""
   , "           )"
+  , "in wrapper (# wrapper)"
   , "main = \\i -> ((left MyInt) 8, 0)"
   ]
 
 userDefAdHocTypesFailure = unlines $
-  [ "MyInt = let intTag = unique"
-  , "        in ( \\i -> if not i"
-  , "                   then \"MyInt must not be 0\""
-  , "                   else (intTag, i)"
-  , "           , \\i -> if dEqual (left i) intTag"
+  [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
+  , "                        then \"MyInt must not be 0\""
+  , "                   else  i"
+  , "           , \\i -> if dEqual (left i)"
   , "                   then 0"
   , "                   else \"expecting MyInt\""
   , "           )"
+  , "in wrapper (# wrapper)"
   , "main = \\i -> ((left MyInt) 0, 0)"
   ]
 
@@ -360,11 +368,6 @@ dependantTopLevelBindings = unlines $
   , "g = (0,0)"
   , "h = [f,g,f]"
   ]
-
--- myDebug2 = do
---   let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ))
---                               expr8
---   putStrLn . show $ x Map.! "h"
 
 -- |Usefull to see if tictactoe.tel was correctly parsed
 -- and was usefull to compare with the deprecated Telomare.Parser
@@ -379,65 +382,6 @@ testWtictactoe = do
   case parseMain prelude tictactoe of
     Right _ -> return True
     Left _  -> return False
-
-{-
-runTictactoe = do
-  preludeFile <- Strict.readFile "Prelude.tel"
-  tictactoe <- Strict.readFile "hello.tel"
-  let
-    prelude = case parsePrelude preludeFile of
-      Right p -> p
-      Left pe -> error . getErrorString $ pe
-  runTelomareParser_ parseTopLevel tictactoe
--}
-  -- case parseWithPrelude prelude tictactoe of
-  --   Right x -> putStrLn . show $ x
-  --   Left err -> putStrLn . getErrorString $ err
-
--- parseWithPreludeFile = do
---   preludeFile <- Strict.readFile "Prelude.tel"
---   file <- Strict.readFile "hello.tel"
---   let
---     prelude = case parsePrelude preludeFile of
---                 Right p -> p
---                 Left pe -> error . getErrorString $ pe
---     printBindings :: Map String Term1 -> IO ()
---     printBindings xs = forM_ (toList xs) $
---                        \b -> do
---                          putStr "  "
---                          putStr . show . fst $ b
---                          putStr " = "
---                          putStrLn $ show . snd $ b
---   case parseWithPrelude prelude file of
---     Right r -> printBindings r
---     Left l -> putStrLn . show $ l
-
-
--- myDebug = do
---   preludeFile <- Strict.readFile "Prelude.tel"
---   let
---     prelude = case parsePrelude preludeFile of
---       Right p -> p
---       Left pe -> error . getErrorString $ pe
---     prelude' = ParserState prelude $ Map.insert "f" (TPair (TVar . Right $ "x") (TVar . Right $ "y")) . Map.insert "y" TZero . Map.insert "x" TZero $ Map.empty
---     oexpr = optimizeLetBindingsReference prelude' $ TVar . Right $ "f"
---     oexpr' = optimizeLetBindingsReference prelude' oexpr
---     oexpr'' = optimizeLetBindingsReference prelude' oexpr'
---   putStrLn . show $ oexpr
---   putStrLn . show $ oexpr'
---   putStrLn . show $ oexpr''
-
-  -- let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
-  --                         topLevelBindingNames
-  --                         expr8
-  -- putStrLn . show $ t1
-  -- putStrLn . show $ (expr9 :: Term1)
-
-  -- case parseWithPrelude prelude' dependantTopLevelBindings of
-  --   Right x -> do
-  --     -- expected :: Term1 <- runTelomareParser (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
-  --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ
-  --   Left err -> error . show $ err
 
 letExpr = unlines $
   [ "let x = 0"
@@ -779,42 +723,6 @@ testList5 = unlines $
   , "  2 ]"
   ]
 
--- -- |Helper function to debug tictactoe.tel
--- debugTictactoe :: IO ()
--- debugTictactoe  = do
---   preludeFile <- Strict.readFile "Prelude.tel"
---   tictactoe <- Strict.readFile "tictactoe.tel"
---   let prelude =
---         case parsePrelude preludeFile of
---           Right pf -> pf
---           Left pe -> error . getErrorString $ pe
---       p str = State.runStateT $ parseMain prelude str
---   case runParser (dbg "debug" p) "" tictactoe of
---     Right (a, s) -> do
---       putStrLn ("Result:      " ++ show a)
---       putStrLn ("Final state: " ++ show s)
---     Left err -> putStr (errorBundlePretty err)
-
--- runTictactoe = do
---   preludeFile <- Strict.readFile "Prelude.tel"
---   tictactoe <- Strict.readFile "tictactoe.tel"
---   let
---     prelude = case parsePrelude preludeFile of
---       Right p -> p
---       Left pe -> error $ "woot2!!!" ++ getErrorString pe
---   putStrLn "Not broken till here."
---   case parseMain' prelude $ tictactoe of
---     Right x -> putStrLn . show $ x
---     Left err -> putStrLn $ "woot!!! " ++ getErrorString err
-
-
--- -- |Parse main.
--- parseMain' :: Bindings -> String -> Either ErrorString Term1
--- parseMain' prelude s = parseWithPrelude prelude s >>= getMain where
---   getMain bound = case Map.lookup "main" bound of
---     Nothing -> fail "no main method found"
---     Just main -> pure main--splitExpr <$> debruijinize [] main
-
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 
 -- TODO: does it matter that one parses succesfuly and the other doesnt?
@@ -824,7 +732,7 @@ parseApplied0 = unlines
   ]
 parseApplied1 = unlines
   [ "foo (bar baz"
-  , "      )"
+  , "         )"
   ]
 
 

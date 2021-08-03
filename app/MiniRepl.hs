@@ -93,7 +93,7 @@ resolveBinding' name bindings = lookup name bindings >>= (rightToMaybe . process
 
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
 resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
-resolveBinding name bindings = rightToMaybe $ compile =<< (maybeToRight $ resolveBinding' name bindings)
+resolveBinding name bindings = rightToMaybe $ compileUnitTest =<< (maybeToRight $ resolveBinding' name bindings)
 
 -- |Print last expression bound to
 -- the _tmp_ variable in the bindings
@@ -105,7 +105,7 @@ printLastExpr :: (MonadIO m)
 printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
     Nothing -> printer "Could not find _tmp_ in bindings"
     Just upt -> do
-      let compile' x = case compile x of
+      let compile' x = case compileUnitTest x of
                          Left err -> Left . show $ err
                          Right r  -> Right r
       case compile' =<< (process bindings (LetUP bindings upt)) of
@@ -136,7 +136,7 @@ replStep eval bindings s = do
             outputStrLn $ "Parse error: " ++ err
             return bindings
         Right (ReplExpr new_bindings) -> do
-            printLastExpr (outputStrLn) (liftIO . eval) new_bindings
+            printLastExpr outputStrLn (liftIO . eval) new_bindings
             return bindings
         Right (ReplAssignment new_bindings) -> do
             return new_bindings

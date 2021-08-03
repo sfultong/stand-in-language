@@ -163,11 +163,10 @@ instance Arbitrary UnprocessedParsedTerm where
     leaves varList =
       oneof $
           (if not (null varList) then ((VarUP <$> elements varList) :) else id)
-          [ StringUP <$> elements (map ((("s") <>) . show) [1..9]) -- chooseAny
-          , (IntUP <$> elements [0..9])
-          , (ChurchUP <$> elements [0..9])
-          , (pure UnsizedRecursionUP)
-          , (pure UniqueUP)
+          [ StringUP <$> elements (map (("s" <>) . show) [1..9]) -- chooseAny
+          , IntUP <$> elements [0..9]
+          , ChurchUP <$> elements [0..9]
+          , pure UnsizedRecursionUP
           ]
     lambdaTerms = ["w", "x", "y", "z"]
     letTerms = map (("l" <>) . show) [1..255]
@@ -189,6 +188,7 @@ instance Arbitrary UnprocessedParsedTerm where
                                  0 -> leaves varList
                                  x -> oneof
                                    [ leaves varList
+                                   , HashUP <$> recur (i - 1)
                                    , LeftUP <$> recur (i - 1)
                                    , RightUP <$> recur (i - 1)
                                    , TraceUP <$> recur (i - 1)
@@ -211,7 +211,6 @@ instance Arbitrary UnprocessedParsedTerm where
                                    , AppUP <$> recur half <*> recur half
                                    ]
   shrink = \case
-    UniqueUP -> []
     StringUP s -> case s of
       [] -> []
       _  -> pure . StringUP $ tail s
@@ -223,6 +222,7 @@ instance Arbitrary UnprocessedParsedTerm where
       x -> pure . ChurchUP $ x - 1
     UnsizedRecursionUP -> []
     VarUP _ -> []
+    HashUP x -> x : map HashUP (shrink x)
     LeftUP x -> x : map LeftUP (shrink x)
     RightUP x -> x : map RightUP (shrink x)
     TraceUP x -> x : map TraceUP (shrink x)
@@ -278,6 +278,7 @@ instance Arbitrary Term1 where
                                  0 -> leaves varList
                                  x -> oneof
                                    [ leaves varList
+                                   , THash <$> recur (i - 1)
                                    , TLeft <$> recur (i - 1)
                                    , TRight <$> recur (i - 1)
                                    , TTrace <$> recur (i - 1)
@@ -290,6 +291,30 @@ instance Arbitrary Term1 where
     TZero -> []
     TLimitedRecursion -> []
     TVar _ -> []
+    THash x -> x : map THash (shrink x)
+    TLeft x -> x : map TLeft (shrink x)
+    TRight x -> x : map TRight (shrink x)
+    TTrace x -> x : map TTrace (shrink x)
+    TLam v x -> x : map (TLam v) (shrink x)
+    TITE i t e -> i : t : e : [TITE ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
+    TPair a b -> a : b : [TPair na nb | (na, nb) <- shrink (a,b)]
+    TApp f i -> f : i : [TApp nf ni | (nf, ni) <- shrink (f,i)]
+
+instance Arbitrary Term2 where
+  arbitrary = do
+    term1 <- arbitrary :: Gen Term1
+    let term2 = case debruijinize [] term1 of
+                  Left str -> error $ "Non valid `Term1` generated from `arbitrarry :: Gen Term1`: "
+                                        <> show term1
+                                        <> " With error message: "
+                                        <> str
+                  Right t2 -> t2
+    pure term2
+  shrink = \case
+    TZero -> []
+    TLimitedRecursion -> []
+    TVar _ -> []
+    THash x -> x : map THash (shrink x)
     TLeft x -> x : map TLeft (shrink x)
     TRight x -> x : map TRight (shrink x)
     TTrace x -> x : map TTrace (shrink x)
