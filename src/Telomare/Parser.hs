@@ -524,7 +524,7 @@ generateAllHashes = transform interm where
   term2Hash :: Term2 -> ByteString
   term2Hash = BS.pack . BA.unpack . hash' . BS.pack . encode . show
   bs2Term2 :: ByteString -> Term2
-  bs2Term2 bs = ints2t . drop 16 $ fromInteger . toInteger <$> BS.unpack bs
+  bs2Term2 bs = ints2t . drop 24 $ fromInteger . toInteger <$> BS.unpack bs
   interm :: Term2 -> Term2
   interm = \case
     THash term1 -> bs2Term2 . term2Hash $ term1

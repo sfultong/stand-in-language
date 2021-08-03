@@ -130,39 +130,17 @@ allHashesToTerm2 term2 =
         (x, x') -> []
   in curry interm term2 term2WithoutTHash
 
--- debruijinize [] <=< validateVariables prelude
---                 . optimizeBuiltinFunctions
---                 . generateAllHashes
-
-aux1 = unlines [ "let a = \\y -> y"
-               , "in (# a)"
-               ]
-aux2 = unlines [ "let a = \\x -> x"
-               , "in (# a)"
-               ]
-
-extract :: UnprocessedParsedTerm -> UnprocessedParsedTerm
-extract (LetUP _ x) = x
-extract y = error "not LetUP in test: same functions have the same hash"
-
-hashtest0 = unlines ["let wrapper = 2",
-                "  in (# wrapper)"]
-
-hashtest1 = unlines ["let var = 3",
-                "  in (# var)"]
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [
-    testCase "different variable names get different hashes" $ do
-      res1 <- extract . generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest0
-      res2 <- extract . generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest1
+  [ testCase "different values get different hashes" $ do
+      let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest0
+          res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest1
       (res1 == res2) `compare` False @?= EQ
       -- #^This commmented test tests if two variables having the same value are assigned the same hash
-  -- ,
-  --   testCase "same functions have the same hash" $ do
-  --    res1 <- extract <$> generateAllHashes <$> runTelomareParser parseLet aux1
-  --    res2 <- extract <$> generateAllHashes <$>  runTelomareParser parseLet aux2
-  --    res1 `compare` res2  @?= EQ
+  , testCase "same functions have the same hash even with different variable names" $ do
+     let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest2
+         res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest3
+     res1 `compare` res2  @?= EQ
   , testCase "parse uniqueUP" $ do
       res <- parseSuccessful parseHash "# (\\x -> x)"
       res `compare` True @?= EQ
@@ -308,12 +286,6 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetIncorrectIndentation2" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
-  -- , testCase "collect vars" $ do
-  --     let fv = vars expr
-  --     fv `compare` (Set.empty) @?= EQ
-  -- , testCase "collect vars many x's" $ do
-  --     let fv = vars expr1
-  --     fv `compare` (Set.empty) @?= EQ
   , testCase "test automatic open close lambda" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
       (fromRight TZero $ validateVariables [] res) `compare` closedLambdaPair @?= EQ
@@ -336,6 +308,18 @@ unitTests = testGroup "Unit tests"
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
       (fromRight TZero $ validateVariables [] res) `compare` expr2 @?= EQ
   ]
+
+hashtest0 = unlines ["let wrapper = 2",
+                "  in (# wrapper)"]
+
+hashtest1 = unlines ["let var = 3",
+                "  in (# var)"]
+hashtest2 = unlines [ "let a = \\y -> y"
+               , "in (# a)"
+               ]
+hashtest3 = unlines [ "let b = \\x -> x"
+               , "in (# b)"
+               ]
 
 testUserDefAdHocTypes :: String -> IO String
 testUserDefAdHocTypes input = do
@@ -385,11 +369,6 @@ dependantTopLevelBindings = unlines $
   , "h = [f,g,f]"
   ]
 
--- myDebug2 = do
---   let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ))
---                               expr8
---   putStrLn . show $ x Map.! "h"
-
 -- |Usefull to see if tictactoe.tel was correctly parsed
 -- and was usefull to compare with the deprecated Telomare.Parser
 -- Parsec implementation
@@ -403,65 +382,6 @@ testWtictactoe = do
   case parseMain prelude tictactoe of
     Right _ -> return True
     Left _  -> return False
-
-{-
-runTictactoe = do
-  preludeFile <- Strict.readFile "Prelude.tel"
-  tictactoe <- Strict.readFile "hello.tel"
-  let
-    prelude = case parsePrelude preludeFile of
-      Right p -> p
-      Left pe -> error . getErrorString $ pe
-  runTelomareParser_ parseTopLevel tictactoe
--}
-  -- case parseWithPrelude prelude tictactoe of
-  --   Right x -> putStrLn . show $ x
-  --   Left err -> putStrLn . getErrorString $ err
-
--- parseWithPreludeFile = do
---   preludeFile <- Strict.readFile "Prelude.tel"
---   file <- Strict.readFile "hello.tel"
---   let
---     prelude = case parsePrelude preludeFile of
---                 Right p -> p
---                 Left pe -> error . getErrorString $ pe
---     printBindings :: Map String Term1 -> IO ()
---     printBindings xs = forM_ (toList xs) $
---                        \b -> do
---                          putStr "  "
---                          putStr . show . fst $ b
---                          putStr " = "
---                          putStrLn $ show . snd $ b
---   case parseWithPrelude prelude file of
---     Right r -> printBindings r
---     Left l -> putStrLn . show $ l
-
-
--- myDebug = do
---   preludeFile <- Strict.readFile "Prelude.tel"
---   let
---     prelude = case parsePrelude preludeFile of
---       Right p -> p
---       Left pe -> error . getErrorString $ pe
---     prelude' = ParserState prelude $ Map.insert "f" (TPair (TVar . Right $ "x") (TVar . Right $ "y")) . Map.insert "y" TZero . Map.insert "x" TZero $ Map.empty
---     oexpr = optimizeLetBindingsReference prelude' $ TVar . Right $ "f"
---     oexpr' = optimizeLetBindingsReference prelude' oexpr
---     oexpr'' = optimizeLetBindingsReference prelude' oexpr'
---   putStrLn . show $ oexpr
---   putStrLn . show $ oexpr'
---   putStrLn . show $ oexpr''
-
-  -- let (t1, _, _) = rename (ParserState (Map.insert "zz" TZero $ Map.insert "yy0" TZero initialMap ) Map.empty)
-  --                         topLevelBindingNames
-  --                         expr8
-  -- putStrLn . show $ t1
-  -- putStrLn . show $ (expr9 :: Term1)
-
-  -- case parseWithPrelude prelude' dependantTopLevelBindings of
-  --   Right x -> do
-  --     -- expected :: Term1 <- runTelomareParser (parseApplied <* scn <* eof) "(\\f0 g1 f1 x -> (x, [f0, g1, x, f1])) f g f"
-  --     putStrLn . show $ (x Map.! "h") -- `compare` expected @?= EQ
-  --   Left err -> error . show $ err
 
 letExpr = unlines $
   [ "let x = 0"
@@ -802,42 +722,6 @@ testList5 = unlines $
   , "  1,"
   , "  2 ]"
   ]
-
--- -- |Helper function to debug tictactoe.tel
--- debugTictactoe :: IO ()
--- debugTictactoe  = do
---   preludeFile <- Strict.readFile "Prelude.tel"
---   tictactoe <- Strict.readFile "tictactoe.tel"
---   let prelude =
---         case parsePrelude preludeFile of
---           Right pf -> pf
---           Left pe -> error . getErrorString $ pe
---       p str = State.runStateT $ parseMain prelude str
---   case runParser (dbg "debug" p) "" tictactoe of
---     Right (a, s) -> do
---       putStrLn ("Result:      " <> show a)
---       putStrLn ("Final state: " <> show s)
---     Left err -> putStr (errorBundlePretty err)
-
--- runTictactoe = do
---   preludeFile <- Strict.readFile "Prelude.tel"
---   tictactoe <- Strict.readFile "tictactoe.tel"
---   let
---     prelude = case parsePrelude preludeFile of
---       Right p -> p
---       Left pe -> error $ "woot2!!!" <> getErrorString pe
---   putStrLn "Not broken till here."
---   case parseMain' prelude $ tictactoe of
---     Right x -> putStrLn . show $ x
---     Left err -> putStrLn $ "woot!!! " <> getErrorString err
-
-
--- -- |Parse main.
--- parseMain' :: Bindings -> String -> Either ErrorString Term1
--- parseMain' prelude s = parseWithPrelude prelude s >>= getMain where
---   getMain bound = case Map.lookup "main" bound of
---     Nothing -> fail "no main method found"
---     Just main -> pure main--splitExpr <$> debruijinize [] main
 
 testITEParsecResult = "TITE (TPair TZero TZero) (TPair TZero TZero) (TPair (TPair TZero TZero) TZero)"
 
