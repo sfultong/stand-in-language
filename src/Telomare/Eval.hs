@@ -6,7 +6,9 @@ import           Control.Lens.Plated
 import           Control.Monad.Except
 import Control.Monad.Reader (Reader, runReader)
 import Control.Monad.State (StateT)
+import Control.Monad.Trans.Accum (AccumT)
 import qualified Control.Monad.State  as State
+import qualified Control.Monad.Trans.Accum as Accum
 import Data.DList (DList)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
@@ -101,8 +103,10 @@ partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 eval' :: IExpr -> Either String IExpr
 eval' = pure
 
-convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
-convertPT limitLookup (Term3 termMap) =
+-- convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
+{-
+convertPT' :: (BreakExtras -> Int) -> Term3 -> Map FragIndex (FragExpr a)
+convertPT' limitLookup (Term3 termMap) =
   let changeTerm = \case
         AuxFrag n -> innerChurchF $ limitLookup n
         ZeroFrag -> pure ZeroFrag
@@ -121,7 +125,38 @@ convertPT limitLookup (Term3 termMap) =
         changedTermMap <- mmap
         State.modify (\(be,i,m) -> ((), i, Map.union changedTermMap m))
       (_,_,newMap) = State.execState newMapBuilder ((), startKey, Map.empty)
-  in Term4 newMap
+  in newMap
+-}
+convertPT' :: (BreakExtras -> Int) -> (FragIndex -> FragExpr BreakExtras) -> FragExpr BreakExtras -> BreakState' BreakExtras b
+convertPT' limitLookup fragLookup =
+
+  let changeTerm = \case
+        AuxFrag n -> innerChurchF $ limitLookup n
+        DeferFrag fi -> do
+          newFrag <- transformM changeTerm $ fragLookup fi
+          State.modify (\(uri, fii, fragMap) -> (uri, fii, Map.insert fi newFrag fragMap))
+          pure $ DeferFrag fi
+        x -> pure x
+  in transformM changeTerm
+
+convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
+convertPT ll (Term3 termMap) = let builder = convertPT' ll (termMap Map.!) (rootFrag termMap)
+                                   startKey = succ . fst $ Map.findMax termMap
+                                   (_,_,newMap) = State.execState builder ((), startKey, termMap)
+                                   changeType :: FragExpr BreakExtras -> FragExpr Void
+                                   changeType = \case
+                                     ZeroFrag -> ZeroFrag
+                                     PairFrag a b -> PairFrag (changeType a) (changeType b)
+                                     EnvFrag -> EnvFrag
+                                     SetEnvFrag x -> SetEnvFrag (changeType x)
+                                     DeferFrag ind -> DeferFrag ind
+                                     AbortFrag -> AbortFrag
+                                     GateFrag l r -> GateFrag (changeType l) (changeType r)
+                                     LeftFrag x -> LeftFrag (changeType x)
+                                     RightFrag x -> RightFrag (changeType x)
+                                     TraceFrag -> TraceFrag
+                                     AuxFrag _ -> error "convertPT should be no AuxFrags here"
+                               in Term4 $ fmap changeType newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
 --findChurchSize = pure . convertPT (const 255)
@@ -296,9 +331,62 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                                                                          else findC b (midpoint - 1)
         in pure $ findC ib ie
       prettyTerm = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm3 $ t3
-  in case findLimit t3 of
+      -- findLimitStatic :: FragExpr BreakExtras -> StateT (Set BreakExtras) (BreakState' BreakExtras b)
+      findLimitStatic :: FragExpr BreakExtras -> AccumT (Set BreakExtras) (BreakState BreakExtras b) (FragExpr BreakExtras)
+      findLimitStatic = \case
+        ZeroFrag -> trace "at least zf" pure ZeroFrag
+        PairFrag a b -> PairFrag <$> findLimitStatic a <*> findLimitStatic b
+        EnvFrag -> trace "at least env" pure EnvFrag
+        DeferFrag ind -> do
+          nFrag <- findLimitStatic $ termMap Map.! ind
+          lift $ State.modify (\(uri, fii, fragMap) -> (uri, fii, Map.insert ind nFrag fragMap))
+          pure $ DeferFrag ind
+        AbortFrag -> pure AbortFrag
+        GateFrag l r -> GateFrag <$> findLimitStatic l <*> findLimitStatic r
+        LeftFrag x -> LeftFrag <$> findLimitStatic x
+        RightFrag x -> RightFrag <$> findLimitStatic x
+        TraceFrag -> pure TraceFrag
+        AuxFrag be -> Accum.add (Set.singleton be) >> pure (AuxFrag be)
+        SetEnvFrag x -> let bareEnv = para (\a b -> a == EnvFrag || or b) x
+                            hasFunction = let isF = \case
+                                                FunctionX _ -> True
+                                                _ -> False
+                                          in para (\a b -> isF a || or b)
+                            fragTerm = Term3 $ Map.insert (toEnum 0) (SetEnvFrag x) termMap
+                            pEval :: Term4 -> Either IExpr (PossibleExpr Void Void)
+                            pEval t@(Term4 termMap) = let pEval' = toPossible (termMap Map.!) sizingAbortSetEval (pure . FunctionX . AuxFrag)
+                                                          deepForce = \case
+                                                            PairX a b -> PairX <$> deepForce a <*> deepForce b
+                                                            EitherX a b -> EitherX <$> deepForce a <*> deepForce b
+                                                            ClosureX f i -> pEval' i f >>= deepForce
+                                                            x -> pure x
+                                                      in pEval' AnyX (rootFrag termMap) >>= deepForce
+                            functionFreeResult = case hasFunction <$> pEval (convertPT (const 1) fragTerm) of
+                              Right False -> True
+                              _ -> False
+                            abortsAt sizingF = null . pEval . convertPT sizingF $ fragTerm
+                            hackSizingLimit = 255
+                            notBareEnv = (\r -> if r then trace "found not bare env" r else r) . not $ bareEnv
+                        in if notBareEnv && functionFreeResult
+                           then do
+          nx <- findLimitStatic x
+          unsizedSet <- Accum.look
+          let (ib, ie) = let findBE = \case
+                               (ib, _) | ib > hackSizingLimit -> error "findChurchSize static TODO max recursions over 255 not supported yet"
+                               r@(_, ie) | not (abortsAt $ const ie)  -> trace ("found static ie at " <> show ie) r
+                               (ib, ie) -> findBE (ib * 2, ie * 2)
+                         in findBE (1,2)
+              findC b e | b > e = trace ("found static limit at " <> show (unsizedSet, b)) b
+              findC b e = let midpoint = div (b + e) 2
+                          in if abortsAt (const midpoint)
+                             then findC (midpoint + 1) e
+                             else findC b (midpoint - 1)
+          lift $ convertPT' (const $ findC ib ie) (termMap Map.!) (SetEnvFrag x)
+                           else SetEnvFrag <$> findLimitStatic x
+      staticLimited = Term3 . buildFragMap $ Accum.evalAccumT (findLimitStatic (rootFrag termMap)) mempty
+  in case findLimit staticLimited of
     Left e -> Left $ RecursionLimitError e
     Right m -> let sizeLookup k = case Map.lookup k m of
                      Just v -> v
                      _ -> error ("calculateRecursionLimits' found size map unexpectd key " <> show k)
-               in Right $ convertPT sizeLookup t3
+               in Right $ convertPT sizeLookup staticLimited

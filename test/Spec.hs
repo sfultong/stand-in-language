@@ -359,12 +359,13 @@ qcDecompileIExprAndBackEvalsSame (IExprWrapper x) = pure (showResult $ eval' x)
         showResult x = x -- trace ("desired result: " <> show x) x
         showResult' x = x -- trace ("actual result: " <> show x) x
 
+{-
 qcTestMapBuilderEqualsRegularEval :: DataTypedIExpr -> Bool
 qcTestMapBuilderEqualsRegularEval (IExprWrapper x) = (showResult $ eval' x)
   == pure (showResult' . decodePossible . showIntermediate $ possibleConvert AnyX (rootFrag termMap))
   where eval' = pureIEval
         (Term3 termMap) = splitExpr . decompileTerm4 $ decompileIExpr x
-        annotateAux ur = pure . AnnotateX ur . FunctionX $ AuxFrag ur -- should never actually be called
+        annotateAux ur = pure . FunctionX $ AuxFrag ur -- should never actually be called
         possibleConvert i f = (\tmb -> runReader (State.evalStateT tmb mempty) (const 0)) $
           toPossible (termMap Map.!) testBuildingSetEval annotateAux i f
         -- tmb = toPossible (termMap Map.!) testBuildingSetEval annotateAux AnyX (rootFrag termMap)
@@ -375,6 +376,7 @@ qcTestMapBuilderEqualsRegularEval (IExprWrapper x) = (showResult $ eval' x)
         showIntermediate x = trace ("intermediate possible: " <> show x) x
         showResult x = trace ("desired result: " <> show x) x
         showResult' x = trace ("actual result: " <> show x) x
+-}
 
 qcTestURSizing :: URTestExpr -> Bool
 qcTestURSizing (URTestExpr t3) = 
@@ -432,8 +434,11 @@ unitTests_ parse = do
   -- unitTestPossible "main = let x : ((\\x -> assert (not x) \"fail\")) = 1 in left (1, x)" (== Right (PairX ZeroX ZeroX))
   -- unitTestPossible "main = let f = (\\x -> let xb : (\\xb -> assert 0 \"fail\") = 0 in xb) in $1 (\\r l -> if l then r (left l) else 0) f [1,2]" null
   -- unitTestPossible "main = let f = (\\x -> let xb : (\\xb -> assert 0 \"fail\") = 0 in xb) in $1 (\\r mf l -> if l then (mf (left l), r (right l)) else 0) f succ [1,2]" null -- works fine
-  unitTestPossible "main = let f = (\\x -> let xb : (\\xb -> assert 0 \"fail\") = 0 in xb) in $1 (\\r mf l -> if l then (mf (left l), r (right l)) else 0) f succ [1,2]" null -- works fine
   -- unitTest2 "main = map succ [1,2]" "[2,3]" -- fails (CURRENTLY BEST FAIL?)
+  -- unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)" "(4,(5,(6,8)))" -- success!
+  -- unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
+  unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
+  -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
   -- unitTest2 "main = ? (\\r x -> r (left x)) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\r x -> left x) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\x -> (x,0)) 0" "5"
