@@ -1,8 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Telomare.Possible where
 
 import           Control.Applicative
@@ -26,31 +28,58 @@ import qualified Data.Set            as Set
 import           Debug.Trace
 import           Telomare
 
-data PossibleExpr a b
-  = ZeroX
-  | AnyX
-  | PairX (PossibleExpr a b) (PossibleExpr a b)
-  | EitherX (PossibleExpr a b) (PossibleExpr a b)
-  | FunctionX (FragExpr b)
-  | ClosureX (FragExpr b) (PossibleExpr a b) -- hack for lazy evaluation
+data PossibleExprF a f
+  = ZeroXF
+  | AnyXF
+  | PairXF f f
+  | EitherXF f f
+  | FunctionXF (FragExpr a)
+  | ClosureXF (FragExpr a) f -- hack for lazy evaluation
+  deriving (Eq, Ord, Show, Functor)
+
+newtype PossibleExpr a = PossibleExpr {getPEF :: PossibleExprF a (PossibleExpr a)}
   deriving (Eq, Ord)
-makeBaseFunctor ''PossibleExpr
 
-instance (Eq a, Eq b) => Semigroup (PossibleExpr a b) where
-  (<>) a b = case (a,b) of
-    (ZeroX, ZeroX)                      -> ZeroX
-    (AnyX, _)                           -> AnyX
-    (_, AnyX)                           -> AnyX
-    (FunctionX a, FunctionX b) | a == b -> FunctionX a
-    (PairX a b, PairX c d) | a == c     -> PairX a (b <> d)
-    (PairX a b, PairX c d) | b == d     -> PairX (a <> c) b
-    (EitherX a b, EitherX c d)          -> EitherX (a <> c) (b <> d)
-    _ | a == b                          -> a
-    _                                   -> EitherX a b
+type instance Base (PossibleExpr a) = PossibleExprF a
 
-instance (Show a, Show b) => Show (PossibleExpr a b) where
+instance Recursive (PossibleExpr a) where
+  project = getPEF
+
+instance Corecursive (PossibleExpr a) where
+  embed = PossibleExpr
+
+instance (Eq a) => Semigroup (PossibleExpr a) where
+  (<>) (PossibleExpr a) (PossibleExpr b) = case (a,b) of
+    (ZeroXF, ZeroXF)                      -> PossibleExpr ZeroXF
+    (AnyXF, _)                            -> PossibleExpr AnyXF
+    (_, AnyXF)                            -> PossibleExpr AnyXF
+    (FunctionXF a, FunctionXF b) | a == b -> PossibleExpr $ FunctionXF a
+    (PairXF a b, PairXF c d) | a == c     -> PossibleExpr $ PairXF a (b <> d)
+    (PairXF a b, PairXF c d) | b == d     -> PossibleExpr $ PairXF (a <> c) b
+    (EitherXF a b, EitherXF c d)          -> PossibleExpr $ EitherXF (a <> c) (b <> d)
+    _ | a == b                            -> PossibleExpr a
+    _                                     -> PossibleExpr $ EitherXF (PossibleExpr a) (PossibleExpr b)
+
+{-
+instance Semigroup (PossibleExpr a) where
+  (<>) (PossibleExpr a) (PossibleExpr b) = PossibleExpr (a <> b)
+-}
+
+{-
+instance (Show a) => Show (PossibleExpr a) where
   show exp = State.evalState (cata alg exp) 0 where
-    alg :: (Show a, Show b) => (Base (PossibleExpr a b)) (State Int String) -> State Int String
+    alg :: (Show a, Show b) => (Base (PossibleExpr a)) (State Int String) -> State Int String
+    alg = \case
+      ZeroXF -> sindent "ZeroX"
+      AnyXF  -> sindent "AnyX"
+      PairXF a b -> indentWithTwoChildren "PairX" a b
+      EitherXF a b -> indentWithTwoChildren "EitherX" a b
+      FunctionXF f -> cata showFragAlg f
+      ClosureXF f x -> indentWithTwoChildren "ClosureX" (cata showFragAlg f) x
+-}
+instance (Show a) => Show (PossibleExpr a) where
+  show exp = State.evalState (cata alg exp) 0 where
+    alg :: (Show a) => (Base (PossibleExpr a)) (State Int String) -> State Int String
     alg = \case
       ZeroXF -> sindent "ZeroX"
       AnyXF  -> sindent "AnyX"
@@ -59,6 +88,7 @@ instance (Show a, Show b) => Show (PossibleExpr a b) where
       FunctionXF f -> cata showFragAlg f
       ClosureXF f x -> indentWithTwoChildren "ClosureX" (cata showFragAlg f) x
 
+{-
 instance Plated (PossibleExpr a b) where
   plate f = \case
     ZeroX -> pure ZeroX
@@ -67,21 +97,23 @@ instance Plated (PossibleExpr a b) where
     EitherX a b -> EitherX <$> f a <*> f b
     FunctionX frag -> pure $ FunctionX frag
     ClosureX frag i -> ClosureX frag <$> f i
+-}
 
 -- notice that AnyX will translate to an empty list, which may not be expected
-toIExprList :: PossibleExpr a b -> DList.DList IExpr
-toIExprList = \case
-  ZeroX -> pure Zero
-  PairX a b -> Pair <$> toIExprList a <*> toIExprList b
-  EitherX a b -> toIExprList a <> toIExprList b
-  _ -> mempty
+toIExprList :: PossibleExpr a -> DList.DList IExpr
+toIExprList = cata alg where
+  alg = \case
+    ZeroXF -> pure Zero
+    PairXF a b -> Pair <$> a <*> b
+    EitherXF a b -> a <> b
+    _ -> mempty
 
-toIExprList' :: (PossibleExpr a b -> FragExpr b -> PossibleExpr a b) -> PossibleExpr a b -> DList.DList IExpr
+toIExprList' :: (PossibleExpr a -> FragExpr a -> PossibleExpr a) -> PossibleExpr a -> DList.DList IExpr
 toIExprList' setEval = let recur = toIExprList' setEval in \case
-  ZeroX -> pure Zero
-  PairX a b -> Pair <$> recur a <*> recur b
-  EitherX a b -> recur a <> recur b
-  ClosureX f i -> recur $ setEval i f
+  PossibleExpr ZeroXF -> pure Zero
+  PossibleExpr (PairXF a b) -> Pair <$> recur a <*> recur b
+  PossibleExpr (EitherXF a b) -> recur a <> recur b
+  PossibleExpr (ClosureXF f i) -> recur $ setEval i f
 
 {-
 annotations :: Ord a => PossibleExpr a b -> Set a
@@ -108,7 +140,7 @@ noAnnotatedFunctions =
     _ -> True
 -}
 
-truncatePossible :: PossibleExpr a b -> FragExpr b
+truncatePossible :: PossibleExpr a -> FragExpr a
 truncatePossible = cata alg where
   alg = \case
     ZeroXF -> ZeroFrag
@@ -129,117 +161,144 @@ containsAux fragLookup = let recur = containsAux fragLookup in \case
   AuxFrag _ -> True
   _ -> False
 
-containsAux' :: (FragIndex -> FragExpr b) -> PossibleExpr a b -> Bool
+containsAux' :: (FragIndex -> FragExpr a) -> PossibleExpr a -> Bool
+{-
 containsAux' fragLookup = let recur = containsAux' fragLookup in \case
-  PairX a b -> recur a || recur b
-  EitherX a b -> recur a || recur b
-  FunctionX f -> containsAux fragLookup f
-  ClosureX f i -> containsAux fragLookup f || recur i
+  PairXF a b -> recur a || recur b
+  EitherXF a b -> recur a || recur b
+  FunctionXF f -> containsAux fragLookup f
+  ClosureXF f i -> containsAux fragLookup f || recur i
   _ -> False
+-}
+containsAux' fragLookup = cata alg where
+  alg = \case
+    PairXF a b -> a || b
+    EitherXF a b -> a || b
+    FunctionXF f -> containsAux fragLookup f
+    ClosureXF f i -> containsAux fragLookup f || i
+    _ -> False
 
-type BasicPossible = PossibleExpr BreakExtras BreakExtras
+type BasicPossible = PossibleExpr BreakExtras
 -- type TestMapBuilder = StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int))
 type TestMapBuilder = StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int))
 
-toPossible :: (Show a, Eq a, Show b, Eq b, Monad m) => (FragIndex -> FragExpr b)
-  -> ((PossibleExpr a b -> FragExpr b -> m (PossibleExpr a b)) -> PossibleExpr a b-> PossibleExpr a b-> PossibleExpr a b -> m (PossibleExpr a b))
-  -> (b -> m (PossibleExpr a b))
-  -> PossibleExpr a b -> FragExpr b -> m (PossibleExpr a b)
+-- ()
+
+toPossible :: forall a m. (Show a, Eq a, Monad m) => (FragIndex -> FragExpr a)
+  -> ((PossibleExpr a -> FragExpr a -> m (PossibleExpr a)) -> PossibleExpr a-> PossibleExpr a -> PossibleExpr a -> m (PossibleExpr a))
+  -> (a -> m (PossibleExpr a))
+  -> PossibleExpr a -> FragExpr a -> m (PossibleExpr a)
 toPossible fragLookup setEval doAnnotation env =
-  let toPossible' = toPossible fragLookup setEval doAnnotation
+  let toPossible' :: PossibleExpr a -> FragExpr a -> m (PossibleExpr a)
+      toPossible' = toPossible fragLookup setEval doAnnotation
+      ppe :: PossibleExprF a (PossibleExpr a) -> m (PossibleExpr a)
+      ppe = pure . PossibleExpr
       traceThrough x = x -- trace ("toPossible dump: " <> show x) x
-      recur = toPossible' env . traceThrough
+      recur :: FragExpr a -> m (PossibleExpr a)
+      recur = toPossible' env -- . traceThrough
+      envWrap :: FragExpr a -> PossibleExpr a
       envWrap x = case x of
-        DeferFrag ind -> FunctionX $ fragLookup ind
-        x -> ClosureX x env
+        DeferFrag ind -> PossibleExpr . FunctionXF $ fragLookup ind
+        x -> PossibleExpr $ ClosureXF x env
+      force :: PossibleExprF a (PossibleExpr a) -> m (PossibleExpr a)
       force x = case x of
-        ClosureX x env -> toPossible' env x
-        _ -> pure x
-  in \case
-  ZeroFrag -> pure ZeroX
-  PairFrag a b -> pure $ PairX (envWrap a) (envWrap b)
-  EnvFrag -> pure env
-  LeftFrag x -> let process = \case
-                      PairX ln _ -> force ln
-                      z@ZeroX -> pure z
-                      a@AnyX -> pure a
-                      EitherX a b -> EitherX <$> process a <*> process b
-                      z -> error $ "toPossible leftFrag unexpected: " <> show z
-                in recur x >>= process
-  RightFrag x -> let process = \case
-                       PairX _ rn -> force rn
-                       z@ZeroX -> pure z
-                       a@AnyX -> pure a
-                       EitherX a b -> EitherX <$> process a <*> process b
-                       z -> error $ "toPossible rightFrag unexpected: " <> show z
-                 in recur x >>= process
-  SetEnvFrag x -> recur x >>=
-    let processSet = \case
-          PairX ft it -> do
-            ft' <- force ft
-            it' <- force it
-            setEval toPossible' env ft' it'
-          EitherX a b -> (<>) <$> processSet a <*> processSet b
-          z -> error $ "toPossible setenv not pair: " <> show z
-    in processSet
-  DeferFrag ind -> pure . FunctionX $ fragLookup ind -- process Defer here rather than SetEnvFrag to reduce arguments to setEval
-  g@(GateFrag _ _) -> pure $ FunctionX g
-  AbortFrag -> pure $ FunctionX AbortFrag
-  a@(AuxFrag ur) -> doAnnotation ur
-  TraceFrag -> pure env
+        ClosureXF x env -> toPossible' env x
+        _ -> ppe x
+      go :: FragExpr a -> m (PossibleExpr a)
+      go f = case f of
+        ZeroFrag -> ppe ZeroXF
+        PairFrag a b -> ppe $ PairXF (envWrap a) (envWrap b)
+        EnvFrag -> pure env
+        LeftFrag x -> let process' :: PossibleExprF a (PossibleExpr a) -> m (PossibleExpr a)
+                          process' x' = case x' of
+                            PairXF ln _ -> force . getPEF $ ln
+                            z@ZeroXF -> ppe z
+                            a@AnyXF -> ppe a
+                            EitherXF a b -> fmap PossibleExpr $ EitherXF <$> process a <*> process b
+                            z -> error $ "toPossible leftFrag unexpected: " <> show z
+                          process = process' . getPEF
+                      in recur x >>= process
+        RightFrag x -> let -- process' :: Possi
+                           process' = \case
+                              PairXF _ rn -> force . getPEF $ rn
+                              z@ZeroXF -> ppe z
+                              a@AnyXF -> ppe a
+                              EitherXF a b -> fmap PossibleExpr $ EitherXF <$> process a <*> process b
+                              z -> error $ "toPossible rightFrag unexpected: " <> show z
+                           process = process' . getPEF
+                      in recur x >>= process
+        SetEnvFrag x -> recur x >>=
+          let processSet' :: PossibleExprF a (PossibleExpr a) -> m (PossibleExpr a)
+              processSet' x' = case x' of
+                PairXF ft it -> do
+                  ft' <- force . getPEF $ ft
+                  it' <- force . getPEF $ it
+                  setEval toPossible' env ft' it'
+                EitherXF a b -> (<>) <$> processSet a <*> processSet b
+                z -> error $ "toPossible setenv not pair: " <> show z
+              processSet = processSet' . getPEF
+          in processSet
+        DeferFrag ind -> ppe . FunctionXF $ fragLookup ind -- process Defer here rather than SetEnvFrag to reduce arguments to setEval
+        g@(GateFrag _ _) -> ppe $ FunctionXF g
+        AbortFrag -> ppe $ FunctionXF AbortFrag
+        a@(AuxFrag ur) -> doAnnotation ur
+        TraceFrag -> pure env
+  in go
 
 
--- TODO switch FragExpr b to FragExpr Void ?
-abortSetEval :: (Show a, Eq a, Show b, Eq b) => (IExpr -> Maybe IExpr -> Maybe IExpr)
+-- TODO switch FragExpr a to FragExpr Void ?
+abortSetEval :: (Show a, Eq a) => (IExpr -> Maybe IExpr -> Maybe IExpr)
   -> Maybe IExpr
-  -> (PossibleExpr a b -> FragExpr b -> Either IExpr (PossibleExpr a b))
-  -> PossibleExpr a b -> PossibleExpr a b -> PossibleExpr a b -> Either IExpr (PossibleExpr a b)
+  -> (PossibleExpr a -> FragExpr a -> Either IExpr (PossibleExpr a))
+  -> PossibleExpr a -> PossibleExpr a -> PossibleExpr a -> Either IExpr (PossibleExpr a)
 abortSetEval abortCombine abortDefault sRecur env ft' it' =
   let sRecur' = sRecur env
+      ppe = pure . PossibleExpr
       -- toExprList' :: PossibleExpr a b -> Either IExpr (DList.DList IExpr)
       toExprList' x = let pure' = pure . pure -- should I use Compose here?
                       in case x of
-        ZeroX -> pure' Zero
-        PairX a b -> do
-          na <- toExprList' a
-          nb <- toExprList' b
+        ZeroXF -> pure' Zero
+        PairXF a b -> do
+          na <- toExprList a
+          nb <- toExprList b
           pure $ Pair <$> na <*> nb
         -- EitherX a b -> (<>) <$> toExprList' a <*> toExprList' b
-        EitherX a b -> let comb :: DList.DList a -> DList.DList a -> DList.DList a
-                           comb = (<>)
-                       in comb <$> toExprList' a <*> toExprList' b
-        ClosureX f i -> sRecur i f >>= toExprList'
+        EitherXF a b -> let comb :: DList.DList a -> DList.DList a -> DList.DList a
+                            comb = (<>)
+                        in comb <$> toExprList a <*> toExprList b
+        ClosureXF f i -> sRecur i f >>= toExprList
+      toExprList = toExprList' . getPEF
       setEval ft it = case ft of
-        FunctionX af -> case af of
-          GateFrag l r -> case (it, toExprList' it) of
+        FunctionXF af -> case af of
+          GateFrag l r -> case (getPEF it, toExprList it) of
             (_, Left e) -> Left e -- if evaluating input aborts, bubble up abort result
-            (AnyX, _) -> (<>) <$> sRecur' l <*> sRecur' r
+            (AnyXF, _) -> (<>) <$> sRecur' l <*> sRecur' r
             (_, Right iList) -> case (elem Zero iList, length iList > 1) of
               (True, True) -> (<>) <$> sRecur' l <*> sRecur' r
               (True, False) -> sRecur' l
               _ -> sRecur' r
-          AbortFrag -> case toList <$> toExprList' it of
+          AbortFrag -> case toList <$> toExprList it of
             Left e -> Left e -- if evaluating input aborts, bubble up abort result
             Right l -> case foldr abortCombine abortDefault $ l of
-              Nothing -> pure $ FunctionX EnvFrag
+              Nothing -> ppe $ FunctionXF EnvFrag
               -- Just e -> trace ("aborting from input of " <> show it) Left e
               Just e -> Left e
           -- From Defer
           AuxFrag _ -> error "abortSetEval: should be no AuxFrag here"
           x -> sRecur it x
-  in setEval ft' it'
+  in setEval (getPEF ft') it'
 
-staticAbortSetEval :: (Show a, Eq a, Show b, Eq b) =>
-  (PossibleExpr a b -> FragExpr b -> Either IExpr (PossibleExpr a b))
-  -> PossibleExpr a b -> PossibleExpr a b -> PossibleExpr a b -> Either IExpr (PossibleExpr a b)
+staticAbortSetEval :: (Show a, Eq a) =>
+  (PossibleExpr a -> FragExpr a -> Either IExpr (PossibleExpr a))
+  -> PossibleExpr a -> PossibleExpr a -> PossibleExpr a -> Either IExpr (PossibleExpr a)
 staticAbortSetEval = let combine a b = case (a,b) of
                            (Zero, _) -> Nothing
                            (_, Nothing) -> Nothing
                            (x, _) -> Just x
                      in abortSetEval combine (Just Zero) -- Just Zero is a dummy value. It shouldn't be returned
 
-sizingAbortSetEval :: (Show a, Eq a, Show b, Eq b) => (PossibleExpr a b -> FragExpr b -> Either IExpr (PossibleExpr a b))
-  -> PossibleExpr a b -> PossibleExpr a b -> PossibleExpr a b -> Either IExpr (PossibleExpr a b)
+sizingAbortSetEval :: (Show a, Eq a) => (PossibleExpr a -> FragExpr a -> Either IExpr (PossibleExpr a))
+  -> PossibleExpr a -> PossibleExpr a -> PossibleExpr a -> Either IExpr (PossibleExpr a)
 sizingAbortSetEval = let combine a b = case (a,b) of
                                          (_,Just x) -> Just x
                                          (Pair Zero Zero, _) -> Just $ Pair Zero Zero

@@ -9,6 +9,7 @@ import Control.Monad.State (StateT)
 import Control.Monad.Trans.Accum (AccumT)
 import qualified Control.Monad.State  as State
 import qualified Control.Monad.Trans.Accum as Accum
+import           Data.Functor.Foldable (embed, project, cata)
 import Data.DList (DList)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
@@ -182,8 +183,9 @@ convertAbortMessage = \case
 
 runStaticChecks :: Term4 -> Either EvalError Term4
 runStaticChecks t@(Term4 termMap) =
-  let result :: Either IExpr (PossibleExpr Void Void)
-      result = toPossible (termMap Map.!) staticAbortSetEval (pure . FunctionX . AuxFrag) AnyX (rootFrag termMap)
+  let result :: Either IExpr (PossibleExpr Void)
+      annoF = pure . PossibleExpr . FunctionXF . AuxFrag
+      result = toPossible (termMap Map.!) staticAbortSetEval annoF (PossibleExpr AnyXF) (rootFrag termMap)
   in case result of
             Left x -> Left . StaticCheckError $ convertAbortMessage x
             _      -> pure t
@@ -249,6 +251,8 @@ contaminationMap =
         z -> error $ "contaminationMap-makeKeyVal unexpected value: " <> show z
   in makeMap Set.empty . (\bp -> trace ("basicpossible encoded contamination map is" <> show bp) bp)
 -}
+
+{-
 splitTests :: BasicPossible -> DList (FragExpr BreakExtras, BasicPossible)
 splitTests =
   let makeList = \case
@@ -262,26 +266,28 @@ splitTests =
       -- traceTests bl = trace ("basicpossible tests are " <> show bl) bl
       traceTests = id
   in traceTests . makeList
+-}
 
 limitedMFix :: Monad m => (a -> m a) -> m a -> m a
 limitedMFix f x = iterate (>>= trace "fixing again" f) x !! 10
 
-runPossible :: Term4 -> Either IExpr (PossibleExpr Void Void)
+runPossible :: Term4 -> Either IExpr (PossibleExpr Void)
 runPossible (Term4 termMap) =
-  let wrapAux = pure . FunctionX . AuxFrag
+  let wrapAux = pure . PossibleExpr . FunctionXF . AuxFrag
       eval = toPossible (termMap Map.!) staticAbortSetEval wrapAux
-      deepForce = \case
-        PairX a b -> PairX <$> deepForce a <*> deepForce b
-        EitherX a b -> EitherX <$> deepForce a <*> deepForce b
-        ClosureX f i -> eval i f >>= deepForce
-        x -> pure x
-  in eval AnyX (rootFrag termMap) >>= deepForce
+      deepForce' = \case
+        PairXF a b -> fmap embed . PairXF <$> deepForce a <*> deepForce b
+        EitherXF a b -> fmap embed . EitherXF <$> deepForce a <*> deepForce b
+        ClosureXF f i -> eval i f >>= deepForce
+        x -> pure $ embed x
+      deepForce = deepForce' . getPEF
+  in eval (PossibleExpr AnyXF) (rootFrag termMap) >>= deepForce
 
 calculateRecursionLimits' :: Term3 -> Either EvalError Term4
 calculateRecursionLimits' t3@(Term3 termMap) =
   let findLimit :: Term3 -> Either BreakExtras (Map BreakExtras Int)
       findLimit frag =
-        let abortsAt sizeMap = let wrapAux = pure . FunctionX . AuxFrag
+        let abortsAt sizeMap = let wrapAux = pure . embed . FunctionXF . AuxFrag
                                    mapLookup k = case Map.lookup k termMap' of
                                       Just v -> v
                                       _ -> error ("calculateRecursionLimits findlimit mapLookup bad key " <> show k)
@@ -290,14 +296,15 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                                      _ -> error ("calculateRecursionLimits findLimit sizeLookup bad key " <> show k)
                                    (Term4 termMap') = convertPT sizeLookup t3
                                    frag = rootFrag termMap'
-                                   inp :: PossibleExpr Void Void
-                                   inp = AnyX
+                                   inp :: PossibleExpr Void
+                                   inp = embed AnyXF
                                    pEval = toPossible mapLookup sizingAbortSetEval wrapAux
-                                   deepForce = \case
-                                     PairX a b -> PairX <$> deepForce a <*> deepForce b
-                                     EitherX a b -> EitherX <$> deepForce a <*> deepForce b
-                                     ClosureX f i -> pEval i f >>= deepForce
-                                     x -> pure x
+                                   deepForce' = \case
+                                     PairXF a b -> fmap embed . PairXF <$> deepForce a <*> deepForce b
+                                     EitherXF a b -> fmap embed . EitherXF <$> deepForce a <*> deepForce b
+                                     ClosureXF f i -> pEval i f >>= deepForce
+                                     x -> pure $ embed x
+                                   deepForce = deepForce' . getPEF
                                    traceResult x = x -- trace ("result for " <> show sizeMap <> " is " <> show x) x
                                    runTest = null . traceResult $ pEval inp frag >>= deepForce
                                in runTest
@@ -348,19 +355,22 @@ calculateRecursionLimits' t3@(Term3 termMap) =
         TraceFrag -> pure TraceFrag
         AuxFrag be -> Accum.add (Set.singleton be) >> pure (AuxFrag be)
         SetEnvFrag x -> let bareEnv = para (\a b -> a == EnvFrag || or b) x
+                            hasFunction :: PossibleExpr Void -> Bool
                             hasFunction = let isF = \case
-                                                FunctionX _ -> True
+                                                FunctionXF _ -> True
                                                 _ -> False
-                                          in para (\a b -> isF a || or b)
+                                          -- in para (\a b -> isF a || or b)
+                                          in cata isF
                             fragTerm = Term3 $ Map.insert (toEnum 0) (SetEnvFrag x) termMap
-                            pEval :: Term4 -> Either IExpr (PossibleExpr Void Void)
-                            pEval t@(Term4 termMap) = let pEval' = toPossible (termMap Map.!) sizingAbortSetEval (pure . FunctionX . AuxFrag)
-                                                          deepForce = \case
-                                                            PairX a b -> PairX <$> deepForce a <*> deepForce b
-                                                            EitherX a b -> EitherX <$> deepForce a <*> deepForce b
-                                                            ClosureX f i -> pEval' i f >>= deepForce
-                                                            x -> pure x
-                                                      in pEval' AnyX (rootFrag termMap) >>= deepForce
+                            pEval :: Term4 -> Either IExpr (PossibleExpr Void)
+                            pEval t@(Term4 termMap) = let pEval' = toPossible (termMap Map.!) sizingAbortSetEval (pure . embed . FunctionXF . AuxFrag)
+                                                          deepForce' = \case
+                                                            PairXF a b -> fmap embed . PairXF <$> deepForce a <*> deepForce b
+                                                            EitherXF a b -> fmap embed . EitherXF <$> deepForce a <*> deepForce b
+                                                            ClosureXF f i -> pEval' i f >>= deepForce
+                                                            x -> pure $ embed x
+                                                          deepForce = deepForce' . getPEF
+                                                      in pEval' (embed AnyXF) (rootFrag termMap) >>= deepForce
                             functionFreeResult = case hasFunction <$> pEval (convertPT (const 1) fragTerm) of
                               Right False -> True
                               _ -> False
