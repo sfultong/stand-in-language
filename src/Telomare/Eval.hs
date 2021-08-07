@@ -358,6 +358,8 @@ calculateRecursionLimits' t3@(Term3 termMap) =
                             hasFunction :: PossibleExpr Void -> Bool
                             hasFunction = let isF = \case
                                                 FunctionXF _ -> True
+                                                PairXF a b -> a || b
+                                                EitherXF a b -> a || b
                                                 _ -> False
                                           -- in para (\a b -> isF a || or b)
                                           in cata isF
