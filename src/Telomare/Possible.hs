@@ -88,6 +88,16 @@ instance (Show a) => Show (PossibleExpr a) where
       FunctionXF f -> cata showFragAlg f
       ClosureXF f x -> indentWithTwoChildren "ClosureX" (cata showFragAlg f) x
 
+data PossibleOtherExpr a o
+  = NormalExpr (PossibleExprF a (PossibleOtherExpr a o))
+  | OtherExpr o
+  deriving (Eq, Ord)
+
+data OpExprF f
+  = OpLeft f
+  | OpRight f
+  | OpSetEnv f
+  deriving (Eq, Ord, Show, Functor)
 {-
 instance Plated (PossibleExpr a b) where
   plate f = \case
@@ -182,7 +192,42 @@ type BasicPossible = PossibleExpr BreakExtras
 -- type TestMapBuilder = StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int))
 type TestMapBuilder = StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int))
 
+-- type PResult o a = Either o (PossibleExprF a (PResult o a))
+newtype PResult o a = PResult (Either o (PossibleExprF a (PResult o a)))
 -- ()
+toPossible' :: forall a o m. (Show a, Eq a) => (FragIndex -> FragExpr a)
+  -> ((PossibleExpr a -> FragExpr a -> PResult o a) -> PossibleExpr a -> PossibleExpr a -> PossibleExpr a -> PResult o a)
+  -> PResult o a -> FragExpr a -> PResult o a
+toPossible' fragLookup setEval env =
+  let tp = toPossible' fragLookup setEval
+      recur = tp env
+      wrap = PResult . pure
+      prMap f (PResult r) = PResult (f r)
+      unWrap (PResult r) = r
+      processOther :: OpExprF o -> PResult o a
+      processOther = error "processOther TODO"
+      force = \case
+        ClosureXF x env -> tp env x
+        x -> wrap x
+      envWrap :: FragExpr a -> PResult o a
+      envWrap = \case
+        DeferFrag ind -> wrap . FunctionXF $ fragLookup ind
+        x -> wrap $ ClosureXF x env
+  in \case
+    ZeroFrag -> wrap ZeroXF
+    PairFrag a b -> wrap $ PairXF (envWrap a) (envWrap b)
+    EnvFrag -> env
+    LeftFrag x -> f $ recur x where
+      f = \case
+        PResult (Right v) -> case v of
+          z@ZeroXF -> wrap z
+          a@AnyXF -> wrap a
+          PairXF ln _ -> case ln of
+            PResult (Right v') -> force v'
+            PResult (Left o) -> PResult $ Left o
+          EitherXF a b -> case (a, b, f a, f b) of
+            (_,_, PResult (Right na), PResult (Right nb)) -> wrap $ EitherXF (wrap na) (wrap nb)
+        PResult (Left o) -> processOther $ OpLeft o
 
 toPossible :: forall a m. (Show a, Eq a, Monad m) => (FragIndex -> FragExpr a)
   -> ((PossibleExpr a -> FragExpr a -> m (PossibleExpr a)) -> PossibleExpr a-> PossibleExpr a -> PossibleExpr a -> m (PossibleExpr a))
