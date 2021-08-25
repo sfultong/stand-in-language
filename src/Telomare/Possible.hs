@@ -61,6 +61,20 @@ instance (Eq a) => Semigroup (PossibleExpr a) where
     _                                     -> PossibleExpr $ EitherXF (PossibleExpr a) (PossibleExpr b)
 
 {-
+instance (Eq a, Eq f, Semigroup f) => Semigroup (PossibleExprF a f) where
+  (<>) a b = case (a,b) of
+    (AnyXF, _) -> AnyXF
+    (_, AnyXF) -> AnyXF
+    (ZeroXF, ZeroXF) -> ZeroXF
+    (FunctionXF a, FunctionXF b) | a == b -> FunctionXF a
+    (PairXF a b, PairXF c d) | a == c -> PairXF a (b <> d)
+    (PairXF a b, PairXF c d) | b == d -> PairXF (a <> c) b
+    (EitherXF a b, EitherXF c d) -> EitherXF (a <> c) (b <> d)
+    _ | a == b -> a
+    _ -> EitherXF a b -- here's the problem. Can't construct infinite type
+-}
+
+{-
 instance Semigroup (PossibleExpr a) where
   (<>) (PossibleExpr a) (PossibleExpr b) = PossibleExpr (a <> b)
 -}
@@ -93,10 +107,13 @@ data PossibleOtherExpr a o
   | OtherExpr o
   deriving (Eq, Ord)
 
-data OpExprF f
+data OpExprF o f
   = OpLeft f
   | OpRight f
   | OpSetEnv f
+  | OpWithEnv o f -- hacky, for when SetEnv has a definite env, but an indefinite function body
+  | OpNeedsEnv o f -- hacky, for when SetEnv has a definite function body, but an indefinite env
+  | OpAbort o
   deriving (Eq, Ord, Show, Functor)
 {-
 instance Plated (PossibleExpr a b) where
@@ -193,28 +210,71 @@ type BasicPossible = PossibleExpr BreakExtras
 type TestMapBuilder = StateT [(Set BreakExtras, BasicPossible)] (Reader (BreakExtras -> Int))
 
 -- type PResult o a = Either o (PossibleExprF a (PResult o a))
-newtype PResult o a = PResult (Either o (PossibleExprF a (PResult o a)))
--- ()
-toPossible' :: forall a o m. (Show a, Eq a) => (FragIndex -> FragExpr a)
-  -> ((PossibleExpr a -> FragExpr a -> PResult o a) -> PossibleExpr a -> PossibleExpr a -> PossibleExpr a -> PResult o a)
+newtype PResult o a = PResult {unPResult :: Either o (PossibleExprF a (PResult o a))} deriving (Eq,Show)
+
+type instance Base (PResult o a) = PossibleExprF a
+
+instance Corecursive (PResult o a) where
+  embed = PResult . pure
+{-
+instance (Eq o, Eq a) => Semigroup (PResult o a) where
+  (<>) (PResult a) (PResult b) = case (a,b) of
+    (Right a', Right b') -> PResult . Right $ a' <> b'
+    (_) -> PResult . Right $ EitherXF (PResult a) (PResult b)
+-}
+
+{-
+resultHas :: (PossibleExprF a (PResult o a) -> Bool) -> PResult o a -> Bool
+resultHas f = let recur = resultHas f in \case
+  PResult (Right x) -> case x of
+    EitherXF a b -> recur a || recur b
+    x' -> f x'
+  _ -> False
+-}
+resultsFromList :: DList (PResult o a) -> PResult o a
+resultsFromList l = case l of
+  DList.Nil -> error "resultsFromList empty list"
+  DList.Cons x xs -> foldr (\a b -> PResult (Right (EitherXF a b))) x xs
+
+toPossible' :: forall a o. (Show a, Eq a, Show o, Eq o) => (FragIndex -> FragExpr a)
+--  -> ((PossibleExpr a -> FragExpr a -> PResult o a) -> PossibleExpr a -> PossibleExpr a -> PossibleExpr a -> PResult o a)
+  -> (OpExprF (PResult o a) o -> PResult o a)
+  -> (a -> o) -- maybe replaceable by processOther?
   -> PResult o a -> FragExpr a -> PResult o a
-toPossible' fragLookup setEval env =
-  let tp = toPossible' fragLookup setEval
+toPossible' fragLookup processOther doAnnotation env =
+  let tp = toPossible' fragLookup processOther doAnnotation
       recur = tp env
       wrap = PResult . pure
       prMap f (PResult r) = PResult (f r)
       unWrap (PResult r) = r
-      processOther :: OpExprF o -> PResult o a
+  {-
+      processOther :: OpExprF (PResult o a) o -> PResult o a
       processOther = error "processOther TODO"
+-}
       force = \case
         ClosureXF x env -> tp env x
-        x -> wrap x
+        x -> embed x
+      deepForce = \case
+        PResult (Right x) -> case x of
+          PairXF a b -> embed $ PairXF (deepForce a) (deepForce b)
+          EitherXF a b -> embed $ EitherXF (deepForce a) (deepForce b)
+          ClosureXF f i -> tp i f
+          x -> embed x
       envWrap :: FragExpr a -> PResult o a
       envWrap = \case
         DeferFrag ind -> wrap . FunctionXF $ fragLookup ind
         x -> wrap $ ClosureXF x env
+      resultLists :: PResult o a -> (DList o, DList (PossibleExprF a (PResult o a)))
+      resultLists = \case
+        PResult (Right x) -> case x of
+          EitherXF a b -> resultLists a <> resultLists b
+          _ -> (mempty, DList.singleton x)
+        PResult (Left o) -> (DList.singleton o, mempty)
+      isPair = \case
+        PairXF _ _ -> True
+        _ -> False
   in \case
-    ZeroFrag -> wrap ZeroXF
+    ZeroFrag -> embed ZeroXF
     PairFrag a b -> wrap $ PairXF (envWrap a) (envWrap b)
     EnvFrag -> env
     LeftFrag x -> f $ recur x where
@@ -225,9 +285,51 @@ toPossible' fragLookup setEval env =
           PairXF ln _ -> case ln of
             PResult (Right v') -> force v'
             PResult (Left o) -> PResult $ Left o
-          EitherXF a b -> case (a, b, f a, f b) of
-            (_,_, PResult (Right na), PResult (Right nb)) -> wrap $ EitherXF (wrap na) (wrap nb)
+          EitherXF a b -> case (a, b) of
+            (a'@(PResult (Right _)), b'@(PResult (Right _))) -> wrap $ EitherXF (f a') (f b')
+            (a'@(PResult (Right _)), PResult (Left ob)) -> wrap $ EitherXF (f a') (processOther (OpLeft ob))
+            (PResult (Left oa), b'@(PResult (Right _))) -> wrap $ EitherXF (processOther (OpLeft oa)) (f b')
+            (PResult (Left oa), PResult (Left ob)) -> wrap $ EitherXF (processOther (OpLeft oa)) (processOther (OpLeft ob))
+          z -> error $ "toPossible' LeftFrag unexpected " <> show z
         PResult (Left o) -> processOther $ OpLeft o
+    RightFrag x -> f $ recur x where
+      f = \case
+        PResult (Right v) -> case v of
+          z@ZeroXF -> wrap z
+          a@AnyXF -> wrap a
+          PairXF _ rn -> case rn of
+            PResult (Right v') -> force v'
+            PResult (Left o) -> PResult $ Left o
+          EitherXF a b -> case (a, b) of
+            (a'@(PResult (Right _)), b'@(PResult (Right _))) -> wrap $ EitherXF (f a') (f b')
+            (a'@(PResult (Right _)), PResult (Left ob)) -> wrap $ EitherXF (f a') (processOther (OpRight ob))
+            (PResult (Left oa), b'@(PResult (Right _))) -> wrap $ EitherXF (processOther (OpRight oa)) (f b')
+            (PResult (Left oa), PResult (Left ob)) -> wrap $ EitherXF (processOther (OpRight oa)) (processOther (OpRight ob))
+          z -> error $ "toPossible' RightFrag unexpected " <> show z
+        PResult (Left o) -> processOther $ OpRight o
+    SetEnvFrag x -> f $ recur x where
+      f = \case
+        PResult (Right v) -> case v of
+            PairXF (PResult a) (PResult b) -> case (a >>= unPResult . force, b >>= unPResult . force) of
+              (Right fp, Right ip) -> case fp of
+                FunctionXF af -> case af of
+                  GateFrag l r -> let ipList = resultLists $ wrap ip
+                                      leftElem = if elem ZeroXF $ snd ipList then DList.singleton (recur l) else mempty
+                                      rightElem = if any isPair $ snd ipList then DList.singleton (recur r) else mempty
+                                      otherStuff = if length (leftElem <> rightElem) < 2
+                                                   then processOther . OpNeedsEnv (wrap fp) <$> fst ipList
+                                                   else mempty
+                                  in if elem AnyXF $ snd ipList
+                                     then resultsFromList $ DList.fromList [recur l, recur r]
+                                     else resultsFromList $ leftElem <> rightElem <> otherStuff
+                  AbortFrag -> processOther . OpAbort . deepForce $ embed ip
+                  x -> tp (embed ip) x
+              -- (PResult (Right sf), PResult (Right si)) -> tp 
+    DeferFrag ind -> wrap . FunctionXF $ fragLookup ind
+    g@(GateFrag _ _) -> wrap . FunctionXF $ g
+    AbortFrag -> wrap . FunctionXF $ AbortFrag
+    AuxFrag ur -> PResult . Left $ doAnnotation ur
+    TraceFrag -> env
 
 toPossible :: forall a m. (Show a, Eq a, Monad m) => (FragIndex -> FragExpr a)
   -> ((PossibleExpr a -> FragExpr a -> m (PossibleExpr a)) -> PossibleExpr a-> PossibleExpr a -> PossibleExpr a -> m (PossibleExpr a))
@@ -332,6 +434,9 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
           AuxFrag _ -> error "abortSetEval: should be no AuxFrag here"
           x -> sRecur it x
   in setEval (getPEF ft') it'
+
+staticAbortSetEval' :: OpExprF (PResult IExpr a) IExpr -> PResult IExpr a
+staticAbortSetEval' = undefined
 
 staticAbortSetEval :: (Show a, Eq a) =>
   (PossibleExpr a -> FragExpr a -> Either IExpr (PossibleExpr a))
