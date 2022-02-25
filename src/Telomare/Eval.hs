@@ -123,7 +123,6 @@ runStaticChecksMain (Term4 termMap) =
        Left s -> pure s
        _      -> Nothing
 
-
 compileMain :: Term3 -> Either EvalError IExpr
 compileMain = compile runStaticChecksMain
 
@@ -138,7 +137,6 @@ compile f t =
                     Just i  -> pure i
                     Nothing -> Left CompileConversionError
        Just s -> Left $ StaticCheckError s
-
 
 {-
 findAllSizes :: Term2 -> (Bool, Term3)

@@ -26,7 +26,7 @@ import qualified Data.Map                  as Map
 import           Data.Ord
 import qualified Data.Semigroup            as Semigroup
 import qualified Data.Set                  as Set
-import           Debug.Trace               (trace)
+import           Debug.Trace               (trace, traceShowId)
 import qualified System.IO.Strict          as Strict
 import           System.IO.Unsafe          (unsafePerformIO)
 import           Telomare
@@ -335,6 +335,24 @@ testUserDefAdHocTypes input = do
       Right z -> error $ "compilation failed somehow, with result " <> show z
   runMain input
 
+test_rEval = simpleEval $ SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair Zero Zero)) Zero))))
+
+aux1 = Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair Zero Zero)) Zero))
+aux2 = Pair Zero (Pair Zero Zero)
+
+test_rEval' :: String -> IO String
+test_rEval' input = runMain input
+  where
+    runMain :: String -> IO String
+    runMain s = case compileUnitTest <$> parseMain [] s of
+      Left e -> error $ concat ["failed to parse ", s, " ", e]
+      Right (Right g) -> evalLoop_ $ g
+      Right z -> error $ "compilation failed somehow, with result " <> show z
+
+rEvalError = unlines $
+  [ "main = \\i -> (0, 0)"
+  ]
+
 userDefAdHocTypesSuccess = unlines $
   [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
   , "                        then \"MyInt must not be 0\""
@@ -343,7 +361,7 @@ userDefAdHocTypesSuccess = unlines $
   , "                   then 0"
   , "                   else \"expecting MyInt\""
   , "           )"
-  , "in wrapper (# wrapper)"
+  , "        in wrapper (# wrapper)"
   , "main = \\i -> ((left MyInt) 8, 0)"
   ]
 
@@ -355,7 +373,7 @@ userDefAdHocTypesFailure = unlines $
   , "                   then 0"
   , "                   else \"expecting MyInt\""
   , "           )"
-  , "in wrapper (# wrapper)"
+  , "        in wrapper (# wrapper)"
   , "main = \\i -> ((left MyInt) 0, 0)"
   ]
 
