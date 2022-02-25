@@ -100,7 +100,7 @@ rEval e = para alg where
       -> m IExpr
   alg = \case
     ZeroF -> pure Zero
-    EnvF -> pure Env
+    EnvF -> pure e
     (DeferF (ie, _)) -> pure . Defer $ ie
     TraceF -> pure $ trace (show e) e
     (GateF (ie1, _) (ie2, _)) -> pure $ Gate ie1 ie2
@@ -145,17 +145,14 @@ iEval f env g = let f' = f env in case g of
   PRight g -> f' g >>= \case
     (Pair _ x) -> pure x
     _          -> pure Zero
-  Trace -> pure $ trace (show env) env
-  Zero -> pure Zero
-  Gate a b -> pure $ Gate a b
-  Defer x -> pure $ Defer x
 
 instance TelomareLike IExpr where
   fromTelomare = id
   toTelomare = pure
+
 instance AbstractRunTime IExpr where
-  eval = fix iEval Zero
-  -- eval = rEval Zero
+  -- eval = fix iEval Zero
+  eval = rEval Zero
 
 resultIndex = FragIndex (-1)
 instance TelomareLike NExprs where
