@@ -124,7 +124,8 @@ runStaticChecksMain (Term4 termMap) =
        _      -> Nothing
 
 compileMain :: Term3 -> Either EvalError IExpr
-compileMain = compile runStaticChecksMain
+-- compileMain = compile runStaticChecksMain -- TODO: FIX
+compileMain = compile runStaticChecks
 
 compileUnitTest :: Term3 -> Either EvalError IExpr
 compileUnitTest = compile runStaticChecks
