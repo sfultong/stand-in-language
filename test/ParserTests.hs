@@ -27,6 +27,7 @@ import           Data.Ord
 import qualified Data.Semigroup            as Semigroup
 import qualified Data.Set                  as Set
 import           Debug.Trace               (trace, traceShowId)
+import           System.IO
 import qualified System.IO.Strict          as Strict
 import           System.IO.Unsafe          (unsafePerformIO)
 import           Telomare
@@ -132,11 +133,13 @@ allHashesToTerm2 term2 =
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [ testCase "different values get different hashes" $ do
+  [ testCase "Test full execution of tictactoe" $ do
+      res <- testTictactoeFull
+      res `compare` True @?= EQ
+  , testCase "different values get different hashes" $ do
       let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest0
           res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest1
       (res1 == res2) `compare` False @?= EQ
-      -- #^This commmented test tests if two variables having the same value are assigned the same hash
   , testCase "same functions have the same hash even with different variable names" $ do
      let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest2
          res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest3
@@ -320,6 +323,15 @@ hashtest2 = unlines [ "let a = \\y -> y"
 hashtest3 = unlines [ "let b = \\x -> x"
                , "in (# b)"
                ]
+
+testTictactoeFull :: IO Bool
+testTictactoeFull = do
+  callCommand "nix build"
+  (Just hin, Just hout, _, _) <- createProcess (proc "./result/bin/telomare" ["tictactoe.tel"]){ std_in = CreatePipe, std_out = CreatePipe }
+  hPutStr hin "1\n9\n2\n8\n3\n"
+  output <- hGetContents hout
+  let res = take 12 . drop (length output - 19) $ output
+  pure $ res == "Player 2wins"
 
 testUserDefAdHocTypes :: String -> IO String
 testUserDefAdHocTypes input = do
