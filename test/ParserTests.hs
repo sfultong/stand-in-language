@@ -30,6 +30,7 @@ import           Debug.Trace               (trace, traceShowId)
 import           System.IO
 import qualified System.IO.Strict          as Strict
 import           System.IO.Unsafe          (unsafePerformIO)
+import           System.Process
 import           Telomare
 import           Telomare.Eval
 import           Telomare.Parser
