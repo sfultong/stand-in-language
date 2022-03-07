@@ -20,7 +20,6 @@ data-files:          bench/MemoryBench/cases
 
 library
   hs-source-dirs:      src
-                     , test
   include-dirs:        cbits/include
   c-sources:           cbits/Telomare.c
   other-extensions:    GADTs
@@ -44,7 +43,6 @@ library
                      , Telomare.TypeChecker
                      , Telomare.Serializer
                      , Telomare.Serializer.C
-                     , Common
   build-depends:       base
                      , base16-bytestring
                      , binary
@@ -139,6 +137,7 @@ test-suite telomare-parser-test
                      , recursion-schemes
                      , Diff
                      , pretty-show
+                     , process
                      , lens
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
