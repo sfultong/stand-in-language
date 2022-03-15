@@ -282,10 +282,9 @@ allowedTypeCheck _                      = False
 
 testEval :: IExpr -> IO IExpr
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
-testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
--- testEval iexpr = simpleEval (SetEnv (Pair (Defer deserialized) Zero))
-    where serialized   = serialize iexpr
-          deserialized = unsafeDeserialize serialized
+-- testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
+testEval iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
+
 
 
 unitTest :: String -> String -> IExpr -> Spec
@@ -438,6 +437,32 @@ unitTests_ parse = do
   -- unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)" "(4,(5,(6,8)))" -- success!
   -- unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
   unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
+  unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+  --unitTest "notAbort" "2" (setenv (pair (setenv (pair Abort zero)) (pair (pair zero zero) zero)))
+  unitTest "c2d" "2" c2d_test
+  unitTest "c2d2" "2" c2d_test2
+  unitTest "c2d3" "1" c2d_test3
+  unitTest "oneplusone" "2" one_plus_one
+  unitTest "church 3+2" "5" three_plus_two
+  unitTest "3*2" "6" three_times_two
+  unitTest "3^2" "9" three_pow_two
+  unitTest "test_tochurch" "2" test_toChurch
+  unitTest "three" "3" three_succ
+  unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
+  unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+  unitTest "listlength0" "0" $ app list_length zero
+  unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
+  unitTest "zipwith" "((4,1),((5,1),((6,2),0)))"
+    $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
+                (ints2g [4,5,6]))
+          (ints2g [1,1,2,3])
+  unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
+  unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
+  unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
+-- because of the way lists are represented, the last number will be prettyPrinted + 1
+  unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
+                                    (ints2g [1,2,3])
   -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
   -- unitTest2 "main = ? (\\r x -> r (left x)) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\r x -> left x) (\\a -> 0) 1" "0"

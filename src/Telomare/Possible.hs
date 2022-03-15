@@ -60,6 +60,121 @@ instance (Eq a) => Semigroup (PossibleExpr a) where
     _ | a == b                            -> PossibleExpr a
     _                                     -> PossibleExpr $ EitherXF (PossibleExpr a) (PossibleExpr b)
 
+data PartExprF f
+  = ZeroSF
+  | PairSF f f
+  | EnvSF
+  | SetEnvSF f
+  | DeferSF f
+  | GateSF f f
+  | LeftSF f
+  | RightSF f
+  deriving (Eq, Ord, Show, Functor)
+
+newtype EnhancedExpr o = EnhancedExpr {unEnhanceExpr :: Either o (PartExprF (EnhancedExpr o))} deriving (Eq, Show)
+
+{-
+instance Corecursive (EnhancedExpr o) where
+  embed = EnhancedExpr . pure
+-}
+
+toPossibleS :: forall o. (Show o, Eq o) => (EnhancedExpr o -> PartExprF (EnhancedExpr o) -> EnhancedExpr o)
+  -> EnhancedExpr o -> EnhancedExpr o -> EnhancedExpr o
+toPossibleS handleOther env (EnhancedExpr g) =
+  let wrap = EnhancedExpr . pure
+      recur = toPossibleS handleOther env
+  in case g of
+    l@(Left _) -> EnhancedExpr l
+    Right r -> case fmap recur r of
+      ZeroSF -> wrap ZeroSF
+      p@(PairSF _ _) -> wrap p
+      EnvSF -> env
+      SetEnvSF x -> case x of
+        EnhancedExpr (Right (PairSF (EnhancedExpr (Right cf)) nenv)) -> case cf of
+          DeferSF c -> toPossibleS handleOther nenv c
+          GateSF l r -> case nenv of
+            EnhancedExpr (Right ZeroSF) -> recur l
+            EnhancedExpr (Right (PairSF _ _)) -> recur r
+            _ -> handleOther env (SetEnvSF x)
+          _ -> handleOther env (SetEnvSF x)
+        _ -> handleOther env (SetEnvSF x)
+      DeferSF _ -> wrap r
+      GateSF _ _ -> wrap r
+      LeftSF x -> case x of
+        EnhancedExpr (Right ZeroSF) -> wrap ZeroSF
+        EnhancedExpr (Right (PairSF l _)) -> l
+        _ -> handleOther env (LeftSF x)
+      RightSF x -> case x of
+        EnhancedExpr (Right ZeroSF) -> wrap ZeroSF
+        EnhancedExpr (Right (PairSF _ r)) -> r
+        _ -> handleOther env (RightSF x)
+
+data SuperPositionF f
+  = EitherPF f f
+  | AnyPF
+  deriving (Eq, Ord, Show, Functor)
+
+newtype SuperExpr o = SuperExpr {unSuper :: Either o (EnhancedExpr (SuperPositionF (SuperExpr o)))} deriving (Eq, Show)
+
+handleSuper :: forall o. (Show o, Eq o) => (SuperExpr o ->  -> SuperExpr o)
+  -- -> (EnhancedExpr (SuperExpr o) -> PartExprF (Either (SuperExpr o) (PartExprF (EnhancedExpr (SuperExpr o)))) -> EnhancedExpr (SuperExpr o))
+  -> (EnhancedExpr (SuperExpr o) -> PartExprF (SuperExpr o) -> EnhancedExpr (SuperExpr o))
+handleSuper handleOther env =
+  let wrap = EnhancedExpr . pure
+  in \case
+    LeftSF x -> case x of
+      Left (SuperExpr (Left o)) -> handleOther env (LeftSF o)
+    -- PairSF a b -> wrap $ PairSF (wrap a) (wrap b)
+  {-
+    LeftSF x -> case x of
+      -- Either (SuperExpr (Either o _)) _
+      Left (SuperExpr (Left o)) -> handleOther env (LeftSF o)
+-}
+
+
+{-
+evalE :: forall o. (Show o, Eq o) => (SuperExpr o -> SuperPositionF (Either o (SuperPositionF (SuperExpr o))) -> SuperExpr o)
+  -> SuperExpr o -> SuperExpr o -> SuperExpr o
+evalE handleOther env (SuperExpr g) =
+  let wrap = SuperExpr . pure
+      recur = evalE handleOther env
+  in case g of
+    l@(Left _) -> SuperExpr l
+    Right r -> case r of
+      EnhancedExpr ()
+-}
+
+instance TelomareLike (EnhancedExpr o) where
+  fromTelomare = let wrap = EnhancedExpr . pure in \case
+    Zero -> wrap ZeroSF
+    Pair a b -> wrap $ PairSF (fromTelomare a) (fromTelomare b)
+    Env -> wrap EnvSF
+    SetEnv x -> wrap $ SetEnvSF (fromTelomare x)
+    Defer x -> wrap $ DeferSF (fromTelomare x)
+    Gate l r -> wrap $ GateSF (fromTelomare l) (fromTelomare r)
+    PLeft x -> wrap $ LeftSF (fromTelomare x)
+    PRight x -> wrap $ RightSF (fromTelomare x)
+    Trace -> error "EnhancedExpr trace"
+  toTelomare = \case
+    EnhancedExpr (Right x) -> case x of
+      ZeroSF -> pure Zero
+      PairSF a b -> Pair <$> toTelomare a <*> toTelomare b
+      EnvSF -> pure Env
+      SetEnvSF p -> SetEnv <$> toTelomare p
+      DeferSF d -> Defer <$> toTelomare d
+      GateSF l r -> Gate <$> toTelomare l <*> toTelomare r
+      LeftSF x -> PLeft <$> toTelomare x
+      RightSF x -> PRight <$> toTelomare x
+    _ -> Nothing
+
+evalS :: IExpr -> IO IExpr
+evalS = f . toTelomare . toPossibleS handleOther (EnhancedExpr $ Right ZeroSF). fromTelomare where
+  f = \case
+    Nothing -> pure Env
+    Just x -> pure x
+  handleOther :: (EnhancedExpr String -> PartExprF (Either String (PartExprF (EnhancedExpr String))) -> EnhancedExpr String)
+  handleOther = error "TODO evalS handleOther"
+
 {-
 instance (Eq a, Eq f, Semigroup f) => Semigroup (PossibleExprF a f) where
   (<>) a b = case (a,b) of
@@ -111,8 +226,12 @@ data OpExprF o f
   = OpLeft f
   | OpRight f
   | OpSetEnv f
+  | OpSetEnvPair (Either o f) (Either o f) -- hacky
+  -- | OpSetEnvPair (Either f o) (Either f o) -- hacky
+  {-
   | OpWithEnv o f -- hacky, for when SetEnv has a definite env, but an indefinite function body
   | OpNeedsEnv o f -- hacky, for when SetEnv has a definite function body, but an indefinite env
+-}
   | OpAbort o
   deriving (Eq, Ord, Show, Functor)
 {-
@@ -317,14 +436,20 @@ toPossible' fragLookup processOther doAnnotation env =
                                       leftElem = if elem ZeroXF $ snd ipList then DList.singleton (recur l) else mempty
                                       rightElem = if any isPair $ snd ipList then DList.singleton (recur r) else mempty
                                       otherStuff = if length (leftElem <> rightElem) < 2
-                                                   then processOther . OpNeedsEnv (wrap fp) <$> fst ipList
+                                                   then processOther . OpSetEnvPair (Left $ wrap fp) . pure <$> fst ipList
                                                    else mempty
                                   in if elem AnyXF $ snd ipList
                                      then resultsFromList $ DList.fromList [recur l, recur r]
                                      else resultsFromList $ leftElem <> rightElem <> otherStuff
                   AbortFrag -> processOther . OpAbort . deepForce $ embed ip
                   x -> tp (embed ip) x
-              -- (PResult (Right sf), PResult (Right si)) -> tp 
+                z -> error ("unexpected function in toPossible' setenv: " <> show z)
+              (Right fp, Left ip) -> processOther $ OpSetEnvPair (Left $ embed fp) (Right ip)
+              (Left fp, Right ip) -> processOther $ OpSetEnvPair (Right fp) (Left $ embed ip)
+              (Left fp, Left ip) -> processOther $ OpSetEnvPair (Right fp) (Right ip)
+            EitherXF a b -> wrap $ EitherXF (f a) (f b)
+            z -> error $ "toPossible' setenv not pair" <> show z
+        PResult (Left o) -> processOther $ OpSetEnv o
     DeferFrag ind -> wrap . FunctionXF $ fragLookup ind
     g@(GateFrag _ _) -> wrap . FunctionXF $ g
     AbortFrag -> wrap . FunctionXF $ AbortFrag
@@ -392,7 +517,6 @@ toPossible fragLookup setEval doAnnotation env =
         TraceFrag -> pure env
   in go
 
-
 -- TODO switch FragExpr a to FragExpr Void ?
 abortSetEval :: (Show a, Eq a) => (IExpr -> Maybe IExpr -> Maybe IExpr)
   -> Maybe IExpr
@@ -435,8 +559,12 @@ abortSetEval abortCombine abortDefault sRecur env ft' it' =
           x -> sRecur it x
   in setEval (getPEF ft') it'
 
-staticAbortSetEval' :: OpExprF (PResult IExpr a) IExpr -> PResult IExpr a
-staticAbortSetEval' = undefined
+staticAbortProcessOther :: OpExprF (PResult IExpr a) IExpr -> PResult IExpr a
+staticAbortProcessOther = \case
+  OpLeft o -> PResult $ Left o
+  OpRight o -> PResult $ Left o
+  OpSetEnv o -> PResult $ Left o
+  -- OpSetEnvPair -- TODO
 
 staticAbortSetEval :: (Show a, Eq a) =>
   (PossibleExpr a -> FragExpr a -> Either IExpr (PossibleExpr a))
