@@ -28,8 +28,11 @@ jobs:
         #authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
     - name: Build and test
       run: |
+        echo cachix use iohk
         cachix use iohk
+        echo nix build
         nix build .#telomare:exe:telomare
+        echo nix run tests
         nix run .#telomare:test:telomare-test
         nix run .#telomare:test:telomare-parser-test
         nix run .#telomare:test:telomare-serializer-test
