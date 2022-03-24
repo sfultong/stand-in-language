@@ -15,7 +15,7 @@ import qualified System.IO.Strict           as Strict
 import           Telomare
 import           Telomare.Decompiler
 import           Telomare.Eval
-import           Telomare.Llvm              (RunResult (..))
+-- import           Telomare.Llvm              (RunResult (..))
 import           Telomare.Optimizer
 import           Telomare.Parser
 import           Telomare.RunTime
