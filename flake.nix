@@ -34,13 +34,12 @@
 
             shell.tools = {
               cabal = {};
-              # haskell-language-server = {};
+              haskell-language-server = {};
               ghcid = {};
             };
             # Non-Haskell shell tools go here
             shell.buildInputs = with pkgs; [
               # broken if provided by shell.tools
-              haskell-language-server
               stylish-haskell
               hlint
             ];
