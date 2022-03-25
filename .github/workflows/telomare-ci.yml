@@ -31,7 +31,6 @@ jobs:
         echo cachix use
         cachix use iohk
         echo nix build
-        ls -al
         nix build .#telomare:exe:telomare
         echo nix run tests
         nix run .#telomare:test:telomare-test
