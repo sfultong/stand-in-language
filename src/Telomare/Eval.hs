@@ -124,8 +124,9 @@ runStaticChecksMain (Term4 termMap) =
        _      -> Nothing
 
 compileMain :: Term3 -> Either EvalError IExpr
--- compileMain = compile runStaticChecksMain -- TODO: FIX
-compileMain = compile runStaticChecks
+compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyType) term of
+  Just e -> Left $ TCE e
+  _ -> compile runStaticChecks term -- TODO fix runStaticChecksMain
 
 compileUnitTest :: Term3 -> Either EvalError IExpr
 compileUnitTest = compile runStaticChecks
