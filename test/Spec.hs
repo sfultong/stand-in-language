@@ -12,7 +12,6 @@ import Data.Void
 import Data.Monoid
 import Telomare
 import Telomare.Eval
-import Telomare.Llvm (RunResult(..))
 import Naturals
 import Telomare.Decompiler
 import Telomare.Parser

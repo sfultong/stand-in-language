@@ -181,18 +181,23 @@ convertAbortMessage = \case
   Pair (Pair Zero Zero) s -> "user abort: " <> g2s s
   x -> "unexpected abort: " <> show x
 
-runStaticChecks :: Term4 -> Maybe String
-runStaticChecks (Term4 termMap) =
-  case (toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap) :: Either String (PossibleExpr Void Void)) of
-    Left s -> pure s
-    _      -> Nothing
+runStaticChecks :: Term4 -> Either EvalError Term4
+runStaticChecks t@(Term4 termMap) =
+  let result :: Either IExpr (PossibleExpr Void)
+      result = toPossible (termMap Map.!) staticAbortSetEval annoF (PossibleExpr AnyXF) (rootFrag termMap)
+      annoF = pure . PossibleExpr . FunctionXF . AuxFrag
+  in case result of
+            Left x -> Left . StaticCheckError $ convertAbortMessage x
+            _      -> pure t
 
-runStaticChecksMain :: Term4 -> Maybe String
-runStaticChecksMain (Term4 termMap) =
+runStaticChecksMain :: Term4 -> Either EvalError Term4
+runStaticChecksMain t@(Term4 termMap) =
   let (PairFrag (DeferFrag i) y) = rootFrag termMap
-  in case (toPossible (termMap Map.!) staticAbortSetEval AnyX (termMap Map.! i) :: Either String (PossibleExpr Void Void)) of
-       Left s -> pure s
-       _      -> Nothing
+      result = toPossible (termMap Map.!) staticAbortSetEval annoF (PossibleExpr AnyXF) (termMap Map.! i)
+      annoF = pure . PossibleExpr . FunctionXF . AuxFrag
+  in case result of
+            Left x -> Left . StaticCheckError $ convertAbortMessage x
+            _      -> pure t
 
 compileMain :: Term3 -> Either EvalError IExpr
 compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyType) term of
@@ -202,19 +207,8 @@ compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyT
 compileUnitTest :: Term3 -> Either EvalError IExpr
 compileUnitTest = compile runStaticChecks
 
-{-
-runStaticChecks :: Term4 -> Either EvalError Term4
-runStaticChecks t@(Term4 termMap) =
-  let result :: Either IExpr (PossibleExpr Void)
-      annoF = pure . PossibleExpr . FunctionXF . AuxFrag
-      result = toPossible (termMap Map.!) staticAbortSetEval annoF (PossibleExpr AnyXF) (rootFrag termMap)
-  in case result of
-            Left x -> Left . StaticCheckError $ convertAbortMessage x
-            _      -> pure t
--}
-
-compile :: Term3 -> Either EvalError IExpr
-compile t = case toTelomare . removeChecks <$> (findChurchSize t >>= runStaticChecks) of
+compile :: (Term4 -> Either EvalError Term4) -> Term3 -> Either EvalError IExpr
+compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
   Right (Just i) -> pure i
   Right Nothing -> Left CompileConversionError
   Left e -> Left e

@@ -146,9 +146,6 @@ splitExpr' = \case
   TLeft x -> LeftFrag <$> splitExpr' x
   TRight x -> RightFrag <$> splitExpr' x
   TTrace x -> (\tf nx -> SetEnvFrag (PairFrag tf nx)) <$> deferF (pure TraceFrag) <*> splitExpr' x
-  TLam (Open ()) x -> (`PairFrag` EnvFrag) <$> deferF (splitExpr' x)
-  TLam (Closed ()) x -> (`PairFrag` ZeroFrag) <$> deferF (splitExpr' x)
-  TLimitedRecursion -> pure $ AuxFrag UnsizedRecursion
   TLam (Open ()) x -> lamF $ splitExpr' x
   TLam (Closed ()) x -> clamF $ splitExpr' x
   TLimitedRecursion -> nextBreakToken >>= unsizedRecursionWrapper
