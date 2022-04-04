@@ -104,30 +104,6 @@ partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 eval' :: IExpr -> Either String IExpr
 eval' = pure
 
--- convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
-{-
-convertPT' :: (BreakExtras -> Int) -> Term3 -> Map FragIndex (FragExpr a)
-convertPT' limitLookup (Term3 termMap) =
-  let changeTerm = \case
-        AuxFrag n -> innerChurchF $ limitLookup n
-        ZeroFrag -> pure ZeroFrag
-        PairFrag a b -> PairFrag <$> changeTerm a <*> changeTerm b
-        EnvFrag -> pure EnvFrag
-        SetEnvFrag x -> SetEnvFrag <$> changeTerm x
-        DeferFrag fi -> pure $ DeferFrag fi
-        AbortFrag -> pure AbortFrag
-        GateFrag l r -> GateFrag <$> changeTerm l <*> changeTerm r
-        LeftFrag x -> LeftFrag <$> changeTerm x
-        RightFrag x -> RightFrag <$> changeTerm x
-        TraceFrag -> pure TraceFrag
-      mmap = traverse changeTerm termMap
-      startKey = succ . fst $ Map.findMax termMap
-      newMapBuilder = do
-        changedTermMap <- mmap
-        State.modify (\(be,i,m) -> ((), i, Map.union changedTermMap m))
-      (_,_,newMap) = State.execState newMapBuilder ((), startKey, Map.empty)
-  in newMap
--}
 convertPT' :: (BreakExtras -> Int) -> (FragIndex -> FragExpr BreakExtras) -> FragExpr BreakExtras -> BreakState' BreakExtras b
 convertPT' limitLookup fragLookup =
 
@@ -177,18 +153,22 @@ removeChecks (Term4 m) =
 
 convertAbortMessage :: IExpr -> String
 convertAbortMessage = \case
-  Pair Zero Zero -> "recursion overflow (should be caught by other means)"
-  Pair (Pair Zero Zero) s -> "user abort: " <> g2s s
+  AbortRecursion -> "recursion overflow (should be caught by other means)"
+  AbortUser s -> let hack (Pair _ r) = r -- TODO figure out why this is needed
+                 in "user abort: " <> g2s (hack s)
+  AbortAny -> "user abort of all possible abort reasons (non-deterministic input)"
   x -> "unexpected abort: " <> show x
 
 runStaticChecks :: Term4 -> Either EvalError Term4
 runStaticChecks t@(Term4 termMap) =
-  let result :: Either IExpr (PossibleExpr Void)
-      result = toPossible (termMap Map.!) staticAbortSetEval annoF (PossibleExpr AnyXF) (rootFrag termMap)
-      annoF = pure . PossibleExpr . FunctionXF . AuxFrag
+  let result = evalA combine t
+      combine a b = case (a,b) of
+        (Nothing, _) -> Nothing
+        (_, Nothing) -> Nothing
+        (a, _) -> a
   in case result of
-            Left x -> Left . StaticCheckError $ convertAbortMessage x
-            _      -> pure t
+    Nothing -> pure t
+    Just e -> Left . StaticCheckError $ convertAbortMessage e
 
 runStaticChecksMain :: Term4 -> Either EvalError Term4
 runStaticChecksMain t@(Term4 termMap) =
@@ -251,39 +231,6 @@ evalLoop_ iexpr = case eval' iexpr of
                   mainLoop (prev <> "\n" <> d) $ Pair inp newState
             r -> pure $ concat ["runtime error, dumped ", show r]
     in mainLoop "" Zero
-
--- map of contamination indices to test functions
-  {-
-contaminationMap :: BasicPossible -> BetterMap BreakExtras (DList (FragExpr BreakExtras, BasicPossible))
-contaminationMap =
-  let makeMap cSet = \case
-        EitherX a b -> makeMap cSet a <> makeMap cSet b
-        AnnotateX p x -> makeMap (Set.insert p cSet) x
-        PairX f i -> makeKeyVal cSet f i
-        z -> error $ "contaminationMap-makeMap unexpected value: " <> show z
-      makeKeyVal cSet f i = case f of
-        EitherX a b -> makeKeyVal cSet a i <> makeKeyVal cSet b i
-        AnnotateX p x -> makeKeyVal (Set.insert p cSet) x i
-        FunctionX frag -> BetterMap $ foldr (\k -> Map.insert k (pure (frag, i))) mempty cSet
-        z -> error $ "contaminationMap-makeKeyVal unexpected value: " <> show z
-  in makeMap Set.empty . (\bp -> trace ("basicpossible encoded contamination map is" <> show bp) bp)
--}
-
-{-
-splitTests :: BasicPossible -> DList (FragExpr BreakExtras, BasicPossible)
-splitTests =
-  let makeList = \case
-        EitherX a b -> makeList a <> makeList b
-        PairX f i -> makePair f i
-        z -> error $ "splitTests-makeList unexpected value: " <> show z
-      makePair f i = case f of
-        EitherX a b -> makePair a i <> makePair b i
-        FunctionX frag -> pure (frag, i)
-        z -> error $ "splitTests-makePair unexpected value: " <> show z
-      -- traceTests bl = trace ("basicpossible tests are " <> show bl) bl
-      traceTests = id
-  in traceTests . makeList
--}
 
 limitedMFix :: Monad m => (a -> m a) -> m a -> m a
 limitedMFix f x = iterate (>>= trace "fixing again" f) x !! 10

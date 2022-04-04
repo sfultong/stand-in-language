@@ -85,70 +85,89 @@ instance Eq1 PartExprF where
     (RightSF x, RightSF y) -> test x y
     _ -> False
 
--- newtype EnhancedExpr o = EnhancedExpr {unEnhanceExpr :: Either o (PartExprF (EnhancedExpr o))} deriving (Eq, Show)
-newtype EnhancedExpr f = EnhancedExpr {unEnhanceExpr :: Either (f (EnhancedExpr f)) (PartExprF (EnhancedExpr f))} -- deriving (Eq, Show)
+instance Show1 PartExprF where
+  liftShowsPrec showsPrec showList prec = \case
+    ZeroSF -> shows "ZeroSF"
+    PairSF a b -> shows "PairSF (" . showsPrec 0 a . shows ", " . showsPrec 0 b . shows ")"
+    EnvSF -> shows "EnvSF"
+    SetEnvSF x -> shows "SetEnvSF (" . showsPrec 0 x . shows ")"
+    DeferSF x -> shows "DeferSF (" . showsPrec 0 x . shows ")"
+    GateSF l r -> shows "GateSF (" . showsPrec 0 l . shows ", " . showsPrec 0 r . shows ")"
+    LeftSF x -> shows "LeftSF (" . showsPrec 0 x . shows ")"
+    RightSF x -> shows "RightSF (" . showsPrec  0 x . shows ")"
 
-{-
-instance (Show1 f) => Show (EnhancedExpr f) where
-  show (EnhancedExpr x) = "EnhancedExpr " <> case x of
-    Left fa -> "Left (" <> showsPrec1 0 fa ")"
-    Right x -> "Right (" <> show x <> ")"
--}
+newtype EnhancedExpr f = EnhancedExpr {unEnhanceExpr :: SplitFunctor f PartExprF (EnhancedExpr f)} -- deriving (Eq, Show)
 
-{-
-instance (Eq1 f) => Eq (EnhancedExpr f) where
-  (EnhancedExpr a) == (EnhancedExpr b) = case (a,b) of
-    (Right ea, Right eb) -> ea == eb
-    (Left fa, Left fb) -> eq1 fa fb
-    _ -> False
--}
+type instance Base (EnhancedExpr f) = SplitFunctor f PartExprF
+
+instance Functor f => Recursive (EnhancedExpr f) where
+  project = unEnhanceExpr
+
+instance Functor f => Corecursive (EnhancedExpr f) where
+  embed = EnhancedExpr
 
 instance Eq1 f => Eq (EnhancedExpr f) where
-  (EnhancedExpr a) == (EnhancedExpr b) = case (a,b) of
+  (EnhancedExpr (SplitFunctor a)) == (EnhancedExpr (SplitFunctor b)) = case (a,b) of
     (Left la, Left lb) -> eq1 la lb
     (Right ra, Right rb) -> eq1 ra rb
     _ -> False
 
-{-
-instance Corecursive (EnhancedExpr o) where
-  embed = EnhancedExpr . pure
--}
+instance Show1 f => Show (EnhancedExpr f) where
+  show (EnhancedExpr (SplitFunctor x)) = case x of
+    Left l -> "EnhancedExprL (" <> showsPrec1 0 l ")"
+    Right r -> "EnhancedExprR (" <> showsPrec1 0 r ")"
 
-evalEnhanced :: (EnhancedExpr o -> PartExprF (EnhancedExpr o) -> EnhancedExpr o)
+pattern BasicExpr :: PartExprF (EnhancedExpr f) -> EnhancedExpr f
+pattern BasicExpr x = EnhancedExpr (SplitFunctor (Right x))
+pattern SuperWrap :: SuperPositionF (SuperExpr f) -> SuperExpr f
+pattern SuperWrap x = EnhancedExpr (SplitFunctor (Left (SplitFunctor (Right x))))
+pattern AbortWrap :: AbortableF (AbortExpr f) -> AbortExpr f
+pattern AbortWrap x = EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right x))))))
+
+evalEnhanced :: Functor o => (EnhancedExpr o -> PartExprF (EnhancedExpr o) -> EnhancedExpr o)
   -> EnhancedExpr o -> EnhancedExpr o -> EnhancedExpr o
-evalEnhanced handleOther env (EnhancedExpr g) =
-  let wrap = EnhancedExpr . pure
+evalEnhanced handleOther env (EnhancedExpr (SplitFunctor g)) =
+  let wrap = embed . SplitFunctor . pure -- could just use BasicExpr
       recur = evalEnhanced handleOther env
   in case g of
-    l@(Left _) -> EnhancedExpr l
+    l@(Left _) -> EnhancedExpr $ SplitFunctor l
     Right r -> case fmap recur r of
       ZeroSF -> wrap ZeroSF
       p@(PairSF _ _) -> wrap p
       EnvSF -> env
       SetEnvSF x -> case x of
-        EnhancedExpr (Right (PairSF (EnhancedExpr (Right cf)) nenv)) -> case cf of
+        BasicExpr (PairSF (BasicExpr cf) nenv) -> case cf of
           DeferSF c -> evalEnhanced handleOther nenv c
           GateSF l r -> case nenv of
-            EnhancedExpr (Right ZeroSF) -> recur l
-            EnhancedExpr (Right (PairSF _ _)) -> recur r
+            BasicExpr ZeroSF -> recur l
+            BasicExpr (PairSF _ _) -> recur r
             _ -> handleOther env (SetEnvSF x)
-          _ -> handleOther env (SetEnvSF x)
+          _ -> error "evalEnhanced shouldn't be here"
         _ -> handleOther env (SetEnvSF x)
       DeferSF _ -> wrap r
       GateSF _ _ -> wrap r
       LeftSF x -> case x of
-        EnhancedExpr (Right ZeroSF) -> wrap ZeroSF
-        EnhancedExpr (Right (PairSF l _)) -> l
+        BasicExpr ZeroSF -> wrap ZeroSF
+        BasicExpr (PairSF l _) -> l
         _ -> handleOther env (LeftSF x)
       RightSF x -> case x of
-        EnhancedExpr (Right ZeroSF) -> wrap ZeroSF
-        EnhancedExpr (Right (PairSF _ r)) -> r
+        BasicExpr ZeroSF -> wrap ZeroSF
+        BasicExpr (PairSF _ r) -> r
         _ -> handleOther env (RightSF x)
+
+data VoidF f
+  deriving (Functor, Foldable, Traversable)
+
+instance Eq1 VoidF where
+  liftEq test a b = undefined
+
+instance Show1 VoidF where
+  liftShowsPrec showsPrec showList prec x = undefined
 
 data SuperPositionF f
   = EitherPF f f
   | AnyPF
-  deriving (Eq, Ord, Show, Functor)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Eq1 SuperPositionF where
   liftEq test a b = case (a,b) of
@@ -156,26 +175,26 @@ instance Eq1 SuperPositionF where
     (EitherPF a b, EitherPF c d) -> test a c && test b d
     _ -> False
 
+instance Show1 SuperPositionF where
+  liftShowsPrec showsPrec showList prec = \case
+    EitherPF a b -> shows "EitherPF (" . showsPrec 0 a . shows ", " . showsPrec 0 b . shows ")"
+    AnyPF -> shows "AnyPF"
+
 data AbortableF f
   = AbortF
-  | AbortedF
-  deriving (Eq, Ord, Show, Functor)
+  | AbortedF IExpr
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Eq1 AbortableF  where
   liftEq test a b = case (a,b) of
     (AbortF, AbortF) -> True
-    (AbortedF, AbortedF) -> True
+    (AbortedF a, AbortedF b) | a == b -> True
     _ -> False
 
-{-
-newtype OptionalFunctor f x = OptionalFunctor { unOptionalF :: Either (f x) x } deriving (Eq, Show)
-
-instance Eq1 f => Eq1 (OptionalFunctor f) where
-  liftEq test (OptionalFunctor a) (OptionalFunctor b) = case (a,b) of
-    (Right ua, Right ub) -> test ua ub
-    (Left oa, Left ob) -> liftEq test oa ob
-    _ -> False
--}
+instance Show1 AbortableF where
+  liftShowsPrec showsPrec showList prec = \case
+    AbortF -> shows "AbortF"
+    AbortedF x -> shows "(AbortedF " . shows x . shows ")"
 
 newtype SplitFunctor g f x = SplitFunctor { unSplitF :: Either (g x) (f x) } deriving (Eq, Show)
 
@@ -185,51 +204,37 @@ instance (Eq1 f, Eq1 g) => Eq1 (SplitFunctor g f) where
     (Left ga, Left gb) -> liftEq test ga gb
     _ -> False
 
-class PartialSemigroup m where
-  partialMerge :: m -> m -> Either (m,m) m
+instance (Show1 f, Show1 g) => Show1 (SplitFunctor g f) where
+  liftShowsPrec showsPrec showList prec (SplitFunctor x) = case x of
+    Right x -> shows "(SplitFunctorR " . liftShowsPrec showsPrec showList 0 x . shows ")"
+    Left x -> shows "(SplitFunctorL " . liftShowsPrec showsPrec showList 0 x . shows ")"
 
-partfMerge :: (Eq f, Semigroup f) => PartExprF f -> PartExprF f -> Either (PartExprF f, PartExprF f) (PartExprF f)
-partfMerge a b = case (a,b) of
-  (ZeroSF, ZeroSF) -> pure ZeroSF
-  (EnvSF, EnvSF) -> pure EnvSF
-  (PairSF a b, PairSF c d) | a == c -> pure $ PairSF a (b <> d)
-  (PairSF a b, PairSF c d) | b == d -> pure $ PairSF (a <> c) b
-  (SetEnvSF x, SetEnvSF y) -> pure $ SetEnvSF (x <> y)
-  (DeferSF x, DeferSF y) -> pure $ DeferSF (x <> y)
-  (GateSF a b, GateSF c d) | a == c -> pure $ GateSF a (b <> d)
-  (GateSF a b, GateSF c d) | b == d -> pure $ GateSF (a <> c) b
-  (LeftSF x, LeftSF y) -> pure $ LeftSF (x <> y)
-  (RightSF x, RightSF y) -> pure $ RightSF (x <> y)
-  _ -> Left (a,b)
+instance (Functor f, Functor g) => Functor (SplitFunctor g f) where
+  fmap f (SplitFunctor e) = case e of
+    Left lf -> SplitFunctor . Left $ fmap f lf
+    Right rf -> SplitFunctor . Right $ fmap f rf
 
--- newtype SuperWrap f x = SuperWrap (OptionalFunctor f (OptionalFunctor SuperPositionF x))
--- newtype SuperWrap f x = SuperWrap (SplitFunctor f SuperPositionF x)
+instance (Foldable f, Foldable g) => Foldable (SplitFunctor g f) where
+  foldMap f (SplitFunctor x) = case x of
+    Left fg -> foldMap f fg
+    Right ff -> foldMap f ff
 
-{-
-instance Eq1 f => Eq1 (SuperWrap f) where
-  liftEq test (SuperWrap a) (SuperWrap b) = liftEq (liftEq test) a b
--}
+instance (Traversable f, Traversable g) => Traversable (SplitFunctor g f) where
+  traverse f (SplitFunctor x) = case x of
+    Left fg -> SplitFunctor . Left <$> traverse f fg
+    Right ff -> SplitFunctor . Right <$> traverse f ff
 
--- type SuperExpr f = EnhancedExpr (SuperWrap f)
 type SuperExpr f = EnhancedExpr (SplitFunctor f SuperPositionF)
 
-{-
-instance (Semigroup x) => Semigroup (SuperWrap f x) where
-  (<>) (SuperWrap (OptionalFunctor a)) (SuperWrap (OptionalFunctor b)) = case (a,b) of
-    (Right (OptionalFunctor sa), Right (OptionalFunctor sb)) -> case (sa,sb) of
--}
-
--- instance Semigroup (EnhancedExpr (SuperWrap f)) where
-
 superExtractOther :: SuperExpr f -> Either (f (SuperExpr f)) (SplitFunctor SuperPositionF PartExprF (SuperExpr f))
-superExtractOther (EnhancedExpr x) = case x of
+superExtractOther (EnhancedExpr (SplitFunctor x)) = case x of
   Left (SplitFunctor sx) -> case sx of
     Left ox -> Left ox
     Right spx -> pure . SplitFunctor . Left $ spx
   Right rx -> pure . SplitFunctor . pure $ rx
 
 mergeSuper :: Eq1 f => SuperExpr f -> SuperExpr f -> SuperExpr f
-mergeSuper (EnhancedExpr a) (EnhancedExpr b) =
+mergeSuper (EnhancedExpr (SplitFunctor a)) (EnhancedExpr (SplitFunctor b)) =
   let mergePart :: Eq1 f => PartExprF (SuperExpr f) -> PartExprF (SuperExpr f)
         -> Either (PartExprF (SuperExpr f), PartExprF (SuperExpr f)) (PartExprF (SuperExpr f))
       mergePart pa pb = case (pa, pb) of
@@ -244,26 +249,26 @@ mergeSuper (EnhancedExpr a) (EnhancedExpr b) =
         (LeftSF x, LeftSF y) -> pure $ LeftSF (mergeSuper x y)
         (RightSF x, RightSF y) -> pure $ RightSF (mergeSuper x y)
         _ -> Left (pa, pb)
-      superWrap = EnhancedExpr . Left . SplitFunctor . Right
+      superWrap = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Right
       eitherWrap ea eb = superWrap $ EitherPF ea eb
   in case (a,b) of
     (Right pa, Right pb) -> case mergePart pa pb of
-      Right r -> EnhancedExpr $ pure r
-      Left (ea, eb) -> eitherWrap (EnhancedExpr $ pure ea) (EnhancedExpr $ pure eb)
+      Right r -> BasicExpr r
+      Left (ea, eb) -> eitherWrap (BasicExpr ea) (BasicExpr eb)
     (Left (SplitFunctor (Right AnyPF)), _) -> superWrap AnyPF
     (_, Left (SplitFunctor (Right AnyPF))) -> superWrap AnyPF
     (Left (SplitFunctor (Right sa)), Left (SplitFunctor (Right sb))) -> case (sa,sb) of
        (EitherPF a b, EitherPF c d) -> eitherWrap (mergeSuper a c) (mergeSuper b d)
-       _ -> eitherWrap (EnhancedExpr a) (EnhancedExpr b)
-    _ -> eitherWrap (EnhancedExpr a) (EnhancedExpr b)
+       _ -> eitherWrap (EnhancedExpr $ SplitFunctor a) (EnhancedExpr $ SplitFunctor b)
+    _ -> eitherWrap (EnhancedExpr $ SplitFunctor a) (EnhancedExpr $ SplitFunctor b)
 
-handleSuper :: Eq1 f => (SuperExpr f -> PartExprF (SuperExpr f) -> SuperExpr f)
+handleSuper :: (Functor f, Eq1 f) => (SuperExpr f -> PartExprF (SuperExpr f) -> SuperExpr f)
   -> SuperExpr f -> PartExprF (SuperExpr f) -> SuperExpr f
 handleSuper handleOther env term =
-  let wrapS = EnhancedExpr . Left . SplitFunctor . Right
+  let wrapS = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Right
       recur = handleSuper handleOther env
       evalE = evalEnhanced (handleSuper handleOther)
-      basicEval = evalE env . EnhancedExpr . pure
+      basicEval = evalE env . BasicExpr
   in case traverse superExtractOther term of
     Left _ -> handleOther env term
     Right extracted -> case extracted of
@@ -275,7 +280,7 @@ handleSuper handleOther env term =
         EitherPF a b -> mergeSuper (basicEval . RightSF $ a) (basicEval . RightSF $ b)
       SetEnvSF (SplitFunctor sf) -> case sf of
         Left (EitherPF pa pb) -> mergeSuper (recur $ SetEnvSF pa) (recur $ SetEnvSF pb)
-        Right (PairSF (EnhancedExpr sc) se) -> case sc of
+        Right (PairSF (EnhancedExpr (SplitFunctor sc)) se) -> case sc of
           Left (SplitFunctor scx) -> case scx of
             Left _ -> handleOther env term
             Right (EitherPF sca scb) -> mergeSuper (evalE se sca) (evalE se scb)
@@ -283,7 +288,7 @@ handleSuper handleOther env term =
 type AbortExpr f = SuperExpr (SplitFunctor f AbortableF)
 
 abortExtractOther :: AbortExpr f -> Either (f (AbortExpr f)) (SplitFunctor (SplitFunctor AbortableF SuperPositionF) PartExprF (AbortExpr f))
-abortExtractOther (EnhancedExpr x) = case x of
+abortExtractOther (EnhancedExpr (SplitFunctor x)) = case x of
   Left (SplitFunctor sp) -> case sp of
     Left (SplitFunctor sa) -> case sa of
       Left o -> Left o
@@ -291,84 +296,62 @@ abortExtractOther (EnhancedExpr x) = case x of
     Right spx -> pure . SplitFunctor . Left . SplitFunctor . pure $ spx
   Right rx -> pure . SplitFunctor . pure $ rx
 
-handleAbort :: Eq1 f => (AbortExpr f -> PartExprF (AbortExpr f) -> AbortExpr f)
+handleAbort :: (Functor f, Eq1 f, Show1 f) => (AbortExpr f -> PartExprF (AbortExpr f) -> AbortExpr f)
   -> AbortExpr f -> PartExprF (AbortExpr f) -> AbortExpr f
 handleAbort handleOther env term =
-  let wrapA = EnhancedExpr . Left . SplitFunctor . Left . SplitFunctor . Right
+  let wrapA = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Right
+      recur = handleAbort handleOther env
+      truncateExp = cata truncA where
+        truncA (SplitFunctor bs) = case bs of
+          Right b -> case b of
+            ZeroSF -> Zero
+            PairSF a b -> Pair a b
+          Left (SplitFunctor ss) -> trace "truncating something odd" $ case ss of
+            Right s -> case s of
+              AnyPF -> Zero
+              EitherPF a _ -> a
+            _ -> Zero
   in case traverse abortExtractOther term of
     Left _ -> handleOther env term
     Right extracted -> case extracted of
-      LeftSF (SplitFunctor (Left (SplitFunctor (Left AbortedF)))) -> wrapA AbortedF
-      RightSF (SplitFunctor (Left (SplitFunctor (Left AbortedF)))) -> wrapA AbortedF
-      SetEnvSF _ -> wrapA AbortedF -- if we're got AbortableF in here in any configuration, should abort
-  {-
-      SetEnvSF (SplitFunctor sf) -> case sf of
-        Left (SplitFunctor (Left AbortedF)) -> wrapA AbortedF
--}
-{-
-
-instance (Eq o) => Semigroup (SuperExpr o) where
-  (<>) (SuperExpr a) (SuperExpr b) =
-    let mergePart (EnhancedExpr a) (EnhancedExpr b) = case (a,b) of
-          (Right _, Left _) -> Nothing
-        wrap = SuperExpr . pure
-    in case (a,b) of
-      (Right sa, Right sb) -> case (sa,sb) of
-        (AnyPF,_) -> wrap AnyPF
--}
-
--- handleSuper :: forall o. (Show o, Eq o) => (SuperExpr o -> SuperPositionF (SuperExpr o) -> SuperExpr o)
-  {-
-handleSuper :: forall o. (Show o, Eq o) => (EnhancedExpr (SuperExpr o) -> PartExprF (SuperExpr o) -> EnhancedExpr (SuperExpr o))
-  -> (EnhancedExpr (SuperExpr o) -> PartExprF (EnhancedExpr (SuperExpr o)) -> EnhancedExpr (SuperExpr o))
-handleSuper handleOther env =
-  -- let wrap = EnhancedExpr . pure
-  let wrap = SuperExpr . pure
-      handleThis = handleSuper handleOther
-      recur = handleThis env
-  in \case
-    LeftSF x -> case unEnhanceExpr x of
-      Left s@(SuperExpr lx) -> case lx of
-        Right lxs -> case lxs of
-          AnyPF -> EnhancedExpr . Left . SuperExpr . Right $ AnyPF
-          -- EitherPF a b -> EnhancedExpr . Left . SuperExpr . Right $ EitherPX () ()
-          EitherPF a b -> EnhancedExpr . Left . SuperExpr . Right $ EitherPX () ()
-
-        -- Right AnyPF -> EnhancedExpr . Left . SuperExpr . Right $ AnyPF
-
--}
-      
-  {-
-      Left (SuperExpr (Right (EnhancedExpr sp))) -> case sp of
-        AnyPF -> x
--}
-
-
-{-
-evalE :: forall o. (Show o, Eq o) => (SuperExpr o -> SuperPositionF (Either o (SuperPositionF (SuperExpr o))) -> SuperExpr o)
-  -> SuperExpr o -> SuperExpr o -> SuperExpr o
-evalE handleOther env (SuperExpr g) =
-  let wrap = SuperExpr . pure
-      recur = evalE handleOther env
-  in case g of
-    l@(Left _) -> SuperExpr l
-    Right r -> case r of
-      EnhancedExpr ()
--}
+      LeftSF (SplitFunctor (Left (SplitFunctor (Left a@(AbortedF _))))) -> wrapA a
+      RightSF (SplitFunctor (Left (SplitFunctor (Left a@(AbortedF _))))) -> wrapA a
+      SetEnvSF (SplitFunctor p) -> case p of
+        Left (SplitFunctor as) -> case as of
+          Left a@(AbortedF _) -> wrapA a
+          Right (EitherPF a b) -> mergeSuper (recur $ SetEnvSF a) (recur $ SetEnvSF b)
+        Right (PairSF (EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor sc)))))) se) -> case sc of
+          Left _ -> handleOther env term
+          Right ax -> case ax of
+            AbortF ->
+              let testAbort (EnhancedExpr (SplitFunctor sse)) = case sse of
+                    Right bse -> case bse of
+                      ZeroSF -> BasicExpr . DeferSF . BasicExpr $ EnvSF
+                      e -> wrapA . AbortedF . AbortUser . truncateExp . BasicExpr $ e
+                    Left (SplitFunctor sse) -> case sse of
+                      Right ssse -> case ssse of
+                        AnyPF -> wrapA . AbortedF $ AbortAny
+                        EitherPF a b -> SuperWrap $ EitherPF (testAbort a) (testAbort b)
+                      Left (SplitFunctor ase) -> case ase of
+                        Right a@(AbortedF _) -> wrapA a
+                        Left z -> handleOther env $ SetEnvSF (BasicExpr (PairSF (AbortWrap AbortF) se))
+              in testAbort se
+            alreadyAborted -> wrapA alreadyAborted
+        z -> error ("unimplemented handleAbort for " <> show z)
 
 instance TelomareLike (EnhancedExpr o) where
-  fromTelomare = let wrap = EnhancedExpr . pure in \case
-    Zero -> wrap ZeroSF
-    Pair a b -> wrap $ PairSF (fromTelomare a) (fromTelomare b)
-    Env -> wrap EnvSF
-    SetEnv x -> wrap $ SetEnvSF (fromTelomare x)
-    Defer x -> wrap $ DeferSF (fromTelomare x)
-    Gate l r -> wrap $ GateSF (fromTelomare l) (fromTelomare r)
-    PLeft x -> wrap $ LeftSF (fromTelomare x)
-    PRight x -> wrap $ RightSF (fromTelomare x)
+  fromTelomare = \case
+    Zero -> BasicExpr ZeroSF
+    Pair a b -> BasicExpr $ PairSF (fromTelomare a) (fromTelomare b)
+    Env -> BasicExpr EnvSF
+    SetEnv x -> BasicExpr $ SetEnvSF (fromTelomare x)
+    Defer x -> BasicExpr $ DeferSF (fromTelomare x)
+    Gate l r -> BasicExpr $ GateSF (fromTelomare l) (fromTelomare r)
+    PLeft x -> BasicExpr $ LeftSF (fromTelomare x)
+    PRight x -> BasicExpr $ RightSF (fromTelomare x)
     Trace -> error "EnhancedExpr trace"
   toTelomare = \case
-    EnhancedExpr (Right x) -> case x of
+    BasicExpr x -> case x of
       ZeroSF -> pure Zero
       PairSF a b -> Pair <$> toTelomare a <*> toTelomare b
       EnvSF -> pure Env
@@ -380,44 +363,40 @@ instance TelomareLike (EnhancedExpr o) where
     _ -> Nothing
 
 evalS :: IExpr -> IO IExpr
-evalS = f . toTelomare . evalEnhanced handleOther (EnhancedExpr $ Right ZeroSF). fromTelomare where
+evalS = f . toTelomare . evalEnhanced handleOther (BasicExpr ZeroSF). fromTelomare where
   f = \case
     Nothing -> pure Env
     Just x -> pure x
   handleOther :: EnhancedExpr Maybe -> PartExprF (EnhancedExpr Maybe)-> EnhancedExpr Maybe
   handleOther = error "TODO evalS handleOther"
 
-{-
-instance (Eq a, Eq f, Semigroup f) => Semigroup (PossibleExprF a f) where
-  (<>) a b = case (a,b) of
-    (AnyXF, _) -> AnyXF
-    (_, AnyXF) -> AnyXF
-    (ZeroXF, ZeroXF) -> ZeroXF
-    (FunctionXF a, FunctionXF b) | a == b -> FunctionXF a
-    (PairXF a b, PairXF c d) | a == c -> PairXF a (b <> d)
-    (PairXF a b, PairXF c d) | b == d -> PairXF (a <> c) b
-    (EitherXF a b, EitherXF c d) -> EitherXF (a <> c) (b <> d)
-    _ | a == b -> a
-    _ -> EitherXF a b -- here's the problem. Can't construct infinite type
--}
+term4ToAbortExpr :: Term4 -> AbortExpr VoidF
+term4ToAbortExpr (Term4 termMap) =
+  let fragLookup = (termMap Map.!)
+      convertFrag = \case
+        ZeroFrag -> BasicExpr ZeroSF
+        PairFrag a b -> BasicExpr $ PairSF (convertFrag a) (convertFrag b)
+        EnvFrag -> BasicExpr EnvSF
+        SetEnvFrag x -> BasicExpr . SetEnvSF $ convertFrag x
+        DeferFrag ind -> BasicExpr . DeferSF . convertFrag $ fragLookup ind
+        AbortFrag -> EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Right $ AbortF
+        GateFrag l r -> BasicExpr $ GateSF (convertFrag l) (convertFrag r)
+        LeftFrag x -> BasicExpr . LeftSF $ convertFrag x
+        RightFrag x -> BasicExpr . RightSF $ convertFrag x
+        TraceFrag -> BasicExpr EnvSF
+        _ -> error "term4ToAbortExpr should be impossible"
+  in convertFrag $ rootFrag termMap
 
-{-
-instance Semigroup (PossibleExpr a) where
-  (<>) (PossibleExpr a) (PossibleExpr b) = PossibleExpr (a <> b)
--}
+evalA :: (Maybe IExpr -> Maybe IExpr -> Maybe IExpr) -> Term4 -> Maybe IExpr
+evalA combine t =
+  let initialEnv = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Right $ AnyPF
+      runResult = evalEnhanced (handleSuper (handleAbort undefined)) initialEnv $ term4ToAbortExpr t
+      getAborted = \case
+        SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right (AbortedF e)))))) -> Just e
+        SplitFunctor (Left (SplitFunctor (Right (EitherPF a b)))) -> combine a b
+        x -> foldr (<|>) Nothing x
+  in cata getAborted runResult
 
-{-
-instance (Show a) => Show (PossibleExpr a) where
-  show exp = State.evalState (cata alg exp) 0 where
-    alg :: (Show a, Show b) => (Base (PossibleExpr a)) (State Int String) -> State Int String
-    alg = \case
-      ZeroXF -> sindent "ZeroX"
-      AnyXF  -> sindent "AnyX"
-      PairXF a b -> indentWithTwoChildren "PairX" a b
-      EitherXF a b -> indentWithTwoChildren "EitherX" a b
-      FunctionXF f -> cata showFragAlg f
-      ClosureXF f x -> indentWithTwoChildren "ClosureX" (cata showFragAlg f) x
--}
 instance (Show a) => Show (PossibleExpr a) where
   show exp = State.evalState (cata alg exp) 0 where
     alg :: (Show a) => (Base (PossibleExpr a)) (State Int String) -> State Int String

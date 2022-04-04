@@ -462,6 +462,12 @@ unitTests_ parse = do
 -- because of the way lists are represented, the last number will be prettyPrinted + 1
   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
+  describe "refinement" $ do
+    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
+    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ (== Left (StaticCheckError "user abort: boop"))
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ (not . null)
   -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
   -- unitTest2 "main = ? (\\r x -> r (left x)) (\\a -> 0) 1" "0"
   -- unitTest2 "main = ? (\\r x -> left x) (\\a -> 0) 1" "0"
