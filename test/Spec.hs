@@ -435,6 +435,7 @@ unitTests_ parse = do
   -- unitTest2 "main = map succ [1,2]" "[2,3]" -- fails (CURRENTLY BEST FAIL?)
   -- unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)" "(4,(5,(6,8)))" -- success!
   -- unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
+  {-
   unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
   unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
   -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
@@ -462,71 +463,14 @@ unitTests_ parse = do
 -- because of the way lists are represented, the last number will be prettyPrinted + 1
   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
+-}
   describe "refinement" $ do
     unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+  {-
     unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
     unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
     unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ (== Left (StaticCheckError "user abort: boop"))
     unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ (not . null)
-  -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
-  -- unitTest2 "main = ? (\\r x -> r (left x)) (\\a -> 0) 1" "0"
-  -- unitTest2 "main = ? (\\r x -> left x) (\\a -> 0) 1" "0"
-  -- unitTest2 "main = ? (\\x -> (x,0)) 0" "5"
-  -- unitTest2 "main = $5 (\\x -> (x,0)) 0" "5"
-
-
-  {-
-  it "decompileExample" $ if qcDecompileIExprAndBackEvalsSame decompileExample
-    then pure ()
-    else expectationFailure "not equal"
--}
-  {-
-  it "decompileExample" $ if qcTestMapBuilderEqualsRegularEval decompileExample
-    then pure ()
-    else expectationFailure "not equal"
--}
-
---        IExprWrapper (SetEnv (PRight (PLeft (PLeft (PLeft (SetEnv (Pair (Defer (Pair (Pair (Pair (Pair Zero (Pair (Defer Env) Zero)) Zero) Zero) Zero)) (Defer Zero))))))))
---  IExprWrapper (SetEnv (Pair (Defer (SetEnv (PRight (Pair Zero (Pair (Defer Env) Zero))))) (Pair Zero Zero)))
--- IExprWrapper (SetEnv (SetEnv (SetEnv (Pair (Defer (Pair (Defer (Pair Env Zero)) (Defer Zero))) Zero))))
--- IExprWrapper (SetEnv (SetEnv (PLeft (Pair (Pair (Defer (Pair (Defer Env) Zero)) (Defer Zero)) Zero))))
-
-  {-
-  unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
-    "(0,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
--}
-  {-
-  unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-  unitTest2 "main = c2d (minus $2 $1)" "1"
-  unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0"
--}
-  {-
-  unitTest2 "main = $3 ($2 succ) 0" "6"
-  unitTest "3*2" "6" three_times_two
-  unitTest2 "main = (if 0 then (\\x -> (x,0)) else (\\x -> ((x,0),0))) 1" "3"
-  unitTest2 "main = $3 succ 0" "3"
-  unitTest2 "main = (d2cG $4 3) succ 0" "3"
-  unitTest "oneplusone" "2" one_plus_one
-  unitTest "church 3+2" "5" three_plus_two
-  unitTest "3*2" "6" three_times_two
-  unitTest "3^2" "9" three_pow_two
-  unitTest2 "main = $3 succ 0" "3"
-  unitTest "test_tochurch" "2" test_toChurch
-  unitTest "three" "3" three_succ
-  unitTest "data 3+5" "8" $ app (app d_plus2 (i2g 3)) (i2g 5)
-  unitTest "data 2+3" "5" $ app d_plus3 (i2g 3)
-  unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
-  unitTest "listlength0" "0" $ app list_length zero
-  unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
-  unitTest "zipwith" "((4,1),((5,1),((6,2),0)))"
-    $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
-                (ints2g [4,5,6]))
-          (ints2g [1,1,2,3])
-  unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
-  unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
-  unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
-  unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
-                                    (ints2g [1,2,3])
 -}
 
 c2dApp = "main = (c2dG $4 3) $2 succ 0"
@@ -742,11 +686,16 @@ unitTest2' parse s r = it s $ case fmap compileUnitTest (parse s) of
     else expectationFailure $ concat [s, " result ", r2]
   Right (Left e) -> expectationFailure $ concat ["failed to compile: ", show e]
 
-unitTestPossible' parse s f = it s $ case fmap (runPossible . convertPT (const 255)) (parse s) of
+{-
+runPossible iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
+
+unitTestPossible' parse s f = it s $ case fmap runPossible (parse s) of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
   Right r' -> if f r'
     then pure ()
     else expectationFailure $ s <> " result " <> show (r')
+-}
+unitTestPossible' = undefined
 
 unitTestType' parse s t tef = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
@@ -800,5 +749,5 @@ main = do
     parse = parseMain prelude
 
   hspec $ do
-    unitTests_ parse
+    unitTests parse
     --nexprTests

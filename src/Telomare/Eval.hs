@@ -137,7 +137,7 @@ convertPT ll (Term3 termMap) = let builder = convertPT' ll (termMap Map.!) (root
 
 findChurchSize :: Term3 -> Either EvalError Term4
 --findChurchSize = pure . convertPT (const 255)
-findChurchSize = calculateRecursionLimits'
+findChurchSize = calculateRecursionLimits
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -154,14 +154,13 @@ removeChecks (Term4 m) =
 convertAbortMessage :: IExpr -> String
 convertAbortMessage = \case
   AbortRecursion -> "recursion overflow (should be caught by other means)"
-  AbortUser s -> let hack (Pair _ r) = r -- TODO figure out why this is needed
-                 in "user abort: " <> g2s (hack s)
+  AbortUser s -> "user abort: " <> g2s s
   AbortAny -> "user abort of all possible abort reasons (non-deterministic input)"
   x -> "unexpected abort: " <> show x
 
 runStaticChecks :: Term4 -> Either EvalError Term4
 runStaticChecks t@(Term4 termMap) =
-  let result = evalA combine t
+  let result = evalA combine (Just Zero) t
       combine a b = case (a,b) of
         (Nothing, _) -> Nothing
         (_, Nothing) -> Nothing
@@ -173,11 +172,14 @@ runStaticChecks t@(Term4 termMap) =
 runStaticChecksMain :: Term4 -> Either EvalError Term4
 runStaticChecksMain t@(Term4 termMap) =
   let (PairFrag (DeferFrag i) y) = rootFrag termMap
-      result = toPossible (termMap Map.!) staticAbortSetEval annoF (PossibleExpr AnyXF) (termMap Map.! i)
-      annoF = pure . PossibleExpr . FunctionXF . AuxFrag
+      result = evalA' combine (Just Zero) (termMap Map.!) (termMap Map.! i)
+      combine a b = case (a,b) of
+        (Nothing, _) -> Nothing
+        (_, Nothing) -> Nothing
+        (a, _) -> a
   in case result of
-            Left x -> Left . StaticCheckError $ convertAbortMessage x
-            _      -> pure t
+    Nothing -> pure t
+    Just e -> Left . StaticCheckError $ convertAbortMessage e
 
 compileMain :: Term3 -> Either EvalError IExpr
 compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyType) term of
@@ -232,137 +234,14 @@ evalLoop_ iexpr = case eval' iexpr of
             r -> pure $ concat ["runtime error, dumped ", show r]
     in mainLoop "" Zero
 
-limitedMFix :: Monad m => (a -> m a) -> m a -> m a
-limitedMFix f x = iterate (>>= trace "fixing again" f) x !! 10
-
-runPossible :: Term4 -> Either IExpr (PossibleExpr Void)
-runPossible (Term4 termMap) =
-  let wrapAux = pure . PossibleExpr . FunctionXF . AuxFrag
-      eval = toPossible (termMap Map.!) staticAbortSetEval wrapAux
-      deepForce' = \case
-        PairXF a b -> fmap embed . PairXF <$> deepForce a <*> deepForce b
-        EitherXF a b -> fmap embed . EitherXF <$> deepForce a <*> deepForce b
-        ClosureXF f i -> eval i f >>= deepForce
-        x -> pure $ embed x
-      deepForce = deepForce' . getPEF
-  in eval (PossibleExpr AnyXF) (rootFrag termMap) >>= deepForce
-
-calculateRecursionLimits' :: Term3 -> Either EvalError Term4
-calculateRecursionLimits' t3@(Term3 termMap) =
-  let findLimit :: Term3 -> Either BreakExtras (Map BreakExtras Int)
-      findLimit frag =
-        let abortsAt sizeMap = let wrapAux = pure . embed . FunctionXF . AuxFrag
-                                   mapLookup k = case Map.lookup k termMap' of
-                                      Just v -> v
-                                      _ -> error ("calculateRecursionLimits findlimit mapLookup bad key " <> show k)
-                                   sizeLookup k = case Map.lookup k sizeMap of
-                                     Just v -> v
-                                     _ -> error ("calculateRecursionLimits findLimit sizeLookup bad key " <> show k)
-                                   (Term4 termMap') = convertPT sizeLookup t3
-                                   frag = rootFrag termMap'
-                                   inp :: PossibleExpr Void
-                                   inp = embed AnyXF
-                                   pEval = toPossible mapLookup sizingAbortSetEval wrapAux
-                                   deepForce' = \case
-                                     PairXF a b -> fmap embed . PairXF <$> deepForce a <*> deepForce b
-                                     EitherXF a b -> fmap embed . EitherXF <$> deepForce a <*> deepForce b
-                                     ClosureXF f i -> pEval i f >>= deepForce
-                                     x -> pure $ embed x
-                                   deepForce = deepForce' . getPEF
-                                   traceResult x = x -- trace ("result for " <> show sizeMap <> " is " <> show x) x
-                                   runTest = null . traceResult $ pEval inp frag >>= deepForce
-                               in runTest
-            hackSizingLimit = 255
-            findBE = \case
-              (ib, _) | ib > hackSizingLimit -> error "findChurchSize TODO max recursions over 255 not supported yet"
-              r@(_, ie) | not (abortsAt $ mm ie) -> trace ("found beginning sizes of " <> show r) r
-              (ib, ie) -> findBE (ib * 2, ie * 2)
-            (ib, ie) = findBE (1,2)
-            getIndexFromFrag = \case
-              PairFrag a b -> getIndexFromFrag a <> getIndexFromFrag b
-              SetEnvFrag x -> getIndexFromFrag x
-              GateFrag l r -> getIndexFromFrag l <> getIndexFromFrag r
-              LeftFrag x -> getIndexFromFrag x
-              RightFrag x -> getIndexFromFrag x
-              AuxFrag i -> Set.singleton i
-              _ -> mempty
-            -- unsizedSet = foldMap fst $ unwrappedReader (const 1)
-            unsizedSet = foldr (\a b -> getIndexFromFrag a <> b) mempty termMap
-  {-
-            beIndex = case Set.toList unsizedSet of
-              [singleIndex] -> singleIndex
-              _ -> error "TODO calculateRecursionLimits need to handle multiple sizes at once"
--}
-            -- mm x = Map.fromList [(beIndex, x)]
-            mm x = Map.fromList . fmap (, x) $ Set.toList unsizedSet
-            findC b e | b > e = trace ("crl b is found at " <> show b) mm b
-            findC b e = let midpoint = div (b + e) 2
-                        in trace ("midpoint is now " <> show midpoint) $ if abortsAt (mm midpoint)
-                                                                         then findC (midpoint + 1) e
-                                                                         else findC b (midpoint - 1)
-        in pure $ findC ib ie
-      prettyTerm = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm3 $ t3
-      -- findLimitStatic :: FragExpr BreakExtras -> StateT (Set BreakExtras) (BreakState' BreakExtras b)
-      findLimitStatic :: FragExpr BreakExtras -> AccumT (Set BreakExtras) (BreakState BreakExtras b) (FragExpr BreakExtras)
-      findLimitStatic = \case
-        ZeroFrag -> trace "at least zf" pure ZeroFrag
-        PairFrag a b -> PairFrag <$> findLimitStatic a <*> findLimitStatic b
-        EnvFrag -> trace "at least env" pure EnvFrag
-        DeferFrag ind -> do
-          nFrag <- findLimitStatic $ termMap Map.! ind
-          lift $ State.modify (\(uri, fii, fragMap) -> (uri, fii, Map.insert ind nFrag fragMap))
-          pure $ DeferFrag ind
-        AbortFrag -> pure AbortFrag
-        GateFrag l r -> GateFrag <$> findLimitStatic l <*> findLimitStatic r
-        LeftFrag x -> LeftFrag <$> findLimitStatic x
-        RightFrag x -> RightFrag <$> findLimitStatic x
-        TraceFrag -> pure TraceFrag
-        AuxFrag be -> Accum.add (Set.singleton be) >> pure (AuxFrag be)
-        SetEnvFrag x -> let bareEnv = para (\a b -> a == EnvFrag || or b) x
-                            hasFunction :: PossibleExpr Void -> Bool
-                            hasFunction = let isF = \case
-                                                FunctionXF _ -> True
-                                                PairXF a b -> a || b
-                                                EitherXF a b -> a || b
-                                                _ -> False
-                                          -- in para (\a b -> isF a || or b)
-                                          in cata isF
-                            fragTerm = Term3 $ Map.insert (toEnum 0) (SetEnvFrag x) termMap
-                            pEval :: Term4 -> Either IExpr (PossibleExpr Void)
-                            pEval t@(Term4 termMap) = let pEval' = toPossible (termMap Map.!) sizingAbortSetEval (pure . embed . FunctionXF . AuxFrag)
-                                                          deepForce' = \case
-                                                            PairXF a b -> fmap embed . PairXF <$> deepForce a <*> deepForce b
-                                                            EitherXF a b -> fmap embed . EitherXF <$> deepForce a <*> deepForce b
-                                                            ClosureXF f i -> pEval' i f >>= deepForce
-                                                            x -> pure $ embed x
-                                                          deepForce = deepForce' . getPEF
-                                                      in pEval' (embed AnyXF) (rootFrag termMap) >>= deepForce
-                            functionFreeResult = case hasFunction <$> pEval (convertPT (const 1) fragTerm) of
-                              Right False -> True
-                              _ -> False
-                            abortsAt sizingF = null . pEval . convertPT sizingF $ fragTerm
-                            hackSizingLimit = 255
-                            notBareEnv = (\r -> if r then trace "found not bare env" r else r) . not $ bareEnv
-                        in if notBareEnv && functionFreeResult
-                           then do
-          nx <- findLimitStatic x
-          unsizedSet <- Accum.look
-          let (ib, ie) = let findBE = \case
-                               (ib, _) | ib > hackSizingLimit -> error "findChurchSize static TODO max recursions over 255 not supported yet"
-                               r@(_, ie) | not (abortsAt $ const ie)  -> trace ("found static ie at " <> show ie) r
-                               (ib, ie) -> findBE (ib * 2, ie * 2)
-                         in findBE (1,2)
-              findC b e | b > e = trace ("found static limit at " <> show (unsizedSet, b)) b
-              findC b e = let midpoint = div (b + e) 2
-                          in if abortsAt (const midpoint)
-                             then findC (midpoint + 1) e
-                             else findC b (midpoint - 1)
-          lift $ convertPT' (const $ findC ib ie) (termMap Map.!) (SetEnvFrag x)
-                           else SetEnvFrag <$> findLimitStatic x
-      staticLimited = Term3 . buildFragMap $ Accum.evalAccumT (findLimitStatic (rootFrag termMap)) mempty
-  in case findLimit staticLimited of
-    Left e -> Left $ RecursionLimitError e
-    Right m -> let sizeLookup k = case Map.lookup k m of
-                     Just v -> v
-                     _ -> error ("calculateRecursionLimits' found size map unexpectd key " <> show k)
-               in Right $ convertPT sizeLookup staticLimited
+calculateRecursionLimits :: Term3 -> Either EvalError Term4
+calculateRecursionLimits t3@(Term3 termMap) =
+  let abortsAt n = not . null . evalA combine Nothing $ convertPT (const n) t3
+      combine a b = case (a,b) of
+        (Just AbortRecursion, _) -> Just AbortRecursion
+        (_, Just AbortRecursion) -> Just AbortRecursion
+        _ -> Nothing
+      iterations = take 10 $ iterate (\(_,n) -> (abortsAt (n * 2), n * 2)) (True, 1)
+  in case lookup False iterations of
+    Just n -> trace ("crl found limit at " <> show n) pure $ convertPT (const n) t3
+    _ -> Left . RecursionLimitError $ toEnum 0
