@@ -59,6 +59,7 @@ library
                      -- , llvm-hs
                      -- , llvm-hs-pure
                      , text
+		     , transformers
                      , megaparsec
                      , memory
                      , strict
@@ -111,8 +112,11 @@ test-suite telomare-test
   main-is:             Spec.hs
   other-modules:       Common
   build-depends:       base
+                     , containers
+                     , dlist
                      , hspec
                      , hspec-core
+		     , mtl
                      , telomare
                      , strict
                      , QuickCheck

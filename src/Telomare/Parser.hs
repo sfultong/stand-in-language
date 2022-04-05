@@ -133,7 +133,7 @@ debruijinize vl (TLam (Open n) x) = TLam (Open ()) <$> debruijinize (n : vl) x
 debruijinize vl (TLam (Closed n) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
 debruijinize _ TLimitedRecursion = pure TLimitedRecursion
 
-splitExpr' :: Term2 -> BreakState' BreakExtras
+splitExpr' :: Term2 -> BreakState' BreakExtras BreakExtras
 splitExpr' = \case
   TZero -> pure ZeroFrag
   TPair a b -> PairFrag <$> splitExpr' a <*> splitExpr' b
@@ -146,35 +146,13 @@ splitExpr' = \case
   TLeft x -> LeftFrag <$> splitExpr' x
   TRight x -> RightFrag <$> splitExpr' x
   TTrace x -> (\tf nx -> SetEnvFrag (PairFrag tf nx)) <$> deferF (pure TraceFrag) <*> splitExpr' x
-  TLam (Open ()) x -> (`PairFrag` EnvFrag) <$> deferF (splitExpr' x)
-  TLam (Closed ()) x -> (`PairFrag` ZeroFrag) <$> deferF (splitExpr' x)
-  TLimitedRecursion -> pure $ AuxFrag UnsizedRecursion
+  TLam (Open ()) x -> lamF $ splitExpr' x
+  TLam (Closed ()) x -> clamF $ splitExpr' x
+  TLimitedRecursion -> nextBreakToken >>= unsizedRecursionWrapper
 
 splitExpr :: Term2 -> Term3
-splitExpr t = let (bf, (_,m)) = State.runState (splitExpr' t) (FragIndex 1, Map.empty)
+splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
               in Term3 $ Map.insert (FragIndex 0) bf m
-
-convertPT :: Int -> Term3 -> Term4
-convertPT n (Term3 termMap) =
-  let changeTerm = \case
-        AuxFrag UnsizedRecursion -> partialFixF n
-        ZeroFrag                 -> pure ZeroFrag
-        PairFrag a b             -> PairFrag <$> changeTerm a <*> changeTerm b
-        EnvFrag                  -> pure EnvFrag
-        SetEnvFrag x             -> SetEnvFrag <$> changeTerm x
-        DeferFrag fi             -> pure $ DeferFrag fi
-        AbortFrag                -> pure AbortFrag
-        GateFrag l r             -> GateFrag <$> changeTerm l <*> changeTerm r
-        LeftFrag x               -> LeftFrag <$> changeTerm x
-        RightFrag x              -> RightFrag <$> changeTerm x
-        TraceFrag                -> pure TraceFrag
-      mmap = traverse changeTerm termMap
-      startKey = succ . fst $ Map.findMax termMap
-      newMapBuilder = do
-        changedTermMap <- mmap
-        State.modify (second (Map.union changedTermMap))
-      (_,newMap) = State.execState newMapBuilder (startKey, Map.empty)
-  in Term4 newMap
 
 -- |Parse a variable.
 parseVariable :: TelomareParser UnprocessedParsedTerm

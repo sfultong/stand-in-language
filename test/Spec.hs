@@ -1,29 +1,34 @@
 {-# LANGUAGE CApiFFI #-}
 module Main where
 
-import           Control.Applicative        (liftA2)
-import           Control.Monad.IO.Class
-import           Data.Bifunctor
-import           Data.Char
-import           Data.List                  (partition)
-import           Data.Monoid
-import           Debug.Trace
-import           Naturals
-import           System.Exit
-import           System.IO
-import qualified System.IO.Strict           as Strict
-import           Telomare
-import           Telomare.Decompiler
-import           Telomare.Eval
--- import           Telomare.Llvm              (RunResult (..))
-import           Telomare.Optimizer
-import           Telomare.Parser
-import           Telomare.RunTime
-import           Telomare.Serializer
-import           Telomare.TypeChecker
-import           Test.Hspec
-import           Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
-import           Test.QuickCheck
+import Control.Applicative (liftA2)
+import Control.Monad.IO.Class
+import Control.Monad.Reader (Reader, runReader)
+import Debug.Trace
+import Data.Bifunctor
+import Data.Char
+import Data.List (partition)
+import Data.Void
+import Data.Monoid
+import Telomare
+import Telomare.Eval
+import Naturals
+import Telomare.Decompiler
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.TypeChecker
+import Telomare.Optimizer
+import Telomare.Possible
+import Telomare.Serializer
+import System.Exit
+import System.IO
+import Test.Hspec
+import Test.QuickCheck
+import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
+import qualified Control.Monad.State as State
+import qualified Data.DList          as DList
+import qualified Data.Map as Map
+import qualified System.IO.Strict as Strict
 
 -- Common datatypes for generating Telomare AST.
 import           Common
@@ -276,10 +281,9 @@ allowedTypeCheck _                      = False
 
 testEval :: IExpr -> IO IExpr
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
-testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
--- testEval iexpr = simpleEval (SetEnv (Pair (Defer deserialized) Zero))
-    where serialized   = serialize iexpr
-          deserialized = unsafeDeserialize serialized
+-- testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
+testEval iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
+
 
 
 unitTest :: String -> String -> IExpr -> Spec
@@ -300,25 +304,16 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromTelo
   Left err -> do
     expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
 
-
-{-
-unitTestQC :: Testable p => String -> Int -> p -> Spec
-unitTestQC name times p = liftIO (quickCheckWithResult stdArgs { maxSuccess = times } p) >>= \result -> case result of
-  (Success _ _ _ _ _ _) -> pure ()
-  x -> expectationFailure $ concat [name, " failed: ", show x]
--}
 unitTestQC :: Testable p => String -> Int -> p -> Spec
 unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
 
+churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
 
+-- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
+-- quickcheckBuiltInOptimizedDoesNotChangeEval up =
+--   let iexpr = toTelomare . findChurchSize <$> fmap splitExpr . (>>= debruijinize []) . validateVariables id $ up
+--   in False
 {-
-unitTestOptimization :: String -> IExpr -> IO Bool
-unitTestOptimization name iexpr = if optimize iexpr == optimize2 iexpr
-  then pure True
-  else (putStrLn $ concat [name, ": optimized1 ", show $ optimize iexpr, " optimized2 "
-                          , show $ optimize2 iexpr])
-  >> pure False
--}
 quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
 quickcheckBuiltInOptimizedDoesNotChangeEval up =
   let
@@ -329,10 +324,9 @@ quickcheckBuiltInOptimizedDoesNotChangeEval up =
   in
     case (iexpr, iexpr') of
        (Right (Just ie), Right (Just ie')) -> pureEval ie == pureEval ie'
-       _ | iexpr == iexpr'                 -> True
-       _ | otherwise                       -> False
-
-churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
+       _ | iexpr == iexpr'-> True
+       _ | otherwise -> False
+-}
 
 -- unitTestTypeP :: IExpr -> Either TypeCheckError PartialType -> IO Bool
   -- inferType (fromTelomare iexpr)
@@ -352,13 +346,58 @@ qcDecompileIExprAndBackEvalsSame (IExprWrapper x) = pure (showResult $ eval' x)
           Left e  -> error ("validateVariables " <> e)
         parseLongExpr' x = case runTelomareParser (scn *> parseLongExpr <* scn) x of
           Just r -> r
-          _      -> error "parseLongExpr' should be impossible"
+          _ -> error "parseLongExpr' should be impossible"
+        findChurchSize' x = case findChurchSize x of
+          Right r -> r
+          Left e -> error ("findChurchSize' error: " <> show e)
         dec = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm4 . decompileIExpr
-        comp = findChurchSize . splitExpr . debruijinize' . validateVariables' . optimizeBuiltinFunctions . parseLongExpr'
+        comp = findChurchSize' . splitExpr . debruijinize' . validateVariables' . optimizeBuiltinFunctions . parseLongExpr'
         showTrace x = x -- trace ("decompiled: " <> show x) x
         showTrace' x = x -- trace ("recompiled: " <> show x) x
         showResult x = x -- trace ("desired result: " <> show x) x
         showResult' x = x -- trace ("actual result: " <> show x) x
+
+{-
+qcTestMapBuilderEqualsRegularEval :: DataTypedIExpr -> Bool
+qcTestMapBuilderEqualsRegularEval (IExprWrapper x) = (showResult $ eval' x)
+  == pure (showResult' . decodePossible . showIntermediate $ possibleConvert AnyX (rootFrag termMap))
+  where eval' = pureIEval
+        (Term3 termMap) = splitExpr . decompileTerm4 $ decompileIExpr x
+        annotateAux ur = pure . FunctionX $ AuxFrag ur -- should never actually be called
+        possibleConvert i f = (\tmb -> runReader (State.evalStateT tmb mempty) (const 0)) $
+          toPossible (termMap Map.!) testBuildingSetEval annotateAux i f
+        -- tmb = toPossible (termMap Map.!) testBuildingSetEval annotateAux AnyX (rootFrag termMap)
+        -- possibleResult = runReader (State.evalStateT tmb mempty) (const 0)
+        decodePossible x' = case toIExprList' possibleConvert x' of
+          DList.Cons r [] -> r
+          _ -> error ("bad possible from " <> show x)
+        showIntermediate x = trace ("intermediate possible: " <> show x) x
+        showResult x = trace ("desired result: " <> show x) x
+        showResult' x = trace ("actual result: " <> show x) x
+-}
+
+qcTestURSizing :: URTestExpr -> Bool
+qcTestURSizing (URTestExpr t3) = 
+  let compile x = toTelomare <$> findChurchSize x
+      compile' x = pure . toTelomare $ convertPT (const 255) x
+  in (fmap . fmap) pureIEval (compile t3) == (fmap . fmap) pureIEval (compile' t3)
+{-
+qcTestAbortExtract :: (URTestExpr, Int) -> Bool
+qcTestAbortExtract (URTestExpr (Term3 termMap), i) =
+  null staticToPossible
+  == extractedTestResult where
+  staticToPossible :: Either IExpr (PossibleExpr BreakExtras Void)
+  staticToPossible = toPossible (termMap' Map.!) staticAbortSetEval (pure . FunctionX . AuxFrag) AnyX (rootFrag termMap')
+  sizer = const i
+  (Term4 termMap') = convertPT sizer (Term3 termMap)
+  mapLookup' = (termMap Map.!)
+  annotateAux ur = pure . AnnotateX ur . FunctionX $ AuxFrag ur
+  testMapBuilder = toPossible mapLookup' testBuildingSetEval annotateAux AnyX (rootFrag termMap)
+  tests = splitTests . ($ i) . runReader .  (Map.! toEnum 0) . ($ sizer) . runReader $ State.execStateT testMapBuilder mempty
+  wrapAux = pure . FunctionX . AuxFrag
+  runTest (frag, inp) = null $ toPossible mapLookup' sizingAbortSetEval wrapAux inp frag
+  extractedTestResult = or $ fmap runTest tests
+-}
 
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
@@ -370,57 +409,47 @@ unitTests_ parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
       unitTestStaticChecks = unitTestStaticChecks' parse
-      decomplleExample = IExprWrapper (PLeft (PLeft (SetEnv (PRight (PLeft (SetEnv (Pair (Defer (Pair (Pair Zero (Pair (Gate (Pair (Pair Zero (Defer Env)) Zero) (Pair (Pair Env (Defer Zero)) Env)) (SetEnv (Pair (Defer Env) Env)))) Env)) (SetEnv (Pair (PRight (SetEnv (SetEnv (Pair (Defer (Pair (Defer (Pair Zero (Defer (Pair Zero Zero)))) Zero)) Zero)))) Zero)))))))))
-
+      unitTestPossible = unitTestPossible' parse
+      -- decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero Zero))) (SetEnv (SetEnv (SetEnv (PLeft (Pair (Pair (Defer (Pair (Defer (Pair (Defer Zero) Env)) Env)) Zero) Zero))))))))
+      -- decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero Zero))) Zero)))
+      decompileExample = IExprWrapper (SetEnv (SetEnv (Pair (Defer (Pair (Gate Env Env) (Pair Zero (Pair Zero Zero)))) Zero)))
+      -- decompileExample = IExprWrapper (SetEnv (SetEnv (SetEnv (Pair (Defer (Pair (Defer (Pair (Defer Zero) Env)) Env)) Zero))))
   {-
       unitTestRuntime = unitTestRuntime' parse
       unitTestSameResult = unitTestSameResult' parse
 -}
-  unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprAndBackEvalsSame
-  {-
-  it "decompileExample" $ if qcDecompileIExprAndBackEvalsSame decompileExample
-    then pure ()
-    else expectationFailure "not equal"
--}
-  {-
-  1) decompileIexprToTerm2AndBackEvalsSame
-       uncaught exception: ErrorCall
-       validateVariables No definition found for a
-       CallStack (from HasCallStack):
-         error, called at test/Spec.hs:351:21 in main:Main
-       (after 974 tests and 61 shrinks)
-         IExprWrapper Env
--}
+  -- unitTestQC "decompileIexprToTerm2AndBackEvalsSame" 2000 qcDecompileIExprAndBackEvalsSame
+  -- unitTestQC "possibleEvalIsLikeRegularEval" 15000 qcTestMapBuilderEqualsRegularEval
+  -- unitTestQC "qcTestAbortExtract" 2000 qcTestAbortExtract
+  -- unitTestQC "qcTestURSizing" 2000 qcTestURSizing
 
---        IExprWrapper (SetEnv (PRight (PLeft (PLeft (PLeft (SetEnv (Pair (Defer (Pair (Pair (Pair (Pair Zero (Pair (Defer Env) Zero)) Zero) Zero) Zero)) (Defer Zero))))))))
---  IExprWrapper (SetEnv (Pair (Defer (SetEnv (PRight (Pair Zero (Pair (Defer Env) Zero))))) (Pair Zero Zero)))
--- IExprWrapper (SetEnv (SetEnv (SetEnv (Pair (Defer (Pair (Defer (Pair Env Zero)) (Defer Zero))) Zero))))
--- IExprWrapper (SetEnv (SetEnv (PLeft (Pair (Pair (Defer (Pair (Defer Env) Zero)) (Defer Zero)) Zero))))
-
+  -- unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0" -- we're good now, for every n
+  -- unitTest2 "main = listLength [1,2,3]" "3" -- fails
+  -- unitTest2 "main = foldr (\\a b -> (a,b)) [] [1,2]" "[1,2]"
+  -- unitTestPossible "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+  -- unitTestPossible "main = let x : ((\\x -> assert (not x) \"fail\")) = 1 in x" null
+  -- unitTestPossible "main = let x : ((\\x -> assert (not x) \"fail\")) = 1 in left (1, x)" (== Right (PairX ZeroX ZeroX))
+  -- unitTestPossible "main = let x : ((\\x -> assert (not x) \"fail\")) = 1 in left (1, x)" (== Right (PairX ZeroX ZeroX))
+  -- unitTestPossible "main = let f = (\\x -> let xb : (\\xb -> assert 0 \"fail\") = 0 in xb) in $1 (\\r l -> if l then r (left l) else 0) f [1,2]" null
+  -- unitTestPossible "main = let f = (\\x -> let xb : (\\xb -> assert 0 \"fail\") = 0 in xb) in $1 (\\r mf l -> if l then (mf (left l), r (right l)) else 0) f succ [1,2]" null -- works fine
+  -- unitTest2 "main = map succ [1,2]" "[2,3]" -- fails (CURRENTLY BEST FAIL?)
+  -- unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)" "(4,(5,(6,8)))" -- success!
+  -- unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
   {-
-  unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
-    "(0,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
--}
-  {-
+  unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
   unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-  unitTest2 "main = c2d (minus $2 $1)" "1"
-  unitTest2 "main = ? (\\r x -> if x then r (left x) else 0) (\\a -> 0) 1" "0"
--}
-  {-
-  unitTest2 "main = $3 ($2 succ) 0" "6"
-  unitTest "3*2" "6" three_times_two
-  unitTest2 "main = (if 0 then (\\x -> (x,0)) else (\\x -> ((x,0),0))) 1" "3"
-  unitTest2 "main = $3 succ 0" "3"
-  unitTest2 "main = (d2cG $4 3) succ 0" "3"
+  -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
+  --unitTest "notAbort" "2" (setenv (pair (setenv (pair Abort zero)) (pair (pair zero zero) zero)))
+  unitTest "c2d" "2" c2d_test
+  unitTest "c2d2" "2" c2d_test2
+  unitTest "c2d3" "1" c2d_test3
   unitTest "oneplusone" "2" one_plus_one
   unitTest "church 3+2" "5" three_plus_two
   unitTest "3*2" "6" three_times_two
   unitTest "3^2" "9" three_pow_two
-  unitTest2 "main = $3 succ 0" "3"
   unitTest "test_tochurch" "2" test_toChurch
   unitTest "three" "3" three_succ
-  unitTest "data 3+5" "8" $ app (app d_plus2 (i2g 3)) (i2g 5)
-  unitTest "data 2+3" "5" $ app d_plus3 (i2g 3)
+  unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
   unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
   unitTest "listlength0" "0" $ app list_length zero
   unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
@@ -431,8 +460,17 @@ unitTests_ parse = do
   unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
   unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
   unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
+-- because of the way lists are represented, the last number will be prettyPrinted + 1
   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
+-}
+  describe "refinement" $ do
+    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+  {-
+    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
+    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ (== Left (StaticCheckError "user abort: boop"))
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ (not . null)
 -}
 
 c2dApp = "main = (c2dG $4 3) $2 succ 0"
@@ -485,6 +523,7 @@ unitTests parse = do
       (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" ZeroTypeP (== Nothing)
     unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
+    unitTestType "main = ? (\\r l -> if l then r (left l) else 0) (\\l -> 0) 2" ZeroTypeP (== Nothing)
     unitTestType2
       (setenv (pair
                (setenv (pair
@@ -525,11 +564,11 @@ unitTests parse = do
                                      (ints2g [1,2,3])
 
   describe "refinement" $ do
-    unitTestStaticChecks "main : (\\x -> if x then \"fail\" else 0) = 1" $ Just "fail"
-    unitTestStaticChecks "main : (\\x -> if left x then \"fail\" else 0) = 1" $ Nothing
-    unitTestStaticChecks "main : (\\x -> if 0 then \"fail\" else 0) = 1" $ Nothing
-    unitTestStaticChecks "main : (\\f -> if f 2 then \"boop\" else 0) = \\x -> left x" $ Just "boop"
-    unitTestStaticChecks "main : (\\f -> if f 2 then \"boop\" else 0) = \\x -> left (left x)" $ Nothing
+    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
+    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ (== Left (StaticCheckError "user abort: boop"))
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ (not . null)
 
   describe "unitTest2" $ do
     unitTest2 "main = 0" "0"
@@ -647,6 +686,17 @@ unitTest2' parse s r = it s $ case fmap compileUnitTest (parse s) of
     else expectationFailure $ concat [s, " result ", r2]
   Right (Left e) -> expectationFailure $ concat ["failed to compile: ", show e]
 
+{-
+runPossible iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
+
+unitTestPossible' parse s f = it s $ case fmap runPossible (parse s) of
+  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+  Right r' -> if f r'
+    then pure ()
+    else expectationFailure $ s <> " result " <> show (r')
+-}
+unitTestPossible' = undefined
+
 unitTestType' parse s t tef = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
   Right g -> let apt = typeCheck t g
@@ -655,14 +705,14 @@ unitTestType' parse s t tef = it s $ case parse s of
                 else expectationFailure $
                       concat [s, " failed typecheck, result ", show apt]
 
-unitTestStaticChecks' parse s r = it s $ case parse s of
+unitTestStaticChecks' parse s c = it s $ case parse s of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right g -> let rr = runStaticChecks $ findChurchSize g
-              in if rr == r
+  Right g -> let rr = findChurchSize g >>= runStaticChecks
+              in if c rr
                 then pure ()
                 else do
     --putStrLn $ "grammar is " <> show g
-    expectationFailure $ "static check failed, expected" <> show r <> " got " <> show rr
+    expectationFailure $ "static check failed with " <> show rr
 
 unitTestType2 i t tef = it ("type check " <> show i) $
   let apt = typeCheck t $ fromTelomare i

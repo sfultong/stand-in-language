@@ -1,14 +1,24 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 module Telomare.Eval where
 
 import           Control.Lens.Plated
 import           Control.Monad.Except
+import Control.Monad.Reader (Reader, runReader)
+import Control.Monad.State (StateT)
+import Control.Monad.Trans.Accum (AccumT)
 import qualified Control.Monad.State  as State
+import qualified Control.Monad.Trans.Accum as Accum
+import           Data.Functor.Foldable (embed, project, cata)
+import Data.DList (DList)
 import           Data.Map             (Map)
 import qualified Data.Map             as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Void
 import           Debug.Trace
 import           Telomare
+import           Telomare.Decompiler
 import           Telomare.Optimizer
 import           Telomare.Parser
 import           Telomare.Possible
@@ -42,9 +52,18 @@ data EvalError = RTE RunTimeError
     | TCE TypeCheckError
     | StaticCheckError String
     | CompileConversionError
+    | RecursionLimitError BreakExtras
     deriving (Eq, Ord, Show)
 
 type ExpFullEnv = ExprA Bool
+
+newtype BetterMap k v = BetterMap { unBetterMap :: Map k v}
+
+instance Functor (BetterMap k) where
+  fmap f (BetterMap x) = BetterMap $ fmap f x
+
+instance (Ord k, Semigroup m) => Semigroup (BetterMap k m) where
+  (<>) (BetterMap a) (BetterMap b) = BetterMap $ Map.unionWith (<>) a b
 
 annotateEnv :: IExpr -> (Bool, ExpP)
 annotateEnv Zero = (True, ZeroP)
@@ -85,18 +104,40 @@ partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 eval' :: IExpr -> Either String IExpr
 eval' = pure
 
-findChurchSize :: Term3 -> Term4
-{-
-findChurchSize term =
-  let abortsAt i = (\(PResult (_, b)) -> b) . fix pEval PZero . fromTelomare $ convertPT i term
-      -- evaluating large church numbers is currently impractical, just fail if found
-      (ib, ie) = if not (abortsAt 255) then (0, 255) else error "findchurchsize TODO" -- (256, maxBound)
-      findC b e | b > e = b
-      findC b e = let midpoint = (\n -> trace ("midpoint is now " <> show n) n) $ div (b + e) 2
-                  in if abortsAt midpoint then findC (midpoint + 1) e else findC b midpoint
-  in convertPT (findC ib ie) term
--}
-findChurchSize = convertPT 255
+convertPT' :: (BreakExtras -> Int) -> (FragIndex -> FragExpr BreakExtras) -> FragExpr BreakExtras -> BreakState' BreakExtras b
+convertPT' limitLookup fragLookup =
+
+  let changeTerm = \case
+        AuxFrag n -> innerChurchF $ limitLookup n
+        DeferFrag fi -> do
+          newFrag <- transformM changeTerm $ fragLookup fi
+          State.modify (\(uri, fii, fragMap) -> (uri, fii, Map.insert fi newFrag fragMap))
+          pure $ DeferFrag fi
+        x -> pure x
+  in transformM changeTerm
+
+convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
+convertPT ll (Term3 termMap) = let builder = convertPT' ll (termMap Map.!) (rootFrag termMap)
+                                   startKey = succ . fst $ Map.findMax termMap
+                                   (_,_,newMap) = State.execState builder ((), startKey, termMap)
+                                   changeType :: FragExpr BreakExtras -> FragExpr Void
+                                   changeType = \case
+                                     ZeroFrag -> ZeroFrag
+                                     PairFrag a b -> PairFrag (changeType a) (changeType b)
+                                     EnvFrag -> EnvFrag
+                                     SetEnvFrag x -> SetEnvFrag (changeType x)
+                                     DeferFrag ind -> DeferFrag ind
+                                     AbortFrag -> AbortFrag
+                                     GateFrag l r -> GateFrag (changeType l) (changeType r)
+                                     LeftFrag x -> LeftFrag (changeType x)
+                                     RightFrag x -> RightFrag (changeType x)
+                                     TraceFrag -> TraceFrag
+                                     AuxFrag _ -> error "convertPT should be no AuxFrags here"
+                               in Term4 $ fmap changeType newMap
+
+findChurchSize :: Term3 -> Either EvalError Term4
+--findChurchSize = pure . convertPT (const 255)
+findChurchSize = calculateRecursionLimits
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -110,18 +151,35 @@ removeChecks (Term4 m) =
         insertAndGetKey $ DeferFrag envDefer
   in Term4 $ Map.map (transform f) newM
 
-runStaticChecks :: Term4 -> Maybe String
-runStaticChecks (Term4 termMap) =
-  case (toPossible (termMap Map.!) staticAbortSetEval AnyX (rootFrag termMap) :: Either String (PossibleExpr Void Void)) of
-    Left s -> pure s
-    _      -> Nothing
+convertAbortMessage :: IExpr -> String
+convertAbortMessage = \case
+  AbortRecursion -> "recursion overflow (should be caught by other means)"
+  AbortUser s -> "user abort: " <> g2s s
+  AbortAny -> "user abort of all possible abort reasons (non-deterministic input)"
+  x -> "unexpected abort: " <> show x
 
-runStaticChecksMain :: Term4 -> Maybe String
-runStaticChecksMain (Term4 termMap) =
+runStaticChecks :: Term4 -> Either EvalError Term4
+runStaticChecks t@(Term4 termMap) =
+  let result = evalA combine (Just Zero) t
+      combine a b = case (a,b) of
+        (Nothing, _) -> Nothing
+        (_, Nothing) -> Nothing
+        (a, _) -> a
+  in case result of
+    Nothing -> pure t
+    Just e -> Left . StaticCheckError $ convertAbortMessage e
+
+runStaticChecksMain :: Term4 -> Either EvalError Term4
+runStaticChecksMain t@(Term4 termMap) =
   let (PairFrag (DeferFrag i) y) = rootFrag termMap
-  in case (toPossible (termMap Map.!) staticAbortSetEval AnyX (termMap Map.! i) :: Either String (PossibleExpr Void Void)) of
-       Left s -> pure s
-       _      -> Nothing
+      result = evalA' combine (Just Zero) (termMap Map.!) (termMap Map.! i)
+      combine a b = case (a,b) of
+        (Nothing, _) -> Nothing
+        (_, Nothing) -> Nothing
+        (a, _) -> a
+  in case result of
+    Nothing -> pure t
+    Just e -> Left . StaticCheckError $ convertAbortMessage e
 
 compileMain :: Term3 -> Either EvalError IExpr
 compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyType) term of
@@ -131,37 +189,11 @@ compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyT
 compileUnitTest :: Term3 -> Either EvalError IExpr
 compileUnitTest = compile runStaticChecks
 
-compile :: (Term4 -> Maybe String) -> Term3 -> Either EvalError IExpr
-compile f t =
-  let sized = findChurchSize t
-  in case f sized of
-       Nothing -> case toTelomare $ removeChecks sized of
-                    Just i  -> pure i
-                    Nothing -> Left CompileConversionError
-       Just s -> Left $ StaticCheckError s
-
-{-
-findAllSizes :: Term2 -> (Bool, Term3)
-findAllSizes = let doChild (True, x) = TTransformedGrammar $ findChurchSize x
-                   doChild (_, x) = TTransformedGrammar $ convertPT 0 x
-                   doChildren l = let nl = map findAllSizes l
-                                  in case sum (map (fromEnum . fst) nl) of
-                                       0 -> (False, map snd nl)
-                                       1 -> (True, map snd nl)
-                                       _ -> (False, map doChild nl)
-               in \case
-  TZero -> (False, TZero)
-  TPair a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TPair na nb)
-  TVar n -> (False, TVar n)
-  TApp a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TApp na nb)
-  TCheck a b -> let (c, [na, nb]) = doChildren [a,b] in (c, TCheck na nb)
-  TITE i t e -> let (c, [ni, nt, ne]) = doChildren [i,t,e] in (c, TITE ni nt ne)
-  TLeft x -> TLeft <$> findAllSizes x
-  TRight x -> TRight <$> findAllSizes x
-  TTrace x -> TTrace <$> findAllSizes x
-  TLam lt x -> TLam lt <$> findAllSizes x
-  TLimitedRecursion -> (True, TLimitedRecursion)
--}
+compile :: (Term4 -> Either EvalError Term4) -> Term3 -> Either EvalError IExpr
+compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
+  Right (Just i) -> pure i
+  Right Nothing -> Left CompileConversionError
+  Left e -> Left e
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of
@@ -201,3 +233,15 @@ evalLoop_ iexpr = case eval' iexpr of
                   mainLoop (prev <> "\n" <> d) $ Pair inp newState
             r -> pure $ concat ["runtime error, dumped ", show r]
     in mainLoop "" Zero
+
+calculateRecursionLimits :: Term3 -> Either EvalError Term4
+calculateRecursionLimits t3@(Term3 termMap) =
+  let abortsAt n = not . null . evalA combine Nothing $ convertPT (const n) t3
+      combine a b = case (a,b) of
+        (Just AbortRecursion, _) -> Just AbortRecursion
+        (_, Just AbortRecursion) -> Just AbortRecursion
+        _ -> Nothing
+      iterations = take 10 $ iterate (\(_,n) -> (abortsAt (n * 2), n * 2)) (True, 1)
+  in case lookup False iterations of
+    Just n -> trace ("crl found limit at " <> show n) pure $ convertPT (const n) t3
+    _ -> Left . RecursionLimitError $ toEnum 0
