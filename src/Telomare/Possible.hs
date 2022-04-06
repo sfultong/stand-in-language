@@ -387,18 +387,11 @@ term4ToAbortExpr' fragLookup frag =
 evalA :: (Maybe IExpr -> Maybe IExpr -> Maybe IExpr) -> Maybe IExpr -> Term4 -> Maybe IExpr
 evalA combine base t =
   let initialEnv = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Right $ AnyPF
-      runResult = evalEnhanced (handleSuper (handleAbort undefined)) initialEnv $ term4ToAbortExpr t
-      getAborted = \case
-        SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right (AbortedF e)))))) -> Just e
-        SplitFunctor (Left (SplitFunctor (Right (EitherPF a b)))) -> combine a b
-        x -> foldr (<|>) Nothing x
-  in flip combine base $ cata getAborted runResult
-
-evalA' :: (Maybe IExpr -> Maybe IExpr -> Maybe IExpr) -> Maybe IExpr -> (FragIndex -> FragExpr Void) -> FragExpr Void
-  -> Maybe IExpr
-evalA' combine base fragLookup frag =
-  let initialEnv = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Right $ AnyPF
-      runResult = evalEnhanced (handleSuper (handleAbort undefined)) initialEnv $ term4ToAbortExpr' fragLookup frag
+      runResult = evalEnhanced (handleSuper (handleAbort undefined)) initialEnv . deheadMain $ term4ToAbortExpr t
+      -- hack to check main functions as well as unit tests
+      deheadMain = \case
+        BasicExpr (PairSF (BasicExpr (DeferSF f)) _) -> f
+        x -> x
       getAborted = \case
         SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right (AbortedF e)))))) -> Just e
         SplitFunctor (Left (SplitFunctor (Right (EitherPF a b)))) -> combine a b

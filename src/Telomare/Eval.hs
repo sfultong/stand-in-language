@@ -169,18 +169,6 @@ runStaticChecks t@(Term4 termMap) =
     Nothing -> pure t
     Just e -> Left . StaticCheckError $ convertAbortMessage e
 
-runStaticChecksMain :: Term4 -> Either EvalError Term4
-runStaticChecksMain t@(Term4 termMap) =
-  let (PairFrag (DeferFrag i) y) = rootFrag termMap
-      result = evalA' combine (Just Zero) (termMap Map.!) (termMap Map.! i)
-      combine a b = case (a,b) of
-        (Nothing, _) -> Nothing
-        (_, Nothing) -> Nothing
-        (a, _) -> a
-  in case result of
-    Nothing -> pure t
-    Just e -> Left . StaticCheckError $ convertAbortMessage e
-
 compileMain :: Term3 -> Either EvalError IExpr
 compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyType) term of
   Just e -> Left $ TCE e

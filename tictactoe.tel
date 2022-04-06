@@ -59,9 +59,11 @@ whoWon
              in foldr combineRow 0 rows
 
 main
- = \input -> let placeString = left input
-                 boardIn = right (right input)
-                 playerIn = left (right input)
+ = \input -> let limitedInput = truncate $140 input
+                 placeString = left limitedInput
+                 oldState = right limitedInput
+                 boardIn = right oldState
+                 playerIn = left oldState
                  oldBoard = if boardIn then boardIn else emptyBoard
                  place = processInput placeString
                  placeOccupied = getSquare (d2c (left place)) oldBoard
