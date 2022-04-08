@@ -1,0 +1,71 @@
+// The Y-Combinator
+Y = λf ((λr (f (r r))) (λr (f (r r))))
+
+// IEval :: (IExpr -> IExpr -> IExpr) -> IExpr -> IExpr -> IExpr
+(IEval f env Zero) = Zero
+(IEval f env (Defer x)) = (Defer x)
+(IEval f env (Pair a b)) = (Pair ((f env) a) ((f env) b))
+(IEval f env (Gate a b)) = (Gate a b)
+(IEval f env Env) = env
+(IEval f env (SetEnv x)) = (IEvalAux0 f env ((f env) x))
+  (IEvalAux0 f env (Pair cf nenv)) = (IEvalAux1 f env nenv cf)
+    (IEvalAux1 f env nenv (Defer c)) = ((f nenv) c)
+    (IEvalAux1 f env Zero (Gate a b)) = ((f env) a)
+    (IEvalAux1 f env other (Gate a b)) = ((f env) b)
+    //(IEvalAux1 f env other z = throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
+  //(IEvalAux0 f env notPair) = throwError $ SetEnvError notPair -- This should never actually occur, because it should be caught by typecheck
+(IEval f env (PLeft g)) = (IEvalAux2 ((f env) g))
+  (IEvalAux2 (Pair a other)) = a
+  (IEvalAux2 other) = Zero
+(IEval f env (PRight g)) = (IEvalAux3 ((f env) g))
+  (IEvalAux3 (Pair other a)) = a
+  (IEvalAux3 other) = Zero
+
+
+
+// Unbound variable: `n`
+// (Main n) = (Main0 n 8)
+//   (Main0 x) = n
+
+// Evals to Zero
+// (Main n) = (IEval (λa λb λc (Zero)) Zero Zero)
+
+A = (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair (Pair Zero Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero) Zero)) Zero)))))
+
+
+// Telomare: main = \input -> (0, 0)
+//   setenv (setenv (pair (defer (pair (pleft (pright env)) (pair (pleft env) (pright (pright env))))) (pair i c)))
+B = (SetEnv (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair Zero Zero)) Zero)))))
+//                                                                                                                 Pair (Defer (Pair Zero Zero)) Zero
+// (Main n) = ((((Y) (λf (λenv λg (IEval f env g)))) Zero) Zero) // Zero
+// (Main n) = ((((Y) (λf (λenv λg (IEval f env g)))) Zero) Env) // Env
+// (Main n) = ((((Y) (λf (λenv λg (IEval f env g)))) Zero) (Defer Zero)) // Defer Zero
+// (Main n) = ((((Y) (λf (λenv λg (IEval f env g)))) Zero) (Pair Zero Zero)) // Pair Zero Zero
+// (Main n) = ((((Y) (λf λenv λg (IEval f env g))) Zero) (SetEnv (Pair (Defer Zero) Zero))) // Zero
+// (Main n) = ((((Y) (λf λenv λg (IEval f env g))) Zero) (Pair (Defer (Pair Zero Zero)) Zero)) // id
+// (Main n) = ((((Y) (λf λenv λg (IEval f env g))) Zero) (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair Zero Zero)) Zero)))) // id
+
+
+// Gives       (Pair (Zero) (Pair (Zero) (Zero)))
+// Should give (Pair (Defer (Pair Zero Zero)) (Pair Zero Zero))
+// (Main n) = ((((Y) (λf λenv λg (IEval f env g))) Zero) (SetEnv (Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight Env))))) (Pair Zero (Pair (Defer (Pair Zero Zero)) Zero)))))
+
+// (Main n) = ((((Y) (λf λenv λg (IEval f env g))) Zero) B) // Pair Zero Zero
+(Main n) = ((((Y) (λf λenv λg (IEval f env g))) Zero) A) //
+
+
+// ——————– fix play
+// List Map function
+(Map f Nil)         = Nil
+(Map f (Cons x xs)) = (Cons (f x) (Map f xs))
+
+// List projectors
+(Head (Cons x xs)) = x
+(Tail (Cons x xs)) = xs
+
+(C g arg) = ((((Y) (λrec λf λl (IfNil rec f l))) g) arg)
+  (IfNil rec f Nil) = Nil
+  (IfNil rec f l) = (Cons (f (Head l)) (rec f (Tail l)))
+
+// fix (\rec f l -> if null l then [] else f (head l) : rec f (tail l)) (+1) [1..3]
+// (Main n) = (C (λx (+ x 1)) (Cons 1 (Cons 2 Nil)))

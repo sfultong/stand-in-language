@@ -111,7 +111,7 @@ rEval e = para alg where
     (PLeftF (_, x)) -> x >>= \case
       (Pair l _) -> pure l
       _          -> pure Zero
-    (SetEnvF s@(_, x)) -> x >>= \case
+    (SetEnvF (_, x)) -> x >>= \case
       Pair (Defer c) nenv  -> rEval nenv c
       Pair (Gate a _) Zero -> rEval e a
       Pair (Gate _ b) _    -> rEval e b
@@ -130,8 +130,8 @@ iEval f env g = let f' = f env in case g of
   Pair a b -> Pair <$> f' a <*> f' b
   Gate a b -> pure $ Gate a b
   Env -> pure env
-  SetEnv x -> (f' x >>=) $ \case
-    Pair cf nenv -> case cf of
+  SetEnv x -> (f' x >>=) $ \case -- IEvalAux0
+    Pair cf nenv -> case cf of -- IEvalAux1
       Defer c -> f nenv c
       -- do we change env in evaluation of a/b, or leave it same? change seems more consistent, leave more convenient
       Gate a b -> case nenv of
@@ -151,8 +151,8 @@ instance TelomareLike IExpr where
   toTelomare = pure
 
 instance AbstractRunTime IExpr where
-  -- eval = fix iEval Zero
-  eval = rEval Zero
+  eval = fix iEval Zero
+  -- eval = rEval Zero
 
 resultIndex = FragIndex (-1)
 instance TelomareLike NExprs where

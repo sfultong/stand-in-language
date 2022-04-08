@@ -9,43 +9,46 @@
   inputs.haskellNix.url = "github:input-output-hk/haskell.nix";
   inputs.nixpkgs.follows = "haskellNix/nixpkgs-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs.rust-overlay.url = "github:oxalica/rust-overlay";
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix, flake-compat }:
+  outputs = { self, nixpkgs, flake-utils, haskellNix, flake-compat, rust-overlay }:
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
     let
       overlays = [ haskellNix.overlay
-        (final: prev: {
-          # This overlay adds our project to pkgs
-          jumper = final.stdenv.mkDerivation {
-            name = "telomareJumper";
-            src = ./cbits;
-            buildInputs = [ final.boehmgc ];
-          };
-          gc = final.boehmgc;
+                   (import rust-overlay)
+                   (final: prev: {
+                     # This overlay adds our project to pkgs
+                     jumper = final.stdenv.mkDerivation {
+                       name = "telomareJumper";
+                       src = ./cbits;
+                       buildInputs = [ final.boehmgc ];
+                     };
+                     gc = final.boehmgc;
 
-          telomare = final.haskell-nix.cabalProject {
-            src = final.haskell-nix.cleanSourceHaskell {
-              src = ./.;
-              name = "telomare";
-            };
+                     telomare = final.haskell-nix.cabalProject {
+                       src = final.haskell-nix.cleanSourceHaskell {
+                         src = ./.;
+                         name = "telomare";
+                       };
 
-            compiler-nix-name = "ghc8107";
-            # compiler-nix-name = "ghc922"; # TODO
+                       compiler-nix-name = "ghc8107";
+                       # compiler-nix-name = "ghc922"; # TODO
 
-            shell.tools = {
-              cabal = {};
-              haskell-language-server = {};
-              ghcid = {};
-            };
-            # Non-Haskell shell tools go here
-            shell.buildInputs = with pkgs; [
-              # broken if provided by shell.tools
-              stylish-haskell
-              hlint
-            ];
-          };
-        })
-      ];
+                       shell.tools = {
+                         cabal = {};
+                         haskell-language-server = {};
+                         ghcid = {};
+                       };
+                       # Non-Haskell shell tools go here
+                       shell.buildInputs = with pkgs; [
+                         # broken if provided by shell.tools
+                         stylish-haskell
+                         hlint
+                         rust-bin.nightly.latest.default
+                       ];
+                     };
+                   })
+                 ];
       pkgs = import nixpkgs { inherit system overlays; inherit (haskellNix) config; };
       flake = pkgs.telomare.flake {};
       something = builtins.trace overlays overlays;

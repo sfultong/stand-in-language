@@ -189,7 +189,7 @@ evalLoop iexpr = case eval' iexpr of
   Right peExp ->
     let mainLoop s = do
           -- result <- optimizedEval (app peExp s)
-          result <- simpleEval (app peExp s)
+          result <- simpleEval $ app peExp s
           case result of
             Zero -> putStrLn "aborted"
             (Pair disp newState) -> do
