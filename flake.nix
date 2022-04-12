@@ -51,7 +51,6 @@
                  ];
       pkgs = import nixpkgs { inherit system overlays; inherit (haskellNix) config; };
       flake = pkgs.telomare.flake {};
-      something = builtins.trace overlays overlays;
     in flake // {
       # Built by `nix build .`
       defaultPackage = flake.packages."telomare:exe:telomare";
