@@ -1,33 +1,33 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveTraversable          #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE PatternSynonyms            #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE DeriveFunctor       #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DeriveTraversable   #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE PatternSynonyms     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeFamilies        #-}
 module Telomare.Possible where
 
 import           Control.Applicative
 import           Control.Lens.Plated
-import Control.Monad
-import Control.Monad.Reader (Reader, ReaderT)
-import qualified Control.Monad.Reader as Reader
-import Control.Monad.State (State, StateT)
-import qualified Control.Monad.State as State
-import Control.Monad.Trans.Class
-import           Data.DList          (DList)
-import qualified Data.DList          as DList
+import           Control.Monad
+import           Control.Monad.Reader      (Reader, ReaderT)
+import qualified Control.Monad.Reader      as Reader
+import           Control.Monad.State       (State, StateT)
+import qualified Control.Monad.State       as State
+import           Control.Monad.Trans.Class
+import           Data.DList                (DList)
+import qualified Data.DList                as DList
 import           Data.Foldable
 import           Data.Functor.Classes
 import           Data.Functor.Foldable
 import           Data.Functor.Foldable.TH
-import Data.Map (Map)
-import qualified Data.Map as Map
+import           Data.Map                  (Map)
+import qualified Data.Map                  as Map
 import           Data.Monoid
-import Data.Set (Set)
-import qualified Data.Set            as Set
-import Data.Void
+import           Data.Set                  (Set)
+import qualified Data.Set                  as Set
+import           Data.Void
 import           Debug.Trace
 import           Telomare
 
@@ -44,15 +44,15 @@ data PartExprF f
 
 instance Eq1 PartExprF where
   liftEq test a b = case (a,b) of
-    (ZeroSF, ZeroSF) -> True
-    (EnvSF, EnvSF) -> True
+    (ZeroSF, ZeroSF)         -> True
+    (EnvSF, EnvSF)           -> True
     (PairSF a b, PairSF c d) -> test a c && test b d
     (SetEnvSF x, SetEnvSF y) -> test x y
-    (DeferSF x, DeferSF y) -> test x y
+    (DeferSF x, DeferSF y)   -> test x y
     (GateSF a b, GateSF c d) -> test a c && test b d
-    (LeftSF x, LeftSF y) -> test x y
-    (RightSF x, RightSF y) -> test x y
-    _ -> False
+    (LeftSF x, LeftSF y)     -> test x y
+    (RightSF x, RightSF y)   -> test x y
+    _                        -> False
 
 instance Show1 PartExprF where
   liftShowsPrec showsPrec showList prec = \case
@@ -77,13 +77,13 @@ instance Functor f => Corecursive (EnhancedExpr f) where
 
 instance Eq1 f => Eq (EnhancedExpr f) where
   (EnhancedExpr (SplitFunctor a)) == (EnhancedExpr (SplitFunctor b)) = case (a,b) of
-    (Left la, Left lb) -> eq1 la lb
+    (Left la, Left lb)   -> eq1 la lb
     (Right ra, Right rb) -> eq1 ra rb
-    _ -> False
+    _                    -> False
 
 instance Show1 f => Show (EnhancedExpr f) where
   show (EnhancedExpr (SplitFunctor x)) = case x of
-    Left l -> "EnhancedExprL (" <> showsPrec1 0 l ")"
+    Left l  -> "EnhancedExprL (" <> showsPrec1 0 l ")"
     Right r -> "EnhancedExprR (" <> showsPrec1 0 r ")"
 
 pattern BasicExpr :: PartExprF (EnhancedExpr f) -> EnhancedExpr f
@@ -108,21 +108,21 @@ evalEnhanced handleOther env (EnhancedExpr (SplitFunctor g)) =
         BasicExpr (PairSF (BasicExpr cf) nenv) -> case cf of
           DeferSF c -> evalEnhanced handleOther nenv c
           GateSF l r -> case nenv of
-            BasicExpr ZeroSF -> recur l
+            BasicExpr ZeroSF       -> recur l
             BasicExpr (PairSF _ _) -> recur r
-            _ -> handleOther env (SetEnvSF x)
+            _                      -> handleOther env (SetEnvSF x)
           _ -> error "evalEnhanced shouldn't be here"
         _ -> handleOther env (SetEnvSF x)
       DeferSF _ -> wrap r
       GateSF _ _ -> wrap r
       LeftSF x -> case x of
-        BasicExpr ZeroSF -> wrap ZeroSF
+        BasicExpr ZeroSF       -> wrap ZeroSF
         BasicExpr (PairSF l _) -> l
-        _ -> handleOther env (LeftSF x)
+        _                      -> handleOther env (LeftSF x)
       RightSF x -> case x of
-        BasicExpr ZeroSF -> wrap ZeroSF
+        BasicExpr ZeroSF       -> wrap ZeroSF
         BasicExpr (PairSF _ r) -> r
-        _ -> handleOther env (RightSF x)
+        _                      -> handleOther env (RightSF x)
 
 data VoidF f
   deriving (Functor, Foldable, Traversable)
@@ -140,9 +140,9 @@ data SuperPositionF f
 
 instance Eq1 SuperPositionF where
   liftEq test a b = case (a,b) of
-    (AnyPF, AnyPF) -> True
+    (AnyPF, AnyPF)               -> True
     (EitherPF a b, EitherPF c d) -> test a c && test b d
-    _ -> False
+    _                            -> False
 
 instance Show1 SuperPositionF where
   liftShowsPrec showsPrec showList prec = \case
@@ -156,13 +156,13 @@ data AbortableF f
 
 instance Eq1 AbortableF  where
   liftEq test a b = case (a,b) of
-    (AbortF, AbortF) -> True
+    (AbortF, AbortF)                  -> True
     (AbortedF a, AbortedF b) | a == b -> True
-    _ -> False
+    _                                 -> False
 
 instance Show1 AbortableF where
   liftShowsPrec showsPrec showList prec = \case
-    AbortF -> shows "AbortF"
+    AbortF     -> shows "AbortF"
     AbortedF x -> shows "(AbortedF " . shows x . shows ")"
 
 newtype SplitFunctor g f x = SplitFunctor { unSplitF :: Either (g x) (f x) } deriving (Eq, Show)
@@ -170,8 +170,8 @@ newtype SplitFunctor g f x = SplitFunctor { unSplitF :: Either (g x) (f x) } der
 instance (Eq1 f, Eq1 g) => Eq1 (SplitFunctor g f) where
   liftEq test (SplitFunctor a) (SplitFunctor b) = case (a,b) of
     (Right fa, Right fb) -> liftEq test fa fb
-    (Left ga, Left gb) -> liftEq test ga gb
-    _ -> False
+    (Left ga, Left gb)   -> liftEq test ga gb
+    _                    -> False
 
 instance (Show1 f, Show1 g) => Show1 (SplitFunctor g f) where
   liftShowsPrec showsPrec showList prec (SplitFunctor x) = case x of
@@ -180,17 +180,17 @@ instance (Show1 f, Show1 g) => Show1 (SplitFunctor g f) where
 
 instance (Functor f, Functor g) => Functor (SplitFunctor g f) where
   fmap f (SplitFunctor e) = case e of
-    Left lf -> SplitFunctor . Left $ fmap f lf
+    Left lf  -> SplitFunctor . Left $ fmap f lf
     Right rf -> SplitFunctor . Right $ fmap f rf
 
 instance (Foldable f, Foldable g) => Foldable (SplitFunctor g f) where
   foldMap f (SplitFunctor x) = case x of
-    Left fg -> foldMap f fg
+    Left fg  -> foldMap f fg
     Right ff -> foldMap f ff
 
 instance (Traversable f, Traversable g) => Traversable (SplitFunctor g f) where
   traverse f (SplitFunctor x) = case x of
-    Left fg -> SplitFunctor . Left <$> traverse f fg
+    Left fg  -> SplitFunctor . Left <$> traverse f fg
     Right ff -> SplitFunctor . Right <$> traverse f ff
 
 type SuperExpr f = EnhancedExpr (SplitFunctor f SuperPositionF)
@@ -198,7 +198,7 @@ type SuperExpr f = EnhancedExpr (SplitFunctor f SuperPositionF)
 superExtractOther :: SuperExpr f -> Either (f (SuperExpr f)) (SplitFunctor SuperPositionF PartExprF (SuperExpr f))
 superExtractOther (EnhancedExpr (SplitFunctor x)) = case x of
   Left (SplitFunctor sx) -> case sx of
-    Left ox -> Left ox
+    Left ox   -> Left ox
     Right spx -> pure . SplitFunctor . Left $ spx
   Right rx -> pure . SplitFunctor . pure $ rx
 
@@ -207,22 +207,22 @@ mergeSuper (EnhancedExpr (SplitFunctor a)) (EnhancedExpr (SplitFunctor b)) =
   let mergePart :: Eq1 f => PartExprF (SuperExpr f) -> PartExprF (SuperExpr f)
         -> Either (PartExprF (SuperExpr f), PartExprF (SuperExpr f)) (PartExprF (SuperExpr f))
       mergePart pa pb = case (pa, pb) of
-        (ZeroSF, ZeroSF) -> pure ZeroSF
-        (EnvSF, EnvSF) -> pure EnvSF
+        (ZeroSF, ZeroSF)                  -> pure ZeroSF
+        (EnvSF, EnvSF)                    -> pure EnvSF
         (PairSF a b, PairSF c d) | a == c -> pure $ PairSF a (mergeSuper b d)
         (PairSF a b, PairSF c d) | b == d -> pure $ PairSF (mergeSuper a c) b
-        (SetEnvSF x, SetEnvSF y) -> pure $ SetEnvSF (mergeSuper x y)
-        (DeferSF x, DeferSF y) -> pure $ DeferSF (mergeSuper x y)
+        (SetEnvSF x, SetEnvSF y)          -> pure $ SetEnvSF (mergeSuper x y)
+        (DeferSF x, DeferSF y)            -> pure $ DeferSF (mergeSuper x y)
         (GateSF a b, GateSF c d) | a == c -> pure $ GateSF a (mergeSuper b d)
         (GateSF a b, GateSF c d) | b == d -> pure $ GateSF (mergeSuper a c) b
-        (LeftSF x, LeftSF y) -> pure $ LeftSF (mergeSuper x y)
-        (RightSF x, RightSF y) -> pure $ RightSF (mergeSuper x y)
-        _ -> Left (pa, pb)
+        (LeftSF x, LeftSF y)              -> pure $ LeftSF (mergeSuper x y)
+        (RightSF x, RightSF y)            -> pure $ RightSF (mergeSuper x y)
+        _                                 -> Left (pa, pb)
       superWrap = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Right
       eitherWrap ea eb = superWrap $ EitherPF ea eb
   in case (a,b) of
     (Right pa, Right pb) -> case mergePart pa pb of
-      Right r -> BasicExpr r
+      Right r       -> BasicExpr r
       Left (ea, eb) -> eitherWrap (BasicExpr ea) (BasicExpr eb)
     (Left (SplitFunctor (Right AnyPF)), _) -> superWrap AnyPF
     (_, Left (SplitFunctor (Right AnyPF))) -> superWrap AnyPF
@@ -264,14 +264,14 @@ handleSuper handleOther env term =
                     ]
                 combineOthers a b = case (a,b) of
                   (Just ja, Just jb) -> pure $ mergeSuper ja jb
-                  _ -> a <|> b
+                  _                  -> a <|> b
                 leftPath = evalE env l
                 rightPath = evalE env r
             in case foldr combineOthers Nothing $ getPaths se of
               Nothing -> error "handleSuper gates should be impossible to have no alternatives"
               Just r -> r
           Left (SplitFunctor scx) -> case scx of
-            Left _ -> handleOther env term
+            Left _                   -> handleOther env term
             Right (EitherPF sca scb) -> mergeSuper (evalE se sca) (evalE se scb)
           z -> error ("handleSuper setEnv pair unexpected sc " <> show sf)
 
@@ -281,7 +281,7 @@ abortExtractOther :: AbortExpr f -> Either (f (AbortExpr f)) (SplitFunctor (Spli
 abortExtractOther (EnhancedExpr (SplitFunctor x)) = case x of
   Left (SplitFunctor sp) -> case sp of
     Left (SplitFunctor sa) -> case sa of
-      Left o -> Left o
+      Left o  -> Left o
       Right a -> pure . SplitFunctor . Left . SplitFunctor . Left $ a
     Right spx -> pure . SplitFunctor . Left . SplitFunctor . pure $ spx
   Right rx -> pure . SplitFunctor . pure $ rx
@@ -294,11 +294,11 @@ handleAbort handleOther env term =
       truncateExp = cata truncA where
         truncA (SplitFunctor bs) = case bs of
           Right b -> case b of
-            ZeroSF -> Zero
+            ZeroSF     -> Zero
             PairSF a b -> Pair a b
           Left (SplitFunctor ss) -> case ss of
             Right s -> case s of
-              AnyPF -> Zero
+              AnyPF        -> Zero
               EitherPF a _ -> a
             _ -> Zero
   in case traverse abortExtractOther term of
@@ -320,7 +320,7 @@ handleAbort handleOther env term =
               let testAbort (EnhancedExpr (SplitFunctor sse)) = case sse of
                     Right bse -> case bse of
                       ZeroSF -> BasicExpr . DeferSF . BasicExpr $ EnvSF
-                      e -> wrapA . AbortedF . truncateExp . BasicExpr $ e
+                      e      -> wrapA . AbortedF . truncateExp . BasicExpr $ e
                     Left (SplitFunctor sse) -> case sse of
                       Right ssse -> case ssse of
                         AnyPF -> wrapA . AbortedF $ AbortAny
@@ -334,32 +334,32 @@ handleAbort handleOther env term =
 
 instance TelomareLike (EnhancedExpr o) where
   fromTelomare = \case
-    Zero -> BasicExpr ZeroSF
+    Zero     -> BasicExpr ZeroSF
     Pair a b -> BasicExpr $ PairSF (fromTelomare a) (fromTelomare b)
-    Env -> BasicExpr EnvSF
+    Env      -> BasicExpr EnvSF
     SetEnv x -> BasicExpr $ SetEnvSF (fromTelomare x)
-    Defer x -> BasicExpr $ DeferSF (fromTelomare x)
+    Defer x  -> BasicExpr $ DeferSF (fromTelomare x)
     Gate l r -> BasicExpr $ GateSF (fromTelomare l) (fromTelomare r)
-    PLeft x -> BasicExpr $ LeftSF (fromTelomare x)
+    PLeft x  -> BasicExpr $ LeftSF (fromTelomare x)
     PRight x -> BasicExpr $ RightSF (fromTelomare x)
-    Trace -> error "EnhancedExpr trace"
+    Trace    -> error "EnhancedExpr trace"
   toTelomare = \case
     BasicExpr x -> case x of
-      ZeroSF -> pure Zero
+      ZeroSF     -> pure Zero
       PairSF a b -> Pair <$> toTelomare a <*> toTelomare b
-      EnvSF -> pure Env
+      EnvSF      -> pure Env
       SetEnvSF p -> SetEnv <$> toTelomare p
-      DeferSF d -> Defer <$> toTelomare d
+      DeferSF d  -> Defer <$> toTelomare d
       GateSF l r -> Gate <$> toTelomare l <*> toTelomare r
-      LeftSF x -> PLeft <$> toTelomare x
-      RightSF x -> PRight <$> toTelomare x
+      LeftSF x   -> PLeft <$> toTelomare x
+      RightSF x  -> PRight <$> toTelomare x
     _ -> Nothing
 
 evalS :: IExpr -> IO IExpr
 evalS = f . toTelomare . evalEnhanced handleOther (BasicExpr ZeroSF). fromTelomare where
   f = \case
     Nothing -> pure Env
-    Just x -> pure x
+    Just x  -> pure x
   handleOther :: EnhancedExpr Maybe -> PartExprF (EnhancedExpr Maybe) -> EnhancedExpr Maybe
   handleOther = error "TODO evalS handleOther"
 
@@ -391,7 +391,7 @@ evalA combine base t =
       -- hack to check main functions as well as unit tests
       deheadMain = \case
         BasicExpr (PairSF (BasicExpr (DeferSF f)) _) -> f
-        x -> x
+        x                                            -> x
       getAborted = \case
         SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right (AbortedF e)))))) -> Just e
         SplitFunctor (Left (SplitFunctor (Right (EitherPF a b)))) -> combine a b

@@ -7,8 +7,8 @@
 
 module Common where
 
-import Control.Applicative
-import Data.Bifunctor
+import           Control.Applicative
+import           Data.Bifunctor
 
 import           Test.QuickCheck
 import           Test.QuickCheck.Gen

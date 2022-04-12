@@ -1,34 +1,34 @@
 {-# LANGUAGE CApiFFI #-}
 module Main where
 
-import Control.Applicative (liftA2)
-import Control.Monad.IO.Class
-import Control.Monad.Reader (Reader, runReader)
-import Debug.Trace
-import Data.Bifunctor
-import Data.Char
-import Data.List (partition)
-import Data.Void
-import Data.Monoid
-import Telomare
-import Telomare.Eval
-import Naturals
-import Telomare.Decompiler
-import Telomare.Parser
-import Telomare.RunTime
-import Telomare.TypeChecker
-import Telomare.Optimizer
-import Telomare.Possible
-import Telomare.Serializer
-import System.Exit
-import System.IO
-import Test.Hspec
-import Test.QuickCheck
-import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
-import qualified Control.Monad.State as State
-import qualified Data.DList          as DList
-import qualified Data.Map as Map
-import qualified System.IO.Strict as Strict
+import           Control.Applicative        (liftA2)
+import           Control.Monad.IO.Class
+import           Control.Monad.Reader       (Reader, runReader)
+import qualified Control.Monad.State        as State
+import           Data.Bifunctor
+import           Data.Char
+import qualified Data.DList                 as DList
+import           Data.List                  (partition)
+import qualified Data.Map                   as Map
+import           Data.Monoid
+import           Data.Void
+import           Debug.Trace
+import           Naturals
+import           System.Exit
+import           System.IO
+import qualified System.IO.Strict           as Strict
+import           Telomare
+import           Telomare.Decompiler
+import           Telomare.Eval
+import           Telomare.Optimizer
+import           Telomare.Parser
+import           Telomare.Possible
+import           Telomare.RunTime
+import           Telomare.Serializer
+import           Telomare.TypeChecker
+import           Test.Hspec
+import           Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
+import           Test.QuickCheck
 
 -- Common datatypes for generating Telomare AST.
 import           Common
@@ -346,10 +346,10 @@ qcDecompileIExprAndBackEvalsSame (IExprWrapper x) = pure (showResult $ eval' x)
           Left e  -> error ("validateVariables " <> e)
         parseLongExpr' x = case runTelomareParser (scn *> parseLongExpr <* scn) x of
           Just r -> r
-          _ -> error "parseLongExpr' should be impossible"
+          _      -> error "parseLongExpr' should be impossible"
         findChurchSize' x = case findChurchSize x of
           Right r -> r
-          Left e -> error ("findChurchSize' error: " <> show e)
+          Left e  -> error ("findChurchSize' error: " <> show e)
         dec = decompileUPT . decompileTerm1 . decompileTerm2 . decompileTerm4 . decompileIExpr
         comp = findChurchSize' . splitExpr . debruijinize' . validateVariables' . optimizeBuiltinFunctions . parseLongExpr'
         showTrace x = x -- trace ("decompiled: " <> show x) x
@@ -377,7 +377,7 @@ qcTestMapBuilderEqualsRegularEval (IExprWrapper x) = (showResult $ eval' x)
 -}
 
 qcTestURSizing :: URTestExpr -> Bool
-qcTestURSizing (URTestExpr t3) = 
+qcTestURSizing (URTestExpr t3) =
   let compile x = toTelomare <$> findChurchSize x
       compile' x = pure . toTelomare $ convertPT (const 255) x
   in (fmap . fmap) pureIEval (compile t3) == (fmap . fmap) pureIEval (compile' t3)
