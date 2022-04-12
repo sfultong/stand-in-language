@@ -54,12 +54,9 @@ library
                      , vector
                      , deepseq
                      , derive-storable
-                     -- , derive-storable-plugin
                      , bytestring
-                     -- , llvm-hs
-                     -- , llvm-hs-pure
                      , text
-		     , transformers
+                     , transformers
                      , megaparsec
                      , memory
                      , strict
@@ -73,6 +70,7 @@ library
                      , bytestring
                      , crypto-api
                      , utf8-string
+                     , process
   extra-libraries:     gc
                      , jumper
   -- uncomment this line to get a cabal repl. Use appropiate complete path (will error with a relative path).

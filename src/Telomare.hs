@@ -13,7 +13,7 @@
 
 module Telomare where
 
-import Control.Applicative
+import           Control.Applicative
 import           Control.DeepSeq
 import           Control.Lens.Combinators
 import           Control.Lens.Plated
@@ -50,7 +50,7 @@ data IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace
-  deriving (Eq, Show, Ord)
+  deriving (Eq, Show, Ord, Read)
 makeBaseFunctor ''IExpr -- Functorial version IExprF.
 
 instance Plated IExpr where

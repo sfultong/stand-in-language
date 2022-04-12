@@ -134,10 +134,12 @@ allHashesToTerm2 term2 =
 
 unitTests :: TestTree
 unitTests = testGroup "Unit tests"
-  [ testCase "Test full execution of tictactoe" $ do
-      res <- testTictactoeFull
-      res `compare` True @?= EQ
-  , testCase "different values get different hashes" $ do
+  [
+  --   testCase "Test full execution of tictactoe" $ do
+  --     res <- testTictactoeFull
+  --     res `compare` True @?= EQ
+  -- ,
+    testCase "different values get different hashes" $ do
       let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest0
           res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest1
       (res1 == res2) `compare` False @?= EQ
@@ -328,7 +330,7 @@ hashtest3 = unlines [ "let b = \\x -> x"
 testTictactoeFull :: IO Bool
 testTictactoeFull = do
   callCommand "nix build"
-  (Just hin, Just hout, _, _) <- createProcess (proc "./result/bin/telomare" ["tictactoe.tel"]){ std_in = CreatePipe, std_out = CreatePipe }
+  (Just hin, Just hout, _, _) <- createProcess (proc "./result/bin/telomare" ["tictactoe.tel"]) { std_in = CreatePipe, std_out = CreatePipe }
   hPutStr hin "1\n9\n2\n8\n3\n"
   output <- hGetContents hout
   let res = take 12 . drop (length output - 19) $ output

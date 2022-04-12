@@ -1,0 +1,24 @@
+// The Y-Combinator
+Y = λf ((λr (f (r r))) (λr (f (r r))))
+
+// IEval :: (IExpr -> IExpr -> IExpr) -> IExpr -> IExpr -> IExpr
+(IEval f env Zero) = Zero
+(IEval f env (Defer x)) = (Defer x)
+(IEval f env (Pair a b)) = (Pair ((f env) a) ((f env) b))
+(IEval f env (Gate a b)) = (Gate a b)
+(IEval f env Env) = env
+(IEval f env (SetEnv x)) = (IEvalAux0 f env ((f env) x))
+  (IEvalAux0 f env (Pair cf nenv)) = (IEvalAux1 f env nenv cf)
+    (IEvalAux1 f env nenv (Defer c)) = ((f nenv) c)
+    (IEvalAux1 f env Zero (Gate a b)) = ((f env) a)
+    (IEvalAux1 f env other (Gate a b)) = ((f env) b)
+    //(IEvalAux1 f env other z = throwError $ SetEnvError z -- This should never actually occur, because it should be caught by typecheck
+  //(IEvalAux0 f env notPair) = throwError $ SetEnvError notPair -- This should never actually occur, because it should be caught by typecheck
+(IEval f env (PLeft g)) = (IEvalAux2 ((f env) g))
+  (IEvalAux2 (Pair a other)) = a
+  (IEvalAux2 other) = Zero
+(IEval f env (PRight g)) = (IEvalAux3 ((f env) g))
+  (IEvalAux3 (Pair other a)) = a
+  (IEvalAux3 other) = Zero
+
+(Main n) = ((((Y) (λf λenv λg (IEval f env g))) Zero) n)

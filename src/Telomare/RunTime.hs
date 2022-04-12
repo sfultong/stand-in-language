@@ -17,10 +17,10 @@ import           Debug.Trace
 import           GHC.Exts              (fromList)
 import           Naturals              hiding (debug, debugTrace)
 import           PrettyPrint
-import           System.IO             (hPrint, hPutStrLn, stderr)
+import           System.IO
+import           System.Process
 import           Telomare
--- import qualified Telomare.Llvm as LLVM
---import GHC.Exts (IsList(..))
+import           Text.Read             (readMaybe)
 
 debug :: Bool
 debug = False
@@ -111,7 +111,7 @@ rEval e = para alg where
     (PLeftF (_, x)) -> x >>= \case
       (Pair l _) -> pure l
       _          -> pure Zero
-    (SetEnvF s@(_, x)) -> x >>= \case
+    (SetEnvF (_, x)) -> x >>= \case
       Pair (Defer c) nenv  -> rEval nenv c
       Pair (Gate a _) Zero -> rEval e a
       Pair (Gate _ b) _    -> rEval e b
@@ -180,6 +180,21 @@ evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
     ar' <- ar
     throwError . ResultConversionError $ show ar'
   Just ir -> pure ir
+
+-- |Evaluation with hvm backend
+hvmEval :: IExpr -> IO IExpr
+hvmEval x = do
+  (_, mhout, _, _) <- createProcess (shell ("hvm r ./hvm/backend \"(" <> show x <> ")\"")) { std_out = CreatePipe }
+  case mhout of
+    Just hout -> do
+      hvmOutput <- hGetContents hout
+      if (length . lines $ hvmOutput) > 2 then
+        case (readMaybe . unlines . drop 2 . lines $ hvmOutput) :: Maybe IExpr of
+          Just res -> pure res
+          Nothing  -> error $ "Error: fail to read hvm output. \nhvm output:\n" <> hvmOutput
+      else error $ "Error: hvm output is not what was expected. \nhvm output: " <> hvmOutput
+      pure . read . unlines . drop 2 . lines $ hvmOutput
+    Nothing -> error $ "Error: hvm failed to produce output. \nIExpr fed to hvm:\n" <> show x
 
 simpleEval :: IExpr -> IO IExpr
 simpleEval x = runExceptT (eval x) >>= \r -> case r of
