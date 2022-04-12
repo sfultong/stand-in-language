@@ -3,7 +3,6 @@
 module Main where
 
 import           Data.Char
-import           Debug.Trace          (traceShowId)
 import qualified Options.Applicative  as O
 import qualified System.IO.Strict     as Strict
 import           Telomare

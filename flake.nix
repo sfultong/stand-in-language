@@ -9,13 +9,13 @@
   inputs.haskellNix.url = "github:input-output-hk/haskell.nix";
   inputs.nixpkgs.follows = "haskellNix/nixpkgs-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.rust-overlay.url = "github:oxalica/rust-overlay";
+  inputs.hvm.url = "github:hhefesto/HVM";
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix, flake-compat, rust-overlay }:
+  outputs = { self, nixpkgs, flake-utils, haskellNix, flake-compat, hvm }:
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
     let
       overlays = [ haskellNix.overlay
-                   (import rust-overlay)
+
                    (final: prev: {
                      # This overlay adds our project to pkgs
                      jumper = final.stdenv.mkDerivation {
@@ -44,7 +44,7 @@
                          # broken if provided by shell.tools
                          stylish-haskell
                          hlint
-                         rust-bin.nightly.latest.default
+                         hvm.defaultPackage."x86_64-linux"
                        ];
                      };
                    })

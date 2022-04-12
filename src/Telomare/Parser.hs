@@ -532,5 +532,3 @@ parseMain :: [(String, UnprocessedParsedTerm)] -- ^Prelude: [(VariableName, Bind
           -> String                            -- ^Raw string to be parserd.
           -> Either String Term3               -- ^Error on Left.
 parseMain prelude s = parseWithPrelude prelude s >>= process prelude
-
--- Nats = ((Y) λx(Cons 0 (Map λx(+ x 1) x)))

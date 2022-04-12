@@ -1,20 +1,20 @@
+{-# LANGUAGE LambdaCase    #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE LambdaCase #-}
 module Telomare.Eval where
 
 import           Control.Lens.Plated
 import           Control.Monad.Except
-import Control.Monad.Reader (Reader, runReader)
-import Control.Monad.State (StateT)
-import Control.Monad.Trans.Accum (AccumT)
-import qualified Control.Monad.State  as State
+import           Control.Monad.Reader      (Reader, runReader)
+import           Control.Monad.State       (StateT)
+import qualified Control.Monad.State       as State
+import           Control.Monad.Trans.Accum (AccumT)
 import qualified Control.Monad.Trans.Accum as Accum
-import           Data.Functor.Foldable (embed, project, cata)
-import Data.DList (DList)
-import           Data.Map             (Map)
-import qualified Data.Map             as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
+import           Data.DList                (DList)
+import           Data.Functor.Foldable     (cata, embed, project)
+import           Data.Map                  (Map)
+import qualified Data.Map                  as Map
+import           Data.Set                  (Set)
+import qualified Data.Set                  as Set
 import           Data.Void
 import           Debug.Trace
 import           Telomare
@@ -101,12 +101,8 @@ partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
 partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 
-eval' :: IExpr -> Either String IExpr
-eval' = pure
-
 convertPT' :: (BreakExtras -> Int) -> (FragIndex -> FragExpr BreakExtras) -> FragExpr BreakExtras -> BreakState' BreakExtras b
 convertPT' limitLookup fragLookup =
-
   let changeTerm = \case
         AuxFrag n -> innerChurchF $ limitLookup n
         DeferFrag fi -> do
@@ -164,10 +160,10 @@ runStaticChecks t@(Term4 termMap) =
       combine a b = case (a,b) of
         (Nothing, _) -> Nothing
         (_, Nothing) -> Nothing
-        (a, _) -> a
+        (a, _)       -> a
   in case result of
     Nothing -> pure t
-    Just e -> Left . StaticCheckError $ convertAbortMessage e
+    Just e  -> Left . StaticCheckError $ convertAbortMessage e
 
 compileMain :: Term3 -> Either EvalError IExpr
 compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyType) term of
@@ -180,16 +176,19 @@ compileUnitTest = compile runStaticChecks
 compile :: (Term4 -> Either EvalError Term4) -> Term3 -> Either EvalError IExpr
 compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
   Right (Just i) -> pure i
-  Right Nothing -> Left CompileConversionError
-  Left e -> Left e
+  Right Nothing  -> Left CompileConversionError
+  Left e         -> Left e
+
+eval' :: IExpr -> Either String IExpr
+eval' = pure
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of
   Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
   Right peExp ->
     let mainLoop s = do
-          -- result <- optimizedEval (app peExp s)
-          result <- simpleEval $ app peExp s
+          result <- hvmEval $ app peExp s
+          -- result <- simpleEval $ traceShowId $ app peExp s
           case result of
             Zero -> putStrLn "aborted"
             (Pair disp newState) -> do
@@ -228,7 +227,7 @@ calculateRecursionLimits t3@(Term3 termMap) =
       combine a b = case (a,b) of
         (Just AbortRecursion, _) -> Just AbortRecursion
         (_, Just AbortRecursion) -> Just AbortRecursion
-        _ -> Nothing
+        _                        -> Nothing
       iterations = take 10 $ iterate (\(_,n) -> (abortsAt (n * 2), n * 2)) (True, 1)
   in case lookup False iterations of
     Just n -> trace ("crl found limit at " <> show n) pure $ convertPT (const n) t3
