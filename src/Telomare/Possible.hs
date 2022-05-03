@@ -30,10 +30,12 @@ import qualified Data.Set                  as Set
 import           Data.Void
 import           Debug.Trace
 import           Telomare                  (FragExpr (..), FragIndex,
-                                            IExpr (..),
+                                            IExpr (..), PartialType (..),
+                                            RecursionPieceFrag,
                                             TelomareLike (fromTelomare, toTelomare),
-                                            Term4 (..), pattern AbortAny,
-                                            rootFrag)
+                                            Term3 (..), Term4 (..),
+                                            pattern AbortAny, rootFrag)
+import           Telomare.TypeChecker
 
 
 -- foldr :: Foldable t => (a -> b -> b) -> b -> t a -> b
@@ -102,12 +104,30 @@ instance Show1 f => Show (EnhancedExpr f) where
     Left l  -> "EnhancedExprL (" <> showsPrec1 0 l ")"
     Right r -> "EnhancedExprR (" <> showsPrec1 0 r ")"
 
+type SimpleExpr = EnhancedExpr VoidF
+type BasicBase f = SplitFunctor f PartExprF
+type SuperBase f = BasicBase (SplitFunctor f SuperPositionF)
+type AbortBase f = SuperBase (SplitFunctor f AbortableF)
+
+pattern BasicFW :: PartExprF a -> BasicBase f a
+pattern BasicFW x = SplitFunctor (Right x)
+pattern SuperFW :: SuperPositionF a -> SuperBase f a
+pattern SuperFW x = SplitFunctor (Left (SplitFunctor (Right x)))
+pattern AbortFW :: AbortableF a -> AbortBase f a
+pattern AbortFW x = SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right x)))))
 pattern BasicExpr :: PartExprF (EnhancedExpr f) -> EnhancedExpr f
 pattern BasicExpr x = EnhancedExpr (SplitFunctor (Right x))
 pattern SuperWrap :: SuperPositionF (SuperExpr f) -> SuperExpr f
 pattern SuperWrap x = EnhancedExpr (SplitFunctor (Left (SplitFunctor (Right x))))
 pattern AbortWrap :: AbortableF (AbortExpr f) -> AbortExpr f
 pattern AbortWrap x = EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right x))))))
+
+bareEnv :: (Functor f, Foldable f) => EnhancedExpr f -> Bool
+bareEnv = cata bareF where
+  bareF = \case
+    BasicFW EnvSF       -> True
+    BasicFW (DeferSF _) -> False
+    x                   -> getAny $ foldMap Any x
 
 evalEnhanced :: Functor o => (EnhancedExpr o -> PartExprF (EnhancedExpr o) -> EnhancedExpr o)
   -> EnhancedExpr o -> EnhancedExpr o -> EnhancedExpr o
@@ -289,6 +309,7 @@ handleSuper handleOther env term =
           Left (SplitFunctor scx) -> case scx of
             Left _                   -> handleOther env term
             Right (EitherPF sca scb) -> mergeSuper (evalE se sca) (evalE se scb)
+            z -> error ("handleSuper setEnv pair unexpected other scx " <> show sf)
           z -> error ("handleSuper setEnv pair unexpected sc " <> show sf)
         z -> error ("handleSuper setEnv unexpected sc " <> show sf)
       z -> error ("handleSuper unexpected " <> show term)
@@ -350,6 +371,107 @@ handleAbort handleOther env term =
             alreadyAborted -> wrapA alreadyAborted
         z -> error ("unimplemented handleAbort for " <> show z)
 
+data UnsizedRecursionF f
+  = UnsizedRecursionF
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+instance Eq1 UnsizedRecursionF where
+  liftEq test a b = True
+
+instance Show1 UnsizedRecursionF where
+  liftShowsPrec showsPrec showList prec _ = shows "UnsizedRecursionF"
+
+type UnsizedExpr = AbortExpr UnsizedRecursionF
+
+term3ToUnsizedExpr :: Term3 -> UnsizedExpr
+term3ToUnsizedExpr (Term3 termMap) =
+  let fragLookup = (termMap Map.!)
+      convertFrag = \case
+        ZeroFrag -> BasicExpr ZeroSF
+        PairFrag a b -> BasicExpr $ PairSF (convertFrag a) (convertFrag b)
+        EnvFrag -> BasicExpr EnvSF
+        SetEnvFrag x -> BasicExpr . SetEnvSF $ convertFrag x
+        DeferFrag ind -> BasicExpr . DeferSF . convertFrag $ fragLookup ind
+        AbortFrag -> EnhancedExpr . AbortFW $ AbortF
+        GateFrag l r -> BasicExpr $ GateSF (convertFrag l) (convertFrag r)
+        LeftFrag x -> BasicExpr . LeftSF $ convertFrag x
+        RightFrag x -> BasicExpr . RightSF $ convertFrag x
+        TraceFrag -> BasicExpr EnvSF
+        AuxFrag _ -> EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left $ UnsizedRecursionF
+  in convertFrag $ rootFrag termMap
+
+abortExprToFragMap :: AbortExpr a -> Map FragIndex (FragExpr b)
+abortExprToFragMap expr =
+  let build = \case
+        BasicExpr x -> case x of
+          ZeroSF     -> pure ZeroFrag
+          PairSF a b -> PairFrag <$> build a <*> build b
+          EnvSF      -> pure EnvFrag
+          SetEnvSF x -> SetEnvFrag <$> build x
+          DeferSF x  -> deferF $ build x
+          GateSF l r -> GateFrag <$> build l <*> build r
+          LeftSF x   -> LeftFrag <$> build x
+          RightSF x  -> RightFrag <$> build x
+        AbortWrap x -> case x of
+          AbortF -> pure AbortFrag
+        _ -> error "abortExprToFragMap unexpected stuff in AbortExpr"
+  in buildFragMap (build expr)
+
+unsizedExprToFragMap :: UnsizedExpr -> Map FragIndex (FragExpr RecursionPieceFrag)
+unsizedExprToFragMap expr =
+  let build = \case
+        BasicExpr x -> case x of
+          ZeroSF     -> pure ZeroFrag
+          PairSF a b -> PairFrag <$> build a <*> build b
+          EnvSF      -> pure EnvFrag
+          SetEnvSF x -> SetEnvFrag <$> build x
+          DeferSF x  -> deferF $ build x
+          GateSF l r -> GateFrag <$> build l <*> build r
+          LeftSF x   -> LeftFrag <$> build x
+          RightSF x  -> RightFrag <$> build x
+        AbortWrap x -> case x of
+          AbortF -> pure AbortFrag
+        EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left UnsizedRecursionF)))))) -> pure $ AuxFrag (UnsizedRecursion 0)
+        _ -> error "unsizedExprToFragMap unexpected stuff in expr"
+  in buildFragMap (build expr)
+
+abortExprToTerm4 :: AbortExpr VoidF -> Term4
+abortExprToTerm4 = Term4 . abortExprToFragMap
+
+sizeTerm :: UnsizedExpr -> Maybe (AbortExpr VoidF)
+sizeTerm term = hoist clean <$> findSize 10 (cata sizeA $ annotateP term) where
+  clean = \case
+    BasicFW x -> BasicFW x
+    SuperFW x -> SuperFW x
+    AbortFW x -> AbortFW x
+    _ -> error "sizeTerm clean: should be impossible to see unsized recursion at this point"
+  sizeA :: AbortBase (SplitFunctor TypedF UnsizedRecursionF) TypeAnnotatedExpr -> TypeAnnotatedExpr
+  sizeA = \case
+    s@(SplitFunctor (Right (SetEnvSF sx))) -> if cleanApplication sx
+                      then case findSize 8 (trace ("sizeTerm finding size of " <> show s) embed s) of
+                             Nothing -> trace "failed to assess clean function" embed s -- can't resolve yet
+                             Just x -> trace "succeeded in finding limit in sizeA" x
+                      else embed s -- if calculation relies on or returns a function, ignore for now
+    x -> embed x
+  cleanApplication = \case
+    EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (TypedF t x))))))))) ->
+      case t of
+        PairTypeP (ArrTypeP _ o) _ -> not (containsFunction o || bareEnv x)
+  findSize limit term = let iterAmounts = take limit $ iterate (*2) 1
+                            options = map (\i -> cata (setSize i) term) iterAmounts
+                        in lookup False $ map (\x -> (cata recursionAborted $ eval x, x)) options
+  eval = evalEnhanced (handleSuper (handleAbort undefined)) (SuperWrap AnyPF)
+  setSize :: Int -> AbortBase (SplitFunctor TypedF UnsizedRecursionF) TypeAnnotatedExpr -> TypeAnnotatedExpr
+  setSize n = \case
+    SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right UnsizedRecursionF))))))) ->
+      iterate (BasicExpr . SetEnvSF) (BasicExpr EnvSF) !! n
+    SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (TypedF _ x)))))))) -> x
+    x -> embed x
+  recursionAborted = \case
+    AbortFW (AbortedF AbortRecursion)-> True
+    x                                 -> getAny $ foldMap Any x
+
+
 instance TelomareLike (EnhancedExpr o) where
   fromTelomare = \case
     Zero     -> BasicExpr ZeroSF
@@ -386,7 +508,7 @@ term4ToAbortExpr (Term4 termMap) =
   let fragLookup = (termMap Map.!)
   in term4ToAbortExpr' fragLookup (rootFrag termMap)
 
-term4ToAbortExpr' :: (FragIndex -> FragExpr Void) -> FragExpr Void -> AbortExpr VoidF
+term4ToAbortExpr' :: (FragIndex -> FragExpr a) -> FragExpr a -> AbortExpr VoidF
 term4ToAbortExpr' fragLookup frag =
   let convertFrag = \case
         ZeroFrag -> BasicExpr ZeroSF
@@ -404,7 +526,7 @@ term4ToAbortExpr' fragLookup frag =
 
 evalA :: (Maybe IExpr -> Maybe IExpr -> Maybe IExpr) -> Maybe IExpr -> Term4 -> Maybe IExpr
 evalA combine base t =
-  let initialEnv = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Right $ AnyPF
+  let initialEnv = SuperWrap AnyPF
       runResult = evalEnhanced (handleSuper (handleAbort undefined)) initialEnv . deheadMain $ term4ToAbortExpr t
       -- hack to check main functions as well as unit tests
       deheadMain = \case
@@ -415,3 +537,110 @@ evalA combine base t =
         SplitFunctor (Left (SplitFunctor (Right (EitherPF a b)))) -> combine a b
         x -> foldr (<|>) Nothing x
   in flip combine base $ cata getAborted runResult
+
+-- type checking stuff in here, maybe replace old type checking eventually
+data TypedF f
+  = TypedF PartialType f
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+instance Eq1 TypedF where
+  liftEq test (TypedF ta a) (TypedF tb b) = ta == tb && test a b
+
+instance Show1 TypedF where
+  liftShowsPrec showsPrec showList prec (TypedF t x) = shows "TypedF " . shows t . shows " (" . showsPrec 0 x . shows ")"
+
+type TypeAnnotatedExpr = AbortExpr (SplitFunctor TypedF UnsizedRecursionF)
+
+annotateP :: UnsizedExpr -> TypeAnnotatedExpr
+annotateP expr =
+  let annoF = \case -- TODO delete or figure out why (cata annoF) does not match annoF'
+        BasicFW x -> case x of
+          ZeroSF -> pure (ZeroTypeP, BasicExpr ZeroSF)
+          PairSF a b -> do
+            (ta, ga) <- a
+            (tb, gb) <- b
+            pure (PairTypeP ta tb, BasicExpr $ PairSF ga gb)
+          EnvSF -> State.gets (\(t, _, _) -> (t, BasicExpr EnvSF))
+          SetEnvSF x -> do
+            (tx, gx) <- x
+            (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
+            associateVar (PairTypeP (ArrTypeP it ot) it) tx
+            pure (ot, BasicExpr . SetEnvSF . typeWrap tx $ gx)
+          DeferSF x -> do
+            (tx, gx) <- x
+            (it, _, _) <- State.get
+            _ <- newEnv -- increment env variable
+            pure (ArrTypeP it tx, BasicExpr . DeferSF $ gx)
+          GateSF l r -> do
+            (tl, gl) <- l
+            (tr, gr) <- r
+            associateVar tl tr
+            pure (ArrTypeP ZeroTypeP tl, BasicExpr $ GateSF gl gr)
+          LeftSF x -> do
+            (tx, gx) <- x
+            (lt, _) <- withNewEnv $ pure ()
+            associateVar (PairTypeP lt AnyType) tx
+            pure (lt, BasicExpr . LeftSF $ gx)
+          RightSF x -> do
+            (tx, gx) <- x
+            (rt, _) <- withNewEnv $ pure ()
+            associateVar (PairTypeP AnyType rt) tx
+            pure (rt, BasicExpr . RightSF $ gx)
+        AbortFW AbortF -> do
+          (it, _) <- withNewEnv $ pure ()
+          pure (ArrTypeP ZeroTypeP (ArrTypeP it it), AbortWrap AbortF)
+        SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left UnsizedRecursionF))))) ->
+          State.gets (\(t, _, _) -> (t, EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Right
+                                      $ UnsizedRecursionF))
+      typeWrap t = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . TypedF t
+      annoF' = \case
+        BasicExpr x -> case x of
+          ZeroSF -> pure (ZeroTypeP, BasicExpr $ ZeroSF)
+          PairSF a b -> do
+            (ta, ga) <- annoF' a
+            (tb, gb) <- annoF' b
+            pure (PairTypeP  ta tb, BasicExpr $ PairSF ga gb)
+          EnvSF -> State.gets (\(t, _, _) -> (t, BasicExpr EnvSF))
+          SetEnvSF x -> do
+            (tx, gx) <- annoF' x
+            (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
+            associateVar (PairTypeP (ArrTypeP it ot) it) tx
+            pure (ot, BasicExpr . SetEnvSF . typeWrap tx $ gx)
+          DeferSF x -> do
+            (it, (tx, gx)) <- withNewEnv $ annoF' x
+            pure (ArrTypeP it tx, BasicExpr . DeferSF $ gx)
+          GateSF l r -> do
+            (tl, gl) <- annoF' l
+            (tr, gr) <- annoF' r
+            associateVar tl tr
+            pure (ArrTypeP ZeroTypeP tl, BasicExpr $ GateSF gl gr)
+          LeftSF x -> do
+            (tx, gx) <- annoF' x
+            (tl, _) <- withNewEnv $ pure ()
+            associateVar (PairTypeP tl AnyType) tx
+            pure (tl, BasicExpr $ LeftSF gx)
+          RightSF x -> do
+            (tx, gx) <- annoF' x
+            (tr, _) <- withNewEnv $ pure ()
+            associateVar (PairTypeP AnyType tr) tx
+            pure (tr, BasicExpr $ RightSF gx)
+        AbortWrap AbortF -> do
+            (t, _) <- withNewEnv $ pure ()
+            pure (ArrTypeP ZeroTypeP (ArrTypeP t t), AbortWrap AbortF)
+        EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left UnsizedRecursionF)))))) -> State.gets (\(t, _, _) ->
+          ( t
+          , EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Right $ UnsizedRecursionF
+          ))
+
+  in case State.runState (runExceptT $ annoF' expr) (TypeVariable 0, Set.empty, 1) of
+    (Right (_, tg), (_, ts, _)) ->
+      let resolver = fullyResolve (`Map.lookup` sm)
+          resolveF = \case
+            SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (TypedF t x)))))))) ->
+              EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (TypedF (resolver t) x)))))))))
+            x -> EnhancedExpr x
+          sm = case buildTypeMap ts of
+            Right m -> m
+            z -> error ("annotateP some sort of typecheck error " <> show z)
+      in cata resolveF tg
+
