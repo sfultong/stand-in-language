@@ -36,7 +36,6 @@ data TypeCheckError
   deriving (Eq, Ord, Show)
 
 -- State is closure environment, set of associations between type variables and types, unresolved type id supply
---type AnnotateState a = State (PartialType, Map Int PartialType, Int, Maybe TypeCheckError) a
 type AnnotateState = ExceptT TypeCheckError (State (PartialType, Set TypeAssociation, Int))
 
 withNewEnv :: AnnotateState a -> AnnotateState (PartialType, a)
@@ -46,6 +45,12 @@ withNewEnv action = do
   result <- action
   State.modify $ \(_, typeMap, v) -> (env, typeMap, v)
   pure (TypeVariable v, result)
+
+newEnv :: AnnotateState PartialType
+newEnv = do
+  (env, typeMap, v) <- State.get
+  State.put (TypeVariable v, typeMap, v + 1)
+  pure . TypeVariable $ v
 
 setEnv :: PartialType -> AnnotateState ()
 setEnv env = State.modify $ \(_, typeMap, v) -> (env, typeMap, v)

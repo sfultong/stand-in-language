@@ -573,6 +573,18 @@ mergePairTypeP = transform f where
   f (PairTypeP ZeroTypeP ZeroTypeP) = ZeroTypeP
   f x                               = x
 
+containsFunction :: PartialType -> Bool
+containsFunction = \case
+  ArrTypeP _ _ -> True
+  PairTypeP a b -> containsFunction a || containsFunction b
+  _ -> False
+
+cleanType :: PartialType -> Bool
+cleanType = \case
+  ZeroTypeP -> True
+  PairTypeP a b -> cleanType a && cleanType b
+  _ -> False
+
 newtype PrettyIExpr = PrettyIExpr IExpr
 
 instance Show PrettyIExpr where

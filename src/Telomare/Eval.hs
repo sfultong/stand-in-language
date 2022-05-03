@@ -221,6 +221,8 @@ evalLoop_ iexpr = case eval' iexpr of
             r -> pure $ concat ["runtime error, dumped ", show r]
     in mainLoop "" Zero
 
+{-
+
 calculateRecursionLimits :: Term3 -> Either EvalError Term4
 calculateRecursionLimits t3@(Term3 termMap) =
   let abortsAt n = not . null . evalA combine Nothing $ convertPT (const n) t3
@@ -232,3 +234,10 @@ calculateRecursionLimits t3@(Term3 termMap) =
   in case lookup False iterations of
     Just n -> trace ("crl found limit at " <> show n) pure $ convertPT (const n) t3
     _ -> Left . RecursionLimitError $ toEnum 0
+-}
+
+calculateRecursionLimits :: Term3 -> Either EvalError Term4
+calculateRecursionLimits t3 =
+  case fmap abortExprToTerm4 . sizeTerm $ term3ToUnsizedExpr t3 of
+    Nothing -> Left . RecursionLimitError $ toEnum 0
+    Just x -> pure x
