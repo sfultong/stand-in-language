@@ -17,6 +17,7 @@ import qualified Control.Monad.Reader as Reader
 import Control.Monad.State (State, StateT)
 import qualified Control.Monad.State as State
 import Control.Monad.Trans.Class
+import           Data.List           (sortBy)
 import           Data.DList          (DList)
 import qualified Data.DList          as DList
 import           Data.Foldable
@@ -92,6 +93,7 @@ type SimpleExpr = EnhancedExpr VoidF
 type BasicBase f = SplitFunctor f PartExprF
 type SuperBase f = BasicBase (SplitFunctor f SuperPositionF)
 type AbortBase f = SuperBase (SplitFunctor f AbortableF)
+type UnsizedBase = AbortBase UnsizedRecursionF
 
 pattern BasicFW :: PartExprF a -> BasicBase f a
 pattern BasicFW x = SplitFunctor (Right x)
@@ -99,12 +101,16 @@ pattern SuperFW :: SuperPositionF a -> SuperBase f a
 pattern SuperFW x = SplitFunctor (Left (SplitFunctor (Right x)))
 pattern AbortFW :: AbortableF a -> AbortBase f a
 pattern AbortFW x = SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right x)))))
+pattern UnsizedFW :: UnsizedRecursionF a -> UnsizedBase a
+pattern UnsizedFW x = SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left x)))))
 pattern BasicExpr :: PartExprF (EnhancedExpr f) -> EnhancedExpr f
 pattern BasicExpr x = EnhancedExpr (SplitFunctor (Right x))
 pattern SuperWrap :: SuperPositionF (SuperExpr f) -> SuperExpr f
 pattern SuperWrap x = EnhancedExpr (SplitFunctor (Left (SplitFunctor (Right x))))
 pattern AbortWrap :: AbortableF (AbortExpr f) -> AbortExpr f
 pattern AbortWrap x = EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right x))))))
+pattern UnsizedWrap :: UnsizedRecursionF UnsizedExpr -> UnsizedExpr
+pattern UnsizedWrap x = EnhancedExpr (UnsizedFW x)
 
 bareEnv :: (Functor f, Foldable f) => EnhancedExpr f -> Bool
 bareEnv = cata bareF where
@@ -331,7 +337,8 @@ handleAbort handleOther env term =
       SetEnvSF (SplitFunctor p) -> case p of
         Left (SplitFunctor as) -> case as of
           Left a@(AbortedF _) -> wrapA a
-          Right (EitherPF a b) -> mergeSuper (recur $ SetEnvSF a) (recur $ SetEnvSF b)
+          -- Right (EitherPF a b) -> mergeSuper (recur $ SetEnvSF a) (recur $ SetEnvSF b)
+          Right (EitherPF a b) -> error "handleAbort setenv either ... I thought this should be handled by handleSuper"
         Right (PairSF sc se) -> case sc of
           BasicExpr (GateSF _ _) -> case se of
             (EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left _))))))) -> handleOther env term
@@ -355,16 +362,59 @@ handleAbort handleOther env term =
         z -> error ("unimplemented handleAbort for " <> show z)
 
 data UnsizedRecursionF f
-  = UnsizedRecursionF
+  = UnsizedRecursionF BreakExtras f
+  -- | UnsizedBarrierF (Set BreakExtras) f -- probably doesn't need set here
+  | UnsizedBarrierF f
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Eq1 UnsizedRecursionF where
-  liftEq test a b = True
+  liftEq test a b = case (a, b) of
+    (UnsizedRecursionF a _, UnsizedRecursionF b _) -> a == b
+    (UnsizedBarrierF fa, UnsizedBarrierF fb) -> test fa fb
+    _ -> False
 
 instance Show1 UnsizedRecursionF where
-  liftShowsPrec showsPrec showList prec _ = shows "UnsizedRecursionF"
+  liftShowsPrec showsPrec showList prec x = case x of
+    UnsizedRecursionF be env -> shows "UnsizedRecursionF (" . shows be . shows " " . showsPrec 0 env . shows ")"
+    UnsizedBarrierF f -> shows "UnsizedBarrierF (" . showsPrec 0 f . shows ")"
 
 type UnsizedExpr = AbortExpr UnsizedRecursionF
+
+getUnsized :: UnsizedExpr -> Set BreakExtras
+{-
+getUnsized (EnhancedExpr x) = case x of
+  UnsizedFW (UnsizedBarrierF s _) -> s
+  _ -> foldMap getUnsized x
+-}
+getUnsized = cata sizeF where
+  sizeF = \case
+    UnsizedFW (UnsizedRecursionF be s) -> Set.insert be s
+    x -> Data.Foldable.fold x
+
+handleUnsized :: UnsizedExpr -> PartExprF UnsizedExpr -> UnsizedExpr
+handleUnsized env term =
+  let makeBarrier = UnsizedWrap . UnsizedBarrierF . BasicExpr
+  in case term of
+    LeftSF (UnsizedWrap x) -> case x of
+      UnsizedRecursionF be _ -> makeBarrier . LeftSF . UnsizedWrap $ UnsizedRecursionF be env
+      UnsizedBarrierF x -> UnsizedWrap . UnsizedBarrierF . BasicExpr . LeftSF $ x
+    RightSF (UnsizedWrap x) -> case x of
+      UnsizedRecursionF be _ -> makeBarrier . RightSF . UnsizedWrap $ UnsizedRecursionF be env
+      UnsizedBarrierF x -> UnsizedWrap . UnsizedBarrierF . BasicExpr . RightSF $ x
+    SetEnvSF x -> case x of
+      UnsizedWrap ux -> case ux of
+        UnsizedRecursionF be _ -> makeBarrier . SetEnvSF . UnsizedWrap $ UnsizedRecursionF be env
+        UnsizedBarrierF x -> UnsizedWrap . UnsizedBarrierF . BasicExpr . SetEnvSF $ x
+      BasicExpr (PairSF uc ue) -> case uc of
+        g@(BasicExpr (GateSF _ _)) -> case ue of
+          UnsizedWrap (UnsizedRecursionF be _) -> makeBarrier . SetEnvSF . BasicExpr . PairSF g $ UnsizedWrap (UnsizedRecursionF be env)
+          UnsizedWrap (UnsizedBarrierF uex) -> UnsizedWrap . UnsizedBarrierF . BasicExpr . SetEnvSF . BasicExpr $ PairSF g uex
+        a@(AbortWrap AbortF) -> case ue of
+          UnsizedWrap (UnsizedRecursionF be _) -> makeBarrier . SetEnvSF . BasicExpr . PairSF a $ UnsizedWrap (UnsizedRecursionF be env)
+          UnsizedWrap (UnsizedBarrierF uex) -> UnsizedWrap . UnsizedBarrierF . BasicExpr . SetEnvSF . BasicExpr $ PairSF a uex
+        UnsizedWrap ucx -> case ucx of
+          --UnsizedRecursionF be _ -> makeBarrier . SetEnvSF . BasicExpr $ PairSF (UnsizedRecursionF) -- should be impossible
+          UnsizedBarrierF x -> UnsizedWrap . UnsizedBarrierF . BasicExpr . SetEnvSF . BasicExpr $ PairSF x ue
 
 term3ToUnsizedExpr :: Term3 -> UnsizedExpr
 term3ToUnsizedExpr (Term3 termMap) =
@@ -380,7 +430,7 @@ term3ToUnsizedExpr (Term3 termMap) =
         LeftFrag x -> BasicExpr . LeftSF $ convertFrag x
         RightFrag x -> BasicExpr . RightSF $ convertFrag x
         TraceFrag -> BasicExpr EnvSF
-        AuxFrag _ -> EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left $ UnsizedRecursionF
+        AuxFrag x -> EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left $ UnsizedRecursionF x (BasicExpr EnvSF)
   in convertFrag $ rootFrag termMap
 
 abortExprToFragMap :: AbortExpr a -> Map FragIndex (FragExpr b)
@@ -414,13 +464,14 @@ unsizedExprToFragMap expr =
           RightSF x -> RightFrag <$> build x
         AbortWrap x -> case x of
           AbortF -> pure AbortFrag
-        EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left UnsizedRecursionF)))))) -> pure $ AuxFrag (UnsizedRecursion 0)
+        EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (UnsizedRecursionF i _))))))) -> pure $ AuxFrag i
         _ -> error "unsizedExprToFragMap unexpected stuff in expr"
   in buildFragMap (build expr)
 
 abortExprToTerm4 :: AbortExpr VoidF -> Term4
 abortExprToTerm4 = Term4 . abortExprToFragMap
 
+{-
 sizeTerm :: UnsizedExpr -> Maybe (AbortExpr VoidF)
 sizeTerm term = hoist clean <$> findSize 10 (cata sizeA $ annotateP term) where
   clean = \case
@@ -442,18 +493,50 @@ sizeTerm term = hoist clean <$> findSize 10 (cata sizeA $ annotateP term) where
         PairTypeP (ArrTypeP _ o) _ -> not (containsFunction o || bareEnv x)
   findSize limit term = let iterAmounts = take limit $ iterate (*2) 1
                             options = map (\i -> cata (setSize i) term) iterAmounts
-                        in lookup False $ map (\x -> (cata recursionAborted $ eval x, x)) options
+                        in lookup False $ map (\x -> trace ("eval result is " <> show (eval x)) (cata recursionAborted $ eval x, x)) options
   eval = evalEnhanced (handleSuper (handleAbort undefined)) (SuperWrap AnyPF)
   setSize :: Int -> AbortBase (SplitFunctor TypedF UnsizedRecursionF) TypeAnnotatedExpr -> TypeAnnotatedExpr
   setSize n = \case
-    SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right UnsizedRecursionF))))))) ->
+    SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right (UnsizedRecursionF _ _)))))))) ->
       iterate (BasicExpr . SetEnvSF) (BasicExpr EnvSF) !! n
     SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (TypedF _ x)))))))) -> x
     x -> embed x
   recursionAborted = \case
     AbortFW (AbortedF AbortRecursion)-> True
     x -> getAny $ foldMap Any x
+-}
 
+sizeTerm :: UnsizedExpr -> Maybe (AbortExpr VoidF)
+sizeTerm term =
+  let sizingTerm = eval term
+      eval = evalEnhanced (handleSuper (handleAbort handleUnsized)) (SuperWrap AnyPF)
+      collectUnsized x = case project x of
+        UnsizedFW (UnsizedRecursionF b env) -> [(b,env)]
+        x -> foldMap collectUnsized x
+      unsizedList = sortBy (\(_,aEnv) (_,bEnv) -> compare (Set.size $ getUnsized aEnv) (Set.size $ getUnsized bEnv)) $ collectUnsized sizingTerm
+      setSizes sizes = cata $ \case
+        UnsizedFW (UnsizedRecursionF be env) -> case Map.lookup be sizes of
+          Just n -> iterate (BasicExpr . SetEnvSF) env !! n
+          _ -> error ("sizeTerm setsizes ... somehow " <> show be <> " isn't present in size map")
+        UnsizedFW (UnsizedBarrierF x) -> eval x
+      recursionAborted = \case
+        AbortFW (AbortedF AbortRecursion)-> True
+        x -> getAny $ foldMap Any x
+      sizeOptions (b,env) oldMap = do
+        obe <- [0..8]
+        c <- [0..8]
+        let envSet = getUnsized env
+        pure . Map.insert b (2 ^ c) $ Map.mapWithKey (\k v -> if Set.member k envSet then v ^ obe else v) oldMap
+      sWrap (b,env) = UnsizedWrap (UnsizedBarrierF (UnsizedWrap (UnsizedRecursionF b env)))
+      findSize oldMap (b,env) = lookup False . map (\m -> (cata recursionAborted . setSizes m $ sWrap (b,env), m)) $ sizeOptions (b,env) oldMap
+      clean = \case
+        BasicFW x -> BasicFW x
+        SuperFW x -> SuperFW x
+        AbortFW x -> AbortFW x
+        _ -> error "sizeTerm clean: should be impossible to see unsized recursion at this point"
+      maybeMap = foldl' (\b a -> b >>= flip findSize a) (pure Map.empty) unsizedList
+      maybeSized = setSizes <$> maybeMap <*> pure sizingTerm
+  in hoist clean <$> maybeSized
 
 instance TelomareLike (EnhancedExpr o) where
   fromTelomare = \case
@@ -572,9 +655,10 @@ annotateP expr =
         AbortFW AbortF -> do
           (it, _) <- withNewEnv $ pure ()
           pure (ArrTypeP ZeroTypeP (ArrTypeP it it), AbortWrap AbortF)
-        SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left UnsizedRecursionF))))) ->
+        SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (UnsizedRecursionF nr ox)))))) -> do
+          (_, x) <- ox
           State.gets (\(t, _, _) -> (t, EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Right
-                                      $ UnsizedRecursionF))
+                                      $ UnsizedRecursionF nr x))
       typeWrap t = EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . TypedF t
       annoF' = \case
         BasicExpr x -> case x of
@@ -610,10 +694,12 @@ annotateP expr =
         AbortWrap AbortF -> do
             (t, _) <- withNewEnv $ pure ()
             pure (ArrTypeP ZeroTypeP (ArrTypeP t t), AbortWrap AbortF)
-        EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left UnsizedRecursionF)))))) -> State.gets (\(t, _, _) ->
-          ( t
-          , EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Right $ UnsizedRecursionF
-          ))
+        EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (UnsizedRecursionF nr ox))))))) -> do
+          (_, x) <- annoF' ox
+          State.gets (\(t, _, _) ->
+            ( t
+            , EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Right $ UnsizedRecursionF nr x
+            ))
 
   in case State.runState (runExceptT $ annoF' expr) (TypeVariable 0, Set.empty, 1) of
     (Right (_, tg), (_, ts, _)) ->
