@@ -676,9 +676,6 @@ nexprTests = do
       r' `shouldBe` r
 -}
 
-foreign import capi "gc.h GC_INIT" gcInit :: IO ()
-foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
-
 unitTest2' parse s r = it s $ case fmap compileUnitTest (parse s) of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
   Right (Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
@@ -738,8 +735,6 @@ unitTestSameResult' parse a b = it ("comparing to " <> a) $ case (parse a, parse
 -}
 
 main = do
-  gcInit
-  gcAllowRegisterThreads
   preludeFile <- Strict.readFile "Prelude.tel"
 
   let
