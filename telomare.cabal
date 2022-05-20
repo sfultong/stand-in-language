@@ -20,8 +20,6 @@ data-files:          bench/MemoryBench/cases
 
 library
   hs-source-dirs:      src
-  include-dirs:        cbits/include
-  c-sources:           cbits/Telomare.c
   other-extensions:    GADTs
                      , EmptyDataDecls
                      , DeriveFunctor
@@ -35,7 +33,6 @@ library
                      , Telomare
                      , Telomare.Eval
                      , Telomare.Decompiler
-                     -- , Telomare.Llvm
                      , Telomare.Optimizer
                      , Telomare.Parser
                      , Telomare.Possible

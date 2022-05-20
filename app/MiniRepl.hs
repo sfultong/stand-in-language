@@ -25,9 +25,6 @@ import           Telomare.TypeChecker
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 
-foreign import capi "gc.h GC_INIT" gcInit :: IO ()
-foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()
-
 -- Parsers for assignments/expressions within REPL
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 --
@@ -200,7 +197,6 @@ replLoop (ReplState bs eval) = do
 -- ~~~~~~~~~~~~~~~~~~~~~
 
 data ReplBackend = SimpleBackend
-                 | LLVMBackend
                  | NaturalsBackend
                  deriving (Show, Eq, Ord)
 
@@ -209,11 +205,10 @@ data ReplSettings = ReplSettings {
     , _expr    :: Maybe String
     } deriving (Show, Eq)
 
--- | Choose a backend option between Haskell, LLVM, Naturals.
+-- | Choose a backend option between Haskell, Naturals.
 -- Haskell is default.
 backendOpts :: Parser ReplBackend
-backendOpts = flag'       LLVMBackend     (long "llvm"     <> help "LLVM Backend")
-              O.<|> flag' SimpleBackend   (long "haskell"  <> help "Haskell Backend (default)")
+backendOpts = flag'       SimpleBackend   (long "haskell"  <> help "Haskell Backend (default)")
               O.<|> flag' NaturalsBackend (long "naturals" <> help "Naturals Interpretation Backend")
               O.<|> pure SimpleBackend
 
@@ -250,11 +245,7 @@ main = do
     e_prelude <- parsePrelude <$> Strict.readFile "Prelude.tel"
     settings  <- execParser opts
     eval <- case _backend settings of
-        SimpleBackend -> return simpleEval
-        LLVMBackend   -> do
-            gcInit
-            gcAllowRegisterThreads
-            return optimizedEval
+        SimpleBackend   -> return simpleEval
         NaturalsBackend -> return fastInterpretEval
     let bindings = case e_prelude of
             Left  _   ->  []

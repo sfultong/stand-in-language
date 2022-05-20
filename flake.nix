@@ -10,26 +10,31 @@
 
   outputs = { self, nixpkgs, flake-utils, flake-compat }:
     flake-utils.lib.eachDefaultSystem (system:
-      with nixpkgs.legacyPackages.${system};
-      let
-        t = lib.trivial;
-        hl = haskell.lib;
+      let pkgs = import nixpkgs { inherit system; };
+          t = pkgs.lib.trivial;
+          hl = pkgs.haskell.lib;
 
-        name = "telomare";
-	compiler = pkgs.haskell.packages."ghc922";
+          name = "telomare";
+          compiler = pkgs.haskell.packages."ghc922";
 
-        project = devTools: # [1]
-          let addBuildTools = (t.flip hl.addBuildTools) devTools;
-          in compiler.developPackage {
-            root = lib.sourceFilesBySuffices ./. [ ".cabal" ".hs" ];
-            name = name;
-            returnShellEnv = !(devTools == [ ]); # [2]
+          project = devTools: # [1]
+            let addBuildTools = (t.flip hl.addBuildTools) devTools;
+            in compiler.developPackage {
+              root = pkgs.lib.sourceFilesBySuffices ./.
+                       [ ".cabal"
+                         ".hs"
+                         ".tel"
+                         "cases"
+                         "LICENSE"
+                       ];
+              name = name;
+              returnShellEnv = !(devTools == [ ]); # [2]
 
-            modifier = (t.flip t.pipe) [
-              addBuildTools
-              # hl.dontHaddock
-            ];
-          };
+              modifier = (t.flip t.pipe) [
+                addBuildTools
+                # hl.dontHaddock
+              ];
+            };
 
       in {
         packages.pkg = project [ ]; # [3]
@@ -40,15 +45,15 @@
           cabal-install
           # haskell-language-server # uncomment when support for 9.2.2 comes out
           hlint
-	  ghcid
-	  stylish-haskell
+	        ghcid
+	        stylish-haskell
         ]);
 	
-	checks = {
+        checks = {
           build = self.defaultPackage.x86_64-linux;
-          telomareTest0 = flake.packages."telomare:test:telomare-test";
-          telomareTest1 = flake.packages."telomare:test:telomare-parser-test";
-          telomareTest2 = flake.packages."telomare:test:telomare-serializer-test";
-	};
+          telomareTest0 = self.packages."telomare:test:telomare-test";
+          telomareTest1 = self.packages."telomare:test:telomare-parser-test";
+          telomareTest2 = self.packages."telomare:test:telomare-serializer-test";
+        };
       });
 }
