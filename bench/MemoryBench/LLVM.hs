@@ -8,8 +8,8 @@ import qualified LLVM.AST                              as AST
 import           LLVM.AST.AddrSpace
 import           LLVM.AST.CallingConvention
 import           LLVM.AST.Constant
-import           LLVM.AST.DLL
 import           LLVM.AST.DataLayout
+import           LLVM.AST.DLL
 import           LLVM.AST.Float
 import           LLVM.AST.FloatingPointPredicate       hiding (True)
 import           LLVM.AST.InlineAssembly

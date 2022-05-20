@@ -27,8 +27,8 @@ import           MemoryBench.LLVM
 import           Paths_telomare
 
 import           Text.Parsec.Error    (ParseError)
-import           Weigh                hiding (Case, Max)
 import qualified Weigh                as Weigh
+import           Weigh                hiding (Case, Max)
 
 import           Debug.Trace
 
