@@ -13,10 +13,7 @@
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
-
-          name = "telomare";
           compiler = pkgs.haskell.packages."ghc922";
-
           project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
                 # doCheck = (t.flip hl.doCheck) devTools;
@@ -40,7 +37,6 @@
 
       in {
         packages.telomare = project "telomare" [ ]; # [3]
-
         packages.default = self.packages.${system}.telomare;
 
         defaultApp = self.packages.${system}.telomare;
