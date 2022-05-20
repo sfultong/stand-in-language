@@ -142,7 +142,7 @@ unitTests = testGroup "Unit tests"
     testCase "different values get different hashes" $ do
       let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest0
           res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest1
-      (res1 == res2) `compare` False @?= GT
+      (res1 == res2) `compare` False @?= EQ
   , testCase "same functions have the same hash even with different variable names" $ do
      let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest2
          res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest3
