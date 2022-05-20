@@ -22,11 +22,9 @@ jobs:
         echo cachix use
         cachix use iohk
         echo nix build:
-        nix build .#telomare:exe:telomare
+        nix build
         echo nix run tests:
-        nix run .#telomare:test:telomare-test
-        nix run .#telomare:test:telomare-parser-test
-        nix run .#telomare:test:telomare-serializer-test
+        nix flake check
         echo testing telomare-mini-repl:
         [[ "8" -eq $(nix develop -c cabal run telomare-mini-repl -- --expr 'succ 7' | tail -n 1) ]]
         echo building for legacy nix-shell:

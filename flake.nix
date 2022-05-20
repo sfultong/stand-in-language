@@ -1,64 +1,61 @@
 {
-  description = "Nix flake for Telomare";
-
-  inputs.flake-compat = {
-    url = "github:edolstra/flake-compat";
-    flake = false;
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs";
+    flake-utils.url = "github:numtide/flake-utils";
+    flake-compat = {
+      url = "github:edolstra/flake-compat";
+      flake = false;
+    };
+    hvm.url = "github:hhefesto/HVM";
   };
-  # See https://input-output-hk.github.io/haskell.nix/tutorials/getting-started-flakes.html
-  inputs.haskellNix.url = "github:input-output-hk/haskell.nix";
-  inputs.nixpkgs.follows = "haskellNix/nixpkgs-unstable";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.hvm.url = "github:hhefesto/HVM";
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix, flake-compat, hvm }:
+  outputs = { self, nixpkgs, flake-utils, flake-compat, hvm}:
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
-    let
-      overlays = [ haskellNix.overlay
-
-                   (final: prev: {
-                     # This overlay adds our project to pkgs
-                     jumper = final.stdenv.mkDerivation {
-                       name = "telomareJumper";
-                       src = ./cbits;
-                       buildInputs = [ final.boehmgc ];
-                     };
-                     gc = final.boehmgc;
-
-                     telomare = final.haskell-nix.cabalProject {
-                       src = final.haskell-nix.cleanSourceHaskell {
-                         src = ./.;
-                         name = "telomare";
-                       };
-
-                       compiler-nix-name = "ghc8107";
-                       # compiler-nix-name = "ghc922"; # TODO
-
-                       shell.tools = {
-                         cabal = {};
-                         haskell-language-server = {};
-                         ghcid = {};
-                       };
-                       # Non-Haskell shell tools go here
-                       shell.buildInputs = with pkgs; [
-                         # broken if provided by shell.tools
-                         stylish-haskell
-                         hlint
-                         hvm.defaultPackage."x86_64-linux"
+      let pkgs = import nixpkgs { inherit system; };
+          t = pkgs.lib.trivial;
+          hl = pkgs.haskell.lib;
+          compiler = pkgs.haskell.packages."ghc922";
+          project = executable-name: devTools: # [1]
+            let addBuildTools = (t.flip hl.addBuildTools) devTools;
+                addBuildDepends = (t.flip hl.addBuildDepends)
+                  [ hvm.defaultPackage."x86_64-linux" ];
+            in compiler.developPackage {
+              root = pkgs.lib.sourceFilesBySuffices ./.
+                       [ ".cabal"
+                         ".hs"
+                         ".tel"
+                         "cases"
+                         "LICENSE"
                        ];
-                     };
-                   })
-                 ];
-      pkgs = import nixpkgs { inherit system overlays; inherit (haskellNix) config; };
-      flake = pkgs.telomare.flake {};
-    in flake // {
-      # Built by `nix build .`
-      defaultPackage = flake.packages."telomare:exe:telomare";
-      checks = {
-        build = self.defaultPackage.x86_64-linux;
-        telomareTest0 = flake.packages."telomare:test:telomare-test";
-        telomareTest1 = flake.packages."telomare:test:telomare-parser-test";
-        telomareTest2 = flake.packages."telomare:test:telomare-serializer-test";
-      };
-    });
+              name = executable-name;
+              returnShellEnv = !(devTools == [ ]); # [2]
+
+              modifier = (t.flip t.pipe) [
+                addBuildDepends
+                addBuildTools
+                # hl.dontHaddock
+              ];
+            };
+
+      in {
+        packages.telomare = project "telomare" [ ]; # [3]
+        packages.default = self.packages.${system}.telomare;
+
+        defaultApp = self.packages.${system}.telomare;
+
+        devShells.default = project "telomare" (with compiler; [ # [4]
+          cabal-install
+          # haskell-language-server # uncomment when support for 9.2.2 comes out
+          hlint
+	        ghcid
+	        stylish-haskell
+        ]);
+	
+        checks = {
+          build = self.packages.${system}.default;
+          test-suit = project "telomare-test" [ ];
+          parser-test-suit = project "telomare-parser-test" [ ];
+          serializer-test-suit = project "telomare-serializer-test" [ ];
+        };
+      });
 }
