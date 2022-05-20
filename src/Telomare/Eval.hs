@@ -187,8 +187,8 @@ evalLoop iexpr = case eval' iexpr of
   Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
   Right peExp ->
     let mainLoop s = do
-          -- result <- hvmEval $ app peExp s
-          result <- simpleEval $ app peExp s
+          result <- hvmEval $ app peExp s
+          -- result <- simpleEval $ app peExp s
           case result of
             Zero -> putStrLn "aborted"
             (Pair disp newState) -> do

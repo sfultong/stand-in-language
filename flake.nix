@@ -6,9 +6,10 @@
       url = "github:edolstra/flake-compat";
       flake = false;
     };
+    hvm.url = "github:hhefesto/HVM";
   };
 
-  outputs = { self, nixpkgs, flake-utils, flake-compat }:
+  outputs = { self, nixpkgs, flake-utils, flake-compat, hvm}:
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
@@ -16,6 +17,8 @@
           compiler = pkgs.haskell.packages."ghc922";
           project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
+                addBuildDepends = (t.flip hl.addBuildDepends)
+                  [ hvm.defaultPackage."x86_64-linux" ];
             in compiler.developPackage {
               root = pkgs.lib.sourceFilesBySuffices ./.
                        [ ".cabal"
@@ -28,7 +31,7 @@
               returnShellEnv = !(devTools == [ ]); # [2]
 
               modifier = (t.flip t.pipe) [
-                hl.doCheck
+                addBuildDepends
                 addBuildTools
                 # hl.dontHaddock
               ];
