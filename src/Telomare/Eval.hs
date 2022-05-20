@@ -187,8 +187,8 @@ evalLoop iexpr = case eval' iexpr of
   Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
   Right peExp ->
     let mainLoop s = do
-          result <- hvmEval $ app peExp s
-          -- result <- simpleEval $ app peExp s
+          -- result <- hvmEval $ app peExp s
+          result <- simpleEval $ app peExp s
           case result of
             Zero -> putStrLn "aborted"
             (Pair disp newState) -> do
@@ -202,6 +202,7 @@ evalLoop iexpr = case eval' iexpr of
     in mainLoop Zero
 
 -- |Same as `evalLoop`, but keeping what was displayed.
+-- TODO: make evalLoop and evalLoop always share eval method (i.e. simpleEval, hvmEval)
 evalLoop_ :: IExpr -> IO String
 evalLoop_ iexpr = case eval' iexpr of
   Left err -> pure . concat $ ["Failed compiling main, ", show err]
