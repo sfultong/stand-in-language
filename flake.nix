@@ -16,7 +16,6 @@
           compiler = pkgs.haskell.packages."ghc922";
           project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
-                # doCheck = (t.flip hl.doCheck) devTools;
             in compiler.developPackage {
               root = pkgs.lib.sourceFilesBySuffices ./.
                        [ ".cabal"
