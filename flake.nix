@@ -9,7 +9,7 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, flake-compat }:
-    flake-utils.lib.eachDefaultSystem (system:
+    flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
@@ -17,8 +17,9 @@
           name = "telomare";
           compiler = pkgs.haskell.packages."ghc922";
 
-          project = devTools: # [1]
+          project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
+                # doCheck = (t.flip hl.doCheck) devTools;
             in compiler.developPackage {
               root = pkgs.lib.sourceFilesBySuffices ./.
                        [ ".cabal"
@@ -27,21 +28,24 @@
                          "cases"
                          "LICENSE"
                        ];
-              name = name;
+              name = executable-name;
               returnShellEnv = !(devTools == [ ]); # [2]
 
               modifier = (t.flip t.pipe) [
+                hl.doCheck
                 addBuildTools
                 # hl.dontHaddock
               ];
             };
 
       in {
-        packages.pkg = project [ ]; # [3]
+        packages.telomare = project "telomare" [ ]; # [3]
 
-        defaultPackage = self.packages.${system}.pkg;
+        packages.default = self.packages.${system}.telomare;
 
-        devShell = project (with compiler; [ # [4]
+        defaultApp = self.packages.${system}.telomare;
+
+        devShells.default = project "telomare" (with compiler; [ # [4]
           cabal-install
           # haskell-language-server # uncomment when support for 9.2.2 comes out
           hlint
@@ -50,10 +54,10 @@
         ]);
 	
         checks = {
-          build = self.defaultPackage.x86_64-linux;
-          telomareTest0 = self.packages."telomare:test:telomare-test";
-          telomareTest1 = self.packages."telomare:test:telomare-parser-test";
-          telomareTest2 = self.packages."telomare:test:telomare-serializer-test";
+          build = self.packages.${system}.default;
+          test-suit = project "telomare-test" [ ];
+          parser-test-suit = project "telomare-parser-test" [ ];
+          serializer-test-suit = project "telomare-serializer-test" [ ];
         };
       });
 }

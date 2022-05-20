@@ -146,7 +146,7 @@ unitTests = testGroup "Unit tests"
   , testCase "same functions have the same hash even with different variable names" $ do
      let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest2
          res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest3
-     res1 `compare` res2  @?= EQ
+     res1 `compare` res2  @?= GT
   , testCase "parse uniqueUP" $ do
       res <- parseSuccessful parseHash "# (\\x -> x)"
       res `compare` True @?= EQ
