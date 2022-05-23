@@ -15,3 +15,4 @@ result
 result-*
 hie.yaml
 dev-profile*
+.direnv/

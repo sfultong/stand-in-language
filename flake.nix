@@ -9,7 +9,7 @@
     hvm.url = "github:hhefesto/HVM";
   };
 
-  outputs = { self, nixpkgs, flake-utils, flake-compat, hvm}:
+  outputs = { self, nixpkgs, flake-utils, flake-compat, hvm }:
     flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
@@ -45,7 +45,7 @@
 
         devShells.default = project "telomare" (with compiler; [ # [4]
           cabal-install
-          # haskell-language-server # uncomment when support for 9.2.2 comes out
+          haskell-language-server
           hlint
 	        ghcid
 	        stylish-haskell
