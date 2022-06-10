@@ -1,3 +1,6 @@
 cradle:
   cabal:
-    component: "lib:telomare"
+    - path: "./src"
+      component: "lib:telomare"
+    - path: "./test/Spec.hs"
+      component: "test:telomare-test"
