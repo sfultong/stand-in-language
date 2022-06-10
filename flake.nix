@@ -38,7 +38,7 @@
 
         devShell = project (with compiler; [ # [4]
           cabal-install
-          # haskell-language-server # uncomment when support for 9.2.2 comes out
+          haskell-language-server # uncomment when support for 9.2.2 comes out
           hlint
 	  ghcid
 	  stylish-haskell
