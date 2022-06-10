@@ -59,7 +59,6 @@ h2c i =
       stopf i churchf churchbase = churchbase
   in \cf cb -> layer (layer (layer (layer stopf))) i cf cb
 
-
 {-
 h_zipWith a b f =
   let layer recurf zipf a b =
@@ -248,6 +247,23 @@ one_plus_one =
       plus = lam (lam (lam (lam plus_app)))
   in app c2d (app (app plus (toChurch 1)) (toChurch 1))
 
+times_two =
+  let times_app = lam (lam (app (toChurch 2) (app (varN 1) (varN 0))))
+  in app c2d (app times_app (toChurch 3))
+
+times_three =
+  let times_app = lam (lam (app (varN 1) (app (toChurch 3) (varN 0))))
+  in app c2d (app times_app (toChurch 2))
+
+times_wip =
+  let times_app = lam (lam (app (varN 1) (app (toChurch 3) (varN 0))))
+  -- in app c2d (app times_app (toChurch 2))
+-- c2d = lam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)
+  in app c2d (toChurch 6)
+
+function_argument =
+  app (lam (app (varN 0) zero)) (lam (pair zero (varN 0)))
+
 -- m f (n f x)
 -- app (app m f) (app (app n f) x)
 -- app (app (varN 3) (varN 1)) (app (app (varN 2) (varN 1)) (varN 0))
@@ -282,7 +298,7 @@ allowedTypeCheck _                      = False
 testEval :: IExpr -> IO IExpr
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
-testEval iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
+testEval iexpr = evalBU' (SetEnv (Pair (Defer iexpr) Zero))
 
 
 
@@ -377,7 +393,7 @@ qcTestMapBuilderEqualsRegularEval (IExprWrapper x) = (showResult $ eval' x)
 -}
 
 qcTestURSizing :: URTestExpr -> Bool
-qcTestURSizing (URTestExpr t3) = 
+qcTestURSizing (URTestExpr t3) =
   let compile x = toTelomare <$> findChurchSize x
       compile' x = pure . toTelomare $ convertPT (const 255) x
   in (fmap . fmap) pureIEval (compile t3) == (fmap . fmap) pureIEval (compile' t3)
@@ -398,6 +414,11 @@ qcTestAbortExtract (URTestExpr (Term3 termMap), i) =
   runTest (frag, inp) = null $ toPossible mapLookup' sizingAbortSetEval wrapAux inp frag
   extractedTestResult = or $ fmap runTest tests
 -}
+
+qcTestBottomUp :: DataTypedIExpr -> Bool
+qcTestBottomUp x =
+  let exp = getIExpr x
+  in evalS exp == evalBU exp
 
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
@@ -464,13 +485,35 @@ unitTests_ parse = do
   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
 -}
-  describe "refinement" $ do
-    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+  describe "bottom up eval" $ do
+    --unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+    --unitTest "c2d" "2" c2d_test
+    -- unitTest "oneplusone" "2" one_plus_one
+    --unitTest "function argument app" "1" function_argument
+    --unitTest "three times hardcoded two" "6" times_two
+    -- unitTest "function argument app" "1" function_argument
+    unitTest "two times hardcoded three" "6" times_three
+    --unitTest "narrowing down test" "6" times_wip
   {-
-    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
-    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ (== Left (StaticCheckError "user abort: boop"))
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ (not . null)
+    unitTest "c2d2" "2" c2d_test2
+    unitTest "c2d3" "1" c2d_test3
+    unitTest "church 3+2" "5" three_plus_two
+    unitTest "3*2" "6" three_times_two
+    unitTest "3^2" "9" three_pow_two
+    unitTest "test_tochurch" "2" test_toChurch
+    unitTest "three" "3" three_succ
+    unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
+    unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+    unitTest "listlength0" "0" $ app list_length zero
+    unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
+    unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
+    unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
+    unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
+-}
+  {-
+  describe "debugging stuff" $ do
+    --unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
+    unitTest2 "main = (d2c 3) succ 0" "3"
 -}
 
 c2dApp = "main = (c2dG $4 3) $2 succ 0"
@@ -744,5 +787,5 @@ main = do
     parse = parseMain prelude
 
   hspec $ do
-    unitTests parse
+    unitTests_ parse
     --nexprTests

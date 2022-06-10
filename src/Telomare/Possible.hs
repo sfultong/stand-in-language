@@ -216,6 +216,44 @@ evalBottomUp = StuckExpr . cata (evalF . stepTrace) . unstuckExpr where
       x -> BasicExpr x
     x -> embed x
 
+evalBottomUp' :: (Show1 o, Functor o, Traversable o) => StuckExpr o -> Maybe (StuckExpr o)
+evalBottomUp' = liftM StuckExpr . cata evalF . unstuckExpr where
+  -- sequenceE (EnhancedExpr x) = EnhancedExpr <$> sequence x
+  evalF = \case
+    BasicFW x -> case x of
+      EnvSF -> pure . EnhancedStuck $ BasicExpr EnvSF
+      -- LeftSF x -> case x of
+      LeftSF x -> x >>= \case
+        BasicExpr ZeroSF       -> pure $ BasicExpr ZeroSF
+        BasicExpr (PairSF l _) -> pure l
+        EnhancedStuck lx       -> pure . EnhancedStuck . BasicExpr . LeftSF $ lx
+      RightSF x -> x >>= \case
+        BasicExpr ZeroSF       -> pure $ BasicExpr ZeroSF
+        BasicExpr (PairSF _ r) -> pure r
+        EnhancedStuck rx       -> pure . EnhancedStuck . BasicExpr . RightSF $ rx
+      SetEnvSF x -> x >>= \case
+        BasicExpr (PairSF c e) -> case c of
+          BasicExpr bc -> case bc of
+            DeferSF d -> pure $ cata runStuck d False where
+              runStuck x underDefer = case x of
+                StuckFW (StuckF (StuckExpr s)) -> if underDefer
+                  then embed . fmap ($ underDefer) $ x
+                  else unstuckExpr . evalBottomUp . StuckExpr . cata replaceEval $ s
+                BasicFW (DeferSF d) -> trace "under defer here" . embed . BasicFW . DeferSF $ d True
+                x -> embed . fmap ($ underDefer) $ x
+              replaceEval = \case
+                BasicFW EnvSF -> e
+                x             -> embed x
+            GateSF l r -> case e of
+              BasicExpr ZeroSF -> pure l
+              BasicExpr (PairSF _ _) -> pure r
+              EnhancedStuck se -> pure . EnhancedStuck . BasicExpr . SetEnvSF . BasicExpr $ PairSF c se
+            z -> Nothing
+          EnhancedStuck sc -> pure . EnhancedStuck . BasicExpr . SetEnvSF . BasicExpr $ PairSF sc e
+        EnhancedStuck sp -> pure . EnhancedStuck . BasicExpr . SetEnvSF $ sp
+      x -> BasicExpr <$> sequence x
+    x -> embed <$> sequence x
+
 data VoidF f
   deriving (Functor, Foldable, Traversable)
 
@@ -677,21 +715,29 @@ instance TelomareLike (EnhancedExpr o) where
       RightSF x  -> PRight <$> toTelomare x
     _ -> Nothing
 
-evalS :: IExpr -> IO IExpr
-evalS = f . toTelomare . evalEnhanced handleOther (BasicExpr ZeroSF). fromTelomare where
-  f = \case
-    Nothing -> pure Env
-    Just x  -> pure x
+evalS :: IExpr -> Maybe IExpr
+evalS = toTelomare . evalEnhanced handleOther (BasicExpr ZeroSF). fromTelomare where
   handleOther :: EnhancedExpr Maybe -> PartExprF (EnhancedExpr Maybe) -> EnhancedExpr Maybe
   handleOther = error "TODO evalS handleOther"
 
-evalBU :: IExpr -> IO IExpr
-evalBU = f . toTelomare . unstuckExpr . ebu . StuckExpr . fromTelomare where
+evalS' :: IExpr -> IO IExpr
+evalS' = f . evalS where
   f = \case
     Nothing -> pure Env
     Just x  -> pure x
-  ebu :: StuckExpr VoidF -> StuckExpr VoidF
-  ebu = evalBottomUp
+
+evalBU :: IExpr -> Maybe IExpr
+evalBU = toIExpr . ebu . StuckExpr . fromTelomare where
+  toIExpr = (>>= (toTelomare . unstuckExpr))
+  ebu :: StuckExpr VoidF -> Maybe (StuckExpr VoidF)
+  -- ebu = evalBottomUp
+  ebu = evalBottomUp'
+
+evalBU' :: IExpr -> IO IExpr
+evalBU' = f . evalBU where
+  f = \case
+    Nothing -> pure Env
+    Just x  -> pure x
 
 term4ToAbortExpr :: Term4 -> AbortExpr VoidF
 term4ToAbortExpr (Term4 termMap) =
