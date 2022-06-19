@@ -174,12 +174,11 @@ pattern EnhancedStuck :: EnhancedExpr (SplitFunctor f (StuckF (StuckExpr f))) ->
 pattern EnhancedStuck x = EnhancedExpr (StuckFW (StuckF (StuckExpr x)))
 
 evalBottomUp :: (Show1 o, Functor o) => StuckExpr o -> StuckExpr o
-evalBottomUp = StuckExpr . cata (evalF . stepTrace) . unstuckExpr where
-  stepTrace x = trace ("step " <> show (PrettyStuckExpr . StuckExpr . embed $ x)) x
+evalBottomUp = StuckExpr . cata evalF . unstuckExpr where
+  stepTrace x = trace ("step\n" <> show (PrettyStuckExpr . StuckExpr . embed $ x)) x
   evalF = \case
     BasicFW x -> case x of
       EnvSF -> EnhancedStuck $ BasicExpr EnvSF
-      -- f@(DeferSF _) -> stuckWrap . BasicExpr $ f
       LeftSF x -> case x of
         BasicExpr ZeroSF       -> BasicExpr ZeroSF
         BasicExpr (PairSF l _) -> l
@@ -192,20 +191,13 @@ evalBottomUp = StuckExpr . cata (evalF . stepTrace) . unstuckExpr where
         BasicExpr (PairSF c e) -> case c of
           BasicExpr bc -> case bc of
             DeferSF d -> cata runStuck d False where
-              {-
-              runStuck = \case
-                StuckFW (StuckF (StuckExpr s)) -> unstuckExpr . evalBottomUp . StuckExpr . cata replaceEval $ s
-                x -> embed x
--}
               runStuck x underDefer = case x of
                 StuckFW (StuckF (StuckExpr s)) -> if underDefer
                   then embed . fmap ($ underDefer) $ x
-                  else unstuckExpr . evalBottomUp . StuckExpr . cata replaceEval $ s
-                BasicFW (DeferSF d) -> trace "under defer here" . embed . BasicFW . DeferSF $ d True
-                x -> embed . fmap ($ underDefer) $ x
-              replaceEval = \case
+                  else unstuckExpr . evalBottomUp . StuckExpr . (\rs -> cata runStuck rs False) $ s
+                BasicFW (DeferSF d) -> embed . BasicFW . DeferSF $ d True
                 BasicFW EnvSF -> e
-                x             -> embed x
+                x -> embed . fmap ($ underDefer) $ x
             GateSF l r -> case e of
               BasicExpr ZeroSF -> l
               BasicExpr (PairSF _ _) -> r
@@ -218,11 +210,9 @@ evalBottomUp = StuckExpr . cata (evalF . stepTrace) . unstuckExpr where
 
 evalBottomUp' :: (Show1 o, Functor o, Traversable o) => StuckExpr o -> Maybe (StuckExpr o)
 evalBottomUp' = liftM StuckExpr . cata evalF . unstuckExpr where
-  -- sequenceE (EnhancedExpr x) = EnhancedExpr <$> sequence x
   evalF = \case
     BasicFW x -> case x of
       EnvSF -> pure . EnhancedStuck $ BasicExpr EnvSF
-      -- LeftSF x -> case x of
       LeftSF x -> x >>= \case
         BasicExpr ZeroSF       -> pure $ BasicExpr ZeroSF
         BasicExpr (PairSF l _) -> pure l
@@ -238,12 +228,10 @@ evalBottomUp' = liftM StuckExpr . cata evalF . unstuckExpr where
               runStuck x underDefer = case x of
                 StuckFW (StuckF (StuckExpr s)) -> if underDefer
                   then embed . fmap ($ underDefer) $ x
-                  else unstuckExpr . evalBottomUp . StuckExpr . cata replaceEval $ s
+                  else unstuckExpr . evalBottomUp . StuckExpr . (\rs -> cata runStuck rs False) $ s
                 BasicFW (DeferSF d) -> trace "under defer here" . embed . BasicFW . DeferSF $ d True
-                x -> embed . fmap ($ underDefer) $ x
-              replaceEval = \case
                 BasicFW EnvSF -> e
-                x             -> embed x
+                x -> embed . fmap ($ underDefer) $ x
             GateSF l r -> case e of
               BasicExpr ZeroSF -> pure l
               BasicExpr (PairSF _ _) -> pure r
@@ -514,15 +502,15 @@ instance Functor o => Show (PrettyStuckExpr o) where
   show (PrettyStuckExpr (StuckExpr x)) = State.evalState (cata alg $ x) 0 where
     alg = \case
       BasicFW x -> case x of
-        ZeroSF     -> sindent "Z"
-        PairSF a b -> indentWithTwoChildren "P" a b
-        EnvSF      -> sindent "E"
-        SetEnvSF x -> indentWithOneChild "S" x
-        DeferSF x  -> indentWithOneChild "D" x
-        GateSF l r -> indentWithTwoChildren "G" l r
-        LeftSF x   -> indentWithOneChild "L" x
-        RightSF x  -> indentWithOneChild "R" x
-      StuckFW (StuckF (StuckExpr x)) -> indentWithOneChild "#" $ cata alg x
+        ZeroSF     -> pure "Z"
+        PairSF a b -> indentWithTwoChildren' "P" a b
+        EnvSF      -> pure "E"
+        SetEnvSF x -> indentWithOneChild' "S" x
+        DeferSF x  -> indentWithOneChild' "D" x
+        GateSF l r -> indentWithTwoChildren' "G" l r
+        LeftSF x   -> indentWithOneChild' "L" x
+        RightSF x  -> indentWithOneChild' "R" x
+      StuckFW (StuckF (StuckExpr x)) -> indentWithOneChild' "#" $ cata alg x
 
 getUnsized :: UnsizedExpr -> Set BreakExtras
 {-

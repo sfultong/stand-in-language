@@ -183,6 +183,23 @@ indentWithOneChild str sx = do
   x <- sx
   pure $ indent i (str <> "\n") <> x
 
+indentWithOneChild' :: String -> State Int String -> State Int String
+indentWithOneChild' str sx = do
+  i <- State.get
+  State.put $ i + 2
+  x <- sx
+  pure $ str <> " " <> x
+
+indentWithTwoChildren' :: String -> State Int String -> State Int String -> State Int String
+indentWithTwoChildren' str sl sr = do
+  i <- State.get
+  State.put $ i + 2
+  l <- sl
+  State.put $ i + 2
+  r <- sr
+  -- pure $ indent i (str <> "\n") <> l <> "\n" <> r
+  pure $ str <> " " <> l <> "\n" <> indent (i + 2) r
+
 -- |Two children indentation.
 indentWithTwoChildren :: String -> State Int String -> State Int String -> State Int String
 indentWithTwoChildren str sl sr = do
