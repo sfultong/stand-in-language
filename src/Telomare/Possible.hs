@@ -166,15 +166,6 @@ evalEnhanced handleOther env (EnhancedExpr (SplitFunctor g)) =
         BasicExpr (PairSF _ r) -> r
         _                      -> handleOther env (RightSF x)
 
-{-
-evalBottomUp :: Functor o => EnhancedExpr o -> EnhancedExpr o -> EnhancedExpr o
-evalBottomUp env = cata evalF where
-  evalF = \case
-    BasicFW x -> case x of
-      EnvSF -> env
-      LeftSF lx -> case lx of
--}
-
 data StuckF r g f
   = StuckF r g
   deriving (Functor, Foldable, Traversable)
@@ -198,20 +189,48 @@ pattern EnvStuck :: EnhancedExpr (SplitFunctor f (StuckF (SetStuck es) (StuckExp
   -> EnhancedExpr (SplitFunctor f (StuckF (SetStuck es) (StuckExpr (SetStuck es) f)))
 pattern EnvStuck x = EnhancedStuck (Right StuckNeedsEnv) x
 
-evalBottomUp :: (Show so, Show1 o, Functor o) => StuckExpr (SetStuck so) o -> StuckExpr (SetStuck so) o
-evalBottomUp = StuckExpr . cata evalF . unstuckExpr where
+-- simplest eval rules
+basicEval :: (PartExprF (EnhancedExpr o) -> EnhancedExpr o) -> (PartExprF (EnhancedExpr o) -> EnhancedExpr o)
+basicEval handleOther = \case
+    LeftSF (BasicExpr ZeroSF) -> BasicExpr ZeroSF
+    LeftSF (BasicExpr (PairSF l _)) -> l
+    RightSF (BasicExpr ZeroSF) -> BasicExpr ZeroSF
+    RightSF (BasicExpr (PairSF _ r)) -> r
+    SetEnvSF (BasicExpr (PairSF (BasicExpr (GateSF l _)) (BasicExpr (ZeroSF)))) -> l
+    SetEnvSF (BasicExpr (PairSF (BasicExpr (GateSF _ r)) (BasicExpr (PairSF _ _)))) -> r
+    x -> handleOther x
+
+-- evalBottomUp :: (Show so, Show1 o, Functor o) => StuckExpr (SetStuck so) o -> StuckExpr (SetStuck so) o
+evalBottomUp :: (Show so, Show1 o, Functor o) =>
+  -- (PartExprF (StuckExpr (SetStuck so) o) -> StuckExpr (SetStuck so) o) ->
+  (PartExprF (EnhancedExpr (SplitFunctor o (StuckF (SetStuck so) (StuckExpr (SetStuck so) o))))
+  -> EnhancedExpr (SplitFunctor o (StuckF (SetStuck so) (StuckExpr (SetStuck so) o)))
+  ) ->
+  StuckExpr (SetStuck so) o -> StuckExpr (SetStuck so) o
+evalBottomUp handleOther = StuckExpr . cata evalF . unstuckExpr where
   stepTrace x = trace ("step\n" <> show (PrettyStuckExpr . StuckExpr . embed $ x)) x
+  recur = evalBottomUp handleOther
+  evalS = \case
+    EnvSF -> EnvStuck $ BasicExpr EnvSF
+    LeftSF (EnhancedStuck r lx) -> EnhancedStuck r . BasicExpr . LeftSF $ lx
+    RightSF (EnhancedStuck r rx) -> EnhancedStuck r . BasicExpr . RightSF $ rx
+    SetEnvSF (BasicExpr (PairSF (BasicExpr (DeferSF d)) e)) -> cata runStuck d False where
+      runStuck x underDefer = case x of
+        StuckFW (StuckF (Right StuckNeedsEnv) (StuckExpr s)) -> if underDefer
+          then embed . fmap ($ underDefer) $ x
+          else unstuckExpr . recur . StuckExpr . (\rs -> cata runStuck rs False) $ s
+        BasicFW (DeferSF d) -> embed . BasicFW . DeferSF $ d True
+        BasicFW EnvSF -> e
+        x -> embed . fmap ($ underDefer) $ x
+    SetEnvSF (BasicExpr (PairSF g@(BasicExpr (GateSF _ _)) (EnhancedStuck sr se))) ->
+      EnhancedStuck sr . BasicExpr . SetEnvSF . BasicExpr $ PairSF g se
+    SetEnvSF (BasicExpr (PairSF (EnhancedStuck sr sc) e)) ->
+      EnhancedStuck sr . BasicExpr . SetEnvSF . BasicExpr $ PairSF sc e
+    SetEnvSF (EnhancedStuck sr sp) -> EnhancedStuck sr . BasicExpr . SetEnvSF $ sp
+    x -> handleOther x
   evalF = \case
-    BasicFW x -> case x of
-      EnvSF -> EnvStuck $ BasicExpr EnvSF
-      LeftSF x -> case x of
-        BasicExpr ZeroSF       -> BasicExpr ZeroSF
-        BasicExpr (PairSF l _) -> l
-        EnhancedStuck r lx       -> EnhancedStuck r . BasicExpr . LeftSF $ lx
-      RightSF x -> case x of
-        BasicExpr ZeroSF       -> BasicExpr ZeroSF
-        BasicExpr (PairSF _ r) -> r
-        EnhancedStuck r rx       -> EnhancedStuck r . BasicExpr . RightSF $ rx
+    BasicFW x -> basicEval evalS x
+  {-
       SetEnvSF x -> case x of
         BasicExpr (PairSF c e) -> case c of
           BasicExpr bc -> case bc of
@@ -230,7 +249,7 @@ evalBottomUp = StuckExpr . cata evalF . unstuckExpr where
             z -> error ("evalBottomUp setenv unexpected: " <> show z)
           EnhancedStuck sr sc -> EnhancedStuck sr . BasicExpr . SetEnvSF . BasicExpr $ PairSF sc e
         EnhancedStuck sr sp -> EnhancedStuck sr . BasicExpr . SetEnvSF $ sp
-      x -> BasicExpr x
+-}
     x -> embed x
 
 {-
@@ -751,7 +770,7 @@ evalBU = toIExpr . ebu . StuckExpr . fromTelomare where
 -}
   toIExpr = toTelomare . unstuckExpr
   ebu :: StuckExpr (SetStuck Void) VoidF -> StuckExpr (SetStuck Void) VoidF
-  ebu = evalBottomUp
+  ebu = evalBottomUp BasicExpr
 
 evalBU' :: IExpr -> IO IExpr
 evalBU' = f . evalBU where
