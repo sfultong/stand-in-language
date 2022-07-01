@@ -47,8 +47,9 @@
           cabal-install
           haskell-language-server
           hlint
-	        ghcid
-	        stylish-haskell
+	  ghcid
+	  stylish-haskell
+	  hvm.defaultPackage. "x86_64-linux"
         ]);
 	
         checks = {

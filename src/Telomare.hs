@@ -11,7 +11,8 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE ViewPatterns               #-}
 
-module Telomare where
+module Telomare where --(IExpr(..), ParserTerm(..), LamType(..), Term1(..), Term2(..), Term3(..), Term4(..)
+               --, FragExpr(..), FragIndex, TelomareLike, fromTelomare, toTelomare, rootFrag) where
 
 import           Control.Applicative
 import           Control.DeepSeq

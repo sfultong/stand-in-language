@@ -24,7 +24,7 @@ import qualified Control.Monad.State.Lazy as State
 import qualified Data.Map                 as Map
 import qualified Data.Set                 as Set
 
-import           Telomare
+import           Telomare                 (IExpr(..), FragExpr(..), FragIndex(..), pattern App, pattern ToChurch, pattern ChurchNum)
 
 debug :: Bool
 debug = True

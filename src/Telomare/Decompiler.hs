@@ -7,8 +7,8 @@ import qualified Control.Monad.State as State
 import           Data.List           (intercalate)
 import qualified Data.Map            as Map
 import           Data.Semigroup      (Max (..))
-import           Telomare
-import           Telomare.Parser
+import           Telomare            (LamType(..), ParserTerm(..), IExpr(..), Term1, Term2, Term3(Term3), Term4(Term4), FragExpr(..), FragIndex(FragIndex), buildFragMap, deferF, rootFrag)
+import           Telomare.Parser     (UnprocessedParsedTerm(..))
 
 decompileUPT :: UnprocessedParsedTerm -> String
 decompileUPT =

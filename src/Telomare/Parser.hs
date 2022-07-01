@@ -34,14 +34,18 @@ import           Data.Void
 import           Data.Word                  (Word8)
 import           Debug.Trace
 import qualified System.IO.Strict           as Strict
-import           Telomare
-import           Telomare.TypeChecker
 import           Text.Megaparsec            hiding (State)
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import           Text.Megaparsec.Debug
 import           Text.Megaparsec.Pos
 import           Text.Read                  (readMaybe)
+
+
+import           Telomare                   (IExpr(..), ParserTerm(..), LamType(..), Term1(..), Term2(..), Term3(..),
+                                             ParserTermF(..), BreakExtras, BreakState', FragIndex(..), FragExpr(..),
+                                             unsizedRecursionWrapper,nextBreakToken, clamF, lamF, deferF, appF, varNF)
+import           Telomare.TypeChecker       (typeCheck)
 
 data UnprocessedParsedTerm
   = VarUP String

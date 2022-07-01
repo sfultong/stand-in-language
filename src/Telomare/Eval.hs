@@ -1,5 +1,6 @@
-{-# LANGUAGE LambdaCase    #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE TupleSections    #-}
+{-# LANGUAGE PatternSynonyms  #-}
 module Telomare.Eval where
 
 import           Control.Lens.Plated
@@ -17,14 +18,17 @@ import           Data.Set                  (Set)
 import qualified Data.Set                  as Set
 import           Data.Void
 import           Debug.Trace
-import           Telomare
-import           Telomare.Decompiler
-import           Telomare.Optimizer
-import           Telomare.Parser
-import           Telomare.Possible
-import           Telomare.RunTime
-import           Telomare.Serializer
-import           Telomare.TypeChecker
+import           Telomare                  (IExpr(..), ExprA(..), Term3(Term3), Term4(Term4), FragExpr(..), FragIndex(FragIndex),
+                                            BreakExtras(..), BreakState', RunTimeError(..), TelomareLike(..), PartialType(..),
+                                            pattern AbortRecursion, pattern AbortAny, pattern AbortUser, rootFrag, app, s2g,
+                                            g2s, innerChurchF, insertAndGetKey)
+--import           Telomare.Decompiler    
+import           Telomare.Optimizer        (optimize)
+--import           Telomare.Parser
+import           Telomare.Possible         (evalA)
+import           Telomare.RunTime          (simpleEval, hvmEval, pureEval, optimizedEval, hvmEval')
+--import           Telomare.Serializer
+import           Telomare.TypeChecker      (TypeCheckError(..), typeCheck)
 
 data ExpP = ZeroP
     | PairP ExpP ExpP
@@ -187,7 +191,7 @@ evalLoop iexpr = case eval' iexpr of
   Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
   Right peExp ->
     let mainLoop s = do
-          -- result <- hvmEval $ app peExp s
+          --result <- hvmEval' $ app peExp s
           result <- simpleEval $ app peExp s
           case result of
             Zero -> putStrLn "aborted"

@@ -5,11 +5,11 @@ module Main where
 import           Data.Char
 import qualified Options.Applicative  as O
 import qualified System.IO.Strict     as Strict
-import           Telomare
-import           Telomare.Eval
-import           Telomare.Optimizer
-import           Telomare.Parser
-import           Telomare.RunTime
+--import           Telomare
+import           Telomare.Eval        (evalLoop, compileMain)
+--import           Telomare.Optimizer
+import           Telomare.Parser      (UnprocessedParsedTerm(..), parsePrelude, parseMain)
+--import           Telomare.RunTime
 import           Telomare.TypeChecker (inferType, typeCheck)
 --import Telomare.Llvm
 

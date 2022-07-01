@@ -3,8 +3,8 @@
 module PrettyPrint where
 
 import           Data.Map (Map)
-import           Naturals
-import           Telomare hiding (indent)
+import           Naturals (NExpr(..), NExprs(..), NResult)
+import           Telomare (IExpr(..), FragExpr(..), FragIndex(..), PartialType(..), Term3(..), PrettyPartialType(..),rootFrag)
 
 import qualified Data.Map as Map
 

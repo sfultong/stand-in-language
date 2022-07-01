@@ -15,7 +15,7 @@ import           Data.Set             (Set)
 import qualified Data.Set             as Set
 import           Debug.Trace
 import           PrettyPrint
-import           Telomare
+import           Telomare                   (Term3(..),BreakExtras(..), FragIndex(..), FragExpr(..), PartialType(..), PrettyPartialType(PrettyPartialType), rootFrag)
 
 debug :: Bool
 debug = False
