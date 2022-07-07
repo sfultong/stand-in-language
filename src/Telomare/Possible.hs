@@ -95,6 +95,24 @@ type SuperBase f = BasicBase (SplitFunctor f SuperPositionF)
 type AbortBase f = SuperBase (SplitFunctor f AbortableF)
 type UnsizedBase = AbortBase UnsizedRecursionF
 
+pattern ZeroFW :: f x -> SplitFunctor g f x
+pattern ZeroFW x = SplitFunctor (Right x)
+pattern OneFW :: f x -> SplitFunctor (SplitFunctor g f) h x
+pattern OneFW x = SplitFunctor (Left (ZeroFW x))
+pattern TwoFW :: f x -> SplitFunctor (SplitFunctor (SplitFunctor g f) h) i x
+pattern TwoFW x = SplitFunctor (Left (OneFW x))
+pattern ThreeFW :: f x -> SplitFunctor (SplitFunctor (SplitFunctor (SplitFunctor g f) h) i) j x
+pattern ThreeFW x = SplitFunctor (Left (TwoFW x))
+pattern ZeroEE :: PartExprF (EnhancedExpr f) -> EnhancedExpr f
+pattern ZeroEE g = EnhancedExpr (ZeroFW g)
+pattern OneEE :: g (EnhancedExpr (SplitFunctor f g)) -> EnhancedExpr (SplitFunctor f g)
+pattern OneEE g = EnhancedExpr (OneFW g)
+pattern TwoEE :: g (EnhancedExpr (SplitFunctor (SplitFunctor f g) h)) -> EnhancedExpr (SplitFunctor (SplitFunctor f g) h)
+pattern TwoEE g = EnhancedExpr (TwoFW g)
+pattern ThreeEE :: g (EnhancedExpr (SplitFunctor (SplitFunctor (SplitFunctor f g) h) i))
+  -> EnhancedExpr (SplitFunctor (SplitFunctor (SplitFunctor f g) h) i)
+pattern ThreeEE g = EnhancedExpr (ThreeFW g)
+
 pattern BasicFW :: PartExprF a -> BasicBase f a
 pattern BasicFW x = SplitFunctor (Right x)
 pattern SuperFW :: SuperPositionF a -> SuperBase f a
@@ -156,13 +174,16 @@ data StuckF r g f
 instance (Show r, Show g) => Show1 (StuckF r g) where
   liftShowsPrec showsPrec showList prec (StuckF r x) = shows "StuckF (" . shows r . shows " - " . shows x . shows " )"
 
-data StuckNeedsEnv = StuckNeedsEnv deriving Show
+instance (Eq r, Eq g) => Eq1 (StuckF r g) where
+  liftEq test (StuckF ra ga) (StuckF rb gb) = ra == rb && ga == gb
+
+data StuckNeedsEnv = StuckNeedsEnv deriving (Eq, Show)
 
 type SetStuck x = Either x StuckNeedsEnv
 
 type StuckBase r g f = BasicBase (SplitFunctor f (StuckF r g))
 newtype StuckExpr s f = StuckExpr { unstuckExpr :: EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f)))}
-  deriving Show
+  deriving (Eq, Show)
 pattern StuckFW :: StuckF r g a -> StuckBase r g f a
 pattern StuckFW x = SplitFunctor (Left (SplitFunctor (Right x)))
 pattern EnhancedStuck :: r -> EnhancedExpr (SplitFunctor f (StuckF r (StuckExpr r f)))
@@ -183,12 +204,15 @@ basicEval handleOther = \case
     SetEnvSF (BasicExpr (PairSF (BasicExpr (GateSF _ r)) (BasicExpr (PairSF _ _)))) -> r
     x -> handleOther x
 
--- evalBottomUp :: (Show so, Show1 o, Functor o) => StuckExpr (SetStuck so) o -> StuckExpr (SetStuck so) o
+type EnhancedSetStuck f s = EnhancedExpr (SplitFunctor f (StuckF (SetStuck s) (StuckExpr (SetStuck s) f)))
+
 evalBottomUp :: (Show so, Show1 o, Functor o) =>
-  -- (PartExprF (StuckExpr (SetStuck so) o) -> StuckExpr (SetStuck so) o) ->
+  {-
   (PartExprF (EnhancedExpr (SplitFunctor o (StuckF (SetStuck so) (StuckExpr (SetStuck so) o))))
   -> EnhancedExpr (SplitFunctor o (StuckF (SetStuck so) (StuckExpr (SetStuck so) o)))
   ) ->
+-}
+  (PartExprF (EnhancedSetStuck o so) -> EnhancedSetStuck o so) ->
   StuckExpr (SetStuck so) o -> StuckExpr (SetStuck so) o
 evalBottomUp handleOther = StuckExpr . cata evalF . unstuckExpr where
   stepTrace x = trace ("step\n" <> show (PrettyStuckExpr . StuckExpr . embed $ x)) x
@@ -213,63 +237,45 @@ evalBottomUp handleOther = StuckExpr . cata evalF . unstuckExpr where
     x -> handleOther x
   evalF = \case
     BasicFW x -> basicEval evalS x
-  {-
-      SetEnvSF x -> case x of
-        BasicExpr (PairSF c e) -> case c of
-          BasicExpr bc -> case bc of
-            DeferSF d -> cata runStuck d False where
-              runStuck x underDefer = case x of
-                StuckFW (StuckF (Right StuckNeedsEnv) (StuckExpr s)) -> if underDefer
-                  then embed . fmap ($ underDefer) $ x
-                  else unstuckExpr . evalBottomUp . StuckExpr . (\rs -> cata runStuck rs False) $ s
-                BasicFW (DeferSF d) -> embed . BasicFW . DeferSF $ d True
-                BasicFW EnvSF -> e
-                x -> embed . fmap ($ underDefer) $ x
-            GateSF l r -> case e of
-              BasicExpr ZeroSF -> l
-              BasicExpr (PairSF _ _) -> r
-              EnhancedStuck sr se -> EnhancedStuck sr . BasicExpr . SetEnvSF . BasicExpr $ PairSF c se
-            z -> error ("evalBottomUp setenv unexpected: " <> show z)
-          EnhancedStuck sr sc -> EnhancedStuck sr . BasicExpr . SetEnvSF . BasicExpr $ PairSF sc e
-        EnhancedStuck sr sp -> EnhancedStuck sr . BasicExpr . SetEnvSF $ sp
--}
     x -> embed x
 
-{-
-evalBottomUp' :: (Show1 o, Functor o, Traversable o) => StuckExpr o -> Maybe (StuckExpr o)
-evalBottomUp' = liftM StuckExpr . cata evalF . unstuckExpr where
-  evalF = \case
-    BasicFW x -> case x of
-      EnvSF -> pure . EnhancedStuck $ BasicExpr EnvSF
-      LeftSF x -> x >>= \case
-        BasicExpr ZeroSF       -> pure $ BasicExpr ZeroSF
-        BasicExpr (PairSF l _) -> pure l
-        EnhancedStuck lx       -> pure . EnhancedStuck . BasicExpr . LeftSF $ lx
-      RightSF x -> x >>= \case
-        BasicExpr ZeroSF       -> pure $ BasicExpr ZeroSF
-        BasicExpr (PairSF _ r) -> pure r
-        EnhancedStuck rx       -> pure . EnhancedStuck . BasicExpr . RightSF $ rx
-      SetEnvSF x -> x >>= \case
-        BasicExpr (PairSF c e) -> case c of
-          BasicExpr bc -> case bc of
-            DeferSF d -> pure $ cata runStuck d False where
-              runStuck x underDefer = case x of
-                StuckFW (StuckF (StuckExpr s)) -> if underDefer
-                  then embed . fmap ($ underDefer) $ x
-                  else unstuckExpr . evalBottomUp . StuckExpr . (\rs -> cata runStuck rs False) $ s
-                BasicFW (DeferSF d) -> trace "under defer here" . embed . BasicFW . DeferSF $ d True
-                BasicFW EnvSF -> e
-                x -> embed . fmap ($ underDefer) $ x
-            GateSF l r -> case e of
-              BasicExpr ZeroSF -> pure l
-              BasicExpr (PairSF _ _) -> pure r
-              EnhancedStuck se -> pure . EnhancedStuck . BasicExpr . SetEnvSF . BasicExpr $ PairSF c se
-            z -> Nothing
-          EnhancedStuck sc -> pure . EnhancedStuck . BasicExpr . SetEnvSF . BasicExpr $ PairSF sc e
-        EnhancedStuck sp -> pure . EnhancedStuck . BasicExpr . SetEnvSF $ sp
-      x -> BasicExpr <$> sequence x
-    x -> embed <$> sequence x
--}
+type SuperExpr' s f = StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF)
+type EnhancedSuperStuck f s = EnhancedSetStuck (SplitFunctor f SuperPositionF) s
+
+evalSuper :: (Eq s, Show s, Eq1 f, Show1 f, Functor f) =>
+  (StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF) -> StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF))
+  -> (PartExprF (EnhancedSuperStuck f s) -> EnhancedSuperStuck f s)
+  -> (PartExprF (EnhancedSuperStuck f s) -> EnhancedSuperStuck f s)
+evalSuper recur handleOther =
+  let rEval = unstuckExpr . recur . StuckExpr
+  in \case
+    LeftSF (TwoEE x) -> case x of
+      AnyPF -> TwoEE AnyPF
+      EitherPF a b -> mergeSuper' (rEval . ZeroEE . LeftSF $ a) (rEval . ZeroEE . LeftSF $ b)
+    RightSF (TwoEE x) -> case x of
+      AnyPF -> TwoEE AnyPF
+      EitherPF a b -> mergeSuper' (rEval . ZeroEE . RightSF $ a) (rEval . ZeroEE . RightSF $ b)
+    SetEnvSF (TwoEE (EitherPF a b)) -> mergeSuper' (rEval . ZeroEE . SetEnvSF $ a) (rEval . ZeroEE . SetEnvSF $ b)
+    SetEnvSF (ZeroEE (PairSF (ZeroEE (GateSF l r)) se@(TwoEE _))) ->
+      let getPaths = \case
+            ZeroEE ZeroSF -> [Just leftPath, Nothing, Nothing]
+            ZeroEE (PairSF _ _) -> [Nothing, Just rightPath, Nothing]
+            TwoEE AnyPF -> [Just leftPath, Just rightPath, Nothing]
+            TwoEE (EitherPF a b) -> (\[la,ra,oa] [lb,rb,ob] -> [la <|> lb, ra <|> rb, combineOthers oa ob])
+              (getPaths a) (getPaths b)
+            x -> [Nothing, Nothing, pure . handleOther $ SetEnvSF (ZeroEE (PairSF (ZeroEE (GateSF l r)) x))]
+          leftPath = rEval l
+          rightPath = rEval r
+          combineOthers a b = case (a,b) of
+            (Just ja, Just jb) -> pure $ mergeSuper' ja jb
+            _ -> a <|> b
+      in case foldr combineOthers Nothing $ getPaths se of
+        Nothing -> error "evalSuper gates getPaths should be impossible to have no alternatives"
+        Just r -> r
+    SetEnvSF (ZeroEE (PairSF (TwoEE (EitherPF sca scb)) se)) -> mergeSuper'
+      (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF sca se)
+      (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF scb se)
+    x -> handleOther x
 
 data VoidF f
   deriving (Functor, Foldable, Traversable)
@@ -377,6 +383,34 @@ mergeSuper (EnhancedExpr (SplitFunctor a)) (EnhancedExpr (SplitFunctor b)) =
        (EitherPF a b, EitherPF c d) -> eitherWrap (mergeSuper a c) (mergeSuper b d)
        _ -> eitherWrap (EnhancedExpr $ SplitFunctor a) (EnhancedExpr $ SplitFunctor b)
     _ -> eitherWrap (EnhancedExpr $ SplitFunctor a) (EnhancedExpr $ SplitFunctor b)
+
+mergeSuper' :: (Eq s, Eq1 f, Functor f) => EnhancedSuperStuck f s -> EnhancedSuperStuck f s -> EnhancedSuperStuck f s
+mergeSuper' a b =
+  let testthing = undefined
+  {-
+      mergePart :: (Eq s, Eq1 f, Functor f) => PartExprF (EnhancedSuperStuck f s) -> PartExprF (EnhancedSuperStuck f s)
+        -> Either (PartExprF (EnhancedSuperStuck f s), PartExprF (EnhancedSuperStuck f s)) (PartExprF (EnhancedSuperStuck f s))
+-}
+      mergePart pa pb = case (pa,pb) of
+        (ZeroSF, ZeroSF) -> pure ZeroSF
+        (EnvSF, EnvSF) -> pure EnvSF
+        (PairSF a b, PairSF c d) | a == c -> pure $ PairSF a (mergeSuper' b d)
+        (PairSF a b, PairSF c d) | b == d -> pure $ PairSF (mergeSuper' a c) b
+        (SetEnvSF x, SetEnvSF y)          -> pure $ SetEnvSF (mergeSuper' x y)
+        (DeferSF x, DeferSF y)            -> pure $ DeferSF (mergeSuper' x y)
+        (GateSF a b, GateSF c d) | a == c -> pure $ GateSF a (mergeSuper' b d)
+        (GateSF a b, GateSF c d) | b == d -> pure $ GateSF (mergeSuper' a c) b
+        (LeftSF x, LeftSF y)              -> pure $ LeftSF (mergeSuper' x y)
+        (RightSF x, RightSF y)            -> pure $ RightSF (mergeSuper' x y)
+        _                                 -> Left (pa, pb)
+  in case (a,b) of
+    (BasicExpr ba, BasicExpr bb) -> case mergePart ba bb of
+      Right r -> BasicExpr r
+      Left (ea, eb) -> TwoEE $ EitherPF (ZeroEE ea) (ZeroEE eb)
+    (TwoEE AnyPF, _) -> TwoEE AnyPF
+    (_, TwoEE AnyPF) -> TwoEE AnyPF
+    (TwoEE (EitherPF a b), TwoEE (EitherPF c d)) -> TwoEE $ EitherPF (mergeSuper' a c) (mergeSuper' b d)
+    _ -> TwoEE $ EitherPF a b
 
 handleSuper :: (Functor f, Eq1 f, Show1 f) => (SuperExpr f -> PartExprF (SuperExpr f) -> SuperExpr f)
   -> SuperExpr f -> PartExprF (SuperExpr f) -> SuperExpr f
