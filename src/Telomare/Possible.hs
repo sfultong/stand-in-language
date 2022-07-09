@@ -241,9 +241,11 @@ evalBottomUp handleOther = StuckExpr . cata evalF . unstuckExpr where
 
 type SuperExpr' s f = StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF)
 type EnhancedSuperStuck f s = EnhancedSetStuck (SplitFunctor f SuperPositionF) s
+type AbortExpr' s f = SuperExpr' s (SplitFunctor f AbortableF)
+type EnhancedAbortStuck f s = EnhancedSuperStuck (SplitFunctor f AbortableF) s
 
 evalSuper :: (Eq s, Show s, Eq1 f, Show1 f, Functor f) =>
-  (StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF) -> StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF))
+  (SuperExpr' s f -> SuperExpr' s f)
   -> (PartExprF (EnhancedSuperStuck f s) -> EnhancedSuperStuck f s)
   -> (PartExprF (EnhancedSuperStuck f s) -> EnhancedSuperStuck f s)
 evalSuper recur handleOther =
@@ -275,7 +277,27 @@ evalSuper recur handleOther =
     SetEnvSF (ZeroEE (PairSF (TwoEE (EitherPF sca scb)) se)) -> mergeSuper'
       (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF sca se)
       (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF scb se)
+    SetEnvSF (ZeroEE (PairSF c (TwoEE (EitherPF ea eb)))) -> mergeSuper'
+      (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF c ea)
+      (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF c eb)
     x -> handleOther x
+
+evalAbort :: (Eq s, Show s, Eq1 f, Show1 f, Functor f) =>
+  (PartExprF (EnhancedAbortStuck f s) -> EnhancedAbortStuck f s)
+  -> (PartExprF (EnhancedAbortStuck f s) -> EnhancedAbortStuck f s)
+evalAbort handleOther = \case
+  LeftSF a@(ThreeEE (AbortedF _)) -> a
+  RightSF a@(ThreeEE (AbortedF _)) -> a
+  SetEnvSF a@(ThreeEE (AbortedF _)) -> a
+  SetEnvSF (ZeroEE (PairSF (ZeroEE (GateSF _ _)) a@(ThreeEE(AbortedF _)))) -> a
+  SetEnvSF (ZeroEE (PairSF a@(ThreeEE (AbortedF _)) _)) -> a
+  SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) a@(ThreeEE(AbortedF _)))) -> a
+  SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) (TwoEE AnyPF))) -> ThreeEE . AbortedF $ AbortAny
+  SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) (ZeroEE ZeroSF))) ->  ZeroEE . DeferSF . ZeroEE $ EnvSF
+  SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) ae@(ZeroEE _))) -> ThreeEE . AbortedF $ cata convert ae where
+    convert (ZeroFW (PairSF a b)) = Pair a b
+    convert _ = Zero
+  x -> handleOther x
 
 data VoidF f
   deriving (Functor, Foldable, Traversable)
