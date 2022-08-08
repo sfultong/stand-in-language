@@ -6,7 +6,7 @@ import           Data.Char
 import qualified Options.Applicative  as O
 import qualified System.IO.Strict     as Strict
 --import           Telomare
-import           Telomare.Eval        (evalLoop, compileMain)
+import           Telomare.Eval        (evalLoop, compileMain, schemeEval)
 --import           Telomare.Optimizer
 import           Telomare.Parser      (UnprocessedParsedTerm(..), parsePrelude, parseMain)
 --import           Telomare.RunTime
@@ -42,6 +42,7 @@ main = do
         Left pe -> error pe
       runMain s = case compileMain <$> parseMain prelude s of
         Left e -> putStrLn $ concat ["failed to parse ", s, " ", e]
+        --Right (Right g) -> schemeEval g
         Right (Right g) -> evalLoop g
         Right z -> putStrLn $ "compilation failed somehow, with result " <> show z
   Strict.readFile (telomareFile topts) >>= runMain

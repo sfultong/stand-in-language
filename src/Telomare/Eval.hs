@@ -18,16 +18,17 @@ import           Data.Set                  (Set)
 import qualified Data.Set                  as Set
 import           Data.Void
 import           Debug.Trace
+
+import           System.IO
+import           System.Process
+
 import           Telomare                  (IExpr(..), ExprA(..), Term3(Term3), Term4(Term4), FragExpr(..), FragIndex(FragIndex),
                                             BreakExtras(..), BreakState', RunTimeError(..), TelomareLike(..), PartialType(..),
                                             pattern AbortRecursion, pattern AbortAny, pattern AbortUser, rootFrag, app, s2g,
                                             g2s, innerChurchF, insertAndGetKey)
---import           Telomare.Decompiler    
 import           Telomare.Optimizer        (optimize)
---import           Telomare.Parser
 import           Telomare.Possible         (evalA)
-import           Telomare.RunTime          (simpleEval, hvmEval, pureEval, optimizedEval, hvmEval')
---import           Telomare.Serializer
+import           Telomare.RunTime          (simpleEval, hvmEval, pureEval, optimizedEval)
 import           Telomare.TypeChecker      (TypeCheckError(..), typeCheck)
 
 data ExpP = ZeroP
@@ -186,13 +187,24 @@ compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>=
 eval' :: IExpr -> Either String IExpr
 eval' = pure
 
+schemeEval :: IExpr -> IO ()
+schemeEval iexpr = case eval' iexpr of
+  Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
+  Right peExp ->
+    do
+      writeFile "scheme.txt" ('(' : (show $ app peExp Zero) ++ ")")
+      (_, Just mhout, _, _) <- createProcess (shell ("chez-script runtime.so")) { std_out = CreatePipe }
+      scheme <- hGetContents mhout
+      putStrLn scheme
+
+
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of
   Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
   Right peExp ->
     let mainLoop s = do
-          --result <- hvmEval' $ app peExp s
           result <- simpleEval $ app peExp s
+
           case result of
             Zero -> putStrLn "aborted"
             (Pair disp newState) -> do
@@ -214,6 +226,7 @@ evalLoop_ iexpr = case eval' iexpr of
     let mainLoop prev s = do
           -- result <- optimizedEval (app peExp s)
           result <- simpleEval (app peExp s)
+          --result <- simpleEval $ traceShowId $ app peExp s
           case result of
             Zero -> pure $ prev <> "\n" <> "aborted"
             (Pair disp newState) -> do

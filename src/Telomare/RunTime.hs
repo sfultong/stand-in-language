@@ -153,8 +153,8 @@ instance TelomareLike IExpr where
   toTelomare = pure
 
 instance AbstractRunTime IExpr where
-  -- eval = fix iEval Zero
-  eval = rEval Zero
+  eval = fix iEval Zero
+  -- eval = rEval Zero
 
 resultIndex = FragIndex (-1)
 instance TelomareLike NExprs where
@@ -183,8 +183,6 @@ evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
     throwError . ResultConversionError $ show ar'
   Just ir -> pure ir
   
-hvmEval' :: IExpr -> IO ()
-hvmEval' x = putStrLn $ show x
 -- |Evaluation with hvm backend
 hvmEval :: IExpr -> IO IExpr
 hvmEval x = do
