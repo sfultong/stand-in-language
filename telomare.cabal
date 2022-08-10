@@ -12,7 +12,8 @@ category:            Language
 build-type:          Simple
 extra-source-files:  CHANGELOG.md, README.md
 cabal-version:       >=1.10
-
+extra-libraries:     chez
+                     
 data-files:          bench/MemoryBench/cases
                    , Prelude.tel
                    , tictactoe.tel
