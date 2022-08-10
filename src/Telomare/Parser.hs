@@ -54,7 +54,7 @@ data UnprocessedParsedTerm
   | AppUP UnprocessedParsedTerm UnprocessedParsedTerm
   | LamUP String UnprocessedParsedTerm
   | ChurchUP Int
-  | UnsizedRecursionUP
+  | UnsizedRecursionUP UnprocessedParsedTerm UnprocessedParsedTerm UnprocessedParsedTerm
   | LeftUP UnprocessedParsedTerm
   | RightUP UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
@@ -131,9 +131,9 @@ debruijinize vl (TTrace x) = TTrace <$> debruijinize vl x
 debruijinize vl (THash x) = THash <$> debruijinize vl x
 debruijinize vl (TLam (Open n) x) = TLam (Open ()) <$> debruijinize (n : vl) x
 debruijinize vl (TLam (Closed n) x) = TLam (Closed ()) <$> debruijinize (n : vl) x
-debruijinize _ TLimitedRecursion = pure TLimitedRecursion
+debruijinize vl (TLimitedRecursion t r b) = TLimitedRecursion <$> debruijinize vl t <*> debruijinize vl r <*> debruijinize vl b
 
-splitExpr' :: Term2 -> BreakState' BreakExtras BreakExtras
+splitExpr' :: Term2 -> BreakState' RecursionPieceFrag UnsizedRecursionToken
 splitExpr' = \case
   TZero -> pure ZeroFrag
   TPair a b -> PairFrag <$> splitExpr' a <*> splitExpr' b
@@ -148,11 +148,11 @@ splitExpr' = \case
   TTrace x -> (\tf nx -> SetEnvFrag (PairFrag tf nx)) <$> deferF (pure TraceFrag) <*> splitExpr' x
   TLam (Open ()) x -> lamF $ splitExpr' x
   TLam (Closed ()) x -> clamF $ splitExpr' x
-  TLimitedRecursion -> nextBreakToken >>= unsizedRecursionWrapper
+  TLimitedRecursion t r b -> nextBreakToken >>= (\x -> unsizedRecursionWrapper x (splitExpr' t) (splitExpr' r) (splitExpr' b))
 
 splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
-              in Term3 $ Map.insert (FragIndex 0) bf m
+              in Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m
 
 -- |Parse a variable.
 parseVariable :: TelomareParser UnprocessedParsedTerm
@@ -214,6 +214,10 @@ parens = between (symbol "(") (symbol ")")
 brackets :: TelomareParser a -> TelomareParser a
 brackets = between (symbol "[") (symbol "]")
 
+-- |Parser for curly braces
+curlies :: TelomareParser a -> TelomareParser a
+curlies = between (symbol "{") (symbol "}")
+
 -- |Comma sepparated TelomareParser that will be useful for lists
 commaSep :: TelomareParser a -> TelomareParser [a]
 commaSep p = p `sepBy` symbol ","
@@ -237,6 +241,16 @@ parsePair = parens $ do
   _ <- symbol "," <* scn
   b <- parseLongExpr <* scn
   pure $ PairUP a b
+
+-- |Parse unsized recursion triple
+parseUnsizedRecursion :: TelomareParser UnprocessedParsedTerm
+parseUnsizedRecursion = curlies $ do
+  a <- scn *> parseLongExpr <* scn
+  _ <- symbol "," <* scn
+  b <- parseLongExpr <* scn
+  _ <- symbol "," <* scn
+  c <- parseLongExpr <* scn
+  pure $ UnsizedRecursionUP a b c
 
 -- |Parse a list.
 parseList :: TelomareParser UnprocessedParsedTerm
@@ -268,10 +282,10 @@ parseSingleExpr = choice $ try <$> [ parseHash
                                    , parseString
                                    , parseNumber
                                    , parsePair
+                                   , parseUnsizedRecursion
                                    , parseList
                                    , parseChurch
                                    , parseVariable
-                                   , parsePartialFix
                                    , parens (scn *> parseLongExpr <* scn)
                                    ]
 
@@ -322,9 +336,6 @@ parseLongExpr = choice $ try <$> [ parseLet
 -- |Parse church numerals (church numerals are a "$" appended to an integer, without any whitespace separation).
 parseChurch :: TelomareParser UnprocessedParsedTerm
 parseChurch = ChurchUP . fromInteger <$> (symbol "$" *> integer)
-
-parsePartialFix :: TelomareParser UnprocessedParsedTerm
-parsePartialFix = symbol "?" $> UnsizedRecursionUP
 
 -- |Parse refinement check.
 parseRefinementCheck :: TelomareParser (UnprocessedParsedTerm -> UnprocessedParsedTerm)
@@ -464,7 +475,8 @@ validateVariables prelude term =
         ListUP l -> foldr TPair TZero <$> mapM validateWithEnvironment l
         AppUP f x -> TApp <$> validateWithEnvironment f
                           <*> validateWithEnvironment x
-        UnsizedRecursionUP -> pure TLimitedRecursion
+        UnsizedRecursionUP t r b -> TLimitedRecursion <$> validateWithEnvironment t
+          <*> validateWithEnvironment r <*> validateWithEnvironment b
         ChurchUP n -> pure $ i2c n
         LeftUP x -> TLeft <$> validateWithEnvironment x
         RightUP x -> TRight <$> validateWithEnvironment x
@@ -520,6 +532,7 @@ process2Term2 :: [(String, UnprocessedParsedTerm)] -- ^Prelude
 process2Term2 prelude = fmap generateAllHashes
                       . debruijinize [] <=< validateVariables prelude
                       . optimizeBuiltinFunctions
+                      . addBuiltins
 
 -- |Parse with specified prelude
 parseWithPrelude :: [(String, UnprocessedParsedTerm)]   -- ^Prelude

@@ -125,7 +125,7 @@ data ParserTerm l v
   | TTrace (ParserTerm l v)
   | THash (ParserTerm l v)
   | TLam (LamType l) (ParserTerm l v)
-  | TLimitedRecursion
+  | TLimitedRecursion (ParserTerm l v) (ParserTerm l v) (ParserTerm l v)
   deriving (Eq, Ord, Functor, Foldable, Traversable)
 makeBaseFunctor ''ParserTerm -- Functorial version ParserTermF
 
@@ -165,7 +165,7 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
     alg (TTraceF x) = indentWithOneChild "TTrace" x
     alg (THashF x) = indentWithOneChild "THash" x
     alg (TLamF l x) = indentWithOneChild ("TLam " <> show l) x
-    alg TLimitedRecursionF = sindent "TLimitedRecursion"
+    alg (TLimitedRecursionF t r b) = indentWithThreeChildren "TLimitedRecursion" t  r  b
 
 -- |Helper function to indent. Usefull for indented Show instances.
 indent :: Int -> String -> String
@@ -257,13 +257,23 @@ instance Show a => Show (FragExpr a) where
 
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
-newtype BreakExtras = UnsizedRecursion { unUnsizedRecursion :: Int } deriving (Eq, Ord, Show, Enum)
+newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken :: Int } deriving (Eq, Ord, Show, Enum)
+
+data RecursionSimulationPieces a
+  = NestedSetEnvs UnsizedRecursionToken
+  | RecursionTest a
+  deriving (Eq, Ord, Show)
+
+newtype FragExprUR = FragExprUR { unFragExprUR :: FragExpr (RecursionSimulationPieces FragExprUR) }
+  deriving (Eq, Show)
+
+type RecursionPieceFrag = RecursionSimulationPieces FragExprUR
 
 type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
 
 -- |Term3 :: Map FragIndex (FragExpr BreakExtras) -> Term3
-newtype Term3 = Term3 (Map FragIndex (FragExpr BreakExtras)) deriving (Eq, Show)
+newtype Term3 = Term3 (Map FragIndex (FragExprUR)) deriving (Eq, Show)
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving (Eq, Show)
 
 type BreakState a b = State (b, FragIndex, Map FragIndex (FragExpr a))
@@ -445,27 +455,58 @@ innerChurchF x = if x < 0
   then error ("innerChurchF called with " <> show x)
   else pure $ iterate SetEnvFrag EnvFrag !! x
 
+iteF :: BreakState' a b -> BreakState' a b -> BreakState' a b -> BreakState' a b
+-- iteF i t e = (\ii tt ee -> SetEnvFrag (PairFrag (GateFrag  ee tt) ii)) <$> i <*> t <*> e
+iteF = liftA3 (\ii tt ee -> SetEnvFrag (PairFrag (GateFrag  ee tt) ii))
+
 -- to construct a church numeral (\f x -> f ... (f x))
 -- the new, optimized church numeral operation iterates on a function "frame" (rf, (rf, (f', (x, env'))))
 -- rf is the function to pull arguments out of the frame, run f', and construct the next frame
 -- (f',env') is f (since f may contain a saved environment/closure env we want to use for each iteration)
-unsizedRecursionWrapper :: BreakExtras -> BreakState' BreakExtras BreakExtras
-unsizedRecursionWrapper urToken =
-  let firstArgF = pure $ LeftFrag EnvFrag
-      secondArgF = pure $ LeftFrag (RightFrag EnvFrag)
+unsizedRecursionWrapper :: UnsizedRecursionToken -> BreakState' RecursionPieceFrag UnsizedRecursionToken
+  -> BreakState' RecursionPieceFrag UnsizedRecursionToken
+  -> BreakState' RecursionPieceFrag UnsizedRecursionToken
+  -> BreakState' RecursionPieceFrag UnsizedRecursionToken
+unsizedRecursionWrapper urToken t r b =
+  let firstArgF = pure . LeftFrag $ EnvFrag
+      secondArgF = pure . LeftFrag . RightFrag $ EnvFrag
+      thirdArgF = pure . LeftFrag . RightFrag . RightFrag $ EnvFrag
+      fourthArgF = pure . LeftFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
+      fifthArgF = pure . LeftFrag . RightFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
       abortToken = PairFrag ZeroFrag ZeroFrag
-      abrt = lamF (SetEnvFrag <$> (PairFrag (SetEnvFrag (PairFrag AbortFrag abortToken)) <$> appF secondArgF firstArgF))
-      applyF = SetEnvFrag $ RightFrag EnvFrag
-      env' = RightFrag (RightFrag (RightFrag EnvFrag))
+      wrapTest = \case
+        (PairFrag d@(DeferFrag _) e) -> PairFrag (AuxFrag . RecursionTest . FragExprUR $ d) e
+        _ -> error "unsizedRecursionWrapper unexpected recursion test section"
+      trb = PairFrag <$> (wrapTest <$> t) <*> (PairFrag <$> r <*> (PairFrag <$> b <*> pure ZeroFrag))
+      abrt = lamF (SetEnvFrag <$> (PairFrag (SetEnvFrag (PairFrag AbortFrag abortToken)) <$> appF fourthArgF firstArgF))
+      applyF = pure . SetEnvFrag $ RightFrag EnvFrag
+      env' = pure $ RightFrag (RightFrag (RightFrag EnvFrag))
+  {-
       rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
                                                                                                 (PairFrag applyF env')))
+-}
+      -- new design is (rf, (f', (x, env')))
+      rf = deferF $ pairF firstArgF (pairF secondArgF (pairF applyF env'))
       -- construct the initial frame from f and x
+  {-
       frameSetup = (\ff a -> PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
                                                      (PairFrag a (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
                    <$> rf <*> abrt
+-}
+      -- frameSetup = (\ff a -> PairFrag ff (PairFrag (LeftFrag sndArg) (PairFrag a (RightFrag sndArg)))) <$> rf <*> abrt
+      -- frameSetup = (\ff a fp -> PairFrag ff (PairFrag f' (PairFrag a EnvFrag))) <$> rf <*> abrt <*> f'
+      -- f' = deferF . lamF $ iteF (appF t firstArgF) (appF (appF r secondArgF) firstArgF) (appF b firstArgF)
+      --  \r' i -> if t i then r r' i else b i
+      f' = deferF . lamF $ iteF (appF thirdArgF firstArgF)
+                                (appF (appF fourthArgF secondArgF) firstArgF)
+                                (appF fifthArgF firstArgF)
+      -- (rf, (f', (a, env')))
+      frameSetup = (\d e -> SetEnvFrag $ PairFrag d e) <$> deferF (pairF rf (pairF f' (pairF abrt (pure EnvFrag)))) <*> trb
       -- run the iterations x' number of times, then unwrap the result from the final frame
-      unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag $ AuxFrag urToken
-  in clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
+      -- unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
+      unwrapFrame = LeftFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
+  -- in clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
+  in SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)
 
 nextBreakToken :: Enum b => BreakState a b b
 nextBreakToken = do
@@ -703,8 +744,8 @@ fragmapToTelomare fragMap = convert (rootFrag fragMap) where
       AuxFrag _     -> Nothing
 
 instance TelomareLike Term3 where
-  fromTelomare = Term3 . telomareToFragmap
-  toTelomare (Term3 fragMap) = fragmapToTelomare fragMap
+  fromTelomare = Term3 . Map.map FragExprUR . telomareToFragmap
+  toTelomare (Term3 fragMap) = fragmapToTelomare $ Map.map unFragExprUR fragMap
 
 instance TelomareLike Term4 where
   fromTelomare = Term4 . telomareToFragmap

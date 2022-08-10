@@ -138,7 +138,7 @@ getFragType (FragIndex i) = ArrTypeP (TypeVariable $ i * 2) (TypeVariable $ i * 
 
 annotate :: Term3 -> AnnotateState PartialType
 annotate (Term3 termMap) =
-  let annotate' :: FragExpr BreakExtras -> AnnotateState PartialType
+  let annotate' :: FragExpr (RecursionSimulationPieces FragExprUR) -> AnnotateState PartialType
       annotate' = \case
         ZeroFrag -> pure ZeroTypeP
         PairFrag a b -> PairTypeP <$> annotate' a <*> annotate' b
@@ -168,12 +168,13 @@ annotate (Term3 termMap) =
           associateVar (PairTypeP AnyType ra) xt
           pure ra
         TraceFrag -> (\(t, _, _) -> t) <$> State.get
-        AuxFrag (UnsizedRecursion _) -> (\(t, _, _) -> t) <$> State.get
+        AuxFrag (NestedSetEnvs _) -> (\(t, _, _) -> t) <$> State.get
+        AuxFrag (RecursionTest (FragExprUR x)) -> annotate' x
       initInputType :: FragIndex -> AnnotateState ()
       initInputType fi = let (ArrTypeP it _) = getFragType fi in State.modify (\(_, s, i) -> (it, s, i))
       associateOutType fi ot = let (ArrTypeP _ ot2) = getFragType fi in associateVar ot ot2
-      rootType = initInputType (FragIndex 0) >> annotate' (rootFrag termMap)
-  in sequence_ (Map.mapWithKey (\k v -> initInputType k >> annotate' v >>= associateOutType k) termMap) >> rootType
+      rootType = initInputType (FragIndex 0) >> annotate' (unFragExprUR $ rootFrag termMap)
+  in sequence_ (Map.mapWithKey (\k v -> initInputType k >> annotate' (unFragExprUR v) >>= associateOutType k) termMap) >> rootType
 
 partiallyAnnotate :: Term3 -> Either TypeCheckError (PartialType, Int -> Maybe PartialType)
 partiallyAnnotate term =

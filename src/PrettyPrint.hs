@@ -110,6 +110,8 @@ showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
         let recur = showExpr l i
             showTwo c a b =
               concat [c, "\n", indent i, showExpr l (i + 1) a, "\n", indent i, showExpr l (i + 1) b]
+            showThree x a b c =
+              concat [x, "\n", indent i, showExpr l (i + 1) a, "\n", indent i, showExpr l (i + 1) b, "\n", indent i, showExpr l (i + 1) c]
         in \case
           ZeroFrag                  -> "Z"
           PairFrag a b              -> showTwo "P" a b
@@ -121,6 +123,7 @@ showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
           LeftFrag x                -> "L " <> recur x
           RightFrag x               -> "R " <> recur x
           TraceFrag                 -> "T"
-          AuxFrag _                 -> "?"
-  in showFrag (FragIndex 0) rootType (rootFrag termMap) <> "\n"
-     <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail $ Map.toAscList termMap)
+          AuxFrag (RecursionTest (FragExprUR x)) -> "?" <> recur x
+          AuxFrag (NestedSetEnvs _)              -> "%"
+  in showFrag (FragIndex 0) rootType (unFragExprUR $ rootFrag termMap) <> "\n"
+     <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail . Map.toAscList . Map.map unFragExprUR $ termMap)

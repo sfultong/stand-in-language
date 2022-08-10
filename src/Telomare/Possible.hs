@@ -31,6 +31,18 @@ import           Data.Void
 import           Debug.Trace
 import           Telomare
 
+
+-- foldr :: Foldable t => (a -> b -> b) -> b -> t a -> b
+
+testFoldr :: (a -> t -> t) -> [a] -> t -> t
+testFoldr f =
+  let c f n = f (f (f n))
+      test = not . null
+      layer recur l accum = f (head l) (recur (tail l) accum)
+      base l accum = accum
+      conditionalLayer r l = if test l then layer r l else base l
+  in c conditionalLayer base
+
 data PartExprF f
   = ZeroSF
   | PairSF f f
@@ -274,6 +286,7 @@ handleSuper handleOther env term =
             Left _                   -> handleOther env term
             Right (EitherPF sca scb) -> mergeSuper (evalE se sca) (evalE se scb)
           z -> error ("handleSuper setEnv pair unexpected sc " <> show sf)
+        z -> error ("handleSuper setEnv unexpected sc " <> show sf)
 
 type AbortExpr f = SuperExpr (SplitFunctor f AbortableF)
 
