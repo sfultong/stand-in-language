@@ -29,7 +29,11 @@ import           Data.Set                  (Set)
 import qualified Data.Set                  as Set
 import           Data.Void
 import           Debug.Trace
-import           Telomare                  (IExpr(..), Term4(..), FragExpr(..), FragIndex, TelomareLike(toTelomare, fromTelomare), rootFrag, pattern AbortAny)
+import           Telomare                  (FragExpr (..), FragIndex,
+                                            IExpr (..),
+                                            TelomareLike (fromTelomare, toTelomare),
+                                            Term4 (..), pattern AbortAny,
+                                            rootFrag)
 
 data PartExprF f
   = ZeroSF

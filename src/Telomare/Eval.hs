@@ -1,6 +1,6 @@
-{-# LANGUAGE LambdaCase       #-}
-{-# LANGUAGE TupleSections    #-}
-{-# LANGUAGE PatternSynonyms  #-}
+{-# LANGUAGE LambdaCase      #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TupleSections   #-}
 module Telomare.Eval where
 
 import           Control.Lens.Plated
@@ -22,14 +22,21 @@ import           Debug.Trace
 import           System.IO
 import           System.Process
 
-import           Telomare                  (IExpr(..), ExprA(..), Term3(Term3), Term4(Term4), FragExpr(..), FragIndex(FragIndex),
-                                            BreakExtras(..), BreakState', RunTimeError(..), TelomareLike(..), PartialType(..),
-                                            pattern AbortRecursion, pattern AbortAny, pattern AbortUser, rootFrag, app, s2g,
-                                            g2s, innerChurchF, insertAndGetKey)
+import           Telomare                  (BreakExtras (..), BreakState',
+                                            ExprA (..), FragExpr (..),
+                                            FragIndex (FragIndex), IExpr (..),
+                                            PartialType (..), RunTimeError (..),
+                                            TelomareLike (..), Term3 (Term3),
+                                            Term4 (Term4), app, g2s,
+                                            innerChurchF, insertAndGetKey,
+                                            pattern AbortAny,
+                                            pattern AbortRecursion,
+                                            pattern AbortUser, rootFrag, s2g)
 import           Telomare.Optimizer        (optimize)
 import           Telomare.Possible         (evalA)
-import           Telomare.RunTime          (simpleEval, hvmEval, pureEval, optimizedEval)
-import           Telomare.TypeChecker      (TypeCheckError(..), typeCheck)
+import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
+                                            simpleEval)
+import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
 
 data ExpP = ZeroP
     | PairP ExpP ExpP

@@ -3,8 +3,10 @@
 module PrettyPrint where
 
 import           Data.Map (Map)
-import           Naturals (NExpr(..), NExprs(..), NResult)
-import           Telomare (IExpr(..), FragExpr(..), FragIndex(..), PartialType(..), Term3(..), PrettyPartialType(..),rootFrag)
+import           Naturals (NExpr (..), NExprs (..), NResult)
+import           Telomare (FragExpr (..), FragIndex (..), IExpr (..),
+                           PartialType (..), PrettyPartialType (..), Term3 (..),
+                           rootFrag)
 
 import qualified Data.Map as Map
 

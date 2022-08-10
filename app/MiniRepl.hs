@@ -20,10 +20,18 @@ import qualified System.IO.Strict         as Strict
 import           Text.Megaparsec
 import           Text.Megaparsec.Char
 
-import           Telomare                 (IExpr(..), Term3, PrettyIExpr(PrettyIExpr), PrettyPartialType(PrettyPartialType), TelomareLike(fromTelomare, toTelomare))
-import           Telomare.Eval            (EvalError(..), compileUnitTest)
-import           Telomare.Parser          (UnprocessedParsedTerm(..), TelomareParser, process, parsePrelude, runTelomareParser, parseLongExpr, parseAssignment)
-import           Telomare.RunTime         (simpleEval, fastInterpretEval)
+import           Telomare                 (IExpr (..),
+                                           PrettyIExpr (PrettyIExpr),
+                                           PrettyPartialType (PrettyPartialType),
+                                           TelomareLike (fromTelomare, toTelomare),
+                                           Term3)
+import           Telomare.Eval            (EvalError (..), compileUnitTest)
+import           Telomare.Parser          (TelomareParser,
+                                           UnprocessedParsedTerm (..),
+                                           parseAssignment, parseLongExpr,
+                                           parsePrelude, process,
+                                           runTelomareParser)
+import           Telomare.RunTime         (fastInterpretEval, simpleEval)
 import           Telomare.TypeChecker     (inferType)
 
 -- Parsers for assignments/expressions within REPL

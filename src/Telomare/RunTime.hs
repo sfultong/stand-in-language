@@ -19,9 +19,11 @@ import           Naturals              hiding (debug, debugTrace)
 import           PrettyPrint
 import           System.IO
 import           System.Process
-import           Telomare              (IExpr(..), RunTimeError(..), DataType(..), RunResult, AbstractRunTime(eval),
-                                        TelomareLike(fromTelomare, toTelomare), IExprF(..), PrettyIExpr(PrettyIExpr),
-                                        FragIndex(FragIndex))
+import           Telomare              (AbstractRunTime (eval), DataType (..),
+                                        FragIndex (FragIndex), IExpr (..),
+                                        IExprF (..), PrettyIExpr (PrettyIExpr),
+                                        RunResult, RunTimeError (..),
+                                        TelomareLike (fromTelomare, toTelomare))
 import           Text.Read             (readMaybe)
 
 debug :: Bool
@@ -182,7 +184,7 @@ evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
     ar' <- ar
     throwError . ResultConversionError $ show ar'
   Just ir -> pure ir
-  
+
 -- |Evaluation with hvm backend
 hvmEval :: IExpr -> IO IExpr
 hvmEval x = do

@@ -42,9 +42,14 @@ import           Text.Megaparsec.Pos
 import           Text.Read                  (readMaybe)
 
 
-import           Telomare                   (IExpr(..), ParserTerm(..), LamType(..), Term1(..), Term2(..), Term3(..),
-                                             ParserTermF(..), BreakExtras, BreakState', FragIndex(..), FragExpr(..),
-                                             unsizedRecursionWrapper,nextBreakToken, clamF, lamF, deferF, appF, varNF)
+import           Telomare                   (BreakExtras, BreakState',
+                                             FragExpr (..), FragIndex (..),
+                                             IExpr (..), LamType (..),
+                                             ParserTerm (..), ParserTermF (..),
+                                             Term1 (..), Term2 (..), Term3 (..),
+                                             appF, clamF, deferF, lamF,
+                                             nextBreakToken,
+                                             unsizedRecursionWrapper, varNF)
 import           Telomare.TypeChecker       (typeCheck)
 
 data UnprocessedParsedTerm
