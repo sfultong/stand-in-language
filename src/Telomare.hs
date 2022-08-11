@@ -484,9 +484,10 @@ unsizedRecursionWrapper urToken t r b =
   {-
       rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
                                                                                                 (PairFrag applyF env')))
+      rf = deferF . pure $ pairF firstArgF (pairF firstArgF (pairF secondArgF (pairF applF env')))
 -}
-      -- new design is (rf, (f', (x, env')))
-      rf = deferF $ pairF firstArgF (pairF secondArgF (pairF applyF env'))
+      -- (rf, (rf, (f', (x, env'))))
+      rf = deferF $ pairF firstArgF (pairF firstArgF (pairF secondArgF (pairF applyF env')))
       -- construct the initial frame from f and x
   {-
       frameSetup = (\ff a -> PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
@@ -496,12 +497,13 @@ unsizedRecursionWrapper urToken t r b =
       -- frameSetup = (\ff a -> PairFrag ff (PairFrag (LeftFrag sndArg) (PairFrag a (RightFrag sndArg)))) <$> rf <*> abrt
       -- frameSetup = (\ff a fp -> PairFrag ff (PairFrag f' (PairFrag a EnvFrag))) <$> rf <*> abrt <*> f'
       -- f' = deferF . lamF $ iteF (appF t firstArgF) (appF (appF r secondArgF) firstArgF) (appF b firstArgF)
+      -- f' env - x, 
       --  \r' i -> if t i then r r' i else b i
       f' = deferF . lamF $ iteF (appF thirdArgF firstArgF)
                                 (appF (appF fourthArgF secondArgF) firstArgF)
                                 (appF fifthArgF firstArgF)
-      -- (rf, (f', (a, env')))
-      frameSetup = (\d e -> SetEnvFrag $ PairFrag d e) <$> deferF (pairF rf (pairF f' (pairF abrt (pure EnvFrag)))) <*> trb
+      -- (rf, (rf, (f', (a, env'))))
+      frameSetup = SetEnvFrag <$> pairF (deferF (pairF rf (pairF rf (pairF f' (pairF abrt (pure EnvFrag)))))) trb
       -- run the iterations x' number of times, then unwrap the result from the final frame
       -- unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
       unwrapFrame = LeftFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken

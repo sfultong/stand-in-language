@@ -287,6 +287,7 @@ handleSuper handleOther env term =
             Right (EitherPF sca scb) -> mergeSuper (evalE se sca) (evalE se scb)
           z -> error ("handleSuper setEnv pair unexpected sc " <> show sf)
         z -> error ("handleSuper setEnv unexpected sc " <> show sf)
+      z -> error ("handleSuper unexpected " <> show term)
 
 type AbortExpr f = SuperExpr (SplitFunctor f AbortableF)
 
