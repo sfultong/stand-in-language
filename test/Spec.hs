@@ -273,6 +273,12 @@ three_pow_two =
       pow = lam (lam (lam (lam pow_app)))
   in app (app (app (app pow (toChurch 2)) (toChurch 3)) succ) zero
 
+-- validate termination checking
+inf_pairs =
+  let firstArg = pleft env
+      recur = defer (pair zero (setenv (pair firstArg env)))
+  in setenv (pair recur (pair recur zero))
+
 -- unbound type errors should be allowed for purposes of testing runtime
 allowedTypeCheck :: Maybe TypeCheckError -> Bool
 allowedTypeCheck Nothing                = True
@@ -535,6 +541,7 @@ unitTests parse = do
               )
       )
       ZeroTypeP isRecursiveType
+    unitTestType2 inf_pairs ZeroTypeP isRecursiveType
   describe "unitTest" $ do
     unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
     -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
