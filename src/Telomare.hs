@@ -468,47 +468,39 @@ unsizedRecursionWrapper :: UnsizedRecursionToken -> BreakState' RecursionPieceFr
   -> BreakState' RecursionPieceFrag UnsizedRecursionToken
   -> BreakState' RecursionPieceFrag UnsizedRecursionToken
 unsizedRecursionWrapper urToken t r b =
-  let firstArgF = pure . LeftFrag $ EnvFrag
-      secondArgF = pure . LeftFrag . RightFrag $ EnvFrag
+  let firstArgF = pure $ LeftFrag EnvFrag
+      secondArgF = pure $ LeftFrag (RightFrag EnvFrag)
       thirdArgF = pure . LeftFrag . RightFrag . RightFrag $ EnvFrag
       fourthArgF = pure . LeftFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
       fifthArgF = pure . LeftFrag . RightFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
       abortToken = PairFrag ZeroFrag ZeroFrag
-      wrapTest = \case
-        (PairFrag d@(DeferFrag _) e) -> PairFrag (AuxFrag . RecursionTest . FragExprUR $ d) e
-        _ -> error "unsizedRecursionWrapper unexpected recursion test section"
-      trb = PairFrag <$> (wrapTest <$> t) <*> (PairFrag <$> r <*> (PairFrag <$> b <*> pure ZeroFrag))
-      abrt = lamF (SetEnvFrag <$> (PairFrag (SetEnvFrag (PairFrag AbortFrag abortToken)) <$> appF fourthArgF firstArgF))
-      applyF = pure . SetEnvFrag $ RightFrag EnvFrag
-      env' = pure $ RightFrag (RightFrag (RightFrag EnvFrag))
-  {-
+      abrt = lamF (SetEnvFrag <$> (PairFrag (SetEnvFrag (PairFrag AbortFrag abortToken)) <$> appF secondArgF firstArgF))
+      applyF = SetEnvFrag $ RightFrag EnvFrag
+      env' = RightFrag (RightFrag (RightFrag EnvFrag))
       rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
                                                                                                 (PairFrag applyF env')))
-      rf = deferF . pure $ pairF firstArgF (pairF firstArgF (pairF secondArgF (pairF applF env')))
--}
-      -- (rf, (rf, (f', (x, env'))))
-      rf = deferF $ pairF firstArgF (pairF firstArgF (pairF secondArgF (pairF applyF env')))
       -- construct the initial frame from f and x
-  {-
       frameSetup = (\ff a -> PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
                                                      (PairFrag a (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
                    <$> rf <*> abrt
--}
-      -- frameSetup = (\ff a -> PairFrag ff (PairFrag (LeftFrag sndArg) (PairFrag a (RightFrag sndArg)))) <$> rf <*> abrt
-      -- frameSetup = (\ff a fp -> PairFrag ff (PairFrag f' (PairFrag a EnvFrag))) <$> rf <*> abrt <*> f'
-      -- f' = deferF . lamF $ iteF (appF t firstArgF) (appF (appF r secondArgF) firstArgF) (appF b firstArgF)
-      -- f' env - x, 
-      --  \r' i -> if t i then r r' i else b i
-      f' = deferF . lamF $ iteF (appF thirdArgF firstArgF)
-                                (appF (appF fourthArgF secondArgF) firstArgF)
-                                (appF fifthArgF firstArgF)
-      -- (rf, (rf, (f', (a, env'))))
-      frameSetup = SetEnvFrag <$> pairF (deferF (pairF rf (pairF rf (pairF f' (pairF abrt (pure EnvFrag)))))) trb
       -- run the iterations x' number of times, then unwrap the result from the final frame
-      -- unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
-      unwrapFrame = LeftFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
+      unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
+      -- TODO eliminate b redundancy
+      wrapTest = \case
+        (PairFrag d@(DeferFrag _) e) -> PairFrag (AuxFrag . RecursionTest . FragExprUR $ d) e
+        _ -> error "unsizedRecursionWrapper unexpected recursion test section"
+      -- \r' i -> if t i then r r' i else b i --- i r' b t r
+      -- \t r b r' i -> if t i then r r' i else b i
+      rWrap = lamF . lamF $ iteF (appF fifthArgF firstArgF)
+                                 (appF (appF fourthArgF secondArgF) firstArgF)
+                                 (appF thirdArgF firstArgF)
+      churchNum = clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
+
+--      applyChurch = pairF (deferF (SetEnvFrag <$> (pairF (deferF (pure unwrapFrame)) frameSetup))) 
   -- in clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
-  in SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)
+      trb = pairF b (pairF r (pairF (wrapTest <$> t) (pure ZeroFrag)))
+  --in SetEnvFrag <$> pairF (deferF (SetEnvFrag <$> pairF innerChurch (pairF firstArgF (pairF rWrap (pure EnvFrag))))) btr
+  in SetEnvFrag <$> pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb
 
 nextBreakToken :: Enum b => BreakState a b b
 nextBreakToken = do
