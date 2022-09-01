@@ -22,16 +22,21 @@ import           Debug.Trace
 import           System.IO
 import           System.Process
 
-import           Telomare                  (BreakExtras (..), BreakState',
-                                            ExprA (..), FragExpr (..),
+import           Telomare                  (BreakState, BreakState', ExprA (..),
+                                            FragExpr (..),
                                             FragIndex (FragIndex), IExpr (..),
-                                            PartialType (..), RunTimeError (..),
+                                            PartialType (..),
+                                            RecursionPieceFrag,
+                                            RecursionSimulationPieces (..),
+                                            RunTimeError (..),
                                             TelomareLike (..), Term3 (Term3),
-                                            Term4 (Term4), app, g2s,
-                                            innerChurchF, insertAndGetKey,
+                                            Term4 (Term4),
+                                            UnsizedRecursionToken (..), app,
+                                            g2s, innerChurchF, insertAndGetKey,
                                             pattern AbortAny,
                                             pattern AbortRecursion,
-                                            pattern AbortUser, rootFrag, s2g)
+                                            pattern AbortUser, rootFrag, s2g,
+                                            unFragExprUR)
 import           Telomare.Optimizer        (optimize)
 import           Telomare.Possible         (evalA)
 import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,

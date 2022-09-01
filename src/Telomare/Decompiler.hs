@@ -11,7 +11,7 @@ import           Telomare            (FragExpr (..), FragIndex (FragIndex),
                                       IExpr (..), LamType (..), ParserTerm (..),
                                       Term1, Term2, Term3 (Term3),
                                       Term4 (Term4), buildFragMap, deferF,
-                                      rootFrag)
+                                      rootFrag, unFragExprUR)
 import           Telomare.Parser     (UnprocessedParsedTerm (..))
 
 decompileUPT :: UnprocessedParsedTerm -> String

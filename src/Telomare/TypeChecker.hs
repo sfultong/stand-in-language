@@ -15,9 +15,10 @@ import           Data.Set             (Set)
 import qualified Data.Set             as Set
 import           Debug.Trace
 import           PrettyPrint
-import           Telomare             (BreakExtras (..), FragExpr (..),
+import           Telomare             (FragExpr (..), FragExprUR (..),
                                        FragIndex (..), PartialType (..),
                                        PrettyPartialType (PrettyPartialType),
+                                       RecursionSimulationPieces (..),
                                        Term3 (..), rootFrag)
 
 debug :: Bool
