@@ -70,7 +70,7 @@ decompileUPT =
           -- TODO flatten nested lambdas
           LamUP n x -> drawList [showS "\\", showS n, showS " -> ", draw x]
           ChurchUP n -> drawList [showS "$", showS $ show n]
-          UnsizedRecursionUP -> showS "?"
+          UnsizedRecursionUP t r b -> drawList [showS "{", draw t, showS ",", draw r, showS ",", draw b, showS "}"]
           LeftUP x -> drawList [showS "left ", drawParens x]
           RightUP x -> drawList [showS "right ", drawParens x]
           TraceUP x -> drawList [showS "trace ", drawParens x]
@@ -111,7 +111,7 @@ decompileTerm1 = \case
   TTrace x -> TraceUP (decompileTerm1 x)
   TLam (Open n) x -> LamUP n (decompileTerm1 x)
   TLam (Closed n) x -> LamUP n (decompileTerm1 x) -- not strictly equivalent
-  TLimitedRecursion -> UnsizedRecursionUP
+  TLimitedRecursion t r b -> UnsizedRecursionUP (decompileTerm1 t) (decompileTerm1 r) (decompileTerm1 b)
 
 decompileTerm2 :: Term2 -> Term1
 decompileTerm2 =
@@ -131,7 +131,7 @@ decompileTerm2 =
         TTrace x -> TTrace <$> go x
         TLam (Open ()) x -> (\(Max n, r) -> (Max n, (TLam (Open (getName n)) r))) $ go x -- warning, untested
         TLam (Closed ()) x -> (\(Max n, r) -> (Max 0, (TLam (Closed (getName n)) r))) $ go x
-        TLimitedRecursion -> pure TLimitedRecursion
+        TLimitedRecursion t r b -> TLimitedRecursion <$> go t <*> go r <*> go b
   in snd . go
 
 decompileFragMap :: Map.Map FragIndex (FragExpr a) -> Term2
@@ -148,14 +148,14 @@ decompileFragMap tm =
         LeftFrag x -> TLeft $ recur x
         RightFrag x -> TRight $ recur x
         TraceFrag -> TLam (Closed ()) $ TTrace (TVar 0)
-        AuxFrag _ -> TLimitedRecursion
+        AuxFrag _ -> error "decompileFragMap: TODO AuxFrag" -- TLimitedRecursion
   in decomp $ rootFrag tm
 
 decompileTerm4 :: Term4 -> Term2
 decompileTerm4 (Term4 tm) = decompileFragMap tm
 
 decompileTerm3 :: Term3 -> Term2
-decompileTerm3 (Term3 tm) = decompileFragMap tm
+decompileTerm3 (Term3 tm) = decompileFragMap $ Map.map unFragExprUR tm
 
 decompileIExpr :: IExpr -> Term4
 decompileIExpr x = let build = \case

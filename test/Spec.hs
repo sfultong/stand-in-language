@@ -529,7 +529,8 @@ unitTests parse = do
       (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" ZeroTypeP (== Nothing)
     unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
-    unitTestType "main = ? (\\r l -> if l then r (left l) else 0) (\\l -> 0) 2" ZeroTypeP (== Nothing)
+    -- unitTestType "main = ? (\\r l -> if l then r (left l) else 0) (\\l -> 0) 2" ZeroTypeP (== Nothing)
+    unitTestType "main = {id,\\r l -> r (left l),id} 2" ZeroTypeP (== Nothing)
     unitTestType2
       (setenv (pair
                (setenv (pair
@@ -544,8 +545,6 @@ unitTests parse = do
     unitTestType2 inf_pairs ZeroTypeP isRecursiveType
   describe "unitTest" $ do
     unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-    -- unitTest "abort" "1" (pair (Abort (pair zero zero)) zero)
-    --unitTest "notAbort" "2" (setenv (pair (setenv (pair Abort zero)) (pair (pair zero zero) zero)))
     unitTest "c2d" "2" c2d_test
     unitTest "c2d2" "2" c2d_test2
     unitTest "c2d3" "1" c2d_test3
@@ -583,7 +582,8 @@ unitTests parse = do
     unitTest2 "main = plus $3 $2 succ 0" "5"
     unitTest2 "main = times $3 $2 succ 0" "6"
     unitTest2 "main = pow $3 $2 succ 0" "9"
-    unitTest2 "main = (d2cG $4 3) succ 0" "3"
+    unitTest2 "main = d2c 3 succ 0" "3"
+    -- unitTest2 "main = (d2cG $4 3) succ 0" "3"
     unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
     unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
     unitTest2 "main = dEqual 0 0" "1"
@@ -601,6 +601,7 @@ unitTests parse = do
     unitTest2 "main = listPlus [1,2] [3,4]" "(1,(2,(3,5)))"
     unitTest2 "main = listPlus 0 [1]" "2"
     unitTest2 "main = listPlus [1] 0" "2"
+    unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
     unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "(97,(98,100))"
     unitTest2 nestedNamedFunctionsIssue "2"
     unitTest2 "main = take $0 [1,2,3]" "0"

@@ -64,7 +64,7 @@ data EvalError = RTE RunTimeError
     | TCE TypeCheckError
     | StaticCheckError String
     | CompileConversionError
-    | RecursionLimitError BreakExtras
+    | RecursionLimitError UnsizedRecursionToken
     deriving (Eq, Ord, Show)
 
 type ExpFullEnv = ExprA Bool
@@ -113,22 +113,18 @@ partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
 partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 
-convertPT' :: (BreakExtras -> Int) -> (FragIndex -> FragExpr BreakExtras) -> FragExpr BreakExtras -> BreakState' BreakExtras b
-convertPT' limitLookup fragLookup =
-  let changeTerm = \case
-        AuxFrag n -> innerChurchF $ limitLookup n
-        DeferFrag fi -> do
-          newFrag <- transformM changeTerm $ fragLookup fi
-          State.modify (\(uri, fii, fragMap) -> (uri, fii, Map.insert fi newFrag fragMap))
-          pure $ DeferFrag fi
-        x -> pure x
-  in transformM changeTerm
-
-convertPT :: (BreakExtras -> Int) -> Term3 -> Term4
-convertPT ll (Term3 termMap) = let builder = convertPT' ll (termMap Map.!) (rootFrag termMap)
+convertPT :: (UnsizedRecursionToken -> Int) -> Term3 -> Term4
+convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
                                    startKey = succ . fst $ Map.findMax termMap
-                                   (_,_,newMap) = State.execState builder ((), startKey, termMap)
-                                   changeType :: FragExpr BreakExtras -> FragExpr Void
+                                   changeFrag = \case
+                                     AuxFrag (NestedSetEnvs n) -> innerChurchF $ ll n
+                                     AuxFrag (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
+                                     x -> pure x
+                                   insertChanged :: FragIndex -> FragExpr RecursionPieceFrag -> BreakState RecursionPieceFrag () ()
+                                   insertChanged nk nv = State.modify (\(_, k, m) -> ((), k, Map.insert nk nv m))
+                                   builder = sequence $ Map.mapWithKey (\k v -> transformM changeFrag v >>= insertChanged k) unURedMap
+                                   (_,_,newMap) = State.execState builder ((), startKey, unURedMap)
+                                   changeType :: FragExpr RecursionPieceFrag -> FragExpr Void
                                    changeType = \case
                                      ZeroFrag -> ZeroFrag
                                      PairFrag a b -> PairFrag (changeType a) (changeType b)
@@ -140,7 +136,7 @@ convertPT ll (Term3 termMap) = let builder = convertPT' ll (termMap Map.!) (root
                                      LeftFrag x -> LeftFrag (changeType x)
                                      RightFrag x -> RightFrag (changeType x)
                                      TraceFrag -> TraceFrag
-                                     AuxFrag _ -> error "convertPT should be no AuxFrags here"
+                                     AuxFrag z -> error ("convertPT should be no AuxFrags here " <> show z)
                                in Term4 $ fmap changeType newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4

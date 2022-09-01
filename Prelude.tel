@@ -1,3 +1,5 @@
+id = \x -> x
+
 and = \a b -> if a then b else 0
 
 or = \a b -> if a then 1 else b
@@ -6,11 +8,10 @@ not = \x -> if x then 0 else 1
 
 succ = \x -> (x,0)
 
-d2cG = \r -> let layer = \recur i f b -> if i
-                                            then f (recur (left i) f b)
-                                            else b
-             in r layer (\i f b -> b)
-d2c = d2cG ?
+d2c = { id
+      , \recur i f b -> f (recur (left i) f b)
+      , \i f b -> b
+      }
 
 c2d = \c -> c succ 0
 
@@ -24,36 +25,35 @@ dMinus = \a b -> d2c b (\x -> left x) a
 
 minus = \a b -> d2c (b (\x -> left x) (c2d a))
 
-range = \a b -> let layer = \recur i -> if dMinus b i
-                                           then (i, recur (i,0))
-                                           else 0
-                in ? layer (\i -> 0) a
+range = \a b -> { \i -> dMinus b i
+                , \recur i -> (i, recur (i,0))
+                , \i -> 0
+                } a
 
-mapG = \r f -> let layer = \recur l -> if l then (f (left l), recur (right l)) else 0
-                   base = \l -> 0
-               in r layer base
-map = mapG ?
+map = \f -> { id
+            , \recur l -> (f (left l), recur (right l))
+            , \l -> 0
+            }
 
-foldrG = \r f -> let layer = \recur accum l -> if l then f (left l) (recur accum (right l))
-                                                    else accum
-                     base = \accum l -> accum
-                 in r layer base 
-foldr = foldrG ?
+foldr = \f b ta -> let fixed = { id
+                               , \recur l accum -> f (left l) (recur (right l) accum)
+                               , \l accum -> accum
+                               }
+                   in fixed ta b
 
-foldlG = \r f -> let layer = \recur accum l -> if l then recur (f accum (left l)) (right l)
-                                                    else accum
-                     base = \accum l -> accum
-                 in r layer base 
-foldl = foldlG ?
+foldl = \f b ta -> let fixed = { id
+                               , \recur l accum -> recur (right l) (f accum (left l))
+                               , \l accum -> accum
+                               }
+                   in fixed ta b
 
-zipWithG = \r f -> let layer = \recur a b -> if (and a b)
-                                                then (f (left a) (left b)
-                                                      , recur (right a) (right b)
-                                                      )
-                                                else 0
-                       base = \a b -> 0
-                   in r layer base 
-zipWith = zipWithG ?
+zipWith = \f a b -> let fixed = { \ab -> and (left ab) (right ab)
+                                , \recur ab -> (f (left (left ab)) (left (right ab))
+                                               , recur (right (left ab), right (right ab))
+                                               )
+                                , \ab -> 0
+                                }
+                    in fixed (a,b)
 
 filter = \f -> foldr (\a b -> if f a then (a, b) else b) 0 
 
@@ -76,19 +76,16 @@ drop = \n l -> n (\x -> right x) l
 take = \n l -> let lengthed = n (\x -> (0,x)) 0
                in zipWith (\a b -> a) l lengthed
 
-takeG = \r n l -> let lengthed = n (\x -> (0,x)) 0
-                  in zipWithG r (\a b -> a) l lengthed
-
 factorial = \n -> foldr (\a b -> times (d2c a) b) $1 (range 1 (n,0))
 
-quicksort = let layer = \recur l -> if right l
-                                       then let t = left l
-                                                test = \x -> dMinus x t
-                                                p1 = filter test (right l)
-                                                p2 = filter (\x -> not (test x)) (right l)
-                                            in listPlus (recur p2) (t,(recur p1))
-                                       else l
-            in ? layer (\l -> 0)
+quicksort = { \l -> right l
+            , \recur l -> let t = left l
+                              test = \x -> dMinus x t
+                              p1 = filter test (right l)
+                              p2 = filter (\x -> not (test x)) (right l)
+                          in listPlus (recur p2) (t,(recur p1))
+            , id
+            }
 
 abort = \str -> let x : (\y -> listPlus "abort: " str) = 1
                 in x

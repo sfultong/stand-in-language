@@ -9,6 +9,7 @@ module Common where
 
 import           Control.Applicative
 import           Data.Bifunctor
+import qualified Data.Map as Map
 
 import           Test.QuickCheck
 import           Test.QuickCheck.Gen
@@ -144,7 +145,7 @@ genTypedTree ti t i =
                       , rightOption (ArrType ti' to)
                       ]
 
-genTypedTree' :: Maybe DataType -> DataType -> Int -> Gen (BreakState' BreakExtras BreakExtras)
+genTypedTree' :: Maybe DataType -> DataType -> Int -> Gen (BreakState' RecursionPieceFrag UnsizedRecursionToken)
 genTypedTree' ti t i =
   let half = div i 2
       optionEnv = if ti == Just t
@@ -187,17 +188,18 @@ instance Arbitrary DataTypedIExpr where
   arbitrary = IExprWrapper <$> sized (genTypedTree Nothing ZeroType)
   shrink (IExprWrapper x) = map (IExprWrapper . getIExpr) . filter zeroTyped . shrink $ TestIExpr x
 
-instance Arbitrary URTestExpr where
-  arbitrary = fmap (URTestExpr . Term3 . buildFragMap . wrapWithUR)
+instance Arbitrary URTestExpr where -- TODO needs to be tested since refactor
+  arbitrary = fmap (URTestExpr . Term3 . Map.map FragExprUR . buildFragMap . wrapWithUR)
     . sequence $ map sized
-    [genTypedTree' Nothing ((ArrType (PairType ZeroType (PairType (ArrType ZeroType ZeroType) ZeroType))) ZeroType)
-    ,genTypedTree' Nothing (ArrType ZeroType ZeroType)
+    [genTypedTree' Nothing (PairType (ArrType ZeroType ZeroType) ZeroType)
+    ,genTypedTree' Nothing (PairType (ArrType (PairType (ArrType ZeroType ZeroType) ZeroType)
+                                              (PairType (ArrType ZeroType ZeroType) ZeroType))
+                                      ZeroType)
+    ,genTypedTree' Nothing (PairType (ArrType ZeroType ZeroType) ZeroType)
     ,genTypedTree' Nothing ZeroType
     ]
-    where wrapWithUR [rf, bf, i] =
-            appF (appF (appF (unsizedRecursionWrapper (toEnum 0)) (clamF (PairFrag <$> rf <*> pure ZeroFrag)))
-                  (PairFrag <$> bf <*> pure ZeroFrag))
-                   i
+    where wrapWithUR [t, r, b, i] =
+            appF (unsizedRecursionWrapper (toEnum 0) t r b) i
 
 typeable x = case inferType (fromTelomare $ getIExpr x) of
   Left _ -> False
@@ -222,7 +224,6 @@ instance Arbitrary UnprocessedParsedTerm where
           [ StringUP <$> elements (map (("s" <>) . show) [1..9]) -- chooseAny
           , IntUP <$> elements [0..9]
           , ChurchUP <$> elements [0..9]
-          , pure UnsizedRecursionUP
           ]
     lambdaTerms = ["w", "x", "y", "z"]
     letTerms = map (("l" <>) . show) [1..255]
@@ -250,6 +251,7 @@ instance Arbitrary UnprocessedParsedTerm where
                                    , TraceUP <$> recur (i - 1)
                                    , elements lambdaTerms >>= \var -> LamUP var <$> genTree (var : varList) (i - 1)
                                    , ITEUP <$> recur third <*> recur third <*> recur third
+                                   , UnsizedRecursionUP <$> recur third <*> recur third <*> recur third
                                    , ListUP <$> childList
                                    , do
                                       -- listSize <- chooseInt (1, max i 1)
@@ -276,7 +278,7 @@ instance Arbitrary UnprocessedParsedTerm where
     ChurchUP i -> case i of
       0 -> []
       x -> pure . ChurchUP $ x - 1
-    UnsizedRecursionUP -> []
+    UnsizedRecursionUP t r b -> t : r : b : [UnsizedRecursionUP nt nr nb | (nt, nr, nb) <- shrink (t,r,b)]
     VarUP _ -> []
     HashUP x -> x : map HashUP (shrink x)
     LeftUP x -> x : map LeftUP (shrink x)
@@ -312,7 +314,6 @@ instance Arbitrary Term1 where
       oneof $
           (if not (null varList) then ((TVar <$> elements varList) :) else id)
           [ pure TZero
-          , pure TLimitedRecursion
           ]
     lambdaTerms = ["w", "x", "y", "z"]
     letTerms = map (("l" <>) . show) [1..255]
@@ -340,12 +341,13 @@ instance Arbitrary Term1 where
                                    , TTrace <$> recur (i - 1)
                                    , elements lambdaTerms >>= \var -> TLam (Open var) <$> genTree (var : varList) (i - 1)
                                    , TITE <$> recur third <*> recur third <*> recur third
+                                   , TLimitedRecursion <$> recur third <*> recur third <*> recur third
                                    , TPair <$> recur half <*> recur half
                                    , TApp <$> recur half <*> recur half
                                    ]
   shrink = \case
     TZero -> []
-    TLimitedRecursion -> []
+    TLimitedRecursion t r b -> t : r : b : [TLimitedRecursion nt nr nb | (nt, nr, nb) <- shrink (t,r,b)]
     TVar _ -> []
     THash x -> x : map THash (shrink x)
     TLeft x -> x : map TLeft (shrink x)
@@ -368,7 +370,7 @@ instance Arbitrary Term2 where
     pure term2
   shrink = \case
     TZero -> []
-    TLimitedRecursion -> []
+    TLimitedRecursion t r b -> t : r : b : [TLimitedRecursion nt nr nb | (nt, nr, nb) <- shrink (t,r,b)]
     TVar _ -> []
     THash x -> x : map THash (shrink x)
     TLeft x -> x : map TLeft (shrink x)
