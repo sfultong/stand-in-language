@@ -9,7 +9,7 @@ module Common where
 
 import           Control.Applicative
 import           Data.Bifunctor
-import qualified Data.Map as Map
+import qualified Data.Map             as Map
 
 import           Test.QuickCheck
 import           Test.QuickCheck.Gen
