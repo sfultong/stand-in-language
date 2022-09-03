@@ -31,12 +31,22 @@ import           Data.Set                  (Set)
 import qualified Data.Set                  as Set
 import           Data.Void
 import           Debug.Trace
-import           Telomare                  (FragExpr (..), FragIndex,
-                                            IExpr (..), PartialType (..),
+import           Telomare                  (FragExpr (..), FragExprUR (..),
+                                            FragIndex, IExpr (..),
+                                            PartialType (..),
                                             RecursionPieceFrag,
+                                            RecursionSimulationPieces (..),
                                             TelomareLike (fromTelomare, toTelomare),
                                             Term3 (..), Term4 (..),
-                                            pattern AbortAny, rootFrag)
+                                            UnsizedRecursionToken (UnsizedRecursionToken),
+                                            buildFragMap, deferF,
+                                            indentWithOneChild,
+                                            indentWithOneChild',
+                                            indentWithTwoChildren,
+                                            indentWithTwoChildren',
+                                            pattern AbortAny,
+                                            pattern AbortRecursion, rootFrag,
+                                            sindent)
 import           Telomare.TypeChecker
 
 
@@ -254,7 +264,7 @@ evalBottomUp handleOther = StuckExpr . cata evalF . unstuckExpr where
     x -> handleOther x
   evalF = \case
     BasicFW x -> basicEval evalS x
-    x -> embed x
+    x         -> embed x
 
 type SuperExpr' s f = StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF)
 type EnhancedSuperStuck f s = EnhancedSetStuck (SplitFunctor f SuperPositionF) s
@@ -285,7 +295,7 @@ evalSuper recur handleOther =
           rightPath = rEval r
           combineOthers a b = case (a,b) of
             (Just ja, Just jb) -> pure $ mergeSuper' ja jb
-            _ -> a <|> b
+            _                  -> a <|> b
       in case foldr combineOthers Nothing $ getPaths se of
         Nothing -> error "evalSuper gates getPaths should be impossible to have no alternatives"
         Just r -> r
@@ -409,8 +419,8 @@ mergeSuper' a b =
         -> Either (PartExprF (EnhancedSuperStuck f s), PartExprF (EnhancedSuperStuck f s)) (PartExprF (EnhancedSuperStuck f s))
 -}
       mergePart pa pb = case (pa,pb) of
-        (ZeroSF, ZeroSF) -> pure ZeroSF
-        (EnvSF, EnvSF) -> pure EnvSF
+        (ZeroSF, ZeroSF)                  -> pure ZeroSF
+        (EnvSF, EnvSF)                    -> pure EnvSF
         (PairSF a b, PairSF c d) | a == c -> pure $ PairSF a (mergeSuper' b d)
         (PairSF a b, PairSF c d) | b == d -> pure $ PairSF (mergeSuper' a c) b
         (SetEnvSF x, SetEnvSF y)          -> pure $ SetEnvSF (mergeSuper' x y)
@@ -422,7 +432,7 @@ mergeSuper' a b =
         _                                 -> Left (pa, pb)
   in case (a,b) of
     (BasicExpr ba, BasicExpr bb) -> case mergePart ba bb of
-      Right r -> BasicExpr r
+      Right r       -> BasicExpr r
       Left (ea, eb) -> TwoEE $ EitherPF (ZeroEE ea) (ZeroEE eb)
     (TwoEE AnyPF, _) -> TwoEE AnyPF
     (_, TwoEE AnyPF) -> TwoEE AnyPF
@@ -535,7 +545,7 @@ handleAbort handleOther env term =
         z -> error ("unimplemented handleAbort for " <> show z)
 
 data UnsizedRecursionF f
-  = UnsizedRecursionF BreakExtras f
+  = UnsizedRecursionF UnsizedRecursionToken f
   -- | UnsizedBarrierF (Set BreakExtras) f -- probably doesn't need set here
   | UnsizedBarrierF f
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
@@ -593,7 +603,7 @@ instance (Show s, Functor o) => Show (PrettyStuckExpr s o) where
         RightSF x  -> indentWithOneChild' "R" x
       StuckFW (StuckF s (StuckExpr x)) -> indentWithOneChild' ("#" <> show s) $ cata alg x
 
-getUnsized :: UnsizedExpr -> Set BreakExtras
+getUnsized :: UnsizedExpr -> Set UnsizedRecursionToken
 {-
 getUnsized (EnhancedExpr x) = case x of
   UnsizedFW (UnsizedBarrierF s _) -> s
@@ -637,14 +647,15 @@ term3ToUnsizedExpr (Term3 termMap) =
         PairFrag a b -> BasicExpr $ PairSF (convertFrag a) (convertFrag b)
         EnvFrag -> BasicExpr EnvSF
         SetEnvFrag x -> BasicExpr . SetEnvSF $ convertFrag x
-        DeferFrag ind -> BasicExpr . DeferSF . convertFrag $ fragLookup ind
+        DeferFrag ind -> BasicExpr . DeferSF . convertFrag . unFragExprUR $ fragLookup ind
         AbortFrag -> EnhancedExpr . AbortFW $ AbortF
         GateFrag l r -> BasicExpr $ GateSF (convertFrag l) (convertFrag r)
         LeftFrag x -> BasicExpr . LeftSF $ convertFrag x
         RightFrag x -> BasicExpr . RightSF $ convertFrag x
         TraceFrag -> BasicExpr EnvSF
-        AuxFrag x -> EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left $ UnsizedRecursionF x (BasicExpr EnvSF)
-  in convertFrag $ rootFrag termMap
+        AuxFrag (RecursionTest (FragExprUR x)) -> convertFrag x -- TODO do we need to add something here?
+        AuxFrag (NestedSetEnvs x) -> EnhancedExpr . SplitFunctor . Left . SplitFunctor . Left . SplitFunctor . Left $ UnsizedRecursionF x (BasicExpr EnvSF)
+  in convertFrag . unFragExprUR $ rootFrag termMap
 
 abortExprToFragMap :: AbortExpr a -> Map FragIndex (FragExpr b)
 abortExprToFragMap expr =
@@ -677,7 +688,7 @@ unsizedExprToFragMap expr =
           RightSF x  -> RightFrag <$> build x
         AbortWrap x -> case x of
           AbortF -> pure AbortFrag
-        EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (UnsizedRecursionF i _))))))) -> pure $ AuxFrag i
+        EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left (UnsizedRecursionF i _))))))) -> pure $ AuxFrag (NestedSetEnvs i)
         _ -> error "unsizedExprToFragMap unexpected stuff in expr"
   in buildFragMap (build expr)
 
@@ -723,7 +734,7 @@ sizeTerm :: UnsizedExpr -> Maybe (AbortExpr VoidF)
 sizeTerm term =
   let sizingTerm = eval term
       eval = evalEnhanced (handleSuper (handleAbort handleUnsized)) (SuperWrap AnyPF)
-      collectUnsized :: UnsizedExpr -> [(BreakExtras, UnsizedExpr)]
+      collectUnsized :: UnsizedExpr -> [(UnsizedRecursionToken, UnsizedExpr)]
       collectUnsized x = case project x of
         UnsizedFW (UnsizedRecursionF b env) -> [(b,env)]
         x                                   -> foldMap collectUnsized x

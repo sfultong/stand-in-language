@@ -38,7 +38,8 @@ import           Telomare                  (BreakState, BreakState', ExprA (..),
                                             pattern AbortUser, rootFrag, s2g,
                                             unFragExprUR)
 import           Telomare.Optimizer        (optimize)
-import           Telomare.Possible         (evalA)
+import           Telomare.Possible         (abortExprToTerm4, evalA, sizeTerm,
+                                            term3ToUnsizedExpr)
 import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
                                             simpleEval)
 import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
@@ -266,4 +267,4 @@ calculateRecursionLimits :: Term3 -> Either EvalError Term4
 calculateRecursionLimits t3 =
   case fmap abortExprToTerm4 . sizeTerm $ term3ToUnsizedExpr t3 of
     Nothing -> Left . RecursionLimitError $ toEnum 0
-    Just x -> pure x
+    Just x  -> pure x
