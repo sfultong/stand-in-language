@@ -209,7 +209,7 @@ data StuckNeedsEnv = StuckNeedsEnv deriving (Eq, Show)
 type SetStuck x = Either x StuckNeedsEnv
 
 type StuckBase r g f = BasicBase (SplitFunctor f (StuckF r g))
-newtype StuckExpr s f = StuckExpr { unstuckExpr :: EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f)))}
+newtype StuckExpr s f = StuckExpr { unStuckExpr :: EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f)))}
   deriving (Eq, Show)
 pattern StuckFW :: StuckF r g a -> StuckBase r g f a
 pattern StuckFW x = SplitFunctor (Left (SplitFunctor (Right x)))
@@ -219,6 +219,11 @@ pattern EnhancedStuck r x = EnhancedExpr (StuckFW (StuckF r (StuckExpr x)))
 pattern EnvStuck :: EnhancedExpr (SplitFunctor f (StuckF (SetStuck es) (StuckExpr (SetStuck es) f)))
   -> EnhancedExpr (SplitFunctor f (StuckF (SetStuck es) (StuckExpr (SetStuck es) f)))
 pattern EnvStuck x = EnhancedStuck (Right StuckNeedsEnv) x
+
+liftStuck :: (EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f)))
+             -> EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f))))
+             -> StuckExpr s f -> StuckExpr s f
+liftStuck f = StuckExpr . f . unStuckExpr
 
 -- simplest eval rules
 basicEval :: (PartExprF (EnhancedExpr o) -> EnhancedExpr o) -> (PartExprF (EnhancedExpr o) -> EnhancedExpr o)
@@ -241,7 +246,7 @@ evalBottomUp :: (Show so, Show1 o, Functor o) =>
 -}
   (PartExprF (EnhancedSetStuck o so) -> EnhancedSetStuck o so) ->
   StuckExpr (SetStuck so) o -> StuckExpr (SetStuck so) o
-evalBottomUp handleOther = StuckExpr . cata evalF . unstuckExpr where
+evalBottomUp handleOther = StuckExpr . cata evalF . unStuckExpr where
   stepTrace x = trace ("step\n" <> show (PrettyStuckExpr . StuckExpr . embed $ x)) x
   recur = evalBottomUp handleOther
   evalS = \case
@@ -252,7 +257,7 @@ evalBottomUp handleOther = StuckExpr . cata evalF . unstuckExpr where
       runStuck x underDefer = case x of
         StuckFW (StuckF (Right StuckNeedsEnv) (StuckExpr s)) -> if underDefer
           then embed . fmap ($ underDefer) $ x
-          else unstuckExpr . recur . StuckExpr . (\rs -> cata runStuck rs False) $ s
+          else unStuckExpr . recur . StuckExpr . (\rs -> cata runStuck rs False) $ s
         BasicFW (DeferSF d) -> embed . BasicFW . DeferSF $ d True
         BasicFW EnvSF -> e
         x -> embed . fmap ($ underDefer) $ x
@@ -261,10 +266,20 @@ evalBottomUp handleOther = StuckExpr . cata evalF . unstuckExpr where
     SetEnvSF (BasicExpr (PairSF (EnhancedStuck sr sc) e)) ->
       EnhancedStuck sr . BasicExpr . SetEnvSF . BasicExpr $ PairSF sc e
     SetEnvSF (EnhancedStuck sr sp) -> EnhancedStuck sr . BasicExpr . SetEnvSF $ sp
+    SetEnvSF (BasicExpr (PairSF sc (EnvStuck e))) -> EnvStuck . BasicExpr . SetEnvSF . BasicExpr $ PairSF sc e
     x -> handleOther x
   evalF = \case
     BasicFW x -> basicEval evalS x
     x         -> embed x
+
+evalBasicDoNothing :: (PartExprF (EnhancedSetStuck o so) -> EnhancedSetStuck o so)
+  -> (PartExprF (EnhancedSetStuck o so) -> EnhancedSetStuck o so)
+evalBasicDoNothing handleOther x = let ex = ZeroEE x in case x of
+  ZeroSF -> ex
+  PairSF _ _ -> ex
+  DeferSF _ -> ex
+  GateSF _ _ -> ex
+  _ -> handleOther x
 
 type SuperExpr' s f = StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF)
 type EnhancedSuperStuck f s = EnhancedSetStuck (SplitFunctor f SuperPositionF) s
@@ -274,7 +289,7 @@ evalSuper :: (Eq s, Show s, Eq1 f, Show1 f, Functor f) =>
   -> (PartExprF (EnhancedSuperStuck f s) -> EnhancedSuperStuck f s)
   -> (PartExprF (EnhancedSuperStuck f s) -> EnhancedSuperStuck f s)
 evalSuper recur handleOther =
-  let rEval = unstuckExpr . recur . StuckExpr
+  let rEval = unStuckExpr . recur . StuckExpr
   in \case
     LeftSF (TwoEE x) -> case x of
       AnyPF -> TwoEE AnyPF
@@ -302,6 +317,33 @@ evalSuper recur handleOther =
     SetEnvSF (ZeroEE (PairSF (TwoEE (EitherPF sca scb)) se)) -> mergeSuper'
       (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF sca se)
       (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF scb se)
+    SetEnvSF (ZeroEE (PairSF sc (TwoEE (EitherPF sea seb)))) -> mergeSuper'
+      (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF sc sea)
+      (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF sc seb)
+    x -> handleOther x
+
+type AbortExpr' s f = SuperExpr' s (SplitFunctor f AbortableF)
+type EnhancedAbortStuck f s = EnhancedSuperStuck (SplitFunctor f AbortableF) s
+
+evalAbort :: (Show s, Show1 f, Functor f) => (PartExprF (EnhancedAbortStuck f s) -> EnhancedAbortStuck f s)
+  -> (PartExprF (EnhancedAbortStuck f s) -> EnhancedAbortStuck f s)
+evalAbort handleOther =
+  \case
+    LeftSF (a@(ThreeEE (AbortedF _))) -> a
+    RightSF (a@(ThreeEE (AbortedF _))) -> a
+    SetEnvSF (a@(ThreeEE (AbortedF _))) -> a
+    SetEnvSF (ZeroEE (PairSF a@(ThreeEE (AbortedF _)) _)) -> a
+    SetEnvSF (ZeroEE (PairSF _ a@(ThreeEE (AbortedF _)))) -> a
+    SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) (ZeroEE ZeroSF))) -> ZeroEE . DeferSF . ZeroEE $ EnvSF
+    SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) e@(ZeroEE (PairSF _ _)))) -> ThreeEE $ AbortedF m where
+      m = cata truncF e
+      truncF = \case
+        ZeroFW ZeroSF -> Zero
+        ZeroFW (PairSF a b) -> Pair a b
+        TwoFW (EitherPF a _) -> a
+        TwoFW AnyPF -> Zero
+        z -> error ("evalAbort truncF unexpected thing")
+    SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) (TwoEE AnyPF))) -> ThreeEE . AbortedF $ AbortAny
     x -> handleOther x
 
 data VoidF f
@@ -808,12 +850,7 @@ evalS' = f . evalS where
 
 evalBU :: IExpr -> Maybe IExpr
 evalBU = toIExpr . ebu . StuckExpr . fromTelomare where
-  {-
-  toIExpr = (>>= (toTelomare . unstuckExpr))
-  ebu :: StuckExpr (SetStuck Void) VoidF -> Maybe (StuckExpr (SetStuck Void) VoidF)
-  ebu = evalBottomUp'
--}
-  toIExpr = toTelomare . unstuckExpr
+  toIExpr = toTelomare . unStuckExpr
   ebu :: StuckExpr (SetStuck Void) VoidF -> StuckExpr (SetStuck Void) VoidF
   ebu = evalBottomUp BasicExpr
 
@@ -844,19 +881,38 @@ term4ToAbortExpr' fragLookup frag =
         _ -> error "term4ToAbortExpr' should be impossible"
   in convertFrag frag
 
+term4toAbortExpr'' :: Term4 -> AbortExpr' s f
+term4toAbortExpr'' (Term4 termMap) =
+  let convertFrag = \case
+        ZeroFrag -> ZeroEE ZeroSF
+        PairFrag a b -> ZeroEE $ PairSF (convertFrag a) (convertFrag b)
+        EnvFrag -> ZeroEE EnvSF
+        SetEnvFrag x -> ZeroEE . SetEnvSF $ convertFrag x
+        DeferFrag ind -> ZeroEE . DeferSF . convertFrag $ termMap Map.! ind
+        AbortFrag -> ThreeEE AbortF
+        GateFrag l r -> ZeroEE $ GateSF (convertFrag l) (convertFrag r)
+        LeftFrag x -> ZeroEE . LeftSF $ convertFrag x
+        RightFrag x -> ZeroEE . RightSF $ convertFrag x
+        TraceFrag -> ZeroEE EnvSF
+        z -> error ("term4toAbortExpr'' unexpected " <> show z)
+  in StuckExpr $ convertFrag (rootFrag termMap)
+
 evalA :: (Maybe IExpr -> Maybe IExpr -> Maybe IExpr) -> Maybe IExpr -> Term4 -> Maybe IExpr
 evalA combine base t =
-  let initialEnv = SuperWrap AnyPF
-      runResult = evalEnhanced (handleSuper (handleAbort undefined)) initialEnv . deheadMain $ term4ToAbortExpr t
+  let initialEnv = TwoEE AnyPF
+      unhandledError x = error ("evalA unhandled case " <> show x)
+      runResult = let eval' :: AbortExpr' Void VoidF -> AbortExpr' Void VoidF
+                      eval' = evalBottomUp (evalBasicDoNothing (evalSuper eval' (evalAbort unhandledError)))
+                  in eval' . liftStuck deheadMain $ term4toAbortExpr'' t
       -- hack to check main functions as well as unit tests
       deheadMain = \case
         BasicExpr (PairSF (BasicExpr (DeferSF f)) _) -> f
         x                                            -> x
       getAborted = \case
-        SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right (AbortedF e)))))) -> Just e
-        SplitFunctor (Left (SplitFunctor (Right (EitherPF a b)))) -> combine a b
+        ThreeFW (AbortedF e) -> Just e
+        TwoFW (EitherPF a b) -> combine a b
         x -> foldr (<|>) Nothing x
-  in flip combine base $ cata getAborted runResult
+  in flip combine base . cata getAborted $ unStuckExpr runResult
 
 -- type checking stuff in here, maybe replace old type checking eventually
 data TypedF f
