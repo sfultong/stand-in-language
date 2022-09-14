@@ -279,7 +279,7 @@ newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken 
 
 data RecursionSimulationPieces a
   = NestedSetEnvs UnsizedRecursionToken
-  | RecursionTest a
+  | RecursionTest UnsizedRecursionToken a
   deriving (Eq, Ord, Show)
 
 newtype FragExprUR = FragExprUR { unFragExprUR :: FragExpr (RecursionSimulationPieces FragExprUR) }
@@ -504,7 +504,7 @@ unsizedRecursionWrapper urToken t r b =
       -- run the iterations x' number of times, then unwrap the result from the final frame
       unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
       wrapTest = \case
-        (PairFrag d@(DeferFrag _) e) -> PairFrag (AuxFrag . RecursionTest . FragExprUR $ d) e
+        (PairFrag d@(DeferFrag _) e) -> PairFrag (AuxFrag . RecursionTest urToken . FragExprUR $ d) e
         _ -> error "unsizedRecursionWrapper unexpected recursion test section"
       -- \t r b r' i -> if t i then r r' i else b i -- t r b are already on the stack when this is evaluated
       rWrap = lamF . lamF $ iteF (appF fifthArgF firstArgF)

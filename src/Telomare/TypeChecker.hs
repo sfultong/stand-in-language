@@ -178,7 +178,7 @@ annotate (Term3 termMap) =
           pure ra
         TraceFrag -> (\(t, _, _) -> t) <$> State.get
         AuxFrag (NestedSetEnvs _) -> (\(t, _, _) -> t) <$> State.get
-        AuxFrag (RecursionTest (FragExprUR x)) -> annotate' x
+        AuxFrag (RecursionTest _ (FragExprUR x)) -> annotate' x
       initInputType :: FragIndex -> AnnotateState ()
       initInputType fi = let (ArrTypeP it _) = getFragType fi in State.modify (\(_, s, i) -> (it, s, i))
       associateOutType fi ot = let (ArrTypeP _ ot2) = getFragType fi in associateVar ot ot2

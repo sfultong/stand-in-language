@@ -38,8 +38,7 @@ import           Telomare                  (BreakState, BreakState', ExprA (..),
                                             pattern AbortUser, rootFrag, s2g,
                                             unFragExprUR)
 import           Telomare.Optimizer        (optimize)
-import           Telomare.Possible         (abortExprToTerm4, evalA, sizeTerm,
-                                            term3ToUnsizedExpr)
+import           Telomare.Possible         (evalA)
 import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
                                             simpleEval)
 import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
@@ -124,7 +123,7 @@ convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
                                    startKey = succ . fst $ Map.findMax termMap
                                    changeFrag = \case
                                      AuxFrag (NestedSetEnvs n) -> innerChurchF $ ll n
-                                     AuxFrag (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
+                                     AuxFrag (RecursionTest _ x) -> transformM changeFrag $ unFragExprUR x
                                      x -> pure x
                                    insertChanged :: FragIndex -> FragExpr RecursionPieceFrag -> BreakState RecursionPieceFrag () ()
                                    insertChanged nk nv = State.modify (\(_, k, m) -> ((), k, Map.insert nk nv m))
@@ -248,23 +247,10 @@ evalLoop_ iexpr = case eval' iexpr of
             r -> pure $ concat ["runtime error, dumped ", show r]
     in mainLoop "" Zero
 
-{-
-
 calculateRecursionLimits :: Term3 -> Either EvalError Term4
-calculateRecursionLimits t3@(Term3 termMap) =
-  let abortsAt n = not . null . evalA combine Nothing $ convertPT (const n) t3
-      combine a b = case (a,b) of
-        (Just AbortRecursion, _) -> Just AbortRecursion
-        (_, Just AbortRecursion) -> Just AbortRecursion
-        _                        -> Nothing
-      iterations = take 10 $ iterate (\(_,n) -> (abortsAt (n * 2), n * 2)) (True, 1)
-  in case lookup False iterations of
-    Just n -> trace ("crl found limit at " <> show n) pure $ convertPT (const n) t3
-    _ -> Left . RecursionLimitError $ toEnum 0
--}
-
-calculateRecursionLimits :: Term3 -> Either EvalError Term4
-calculateRecursionLimits t3 =
+calculateRecursionLimits t3 = undefined
+  {-
   case fmap abortExprToTerm4 . sizeTerm $ term3ToUnsizedExpr t3 of
     Nothing -> Left . RecursionLimitError $ toEnum 0
     Just x  -> pure x
+-}

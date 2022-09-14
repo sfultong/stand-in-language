@@ -125,7 +125,7 @@ showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
           LeftFrag x                             -> "L " <> recur x
           RightFrag x                            -> "R " <> recur x
           TraceFrag                              -> "T"
-          AuxFrag (RecursionTest (FragExprUR x)) -> "?" <> recur x
+          AuxFrag (RecursionTest _ (FragExprUR x)) -> "?" <> recur x
           AuxFrag (NestedSetEnvs _)              -> "%"
   in showFrag (FragIndex 0) rootType (unFragExprUR $ rootFrag termMap) <> "\n"
      <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail . Map.toAscList . Map.map unFragExprUR $ termMap)
