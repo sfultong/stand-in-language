@@ -105,6 +105,10 @@ instance Show1 f => Show (EnhancedExpr f) where
     Right r -> "EnhancedExprR (" <> showsPrec1 0 r ")"
 
 type BasicBase f = SplitFunctor f PartExprF
+type StuckBase r g f = BasicBase (SplitFunctor f (StuckF r g))
+type SuperBase r g f = StuckBase r g (SplitFunctor f SuperPositionF)
+type AbortBase r g f = SuperBase r g (SplitFunctor f AbortableF)
+type UnsizedBase r g f = AbortBase r g (SplitFunctor f UnsizedRecursionF)
 
 pattern ZeroFW :: f x -> SplitFunctor g f x
 pattern ZeroFW x = SplitFunctor (Right x)
@@ -134,7 +138,7 @@ bareEnv = cata bareF where
   bareF = \case
     ZeroFW EnvSF       -> True
     ZeroFW (DeferSF _) -> False
-    x                   -> getAny $ foldMap Any x
+    x                  -> getAny $ foldMap Any x
 
 data StuckF r g f
   = StuckF r g
@@ -150,7 +154,6 @@ data StuckNeedsEnv = StuckNeedsEnv deriving (Eq, Show)
 
 type SetStuck x = Either x StuckNeedsEnv
 
-type StuckBase r g f = BasicBase (SplitFunctor f (StuckF r g))
 newtype StuckExpr s f = StuckExpr { unStuckExpr :: EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f)))}
   deriving (Eq, Show)
 pattern StuckFW :: StuckF r g a -> StuckBase r g f a
@@ -162,66 +165,72 @@ pattern EnvStuck :: EnhancedExpr (SplitFunctor f (StuckF (SetStuck es) (StuckExp
   -> EnhancedExpr (SplitFunctor f (StuckF (SetStuck es) (StuckExpr (SetStuck es) f)))
 pattern EnvStuck x = EnhancedStuck (Right StuckNeedsEnv) x
 
+pattern FillFunction :: EnhancedExpr f -> EnhancedExpr f -> PartExprF (EnhancedExpr f)
+pattern FillFunction c e = SetEnvSF (ZeroEE (PairSF c e))
+pattern GateSwitch :: EnhancedExpr f -> EnhancedExpr f -> EnhancedExpr f -> PartExprF (EnhancedExpr f)
+pattern GateSwitch l r s = FillFunction (ZeroEE (GateSF l r)) s
+
 liftStuck :: (EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f)))
              -> EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f))))
              -> StuckExpr s f -> StuckExpr s f
 liftStuck f = StuckExpr . f . unStuckExpr
 
+inStuck :: (EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f))) -> EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f))))
+  -> (EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f))) -> EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f))))
+inStuck f = unStuckExpr . liftStuck f . StuckExpr
+
 -- simplest eval rules
 basicEval :: (PartExprF (EnhancedExpr o) -> EnhancedExpr o) -> (PartExprF (EnhancedExpr o) -> EnhancedExpr o)
 basicEval handleOther = \case
-    LeftSF (ZeroEE ZeroSF) -> ZeroEE ZeroSF
-    LeftSF (ZeroEE (PairSF l _)) -> l
-    RightSF (ZeroEE ZeroSF) -> ZeroEE ZeroSF
-    RightSF (ZeroEE (PairSF _ r)) -> r
-    SetEnvSF (ZeroEE (PairSF (ZeroEE (GateSF l _)) (ZeroEE (ZeroSF)))) -> l
-    SetEnvSF (ZeroEE (PairSF (ZeroEE (GateSF _ r)) (ZeroEE (PairSF _ _)))) -> r
-    x -> handleOther x
+    LeftSF (ZeroEE ZeroSF)               -> ZeroEE ZeroSF
+    LeftSF (ZeroEE (PairSF l _))         -> l
+    RightSF (ZeroEE ZeroSF)              -> ZeroEE ZeroSF
+    RightSF (ZeroEE (PairSF _ r))        -> r
+    GateSwitch l _ (ZeroEE (ZeroSF))     -> l
+    GateSwitch _ r (ZeroEE (PairSF _ _)) -> r
+    x                                    -> handleOther x
 
 type EnhancedSetStuck f s = EnhancedExpr (SplitFunctor f (StuckF (SetStuck s) (StuckExpr (SetStuck s) f)))
 
-evalBottomUp :: (Show so, Show1 o, Functor o) =>
-  {-
-  (PartExprF (EnhancedExpr (SplitFunctor o (StuckF (SetStuck so) (StuckExpr (SetStuck so) o))))
-  -> EnhancedExpr (SplitFunctor o (StuckF (SetStuck so) (StuckExpr (SetStuck so) o)))
-  ) ->
--}
+evalBottomUp' :: (Show so, Show1 o, Functor o) =>
+  (StuckBase (SetStuck so) (StuckExpr (SetStuck so) o) o (EnhancedSetStuck o so) -> EnhancedSetStuck o so) ->
   (PartExprF (EnhancedSetStuck o so) -> EnhancedSetStuck o so) ->
   StuckExpr (SetStuck so) o -> StuckExpr (SetStuck so) o
-evalBottomUp handleOther = StuckExpr . cata evalF . unStuckExpr where
+evalBottomUp' handleComplex handleOther = StuckExpr . cata evalF . unStuckExpr where
   stepTrace x = trace ("step\n" <> show (PrettyStuckExpr . StuckExpr . embed $ x)) x
-  recur = evalBottomUp handleOther
+  recur = evalBottomUp' handleComplex handleOther
   evalS = \case
     EnvSF -> EnvStuck $ ZeroEE EnvSF
     LeftSF (EnhancedStuck r lx) -> EnhancedStuck r . ZeroEE . LeftSF $ lx
     RightSF (EnhancedStuck r rx) -> EnhancedStuck r . ZeroEE . RightSF $ rx
-    SetEnvSF (ZeroEE (PairSF (ZeroEE (DeferSF d)) e)) -> cata runStuck d False where
+    SetEnvSF (EnhancedStuck sr sp) -> EnhancedStuck sr . ZeroEE . SetEnvSF $ sp
+    FillFunction (ZeroEE (DeferSF d)) e -> cata runStuck d False where
       runStuck x underDefer = case x of
-        StuckFW (StuckF (Right StuckNeedsEnv) (StuckExpr s)) -> if underDefer
-          then embed . fmap ($ underDefer) $ x
-          else unStuckExpr . recur . StuckExpr . (\rs -> cata runStuck rs False) $ s
+        StuckFW (StuckF (Right StuckNeedsEnv) (StuckExpr s)) | not underDefer ->
+          unStuckExpr . recur . StuckExpr . (\rs -> cata runStuck rs False) $ s
         ZeroFW (DeferSF d) -> embed . ZeroFW . DeferSF $ d True
         ZeroFW EnvSF -> e
         x -> embed . fmap ($ underDefer) $ x
-    SetEnvSF (ZeroEE (PairSF g@(ZeroEE (GateSF _ _)) (EnhancedStuck sr se))) ->
-      EnhancedStuck sr . ZeroEE . SetEnvSF . ZeroEE $ PairSF g se
-    SetEnvSF (ZeroEE (PairSF (EnhancedStuck sr sc) e)) ->
-      EnhancedStuck sr . ZeroEE . SetEnvSF . ZeroEE $ PairSF sc e
-    SetEnvSF (EnhancedStuck sr sp) -> EnhancedStuck sr . ZeroEE . SetEnvSF $ sp
-    SetEnvSF (ZeroEE (PairSF sc (EnvStuck e))) -> EnvStuck . ZeroEE . SetEnvSF . ZeroEE $ PairSF sc e
+    FillFunction (EnhancedStuck sr sc) e -> EnhancedStuck sr . ZeroEE . SetEnvSF . ZeroEE $ PairSF sc e
+    FillFunction sc (EnvStuck e) -> EnvStuck . ZeroEE . SetEnvSF . ZeroEE $ PairSF sc e
     x -> handleOther x
   evalF = \case
     ZeroFW x -> basicEval evalS x
-    x         -> embed x
+    x        -> handleComplex x
+
+evalBottomUp :: (Show so, Show1 o, Functor o) =>
+  (PartExprF (EnhancedSetStuck o so) -> EnhancedSetStuck o so) ->
+  StuckExpr (SetStuck so) o -> StuckExpr (SetStuck so) o
+evalBottomUp = evalBottomUp' embed
 
 evalBasicDoNothing :: (PartExprF (EnhancedSetStuck o so) -> EnhancedSetStuck o so)
   -> (PartExprF (EnhancedSetStuck o so) -> EnhancedSetStuck o so)
 evalBasicDoNothing handleOther x = let ex = ZeroEE x in case x of
-  ZeroSF -> ex
+  ZeroSF     -> ex
   PairSF _ _ -> ex
-  DeferSF _ -> ex
+  DeferSF _  -> ex
   GateSF _ _ -> ex
-  _ -> handleOther x
+  _          -> handleOther x
 
 type SuperExpr s f = StuckExpr (SetStuck s) (SplitFunctor f SuperPositionF)
 type EnhancedSuperStuck f s = EnhancedSetStuck (SplitFunctor f SuperPositionF) s
@@ -235,12 +244,12 @@ evalSuper recur handleOther =
   in \case
     LeftSF (TwoEE x) -> case x of
       AnyPF -> TwoEE AnyPF
-      EitherPF a b -> mergeSuper' (rEval . ZeroEE . LeftSF $ a) (rEval . ZeroEE . LeftSF $ b)
+      EitherPF a b -> mergeSuper (rEval . ZeroEE . LeftSF $ a) (rEval . ZeroEE . LeftSF $ b)
     RightSF (TwoEE x) -> case x of
       AnyPF -> TwoEE AnyPF
-      EitherPF a b -> mergeSuper' (rEval . ZeroEE . RightSF $ a) (rEval . ZeroEE . RightSF $ b)
-    SetEnvSF (TwoEE (EitherPF a b)) -> mergeSuper' (rEval . ZeroEE . SetEnvSF $ a) (rEval . ZeroEE . SetEnvSF $ b)
-    SetEnvSF (ZeroEE (PairSF (ZeroEE (GateSF l r)) se@(TwoEE _))) ->
+      EitherPF a b -> mergeSuper (rEval . ZeroEE . RightSF $ a) (rEval . ZeroEE . RightSF $ b)
+    SetEnvSF (TwoEE (EitherPF a b)) -> mergeSuper (rEval . ZeroEE . SetEnvSF $ a) (rEval . ZeroEE . SetEnvSF $ b)
+    GateSwitch l r se@(TwoEE _) ->
       let getPaths = \case
             ZeroEE ZeroSF -> [Just leftPath, Nothing, Nothing]
             ZeroEE (PairSF _ _) -> [Nothing, Just rightPath, Nothing]
@@ -251,15 +260,15 @@ evalSuper recur handleOther =
           leftPath = rEval l
           rightPath = rEval r
           combineOthers a b = case (a,b) of
-            (Just ja, Just jb) -> pure $ mergeSuper' ja jb
+            (Just ja, Just jb) -> pure $ mergeSuper ja jb
             _                  -> a <|> b
       in case foldr combineOthers Nothing $ getPaths se of
         Nothing -> error "evalSuper gates getPaths should be impossible to have no alternatives"
         Just r -> r
-    SetEnvSF (ZeroEE (PairSF (TwoEE (EitherPF sca scb)) se)) -> mergeSuper'
+    FillFunction (TwoEE (EitherPF sca scb)) se -> mergeSuper
       (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF sca se)
       (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF scb se)
-    SetEnvSF (ZeroEE (PairSF sc (TwoEE (EitherPF sea seb)))) -> mergeSuper'
+    FillFunction sc (TwoEE (EitherPF sea seb)) -> mergeSuper
       (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF sc sea)
       (rEval . ZeroEE . SetEnvSF . ZeroEE $ PairSF sc seb)
     x -> handleOther x
@@ -274,18 +283,18 @@ evalAbort handleOther =
     LeftSF (a@(ThreeEE (AbortedF _))) -> a
     RightSF (a@(ThreeEE (AbortedF _))) -> a
     SetEnvSF (a@(ThreeEE (AbortedF _))) -> a
-    SetEnvSF (ZeroEE (PairSF a@(ThreeEE (AbortedF _)) _)) -> a
-    SetEnvSF (ZeroEE (PairSF _ a@(ThreeEE (AbortedF _)))) -> a
-    SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) (ZeroEE ZeroSF))) -> ZeroEE . DeferSF . ZeroEE $ EnvSF
-    SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) e@(ZeroEE (PairSF _ _)))) -> ThreeEE $ AbortedF m where
+    FillFunction a@(ThreeEE (AbortedF _)) _ -> a
+    FillFunction _ a@(ThreeEE (AbortedF _)) -> a
+    FillFunction (ThreeEE AbortF) (ZeroEE ZeroSF) -> ZeroEE . DeferSF . ZeroEE $ EnvSF
+    FillFunction (ThreeEE AbortF) e@(ZeroEE (PairSF _ _)) -> ThreeEE $ AbortedF m where
       m = cata truncF e
       truncF = \case
-        ZeroFW ZeroSF -> Zero
-        ZeroFW (PairSF a b) -> Pair a b
+        ZeroFW ZeroSF        -> Zero
+        ZeroFW (PairSF a b)  -> Pair a b
         TwoFW (EitherPF a _) -> a
-        TwoFW AnyPF -> Zero
-        z -> error ("evalAbort truncF unexpected thing")
-    SetEnvSF (ZeroEE (PairSF (ThreeEE AbortF) (TwoEE AnyPF))) -> ThreeEE . AbortedF $ AbortAny
+        TwoFW AnyPF          -> Zero
+        z                    -> error ("evalAbort truncF unexpected thing")
+    FillFunction (ThreeEE AbortF) (TwoEE AnyPF) -> ThreeEE . AbortedF $ AbortAny
     x -> handleOther x
 
 evalAnyFunction :: (Eq s, Show s, Eq1 f, Show1 f, Functor f)
@@ -293,7 +302,53 @@ evalAnyFunction :: (Eq s, Show s, Eq1 f, Show1 f, Functor f)
   -> (PartExprF (EnhancedSuperStuck f s) -> EnhancedSuperStuck f s)
 evalAnyFunction handleOther =
   \case
-    SetEnvSF (ZeroEE (PairSF (TwoEE AnyPF) _)) -> TwoEE AnyPF
+    FillFunction (TwoEE AnyPF) _ -> TwoEE AnyPF
+    x                            -> handleOther x
+
+type UnsizedExpr s f = AbortExpr s (SplitFunctor f UnsizedRecursionF)
+type EnhancedUnsizedStuck f s = EnhancedAbortStuck (SplitFunctor f UnsizedRecursionF) s
+
+type StuckAbortBase f = SplitFunctor (SplitFunctor f AbortableF) SuperPositionF
+type StuckUnsizedBase f = StuckAbortBase (SplitFunctor f UnsizedRecursionF)
+
+evalRecursionTest' :: (Show s, Show1 f, Functor f) => Base (EnhancedUnsizedStuck f s)  (EnhancedUnsizedStuck f s) -> EnhancedUnsizedStuck f s
+evalRecursionTest' = \case
+  FourFW (RecursionTestF ri x) -> case x of
+    z@(ZeroEE ZeroSF) -> z
+    p@(ZeroEE (PairSF _ _)) -> p
+    EnvStuck e -> EnvStuck . FourEE $ RecursionTestF ri e
+    TwoEE AnyPF -> FourEE $ UnsizableF ri
+    TwoEE (EitherPF a b) -> TwoEE $ EitherPF (evalRecursionTest' $ FourFW (RecursionTestF ri a)) (evalRecursionTest' $ FourFW (RecursionTestF ri b))
+    a@(ThreeEE (AbortedF _)) -> a
+    u@(FourEE (UnsizableF _)) -> u
+    z -> error ("evalRecursionTest checkTest unexpected " <> show z)
+  x -> embed x
+
+evalRecursionTest :: (Eq s, Show s, Eq1 f, Show1 f, Functor f) =>
+  (StuckExpr (SetStuck s) (StuckUnsizedBase f) -> StuckExpr (SetStuck s) (StuckUnsizedBase f))
+  -> (PartExprF (EnhancedUnsizedStuck f s) -> EnhancedUnsizedStuck f s)
+  -> (PartExprF (EnhancedUnsizedStuck f s) -> EnhancedUnsizedStuck f s)
+evalRecursionTest recur handleOther =
+  let checkTest ri = \case
+        z@(ZeroEE ZeroSF) -> z
+        p@(ZeroEE (PairSF _ _)) -> p
+        EnvStuck e -> EnvStuck . FourEE $ RecursionTestF ri e
+        TwoEE AnyPF -> FourEE $ UnsizableF ri
+        TwoEE (EitherPF a b) -> TwoEE $ EitherPF (checkTest ri a) (checkTest ri b)
+        a@(ThreeEE (AbortedF _)) -> a
+        u@(FourEE (UnsizableF _)) -> u
+        z -> error ("evalRecursionTest checkTest unexpected " <> show z)
+      recur' = unStuckExpr . recur . StuckExpr
+  in \case
+    LeftSF (u@(FourEE (UnsizableF _))) -> u
+    RightSF (u@(FourEE (UnsizableF _))) -> u
+    SetEnvSF (u@(FourEE (UnsizableF _))) -> u
+    FillFunction u@(FourEE (UnsizableF _)) _ -> u
+    GateSwitch _ _ u@(FourEE (UnsizableF _)) -> u
+    LeftSF (FourEE (RecursionTestF ri x)) -> recur' . ZeroEE . LeftSF $ checkTest ri x
+    RightSF (FourEE (RecursionTestF ri x)) -> recur' . ZeroEE .RightSF $ checkTest ri x
+    FillFunction (FourEE (RecursionTestF t c)) e -> checkTest t . recur' . ZeroEE $ FillFunction c e
+    GateSwitch l r (FourEE (RecursionTestF ri s)) -> recur' . ZeroEE . GateSwitch l r $ checkTest ri s
     x -> handleOther x
 
 data VoidF f
@@ -365,19 +420,19 @@ instance (Traversable f, Traversable g) => Traversable (SplitFunctor g f) where
     Left fg  -> SplitFunctor . Left <$> traverse f fg
     Right ff -> SplitFunctor . Right <$> traverse f ff
 
-mergeSuper' :: (Eq s, Eq1 f, Functor f) => EnhancedSuperStuck f s -> EnhancedSuperStuck f s -> EnhancedSuperStuck f s
-mergeSuper' a b =
+mergeSuper :: (Eq s, Eq1 f, Functor f) => EnhancedSuperStuck f s -> EnhancedSuperStuck f s -> EnhancedSuperStuck f s
+mergeSuper a b =
   let mergePart pa pb = case (pa,pb) of
         (ZeroSF, ZeroSF)                  -> pure ZeroSF
         (EnvSF, EnvSF)                    -> pure EnvSF
-        (PairSF a b, PairSF c d) | a == c -> pure $ PairSF a (mergeSuper' b d)
-        (PairSF a b, PairSF c d) | b == d -> pure $ PairSF (mergeSuper' a c) b
-        (SetEnvSF x, SetEnvSF y)          -> pure $ SetEnvSF (mergeSuper' x y)
-        (DeferSF x, DeferSF y)            -> pure $ DeferSF (mergeSuper' x y)
-        (GateSF a b, GateSF c d) | a == c -> pure $ GateSF a (mergeSuper' b d)
-        (GateSF a b, GateSF c d) | b == d -> pure $ GateSF (mergeSuper' a c) b
-        (LeftSF x, LeftSF y)              -> pure $ LeftSF (mergeSuper' x y)
-        (RightSF x, RightSF y)            -> pure $ RightSF (mergeSuper' x y)
+        (PairSF a b, PairSF c d) | a == c -> pure $ PairSF a (mergeSuper b d)
+        (PairSF a b, PairSF c d) | b == d -> pure $ PairSF (mergeSuper a c) b
+        (SetEnvSF x, SetEnvSF y)          -> pure $ SetEnvSF (mergeSuper x y)
+        (DeferSF x, DeferSF y)            -> pure $ DeferSF (mergeSuper x y)
+        (GateSF a b, GateSF c d) | a == c -> pure $ GateSF a (mergeSuper b d)
+        (GateSF a b, GateSF c d) | b == d -> pure $ GateSF (mergeSuper a c) b
+        (LeftSF x, LeftSF y)              -> pure $ LeftSF (mergeSuper x y)
+        (RightSF x, RightSF y)            -> pure $ RightSF (mergeSuper x y)
         _                                 -> Left (pa, pb)
   in case (a,b) of
     (ZeroEE ba, ZeroEE bb) -> case mergePart ba bb of
@@ -385,26 +440,25 @@ mergeSuper' a b =
       Left (ea, eb) -> TwoEE $ EitherPF (ZeroEE ea) (ZeroEE eb)
     (TwoEE AnyPF, _) -> TwoEE AnyPF
     (_, TwoEE AnyPF) -> TwoEE AnyPF
-    (TwoEE (EitherPF a b), TwoEE (EitherPF c d)) -> TwoEE $ EitherPF (mergeSuper' a c) (mergeSuper' b d)
+    (TwoEE (EitherPF a b), TwoEE (EitherPF c d)) -> TwoEE $ EitherPF (mergeSuper a c) (mergeSuper b d)
     _ -> TwoEE $ EitherPF a b
 
 data UnsizedRecursionF f
   = UnsizedRecursionF UnsizedRecursionToken
   | RecursionTestF UnsizedRecursionToken f
+  | UnsizableF UnsizedRecursionToken
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Eq1 UnsizedRecursionF where
   liftEq test a b = case (a, b) of
     (UnsizedRecursionF a, UnsizedRecursionF b) -> a == b
     (RecursionTestF ta a, RecursionTestF tb b) -> ta == tb && test a b
-    _ -> False
+    _                                          -> False
 
 instance Show1 UnsizedRecursionF where
   liftShowsPrec showsPrec showList prec x = case x of
     UnsizedRecursionF be -> shows "UnsizedRecursionF (" . shows be . shows ")"
     RecursionTestF be x -> shows "RecursionTestF (" . shows be . shows " " . showsPrec 0 x . shows ")"
-
-type UnsizedExpr s f = AbortExpr s (SplitFunctor f UnsizedRecursionF)
 
 newtype PrettyStuckExpr s o = PrettyStuckExpr (StuckExpr s o)
 
@@ -420,7 +474,33 @@ instance (Show s, Functor o) => Show (PrettyStuckExpr s o) where
         GateSF l r -> indentWithTwoChildren' "G" l r
         LeftSF x   -> indentWithOneChild' "L" x
         RightSF x  -> indentWithOneChild' "R" x
-      StuckFW (StuckF s (StuckExpr x)) -> indentWithOneChild' ("#" <> show s) $ cata alg x
+      StuckFW (StuckF s (StuckExpr x)) -> indentWithOneChild' ("#( " <> show s <> " )") $ cata alg x
+
+newtype PrettyUnsizedExpr s f = PrettyUnsizedExpr (StuckExpr (SetStuck s) (StuckUnsizedBase f))
+
+instance (Show s, Functor f) => Show (PrettyUnsizedExpr s f) where
+  show (PrettyUnsizedExpr (StuckExpr x)) = State.evalState (cata alg x) 0 where
+    alg = \case
+      ZeroFW x -> case x of
+        ZeroSF     -> pure "Z"
+        PairSF a b -> indentWithTwoChildren' "P" a b
+        EnvSF      -> pure "E"
+        SetEnvSF x -> indentWithOneChild' "S" x
+        DeferSF x  -> indentWithOneChild' "D" x
+        GateSF l r -> indentWithTwoChildren' "G" l r
+        LeftSF x   -> indentWithOneChild' "L" x
+        RightSF x  -> indentWithOneChild' "R" x
+      StuckFW (StuckF s (StuckExpr x)) -> indentWithOneChild' ("#(" <> show s <> ")") $ cata alg x
+      TwoFW x -> case x of
+        AnyPF        -> pure "A"
+        EitherPF a b -> indentWithTwoChildren' "%" a b
+      ThreeFW x -> case x of
+        AbortF      -> pure "!"
+        AbortedF am -> pure $ "(aborted) " <> show am
+      FourFW x -> case x of
+        UnsizedRecursionF ind -> pure $ "?" <> show ind
+        RecursionTestF t x -> indentWithOneChild'  ("T( " <> show t <> " )") x
+        UnsizableF t -> pure $ "(unsizeable) " <> show t
 
 term3ToUnsizedExpr :: Term3 -> UnsizedExpr s f
 term3ToUnsizedExpr (Term3 termMap) =
@@ -440,42 +520,6 @@ term3ToUnsizedExpr (Term3 termMap) =
         AuxFrag (NestedSetEnvs x) -> FourEE $ UnsizedRecursionF x
   in StuckExpr . convertFrag . unFragExprUR $ rootFrag termMap
 
-{-
-sizeTerm :: UnsizedExpr -> Maybe (AbortExpr VoidF)
-sizeTerm term =
-  let sizingTerm = eval term
-      eval = evalEnhanced (handleSuper (handleAbort handleUnsized)) (SuperWrap AnyPF)
-      collectUnsized :: UnsizedExpr -> [(UnsizedRecursionToken, UnsizedExpr)]
-      collectUnsized x = case project x of
-        UnsizedFW (UnsizedRecursionF b env) -> [(b,env)]
-        x                                   -> foldMap collectUnsized x
-      unsizedList = sortBy (\(_,aEnv) (_,bEnv) -> compare (Set.size $ getUnsized aEnv) (Set.size $ getUnsized bEnv)) $ collectUnsized sizingTerm
-      setSizes test sizes = cata $ \case
-        UnsizedFW (UnsizedRecursionF be env) -> trace ("unsized env is " <> show (PrettyUnsizedExpr env)) $ case Map.lookup be sizes of
-          Just n -> iterate (ZeroEE . SetEnvSF) env !! n
-          _ -> error ("sizeTerm setsizes ... somehow " <> show be <> " isn't present in size map")
-        UnsizedFW (UnsizedBarrierF x) -> if test then eval x else x
-        x -> embed x
-      recursionAborted = \case
-        AbortFW (AbortedF AbortRecursion)-> True
-        x                                 -> getAny $ foldMap Any x
-      sizeOptions (b,env) oldMap = do
-        obe <- [0..8]
-        c <- [0..8]
-        let envSet = getUnsized env
-        pure . Map.insert b (2 ^ c) $ Map.mapWithKey (\k v -> if Set.member k envSet then v ^ obe else v) oldMap
-      sWrap (b,env) = UnsizedWrap (UnsizedBarrierF (UnsizedWrap (UnsizedRecursionF b env)))
-      findSize oldMap (b,env) = lookup False . map (\m -> (cata recursionAborted . setSizes True m $ sWrap (b,env), m)) $ sizeOptions (b,env) oldMap
-      clean = \case
-        OneFW x -> OneFW x
-        SuperFW x -> SuperFW x
-        AbortFW x -> AbortFW x
-        _ -> error "sizeTerm clean: should be impossible to see unsized recursion at this point"
-      maybeMap = foldl' (\b a -> b >>= flip findSize a) (pure Map.empty) unsizedList
-      maybeSized = trace ("sizeTerm final map: " <> show maybeMap) setSizes False <$> maybeMap <*> pure term
-  in hoist clean <$> maybeSized
--}
-
 newtype UnsizedAggregate = UnsizedAggregate { unUnAgg :: Map UnsizedRecursionToken ( Bool, Bool) }
 
 aggTest :: UnsizedRecursionToken -> UnsizedAggregate
@@ -493,33 +537,56 @@ instance Monoid UnsizedAggregate where
 readyForSizing :: UnsizedAggregate -> Bool
 readyForSizing (UnsizedAggregate m) = not (null m) && all (\(a,b) -> a && b) m
 
-{-
-sizeTerm :: Integer -> UnsizedExpr' s f -> Either UnsizedRecursionToken (AbortExpr' Void VoidF)
-sizeTerm recursionLimit = pure . liftStuck (hoist clean . snd . cata sizeF) where
-  sizeF = \case
+sizeTerm :: (Traversable f, Show s, Show1 f, Eq s, Eq1 f) =>
+  Integer -> StuckExpr (SetStuck s) (StuckUnsizedBase f) -> Either UnsizedRecursionToken (StuckExpr (SetStuck s) (StuckAbortBase f))
+sizeTerm recursionLimit = tidyUp . findSize . sizeF . unStuckExpr where
+  sizeF = cata $ \case
     ur@(FourFW (UnsizedRecursionF x)) -> (aggSetEnvs x, FourEE $ UnsizedRecursionF x)
     ur@(FourFW (RecursionTestF t (tm, x))) -> (aggTest t <> tm, FourEE $ RecursionTestF t x)
-    ZeroFW (DeferSF (tm, x)) ->
-      let sized = lookup False . map (\o -> (recursionAborted . setSizes o $ testG, o)) $ [1 .. fromInteger recursionLimit]
-          testG = ZeroEE (PairSF (ZeroEE (DeferSF x)) (TwoEE AnyPF))
-      in case sized of
-        Nothing -> (tm, ZeroEE $ DeferSF x)
-        Just n -> (mempty, )
-  clean = \case
-    ZeroFW x -> ZeroFW x
-    OneFW x -> OneFW x
-    TwoFW x -> TwoFW x
+    ZeroFW (DeferSF (tm, x)) | readyForSizing tm -> findSize (tm, ZeroEE (DeferSF x))
+    x -> embed <$> sequence x
+  findSize (tm, x) =
+    let sized = foldr combine (Left Nothing) . map (toTriple testG) $ [1 .. fromInteger recursionLimit] -- TODO relocate fromInteger
+        testG = case x of -- hacky, to handle many situations
+          ZeroEE (DeferSF _) -> ZeroEE $ FillFunction x (TwoEE AnyPF) -- from sizeF
+          ZeroEE (PairSF d@(ZeroEE (DeferSF _)) _) -> ZeroEE $ FillFunction d (TwoEE AnyPF) -- compiling main
+          _ -> ZeroEE $ FillFunction (ZeroEE (DeferSF x)) (TwoEE AnyPF) -- compiling test expression
+        combine (n, ru, ra) alt = if not $ null ru
+          then Left ru
+          else if ra then alt else pure n
+        toTriple x n = let evaled = evalPossible' . setSizes n $ testG in (n, recursionUnsizable evaled, recursionAborted evaled)
+    in case sized of
+      Left _  -> (tm, x)
+      Right n -> (mempty, removeTests $ setSizes n x)
+  tidyUp = \case
+    (UnsizedAggregate uam, _) | not (null uam) -> case Map.minViewWithKey uam of
+                                  Just ((urt, _), _) -> Left urt
+    (_, x) -> pure . StuckExpr . clean $ x
+  clean = hoist $ \case
+    ZeroFW x  -> ZeroFW x
+    OneFW (StuckF r (StuckExpr x)) -> OneFW (StuckF r (StuckExpr $ clean x))
+    TwoFW x   -> TwoFW x
     ThreeFW x -> ThreeFW x
-    _ -> error "sizeTerm clean should be impossible"
+    z         -> error ("sizeTerm clean should be impossible")
   setSizes n = cata $ \case
+    OneFW (StuckF r (StuckExpr e)) -> OneEE (StuckF r (StuckExpr $ setSizes n e))
     FourFW (UnsizedRecursionF _) -> iterate (ZeroEE . SetEnvSF) (ZeroEE EnvSF) !! n
     x -> embed x
+  removeTests = cata $ \case
+    FourFW (RecursionTestF _ x) -> x
+    x                           -> embed x
   recursionAborted = cata $ \case
+    OneFW (StuckF _ (StuckExpr e))    -> recursionAborted e
     ThreeFW (AbortedF AbortRecursion) -> True
-    x -> getAny $ foldMap Any x
-  evalPossible = evalBottomUp (evalBasicDoNothing (evalSuper evalPossible (evalAbort (evalAnyFunction unhandledError))))
-  unhandledError x = error ("sizeTerm unhandled case " <> show x)
--}
+    x                                 -> getAny $ foldMap Any x
+  recursionUnsizable = cata $ \case
+    OneFW (StuckF _ (StuckExpr e)) -> recursionUnsizable e
+    FourFW (RecursionTestF ri _)   -> Just ri  -- undispatched recursion tests mean unsizable
+    FourFW (UnsizableF t)          -> Just t
+    x                              -> foldr (<|>) empty x
+  evalPossible = evalBottomUp (evalBasicDoNothing (evalSuper evalPossible (evalAbort (evalAnyFunction (evalRecursionTest evalPossible unhandledError)))))
+  evalPossible' = unStuckExpr . evalPossible . StuckExpr
+  unhandledError x = error ("sizeTerm unhandled case\n" <> show (PrettyUnsizedExpr . StuckExpr $ ZeroEE x))
 
 
 instance TelomareLike (EnhancedExpr o) where
@@ -560,18 +627,32 @@ evalBU' = f . evalBU where
 term4toAbortExpr :: Term4 -> AbortExpr s f
 term4toAbortExpr (Term4 termMap) =
   let convertFrag = \case
-        ZeroFrag -> ZeroEE ZeroSF
-        PairFrag a b -> ZeroEE $ PairSF (convertFrag a) (convertFrag b)
-        EnvFrag -> ZeroEE EnvSF
-        SetEnvFrag x -> ZeroEE . SetEnvSF $ convertFrag x
+        ZeroFrag      -> ZeroEE ZeroSF
+        PairFrag a b  -> ZeroEE $ PairSF (convertFrag a) (convertFrag b)
+        EnvFrag       -> ZeroEE EnvSF
+        SetEnvFrag x  -> ZeroEE . SetEnvSF $ convertFrag x
         DeferFrag ind -> ZeroEE . DeferSF . convertFrag $ termMap Map.! ind
-        AbortFrag -> ThreeEE AbortF
-        GateFrag l r -> ZeroEE $ GateSF (convertFrag l) (convertFrag r)
-        LeftFrag x -> ZeroEE . LeftSF $ convertFrag x
-        RightFrag x -> ZeroEE . RightSF $ convertFrag x
-        TraceFrag -> ZeroEE EnvSF
-        z -> error ("term4toAbortExpr'' unexpected " <> show z)
+        AbortFrag     -> ThreeEE AbortF
+        GateFrag l r  -> ZeroEE $ GateSF (convertFrag l) (convertFrag r)
+        LeftFrag x    -> ZeroEE . LeftSF $ convertFrag x
+        RightFrag x   -> ZeroEE . RightSF $ convertFrag x
+        TraceFrag     -> ZeroEE EnvSF
+        z             -> error ("term4toAbortExpr'' unexpected " <> show z)
   in StuckExpr $ convertFrag (rootFrag termMap)
+
+abortExprToTerm4 :: (Show s, Show1 f, Functor f) => AbortExpr s f -> Term4
+abortExprToTerm4 = Term4 . buildFragMap . cata convert . unStuckExpr where
+  convert = \case
+    ZeroFW ZeroSF       -> pure ZeroFrag
+    ZeroFW (PairSF a b) -> PairFrag <$> a <*> b
+    ZeroFW EnvSF        -> pure EnvFrag
+    ZeroFW (SetEnvSF x) -> SetEnvFrag <$> x
+    ZeroFW (DeferSF x)  -> deferF x
+    ThreeFW AbortF      -> pure AbortFrag
+    ZeroFW (GateSF l r) -> GateFrag <$> l <*> r
+    ZeroFW (LeftSF x)   -> LeftFrag <$> x
+    ZeroFW (RightSF x)  -> RightFrag <$> x
+    z                   -> error ("abortExprToTerm4 unexpected thing ") -- <> show (fmap (const ()) z))
 
 evalA :: (Maybe IExpr -> Maybe IExpr -> Maybe IExpr) -> Maybe IExpr -> Term4 -> Maybe IExpr
 evalA combine base t =
@@ -583,11 +664,11 @@ evalA combine base t =
       -- hack to check main functions as well as unit tests
       deheadMain = \case
         ZeroEE (PairSF (ZeroEE (DeferSF f)) _) -> f
-        x                                            -> x
+        x                                      -> x
       getAborted = \case
         ThreeFW (AbortedF e) -> Just e
         TwoFW (EitherPF a b) -> combine a b
-        x -> foldr (<|>) Nothing x
+        x                    -> foldr (<|>) Nothing x
   in flip combine base . cata getAborted $ unStuckExpr runResult
 
 -- type checking stuff in here, maybe replace old type checking eventually

@@ -504,14 +504,16 @@ unsizedRecursionWrapper urToken t r b =
       -- run the iterations x' number of times, then unwrap the result from the final frame
       unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
       wrapTest = \case
-        (PairFrag d@(DeferFrag _) e) -> PairFrag (AuxFrag . RecursionTest urToken . FragExprUR $ d) e
+        p@(PairFrag (DeferFrag ind) e) -> do
+          State.modify (\(bi, i, m) -> (bi, i, Map.adjust (\x -> AuxFrag . RecursionTest urToken $ FragExprUR x) ind m))
+          pure p
         _ -> error "unsizedRecursionWrapper unexpected recursion test section"
       -- \t r b r' i -> if t i then r r' i else b i -- t r b are already on the stack when this is evaluated
       rWrap = lamF . lamF $ iteF (appF fifthArgF firstArgF)
                                  (appF (appF fourthArgF secondArgF) firstArgF)
                                  (appF thirdArgF firstArgF)
       churchNum = clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
-      trb = pairF b (pairF r (pairF (wrapTest <$> t) (pure ZeroFrag)))
+      trb = pairF b (pairF r (pairF (t >>= wrapTest) (pure ZeroFrag)))
   in SetEnvFrag <$> pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb
 
 nextBreakToken :: Enum b => BreakState a b b

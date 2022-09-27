@@ -38,7 +38,9 @@ import           Telomare                  (BreakState, BreakState', ExprA (..),
                                             pattern AbortUser, rootFrag, s2g,
                                             unFragExprUR)
 import           Telomare.Optimizer        (optimize)
-import           Telomare.Possible         (evalA)
+import           Telomare.Possible         (AbortExpr, SetStuck, VoidF,
+                                            abortExprToTerm4, evalA, sizeTerm,
+                                            term3ToUnsizedExpr)
 import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
                                             simpleEval)
 import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
@@ -248,9 +250,9 @@ evalLoop_ iexpr = case eval' iexpr of
     in mainLoop "" Zero
 
 calculateRecursionLimits :: Term3 -> Either EvalError Term4
-calculateRecursionLimits t3 = undefined
-  {-
-  case fmap abortExprToTerm4 . sizeTerm $ term3ToUnsizedExpr t3 of
-    Nothing -> Left . RecursionLimitError $ toEnum 0
-    Just x  -> pure x
--}
+calculateRecursionLimits t3 =
+  let abortExprToTerm4' :: AbortExpr (SetStuck Void) VoidF -> Term4
+      abortExprToTerm4' = abortExprToTerm4
+  in case fmap abortExprToTerm4' . sizeTerm 256 $ term3ToUnsizedExpr t3 of
+    Left urt -> Left $ RecursionLimitError urt
+    Right t  -> pure t
