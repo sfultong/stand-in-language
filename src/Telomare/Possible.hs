@@ -151,8 +151,10 @@ instance (Eq r, Eq g) => Eq1 (StuckF r g) where
   liftEq test (StuckF ra ga) (StuckF rb gb) = ra == rb && ga == gb
 
 data StuckNeedsEnv = StuckNeedsEnv deriving (Eq, Show)
+data StuckNeedsSizing = StuckNeedsSizing deriving (Eq, Show)
 
 type SetStuck x = Either x StuckNeedsEnv
+type SizeStuck x = SetStuck (Either x StuckNeedsSizing)
 
 newtype StuckExpr s f = StuckExpr { unStuckExpr :: EnhancedExpr (SplitFunctor f (StuckF s (StuckExpr s f)))}
   deriving (Eq, Show)
@@ -362,6 +364,7 @@ instance Show1 VoidF where
 
 data SuperPositionF f
   = EitherPF f f
+  --   | AlsoZeroPF f f -- superposition of zero and pair
   | AnyPF
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
@@ -369,11 +372,13 @@ instance Eq1 SuperPositionF where
   liftEq test a b = case (a,b) of
     (AnyPF, AnyPF)               -> True
     (EitherPF a b, EitherPF c d) -> test a c && test b d
+    -- (AlsoZeroPF a b, AlsoZeroPF c d) -> test a c && test b d
     _                            -> False
 
 instance Show1 SuperPositionF where
   liftShowsPrec showsPrec showList prec = \case
     EitherPF a b -> shows "EitherPF (" . showsPrec 0 a . shows ", " . showsPrec 0 b . shows ")"
+    -- AlsoZeroPF a b -> shows "AlsoZeroPF (" . showsPrec 0 a . shows ", " . showsPrec 0 b . shows ")"
     AnyPF -> shows "AnyPF"
 
 data AbortableF f
@@ -422,26 +427,33 @@ instance (Traversable f, Traversable g) => Traversable (SplitFunctor g f) where
 
 mergeSuper :: (Eq s, Eq1 f, Functor f) => EnhancedSuperStuck f s -> EnhancedSuperStuck f s -> EnhancedSuperStuck f s
 mergeSuper a b =
-  let mergePart pa pb = case (pa,pb) of
-        (ZeroSF, ZeroSF)                  -> pure ZeroSF
-        (EnvSF, EnvSF)                    -> pure EnvSF
-        (PairSF a b, PairSF c d) | a == c -> pure $ PairSF a (mergeSuper b d)
-        (PairSF a b, PairSF c d) | b == d -> pure $ PairSF (mergeSuper a c) b
-        (SetEnvSF x, SetEnvSF y)          -> pure $ SetEnvSF (mergeSuper x y)
-        (DeferSF x, DeferSF y)            -> pure $ DeferSF (mergeSuper x y)
-        (GateSF a b, GateSF c d) | a == c -> pure $ GateSF a (mergeSuper b d)
-        (GateSF a b, GateSF c d) | b == d -> pure $ GateSF (mergeSuper a c) b
-        (LeftSF x, LeftSF y)              -> pure $ LeftSF (mergeSuper x y)
-        (RightSF x, RightSF y)            -> pure $ RightSF (mergeSuper x y)
-        _                                 -> Left (pa, pb)
+  let mergeZero pa pb = case (pa,pb) of
+        (ZeroSF, ZeroSF)                  -> ZeroEE ZeroSF
+        (EnvSF, EnvSF)                    -> ZeroEE EnvSF
+        (PairSF a b, PairSF c d) | a == c -> ZeroEE $ PairSF a (mergeSuper b d)
+        (PairSF a b, PairSF c d) | b == d -> ZeroEE $ PairSF (mergeSuper a c) b
+        (SetEnvSF x, SetEnvSF y)          -> ZeroEE $ SetEnvSF (mergeSuper x y)
+        (DeferSF x, DeferSF y)            -> ZeroEE $ DeferSF (mergeSuper x y)
+        (GateSF a b, GateSF c d) | a == c -> ZeroEE $ GateSF a (mergeSuper b d)
+        (GateSF a b, GateSF c d) | b == d -> ZeroEE $ GateSF (mergeSuper a c) b
+        (LeftSF x, LeftSF y)              -> ZeroEE $ LeftSF (mergeSuper x y)
+        (RightSF x, RightSF y)            -> ZeroEE $ RightSF (mergeSuper x y)
+  {-
+        (ZeroSF, PairSF a b)              -> TwoEE $ AlsoZeroPF a b
+        (PairSF a b, ZeroSF)              -> TwoEE $ AlsoZeroPF a b
+-}
+        _                                 -> TwoEE $ EitherPF (ZeroEE pa) (ZeroEE pb)
   in case (a,b) of
-    (ZeroEE ba, ZeroEE bb) -> case mergePart ba bb of
-      Right r       -> ZeroEE r
-      Left (ea, eb) -> TwoEE $ EitherPF (ZeroEE ea) (ZeroEE eb)
+    (ZeroEE ba, ZeroEE bb) -> mergeZero ba bb
     (TwoEE AnyPF, _) -> TwoEE AnyPF
     (_, TwoEE AnyPF) -> TwoEE AnyPF
     (TwoEE (EitherPF a b), TwoEE (EitherPF c d)) -> TwoEE $ EitherPF (mergeSuper a c) (mergeSuper b d)
     _ -> TwoEE $ EitherPF a b
+{-
+mergeSuper a b = if liftEq (\_ _ -> True) (project a) (project b)
+  then embed $ fmap mergeSuper (project a) <*> (project b)
+  else undefined
+-}
 
 data UnsizedRecursionF f
   = UnsizedRecursionF UnsizedRecursionToken
@@ -546,7 +558,7 @@ sizeTerm recursionLimit = tidyUp . findSize . sizeF . unStuckExpr where
     ZeroFW (DeferSF (tm, x)) | readyForSizing tm -> findSize (tm, ZeroEE (DeferSF x))
     x -> embed <$> sequence x
   findSize (tm, x) =
-    let sized = foldr combine (Left Nothing) . map (toTriple testG) $ [1 .. fromInteger recursionLimit] -- TODO relocate fromInteger
+    let sized = foldr combine (Left Nothing) . map (toTriple testG) . takeWhile (< fromInteger recursionLimit) $ iterate (*2) 1 -- TODO relocate fromInteger
         testG = case x of -- hacky, to handle many situations
           ZeroEE (DeferSF _) -> ZeroEE $ FillFunction x (TwoEE AnyPF) -- from sizeF
           ZeroEE (PairSF d@(ZeroEE (DeferSF _)) _) -> ZeroEE $ FillFunction d (TwoEE AnyPF) -- compiling main
