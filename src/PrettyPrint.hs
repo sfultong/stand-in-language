@@ -1,14 +1,29 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module PrettyPrint where
 
+import           Control.Monad.State (State)
 import           Data.Map (Map)
 import           Naturals (NExpr (..), NExprs (..), NResult)
 import           Telomare (FragExpr (..), FragExprUR (..), FragIndex (..),
                            IExpr (..), PartialType (..), PrettyPartialType (..),
                            RecursionSimulationPieces (..), Term3 (..), rootFrag)
 
+import qualified Control.Monad.State as State
 import qualified Data.Map as Map
+
+class PrettyPrintable p where
+  showP :: p -> State Int String
+
+class PrettyPrintable1 p where
+  showP1 :: PrettyPrintable a => p a -> State Int String
+
+instance (PrettyPrintable1 f, PrettyPrintable x) => PrettyPrintable (f x) where
+  showP = showP1
+
+prettyPrint :: PrettyPrintable p => p -> String
+prettyPrint x = State.evalState (showP x) 0
 
 indent :: Int -> String
 indent 0 = []
