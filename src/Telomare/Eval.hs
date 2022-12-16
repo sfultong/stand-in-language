@@ -38,7 +38,7 @@ import           Telomare                  (BreakState, BreakState', ExprA (..),
                                             pattern AbortUser, rootFrag, s2g,
                                             unFragExprUR)
 import           Telomare.Optimizer        (optimize)
-import           Telomare.Possible         (AbortExpr, SizeStuck, VoidF,
+import           Telomare.Possible         (AbortExpr, VoidF,
                                             abortExprToTerm4, evalA, sizeTerm,
                                             term3ToUnsizedExpr)
 import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
@@ -147,8 +147,8 @@ convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
                                in Term4 $ fmap changeType newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
-findChurchSize = pure . convertPT (const 255)
---findChurchSize = calculateRecursionLimits
+-- findChurchSize = pure . convertPT (const 255)
+findChurchSize = calculateRecursionLimits
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -251,7 +251,7 @@ evalLoop_ iexpr = case eval' iexpr of
 
 calculateRecursionLimits :: Term3 -> Either EvalError Term4
 calculateRecursionLimits t3 =
-  let abortExprToTerm4' :: AbortExpr (SizeStuck Void) VoidF -> Either IExpr Term4
+  let abortExprToTerm4' :: AbortExpr VoidF -> Either IExpr Term4
       abortExprToTerm4' = abortExprToTerm4
   in case fmap abortExprToTerm4' . sizeTerm 256 $ term3ToUnsizedExpr t3 of
     Left urt -> Left $ RecursionLimitError urt

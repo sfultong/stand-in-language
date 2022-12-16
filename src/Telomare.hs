@@ -789,3 +789,5 @@ pattern AbortUser :: IExpr -> IExpr
 pattern AbortUser m = Pair (Pair Zero Zero) m
 pattern AbortAny :: IExpr
 pattern AbortAny = Pair (Pair (Pair Zero Zero) Zero) Zero
+pattern AbortUnsizeable :: IExpr -> IExpr
+pattern AbortUnsizeable t = Pair (Pair (Pair (Pair Zero Zero) Zero) Zero) t

@@ -50,6 +50,7 @@ library
                      , containers
                      , mtl
                      , vector
+                     , data-fix
                      , deepseq
                      , derive-storable
                      , bytestring
