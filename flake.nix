@@ -15,10 +15,11 @@
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
           compiler = pkgs.haskell.packages."ghc922";
+	  hvmPkg = hvm.packages.${system}.default;
           project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
                 addBuildDepends = (t.flip hl.addBuildDepends)
-                  [ hvm.packages."x86_64-linux".default ];
+                  [ hvmPkg ];
             in compiler.developPackage {
               root = pkgs.lib.sourceFilesBySuffices ./.
                        [ ".cabal"
@@ -49,9 +50,7 @@
           hlint
 	  ghcid
 	  stylish-haskell
-	  hvm.defaultPackage. "x86_64-linux"
-	  
-
+	  hvmPkg
         ]);
 	
         checks = {
