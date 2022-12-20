@@ -6,7 +6,7 @@
       url = "github:edolstra/flake-compat";
       flake = false;
     };
-    hvm.url = "github:hhefesto/HVM";
+    hvm.url = "github:Kindelia/HVM";
   };
 
   outputs = { self, nixpkgs, flake-utils, flake-compat, hvm }:
@@ -18,7 +18,7 @@
           project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
                 addBuildDepends = (t.flip hl.addBuildDepends)
-                  [ hvm.defaultPackage."x86_64-linux" ];
+                  [ hvm.packages."x86_64-linux".default ];
             in compiler.developPackage {
               root = pkgs.lib.sourceFilesBySuffices ./.
                        [ ".cabal"
