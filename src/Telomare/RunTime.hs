@@ -188,7 +188,7 @@ evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
 -- |Evaluation with hvm backend
 hvmEval :: IExpr -> IO IExpr
 hvmEval x = do
-  (_, mhout, _, _) <- createProcess (shell ("hvm run -f ./hvm/backend.hvm \"(Main (" <> show x <> "))\"")) { std_out = CreatePipe }
+  (_, mhout, _, _) <- createProcess (shell ("hvm run -f ./hvm/backend.hvm \"(IEval Zero (" <> show x <> "))\"")) { std_out = CreatePipe }
   case mhout of
     Just hout -> do
       hvmOutput <- hGetContents hout
