@@ -188,16 +188,13 @@ evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
 -- |Evaluation with hvm backend
 hvmEval :: IExpr -> IO IExpr
 hvmEval x = do
-  (_, mhout, _, _) <- createProcess (shell ("hvm r ./hvm/backend \"(" <> show x <> ")\"")) { std_out = CreatePipe }
+  (_, mhout, _, _) <- createProcess (shell ("hvm run -f ./hvm/backend.hvm \"(Main (" <> show x <> "))\"")) { std_out = CreatePipe }
   case mhout of
     Just hout -> do
       hvmOutput <- hGetContents hout
-      if (length . lines $ hvmOutput) > 2 then
-        case (readMaybe . unlines . drop 2 . lines $ hvmOutput) :: Maybe IExpr of
-          Just res -> pure res
-          Nothing  -> error $ "Error: fail to read hvm output. \nhvm output:\n" <> hvmOutput
-      else error $ "Error: hvm output is not what was expected. \nhvm output: " <> hvmOutput
-      pure . read . unlines . drop 2 . lines $ hvmOutput
+      case readMaybe hvmOutput :: Maybe IExpr of
+        Just res -> pure res
+        Nothing  -> error $ "Error: fail to read hvm output. \nhvm output:\n" <> hvmOutput
     Nothing -> error $ "Error: hvm failed to produce output. \nIExpr fed to hvm:\n" <> show x
 
 simpleEval :: IExpr -> IO IExpr
