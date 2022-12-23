@@ -190,7 +190,7 @@ hvmEval :: IExpr -> IO IExpr
 hvmEval x = do
   ievalDef <- readFile "./hvm/backend.hvm"
   writeFile "./temp.hvm" $ concat [ievalDef, "\n(Main) = (IEval Zero (", show x, "))"]
-  (_, mhout, _, _) <- createProcess (shell "hvm run -f ./temp.hvm \"(Main)\"") { std_out = CreatePipe }
+  (_, mhout, _, _) <- createProcess (shell "hvm run -c true -f ./temp.hvm \"(Main)\"") { std_out = CreatePipe }
   case mhout of
     Just hout -> do
       hvmOutput <- hGetContents hout
