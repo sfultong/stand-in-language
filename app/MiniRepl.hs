@@ -89,13 +89,13 @@ maybeToRight Nothing  = Left CompileConversionError
 
 -- |Extra processing (see `Telomare.Parser.process`) useful for the MinRepl's context.
 process' :: [(String, UnprocessedParsedTerm)] -> UnprocessedParsedTerm -> Maybe Term3
-process' bindings x = rightToMaybe . process bindings $ x
+process' bindings x = rightToMaybe . process bindings . LetUP bindings $ x
 
 -- |Obtain expression from the bindings and transform them into maybe a Term3.
 resolveBinding' :: String
                 -> [(String, UnprocessedParsedTerm)]
                 -> Maybe Term3
-resolveBinding' name bindings = lookup name bindings >>= (rightToMaybe . process bindings)
+resolveBinding' name bindings = lookup name bindings >>= process' bindings
 
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
 resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
