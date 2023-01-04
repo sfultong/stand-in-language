@@ -1,21 +1,21 @@
-// The Y-Combinator
-Y = λf ((λr (f (r r))) (λr (f (r r))))
+(SetEnv (Pair (Gate l r) Zero)) = l
+(SetEnv (Pair (Gate l r) (Pair a b))) = r
+(SetEnv (Pair (Defer c) i)) = (c i)
+(Left (Pair l r)) = l
+(Left Zero) = Zero
+(Right (Pair l r)) = r
+(Right Zero) = Zero
 
-(IEval env Zero) = Zero
-(IEval env (Defer x)) = (Defer x)
-(IEval env (Pair a b)) = (Pair (IEval env a) (IEval env b))
-(IEval env (Gate a b)) = (Gate a b)
-(IEval env Env) = env
-(IEval env (SetEnv x)) = (IEvalAux0 env (IEval env x))
-  (IEvalAux0 env (Pair cf nenv)) = (IEvalAux1 env nenv cf)
-    (IEvalAux1 env nenv (Defer c)) = (IEval nenv c)
-    (IEvalAux1 env Zero (Gate a b)) = (IEval env a)
-    (IEvalAux1 env other (Gate a b)) = (IEval env b)
-(IEval env (PLeft g)) = (IEvalAux2 (IEval env g))
-  (IEvalAux2 (Pair a other)) = a
-  (IEvalAux2 other) = Zero
-(IEval env (PRight g)) = (IEvalAux3 (IEval env g))
-  (IEvalAux3 (Pair other a)) = a
-  (IEvalAux3 other) = Zero
-
-// (Main n) = ((((Y) (λf λenv λg (IEval f env g))) Zero) n)
+// (Eval (Pair a b)) = (Pair (Eval a) (Eval b))
+// (Eval (SetEnv x)) = (EvalP (Eval x))
+//   (EvalP (Pair c i)) = (EvalF c i)
+//     (EvalF (Gate l r) Zero) = (Eval l)
+//     (EvalF (Gate l r) (Pair a b)) = (Eval r)
+//     (EvalF c i) = (c i)
+// (Eval (Left x)) = (EvalL (Eval x))
+//   (EvalL (Pair a b)) = a
+//   (EvalL Zero) = Zero
+// (Eval (Right x)) = (EvalR (Eval x))
+//   (EvalR (Pair a b)) = b
+//   (EvalR Zero) = Zero
+// (Eval x) = x

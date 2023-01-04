@@ -415,3 +415,88 @@ evalA combine base t =
         SplitFunctor (Left (SplitFunctor (Right (EitherPF a b)))) -> combine a b
         x -> foldr (<|>) Nothing x
   in flip combine base $ cata getAborted runResult
+
+data LinearExprF f
+  = NumEnvF Int
+  | DupF Int Int f
+  | NumDeferF Int f
+  deriving (Eq, Ord, Functor, Foldable, Traversable)
+
+{-
+instance Show f => Show (LinearExprF f) where
+  show = \case
+    NumEnvF i -> "e" <> show i
+    DupF a b f -> "(dup e" <> show a <> " e" <> show b <> " = " <> show f <> ";)"
+    NumDeferF i f -> "(\\e" <> show i <> " -> " <> show f <> ")"
+-}
+{-
+instance Show1 LinearExprF where
+  liftShowsPrec showsPrec showList prec = \case
+    NumEnvF n -> shows "e" . shows n
+    DupF a b x -> shows "(dup e" . shows a . shows " e" . shows b . shows " = e" . shows (b + 1) . shows "; "
+      . showsPrec 0 x . shows ")"
+    NumDeferF n x -> shows "(\\e" . shows n . shows " -> " . showsPrec 0 x . shows ")"
+-}
+
+
+type LinearExpr = EnhancedExpr LinearExprF
+
+newtype ShowLinearExpr = ShowLinearExpr LinearExpr
+
+instance Show ShowLinearExpr where
+  show (ShowLinearExpr x) = cata showF x where
+    showF = \case
+      SplitFunctor (Right x) -> case x of
+        ZeroSF -> "Zero"
+        PairSF a b -> "(Pair " <> a <> " " <> b <> ")"
+        SetEnvSF x -> "(SetEnv " <> x <> ")"
+        DeferSF x -> "(Defer " <> x <> ")"
+        GateSF l r -> "(Gate " <> l <> " " <> r <> ")"
+        LeftSF x -> "(Left " <> x <> ")"
+        RightSF x -> "(Right " <> x <> ")"
+      SplitFunctor (Left x) -> case x of
+        {-
+        NumEnvF n -> "e" <> show n
+        DupF a b x -> "(dup e" <> show a <> " e" <> show b <> " = " <> show (b + 1) <> show "; " <> x <> ")"
+        NumDeferF n x -> "(\\e" <> show n <> " -> " <> x <> ")"
+-}
+        NumEnvF _ -> "x"
+        DupF a b x -> x
+        -- NumDeferF n x -> "(Defer " <> x <> ")"
+        NumDeferF n x -> "λx(" <> x <> ")"
+
+-- convert to a form that can be directly input to HVM
+linearize :: EnhancedExpr VoidF -> LinearExpr
+linearize = ($ 0) . State.evalState . cata convert where
+  lin = embed . SplitFunctor . Left
+  reg = embed . SplitFunctor . Right
+  getNext = do
+    n <- State.get
+    State.put (n + 1)
+    pure n
+  convert = \case
+    SplitFunctor (Right x) -> case x of
+      EnvSF -> lin . NumEnvF <$> getNext
+      PairSF a b -> do
+        ci <- State.get
+        na <- a
+        ca <- State.get
+        nb <- b
+        cb <- State.get
+        if ca - ci > 0 && cb - ca > 0
+          then getNext >> (pure . lin . DupF (ca - 1) (cb - 1) . reg $ PairSF na nb)
+          else pure . reg $ PairSF na nb
+      GateSF a b -> do
+        ci <- State.get
+        na <- a
+        ca <- State.get
+        nb <- b
+        cb <- State.get
+        if ca - ci > 0 && cb - ca > 0
+          then getNext >> (pure . lin . DupF (ca - 1) (cb - 1) . reg $ GateSF na nb)
+          else pure . reg $ GateSF na nb
+      DeferSF x -> do
+        nx <- x
+        cn <- State.get
+        pure . lin $ NumDeferF (cn - 1) nx
+      x -> reg <$> sequence x

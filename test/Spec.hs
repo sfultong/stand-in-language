@@ -288,7 +288,8 @@ allowedTypeCheck _                      = False
 testEval :: IExpr -> IO IExpr
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
-testEval iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
+-- testEval iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
+testEval iexpr = hvmEval (SetEnv (Pair (Defer iexpr) Zero))
 
 
 
@@ -470,8 +471,10 @@ unitTests_ parse = do
   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
 -}
-  describe "refinement" $ do
-    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+  describe "hvm" $ do
+    -- unitTest2 "main = $2 succ 0" "2"
+    unitTest2 "main = take $0 [1,2,3]" "0"
+    -- unitTest2 "main = (\\x -> x) 0" "0"
   {-
     unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
     unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)

@@ -20,10 +20,12 @@ import           PrettyPrint
 import           System.IO
 import           System.Process
 import           Telomare              (AbstractRunTime (eval), DataType (..),
+                                        Term4 (..), FragExpr (..), rootFrag,
                                         FragIndex (FragIndex), IExpr (..),
                                         IExprF (..), PrettyIExpr (PrettyIExpr),
                                         RunResult, RunTimeError (..),
                                         TelomareLike (fromTelomare, toTelomare))
+import           Telomare.Possible (linearize, ShowLinearExpr (..))
 import           Text.Read             (readMaybe)
 
 debug :: Bool
@@ -150,6 +152,24 @@ iEval f env g = let f' = f env in case g of
     (Pair _ x) -> pure x
     _          -> pure Zero
 
+sEval :: IExpr -> IExpr -> IExpr
+sEval env =
+  let recur = sEval env in \case
+    Pair a b -> Pair (recur a) (recur b)
+    Env -> env
+    SetEnv x -> case recur x of
+      Pair cf nenv -> case cf of
+        Defer c -> sEval nenv c
+        Gate l r -> case nenv of
+          Zero -> recur l
+          _ -> recur r
+    PLeft x -> case recur x of
+      Pair a _ -> a
+      _ -> Zero
+    PRight x -> case recur x of
+      Pair _ b -> b
+      _ -> Zero
+
 instance TelomareLike IExpr where
   fromTelomare = id
   toTelomare = pure
@@ -185,11 +205,28 @@ evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
     throwError . ResultConversionError $ show ar'
   Just ir -> pure ir
 
+newtype HvmOutput = HvmOutput Term4
+
+instance Show HvmOutput where
+  show (HvmOutput (Term4 tm)) =
+    let df i g out = if fromEnum i == 0 then out else "  let d" <> show (fromEnum  i) <> " = @x " <> dt g <> "\n" <> out
+        dt = \case
+          ZeroFrag -> "Zero"
+          PairFrag a b -> "(Pair " <> dt a <> " " <> dt b <> ")"
+          EnvFrag -> "x"
+          SetEnvFrag x -> "(SetEnv " <> dt x <> ")"
+          DeferFrag ind -> "(Defer d" <> show (fromEnum ind) <> ")"
+          GateFrag l r -> "(Gate " <> dt l <> " " <> dt r <> ")"
+          LeftFrag x -> "(Left " <> dt x <> ")"
+          RightFrag x -> "(Right " <> dt x <> ")"
+    in "(Main) =\n" <> Map.foldrWithKey df ("  " <> dt (rootFrag tm)) tm
+
 -- |Evaluation with hvm backend
 hvmEval :: IExpr -> IO IExpr
 hvmEval x = do
   ievalDef <- readFile "./hvm/backend.hvm"
-  writeFile "./temp.hvm" $ concat [ievalDef, "\n(Main) = (IEval Zero (", show x, "))"]
+  let hvmCode = show . HvmOutput $ fromTelomare x
+  writeFile "./temp.hvm" $ concat [ievalDef, "\n", hvmCode]
   (_, mhout, _, _) <- createProcess (shell "hvm run -c true -f ./temp.hvm \"(Main)\"") { std_out = CreatePipe }
   case mhout of
     Just hout -> do
