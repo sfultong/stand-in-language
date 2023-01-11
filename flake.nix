@@ -10,15 +10,15 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, flake-compat, hvm }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" ] (system:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
-          compiler = pkgs.haskell.packages."ghc922";
+          compiler = pkgs.haskell.packages."ghc924";
           project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
                 addBuildDepends = (t.flip hl.addBuildDepends)
-                  [ hvm.defaultPackage."x86_64-linux" ];
+                  [ hvm.defaultPackage.${system} ];
             in compiler.developPackage {
               root = pkgs.lib.sourceFilesBySuffices ./.
                        [ ".cabal"
@@ -49,7 +49,7 @@
           hlint
 	  ghcid
 	  stylish-haskell
-	  hvm.defaultPackage. "x86_64-linux"
+	  hvm.defaultPackage.${system}
 	  
 
         ]);
