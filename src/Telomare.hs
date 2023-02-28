@@ -201,6 +201,12 @@ indentWithTwoChildren' str sl sr = do
   -- pure $ indent i (str <> "\n") <> l <> "\n" <> r
   pure $ str <> " " <> l <> "\n" <> indent (i + 2) r
 
+indentWithChildren' :: String -> [State Int String] -> State Int String
+indentWithChildren' str l = do
+  i <- State.get
+  let doLine = (liftA (<> "\n" <> indent (i + 2) "")) . (State.put (i + 2) >>)
+  foldl (\s c -> (<>) <$> s <*> c) (pure $ str <> " ") $ map doLine l
+
 -- |Two children indentation.
 indentWithTwoChildren :: String -> State Int String -> State Int String -> State Int String
 indentWithTwoChildren str sl sr = do

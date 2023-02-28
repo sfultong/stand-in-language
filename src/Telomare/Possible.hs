@@ -26,6 +26,7 @@ import qualified Control.Monad.Reader      as Reader
 import           Control.Monad.State       (State, StateT)
 import qualified Control.Monad.State       as State
 import           Control.Monad.Trans.Class
+import           Data.Bifunctor
 import           Data.DList                (DList)
 import qualified Data.DList                as DList
 import           Data.Fix                  (Fix(..))
@@ -58,7 +59,7 @@ import           Telomare                  (FragExpr (..), FragExprUR (..), i2g,
                                             indentWithTwoChildren',
                                             pattern AbortAny,
                                             pattern AbortRecursion, rootFrag,
-                                            sindent, pattern AbortUnsizeable, IExprF (SetEnvF))
+                                            sindent, pattern AbortUnsizeable, IExprF (SetEnvF), indentWithChildren')
 import           Telomare.TypeChecker
 
 data PartExprF f
@@ -473,14 +474,40 @@ unsizedStep handleOther =
       unsizedMerge = mergeSuper (mergeAbort (mergeUnsized mergeUnknown))
       fullStep = basicStep (stuckStep (superStep unsizedMerge (abortStep (unsizedStep handleOther))))
       -- recurStep = (\x -> trace ("recurStep:\n" <> prettyPrint x) x) . fullStep . ZeroFW . SetEnvSF
-      recurStep = fullStep . ZeroFW . SetEnvSF
+      customStep = (\x -> trace ("custom stepping:\n" <> prettyPrint x) x) . f where
+        f = \case
+          ZeroFW (FillFunction (OneEE (StuckF d)) e) -> cata (fullStep . replaceEnv) d where
+            e' = project e
+            replaceEnv = \case
+              ZeroFW EnvSF -> e'
+              x -> x
+      debugStep f x = trace ("before:\n" <> prettyPrint x <> "\nafter:\n" <> prettyPrint (fmap f x)) $ fmap f x
+      -- debugStep f x = trace ("before:\n" <> prettyPrint x) $ fmap f x
+      recurStep = customStep . ZeroFW . SetEnvSF
+      uMap :: (UnsizedExpr f -> UnsizedBase (UnsizedExpr f) f (UnsizedExpr f)) -> UnsizedExpr f -> UnsizedExpr f
+      uMap f (SizingResultsF inds ul) = embed . FourFW . SizingResultsF inds $ zipWith (\n c -> select n . fullStep . ZeroFW . f) [0..] ul where
+        select :: Int -> 
+        select n (SizingResultsF nInds nUl) = refix $ nUl !! n
+        select _ x = refix x
+      
   in \case
+    ZeroFW (FillFunction (FourEE (SizingResultsF cts crl)) (FourEE (SizingResultsF ets erl))) ->
+      embed . FourFW . SizingResultsF (cts <> ets) . map (fullStep . ZeroFW) $ zipWith fillFunction crl erl
+    {-
     ZeroFW (LeftSF (FourEE sr@(SizingResultsF _ _))) -> trace "-ul" embed . FourFW $ fmap (fullStep . ZeroFW . LeftSF) sr
     ZeroFW (RightSF (FourEE sr@(SizingResultsF _ _))) -> trace "-ur" embed . FourFW $ fmap (fullStep . ZeroFW . RightSF) sr
     ZeroFW (SetEnvSF (FourEE sr@(SizingResultsF _ _))) -> trace "-us" embed . FourFW $ fmap (fullStep . ZeroFW . SetEnvSF) sr
     ZeroFW (FillFunction (FourEE sr@(SizingResultsF _ _)) e) -> trace "-uffc" embed . FourFW $ fmap (fullStep . ZeroFW . (\c -> fillFunction c e)) sr
+    ZeroFW (GateSwitch l r (FourEE sr@(SizingResultsF _ _))) -> trace "-ug" embed . FourFW $ fmap (fullStep . ZeroFW . gateSwitch l r) sr
+-}
+    ZeroFW (LeftSF (FourEE sr@(SizingResultsF _ _))) -> trace "-ul" uMap LeftSF sr -- embed . FourFW $ fmap (fullStep . ZeroFW . LeftSF) sr
+    ZeroFW (RightSF (FourEE sr@(SizingResultsF _ _))) -> trace "-ur" uMap LeftSF sr
+    ZeroFW (SetEnvSF (FourEE sr@(SizingResultsF _ _))) -> trace "-us" uMap SetEnvSF sr
+    ZeroFW (FillFunction (FourEE sr@(SizingResultsF _ _)) e) -> trace "-uffc" embed . FourFW $ fmap (fullStep . ZeroFW . (\c -> fillFunction c e)) sr
+    ZeroFW (GateSwitch l r (FourEE sr@(SizingResultsF _ _))) -> trace "-ug" embed . FourFW $ fmap (fullStep . ZeroFW . gateSwitch l r) sr
+    -- ZeroFW (GateSwitch l r (FourEE sr@(SizingResultsF _ _))) -> trace ("-ug\n" <> prettyPrint sr) embed . FourFW $ debugStep (fullStep . ZeroFW . gateSwitch l r) sr
     -- ZeroFW (FillFunction c (FourEE sr@(SizingResultsF _ _))) -> trace "-uffe" embed . FourFW $ fmap (fullStep . ZeroFW . fillFunction c) sr
-    ZeroFW (FillFunction c (FourEE sr@(SizingResultsF _ _))) -> (\x -> trace ("-uffe before:\n" <> prettyPrint sr <> "\nuffe after:\n" <> prettyPrint x) x) . embed . FourFW $ fmap (fullStep . ZeroFW . fillFunction c) sr
+    -- ZeroFW (FillFunction c (FourEE sr@(SizingResultsF _ _))) -> (\x -> trace ("-uffe before:\n" <> prettyPrint sr <> "\nuffe after:\n" <> prettyPrint x) x) . embed . FourFW $ fmap (fullStep . ZeroFW . fillFunction c) sr
     FourFW (RecursionTestF ri x) -> case x of
       z@(ZeroEE ZeroSF) -> z
       p@(ZeroEE (PairSF _ _)) -> p
@@ -489,13 +516,12 @@ unsizedStep handleOther =
       a@(ThreeEE (AbortedF _)) -> a
       -- FourEE sr@(SizingResultsF _ _) -> 
       z -> error ("evalRecursionTest checkTest unexpected " <> show z)
-    FourFW (NestedSetEnvsF t x) -> embed . FourFW . SizingResultsF t $ [x, (iterate recurStep x) !! 2] -- works-ish
+    -- FourFW (NestedSetEnvsF t x) -> embed . FourFW . SizingResultsF (Set.singleton t) $ iterate recurStep x
+    -- FourFW (NestedSetEnvsF t x) -> embed . FourFW . SizingResultsF (Set.singleton t) . map recurStep $ iterate (embed . ZeroFW . SetEnvSF) x -- doesn't work
     -- FourFW (NestedSetEnvsF t x) -> trace ("in nested setenvs:\n" <> prettyPrint x) embed . FourFW . SizingResultsF t . take 3 . iterate (fullStep . ZeroFW . SetEnvSF) $ x
     -- FourFW (NestedSetEnvsF t x) ->  (iterate (fullStep . ZeroFW . SetEnvSF) $ x) !! 5 -- works-ish
     -- FourFW (NestedSetEnvsF t x) -> x
     -- FourFW (NestedSetEnvsF t x) -> fullStep . ZeroFW . SetEnvSF $ x -- ok
-    -- FourFW (NestedSetEnvsF t x) -> fullStep . ZeroFW . SetEnvSF . fullStep . ZeroFW . SetEnvSF $ x -- ok
-    -- FourFW (NestedSetEnvsF t x) -> fullStep . ZeroFW . SetEnvSF . fullStep . ZeroFW . SetEnvSF . fullStep . ZeroFW . SetEnvSF . fullStep . ZeroFW . SetEnvSF $ x -- ok
     -- FourFW (NestedSetEnvsF t x) -> embed . FourFW . SizingResultsF t . map fullStep . iterate (ZeroFW . SetEnvSF . embed) $ project x
     -- stuck values
     x@(FourFW (SizingResultsF _ _)) -> embed x
@@ -509,7 +535,7 @@ testPair = embed . ZeroFW $ PairSF (embed $ ZeroFW ZeroSF) (embed $ ZeroFW ZeroS
 testReplace :: UnsizedExpr VoidF
 testReplace =
   let testPair = embed . ZeroFW $ PairSF (embed $ ZeroFW ZeroSF) (embed $ ZeroFW ZeroSF)
-      srs = embed $ FourFW (SizingResultsF (toEnum 0) [embed $ ZeroFW EnvSF, embed $ ZeroFW EnvSF])
+      srs = embed $ FourFW (SizingResultsF (Set.singleton $ toEnum 0) [embed $ ZeroFW EnvSF, embed $ ZeroFW EnvSF])
       expr :: UnsizedExpr VoidF
       expr = embed $ ZeroFW (fillFunction (embed $ OneFW (StuckF srs)) testPair)
       unsizedMerge = mergeSuper (mergeAbort (mergeUnsized mergeUnknown))
@@ -649,7 +675,7 @@ mergeUnsized mergeOther a b =
   in case (a,b) of
     (FourEE aa, FourEE bb) -> case (aa,bb) of
       (RecursionTestF ta x, RecursionTestF tb y) | ta == tb -> embed . FourFW . RecursionTestF ta $ mergeDown x y
-      (NestedSetEnvsF ta x, NestedSetEnvsF tb y) | ta == tb -> embed . FourFW . NestedSetEnvsF ta $ mergeDown x y
+      -- (NestedSetEnvsF ta x, NestedSetEnvsF tb y) | ta == tb -> embed . FourFW . NestedSetEnvsF ta $ mergeDown x y
       -- (SizingResultsF ta (x:xs), SizingResultsF tb (y:_)) | ta == tb && x == y -> embed . FourFW $ SizingResultsF ta (x:xs) -- this is wrong
       (SizingResultsF ta x, SizingResultsF tb y) | ta == tb -> embed . FourFW . SizingResultsF ta $ zipWith mergeDown x y
     _ -> mergeOther a b
@@ -662,15 +688,16 @@ mergeUnknown a b = if a == b
 
 data UnsizedRecursionF f
   = RecursionTestF UnsizedRecursionToken f
-  | NestedSetEnvsF UnsizedRecursionToken f
-  | SizingResultsF UnsizedRecursionToken [f]
+  --  | NestedSetEnvsF UnsizedRecursionToken f
+  --  | SizingResultsF UnsizedRecursionToken [f]
+  | SizingResultsF (Set UnsizedRecursionToken) [f]
   --   | UnsizableF UnsizedRecursionToken -- TODO change to AbortedF ?
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Eq1 UnsizedRecursionF where
   liftEq test a b = case (a, b) of
     (RecursionTestF ta a, RecursionTestF tb b) -> ta == tb && test a b
-    (NestedSetEnvsF ta a, NestedSetEnvsF tb b) -> ta == tb && test a b
+    -- (NestedSetEnvsF ta a, NestedSetEnvsF tb b) -> ta == tb && test a b
     (SizingResultsF ta (a:_), SizingResultsF tb (b:_)) -> ta == tb && test a b
     _                                          -> False
 
@@ -678,7 +705,7 @@ instance Show1 UnsizedRecursionF where
   --  Show1 f => (Int -> a -> ShowS) -> ([a] -> ShowS) -> Int -> f a -> ShowS
   liftShowsPrec showsPrec showList prec x = case x of
     RecursionTestF be x -> shows "RecursionTestF (" . shows be . shows " " . showsPrec 0 x . shows ")"
-    NestedSetEnvsF t x -> shows "NestedSetEnvsF (" . shows t . shows " " . showsPrec 0 x . shows ")"
+    -- NestedSetEnvsF t x -> shows "NestedSetEnvsF (" . shows t . shows " " . showsPrec 0 x . shows ")"
     SizingResultsF t x -> shows "SizingResultsF (" . shows t . shows " " . showList x . shows ")"
 
 instance (PrettyPrintable1 f, PrettyPrintable1 g) => PrettyPrintable1 (SplitFunctor f g) where
@@ -713,9 +740,14 @@ instance PrettyPrintable1 AbortableF where
 
 instance PrettyPrintable1 UnsizedRecursionF where
   showP1 = \case
-    NestedSetEnvsF (UnsizedRecursionToken ind) x -> indentWithOneChild' "?" $ showP x
+    -- NestedSetEnvsF (UnsizedRecursionToken ind) x -> indentWithOneChild' "?" $ showP x
     RecursionTestF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("T(" <> show ind <> ")") $ showP x
-    SizingResultsF _ (x:_) -> (\nx -> "[" <> nx <> "...]") <$> showP x
+    -- SizingResultsF _ (x:_) -> (\nx -> "[" <> nx <> "...]") <$> showP x
+    SizingResultsF _ rl -> do
+      i <- State.get
+      start <- indentWithChildren' "[" . map showP $ take 2 rl
+      -- pure $ start <> indent i "]"
+      pure $ start <> "]"
 
 instance PrettyPrintable1 VoidF where
   showP1 _ = error "VoidF should never be inhabited, so should not be PrettyPrintable1"
@@ -736,7 +768,9 @@ term3ToUnsizedExpr (Term3 termMap) =
         RightFrag x -> ZeroFW . RightSF $ convertFrag' x
         TraceFrag -> ZeroFW EnvSF
         AuxFrag (RecursionTest tok (FragExprUR x)) -> FourFW . RecursionTestF tok $ convertFrag' x
-        AuxFrag (NestedSetEnvs t) -> FourFW . NestedSetEnvsF t . embed $ ZeroFW EnvSF
+        -- AuxFrag (NestedSetEnvs t) -> FourFW . NestedSetEnvsF t . embed $ ZeroFW EnvSF
+        -- AuxFrag (NestedSetEnvs t) -> FourFW . SizingResultsF (Set.singleton t) . iterate (embed . ZeroFW . SetEnvSF) . embed $ ZeroFW EnvSF
+        AuxFrag (NestedSetEnvs t) -> FourFW . SizingResultsF (Set.singleton t) . take 3 . tail . iterate (embed . ZeroFW . SetEnvSF) . embed $ ZeroFW EnvSF
   in convertFrag' . unFragExprUR $ rootFrag termMap
 
 newtype UnsizedAggregate = UnsizedAggregate { unUnAgg :: Map UnsizedRecursionToken ( Bool, Bool) }
@@ -840,7 +874,7 @@ sizeTerm recursionLimit = tidyUp . findSize . sizeF where
   showPartialExpr x = trace ("sizeTerm partially evaled expression:\n" <> prettyPrint x) x
   -- sizeF = cata $ \case
   sizeF = transformStuckM $ \case
-    ur@(FourFW (NestedSetEnvsF t (tm, x))) -> (aggSetEnvs t <> tm, embed . FourFW $ NestedSetEnvsF t x)
+    -- ur@(FourFW (NestedSetEnvsF t (tm, x))) -> (aggSetEnvs t <> tm, embed . FourFW $ NestedSetEnvsF t x)
     ur@(FourFW (RecursionTestF t (tm, x))) -> (aggTest t <> tm, embed . FourFW $ RecursionTestF t x)
   {-
     ZeroFW (PairSF (tmc, c) (tme, e)) | readyForSizing (tmc <> tme) ->
@@ -852,7 +886,8 @@ sizeTerm recursionLimit = tidyUp . findSize . sizeF where
     x -> embed <$> sequence x
   findSize (tm, x) =
     let evaled = evalPossible testG
-        sizingResults = (\f -> map (\n -> (n, f n)) $ [1..fromIntegral recursionLimit]) . recursionResults $ evaled
+        -- sizingResults = (\f -> map (\n -> (n, f n)) $ [1..fromIntegral recursionLimit]) . recursionResults $ evaled
+        sizingResults = map (second foldAborted) . recursionResults' $ evaled
         testG = case x of -- hacky, to handle many situations
           OneEE (StuckF _) -> embed . ZeroFW $ fillFunction x (embed $ TwoFW AnyPF) -- from sizeF
           ZeroEE (PairSF d@(OneEE (StuckF _)) _) -> trace "doing 'main' testG" embed . ZeroFW $ fillFunction d (embed $ TwoFW AnyPF) -- compiling main
@@ -862,6 +897,7 @@ sizeTerm recursionLimit = tidyUp . findSize . sizeF where
           Nothing -> trace ("after setting sizes is\n" <> prettyPrint (setSizes n x)) (mempty, setSizes n x)
           _ -> alt
         -- selectResult _ _ = (mempty, setSizes 10 x)
+    -- in trace ("sizing results:\n" <> prettyPrint evaled <> "\nfrom original:\n" <> prettyPrint x) foldr selectResult (tm, x) sizingResults
     in trace ("sizing results:\n" <> prettyPrint evaled <> "\nfrom original:\n" <> prettyPrint x) foldr selectResult (tm, x) sizingResults
   tidyUp = \case
     (UnsizedAggregate uam, _) | not (null uam) -> case Map.minViewWithKey uam of
@@ -904,7 +940,7 @@ sizeTerm recursionLimit = tidyUp . findSize . sizeF where
   setSizes n = trace ("setting size to " <> show n) transformStuck $ \case
     FourFW (SizingResultsF _ rl) -> rl !! n
     FourFW (RecursionTestF _ x) -> x
-    FourFW (NestedSetEnvsF _ x) -> iterate (embed . ZeroFW . SetEnvSF) x !! n
+    -- FourFW (NestedSetEnvsF _ x) -> iterate (embed . ZeroFW . SetEnvSF) x !! n
     x -> embed x
   -- recursionResults = cata $ \case
   {-
@@ -916,8 +952,6 @@ sizeTerm recursionLimit = tidyUp . findSize . sizeF where
       FourFW (SizingResultsF _ rl) -> \n -> (rl !! n) n
       x                                 -> Data.Foldable.fold x
 -}
-  -- >>> Just AbortedSR <> Nothing
-  --
   recursionResults :: (Functor f, Foldable f) => UnsizedExpr f -> (Int -> Maybe SizedResult)
   recursionResults = cata f where
     f :: (Functor f, Foldable f) => UnsizedBase (UnsizedExpr f) f (Int -> Maybe SizedResult) -> (Int -> Maybe SizedResult)
@@ -927,6 +961,16 @@ sizeTerm recursionLimit = tidyUp . findSize . sizeF where
       ThreeFW (AbortedF AbortRecursion) -> const $ Just AbortedSR
       ThreeFW (AbortedF (AbortUnsizeable t)) -> const . Just . UnsizableSR . toEnum . g2i $ t
       FourFW (SizingResultsF _ rl) -> \n -> (rl !! n) n
+      x                                 -> Data.Foldable.fold x
+  recursionResults' x = map (\n -> (n, cata (f n) x)) [1..fromIntegral recursionLimit] where
+    f n = \case
+      FourFW (SizingResultsF _ rl) -> rl !! n
+      x -> embed x
+  foldAborted :: (Functor f, Foldable f) => UnsizedExpr f -> Maybe SizedResult
+  foldAborted = cata f where
+    f = \case
+      ThreeFW (AbortedF AbortRecursion) -> Just AbortedSR
+      ThreeFW (AbortedF (AbortUnsizeable t)) -> Just . UnsizableSR . toEnum . g2i $ t
       x                                 -> Data.Foldable.fold x
   unsizedMerge = mergeSuper (mergeAbort (mergeUnsized mergeUnknown))
   evalPossible = evalBottomUp (stuckStep (superStep unsizedMerge (abortStep (unsizedStep unhandledError))))

@@ -421,10 +421,12 @@ qcTestAbortExtract (URTestExpr (Term3 termMap), i) =
   extractedTestResult = or $ fmap runTest tests
 -}
 
+{-
 qcTestBottomUp :: DataTypedIExpr -> Bool
 qcTestBottomUp x =
   let exp = getIExpr x
   in evalS exp == evalBU exp
+-}
 
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
@@ -498,7 +500,7 @@ unitTests_ parse = do
     --unitTest "function argument app" "1" function_argument
     --unitTest "three times hardcoded two" "6" times_two
     -- unitTest "function argument app" "1" function_argument
-    unitTest "two times hardcoded three" "6" times_three
+    unitTest2 "main = d2c 3 succ 0" "3"
     --unitTest "narrowing down test" "6" times_wip
   {-
     unitTest "c2d2" "2" c2d_test2
