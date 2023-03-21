@@ -494,34 +494,32 @@ unitTests_ parse = do
                                     (ints2g [1,2,3])
 -}
   describe "bottom up eval" $ do
-    --unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-    --unitTest "c2d" "2" c2d_test
-    -- unitTest "oneplusone" "2" one_plus_one
-    --unitTest "function argument app" "1" function_argument
-    --unitTest "three times hardcoded two" "6" times_two
-    -- unitTest "function argument app" "1" function_argument
+    unitTest2 "main = plus $3 $2 succ 0" "5"
+    unitTest2 "main = times $3 $2 succ 0" "6"
+    unitTest2 "main = pow $3 $2 succ 0" "9"
     unitTest2 "main = d2c 3 succ 0" "3"
-    --unitTest "narrowing down test" "6" times_wip
+    -- unitTest2 "main = (d2cG $4 3) succ 0" "3"
+    unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
+    unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [1,1,1]" "4"
+    -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
   {-
-    unitTest "c2d2" "2" c2d_test2
-    unitTest "c2d3" "1" c2d_test3
-    unitTest "church 3+2" "5" three_plus_two
-    unitTest "3*2" "6" three_times_two
-    unitTest "3^2" "9" three_pow_two
-    unitTest "test_tochurch" "2" test_toChurch
-    unitTest "three" "3" three_succ
-    unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
-    unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
-    unitTest "listlength0" "0" $ app list_length zero
-    unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
-    unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
-    unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
-    unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
--}
-  {-
-  describe "debugging stuff" $ do
-    --unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
-    unitTest2 "main = (d2c 3) succ 0" "3"
+    unitTest2 "main = dEqual 0 0" "1"
+    unitTest2 "main = dEqual 1 0" "0"
+    unitTest2 "main = dEqual 0 1" "0"
+    unitTest2 "main = dEqual 1 1" "1"
+    unitTest2 "main = dEqual 2 1" "0"
+    unitTest2 "main = dEqual 1 2" "0"
+    unitTest2 "main = dEqual 2 2" "1"
+    unitTest2 "main = listLength []" "0"
+    unitTest2 "main = listLength [1,2,3]" "3"
+    unitTest2 "main = listEqual \"hey\" \"hey\"" "1"
+    unitTest2 "main = listEqual \"hey\" \"he\"" "0"
+    unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
+    unitTest2 "main = listPlus [1,2] [3,4]" "(1,(2,(3,5)))"
+    unitTest2 "main = listPlus 0 [1]" "2"
+    unitTest2 "main = listPlus [1] 0" "2"
+    unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
+    unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "(97,(98,100))"
 -}
 
 c2dApp = "main = (c2dG $4 3) $2 succ 0"
