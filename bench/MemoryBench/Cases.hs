@@ -8,12 +8,12 @@
 
 module MemoryBench.Cases where
 
-import           Text.Parsec      hiding (label)
-import           Text.Parsec.Char
+import Text.Parsec hiding (label)
+import Text.Parsec.Char
 
 import qualified System.IO.Strict as Strict
 
-import           Data.Maybe
+import Data.Maybe
 
 type Label    = String
 

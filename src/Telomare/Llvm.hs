@@ -4,57 +4,55 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Telomare.Llvm where
 
-import           Control.Monad.Except
-import           Control.Monad.State.Strict
-import           Crypto.Hash                 (Digest, SHA256, hashlazy)
-import           Data.Binary                 (encode)
-import qualified Data.ByteArray              as BA (unpack)
-import           Data.ByteString             (ByteString)
-import qualified Data.ByteString             as BS
-import qualified Data.ByteString.Base16      as Base16
-import qualified Data.ByteString.Char8       as BSC
-import qualified Data.ByteString.Lazy        as BSL
-import           Data.ByteString.Short       (toShort)
-import           Data.Int                    (Int64)
-import           Data.Map.Strict             (Map)
-import qualified Data.Map.Strict             as Map
-import           Data.String                 (fromString)
-import           Foreign.Ptr                 (FunPtr, IntPtr (..), Ptr,
-                                              WordPtr (..), castPtrToFunPtr,
-                                              intPtrToPtr, plusPtr,
-                                              wordPtrToPtr)
-import           Foreign.Storable            (peek)
-import           System.Clock
-import           System.IO                   (hPutStrLn, stderr)
-import           Text.Printf
+import Control.Monad.Except
+import Control.Monad.State.Strict
+import Crypto.Hash (Digest, SHA256, hashlazy)
+import Data.Binary (encode)
+import qualified Data.ByteArray as BA (unpack)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base16 as Base16
+import qualified Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Lazy as BSL
+import Data.ByteString.Short (toShort)
+import Data.Int (Int64)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.String (fromString)
+import Foreign.Ptr (FunPtr, IntPtr (..), Ptr, WordPtr (..), castPtrToFunPtr,
+                    intPtrToPtr, plusPtr, wordPtrToPtr)
+import Foreign.Storable (peek)
+import System.Clock
+import System.IO (hPutStrLn, stderr)
+import Text.Printf
 
-import           LLVM.AST                    hiding (Monotonic)
-import           LLVM.AST.Global             as G
-import           LLVM.Context
-import           LLVM.IRBuilder.Constant     (int64)
-import           LLVM.IRBuilder.Module
-import           LLVM.IRBuilder.Monad
-import           LLVM.Module                 as Mod
-import           LLVM.PassManager
+import LLVM.AST hiding (Monotonic)
+import LLVM.AST.Global as G
+import LLVM.Context
+import LLVM.IRBuilder.Constant (int64)
+import LLVM.IRBuilder.Module
+import LLVM.IRBuilder.Monad
+import LLVM.Module as Mod
+import LLVM.PassManager
 
-import qualified LLVM.AST                    as AST
-import qualified LLVM.AST.AddrSpace          as AddrSpace
-import qualified LLVM.AST.Constant           as C
-import qualified LLVM.AST.IntegerPredicate   as IP
+import qualified LLVM.AST as AST
+import qualified LLVM.AST.AddrSpace as AddrSpace
+import qualified LLVM.AST.Constant as C
+import qualified LLVM.AST.IntegerPredicate as IP
 import qualified LLVM.AST.ParameterAttribute as PA
-import qualified LLVM.AST.Type               as T
-import qualified LLVM.CodeGenOpt             as CodeGenOpt
-import qualified LLVM.CodeModel              as CodeModel
-import qualified LLVM.IRBuilder.Instruction  as IRI
-import qualified LLVM.IRBuilder.Module       as IRM
-import qualified LLVM.Linking                as Linking
-import qualified LLVM.OrcJIT                 as OJ
-import qualified LLVM.OrcJIT.CompileLayer    as OJ
-import qualified LLVM.Relocation             as Reloc
-import qualified LLVM.Target                 as Target
+import qualified LLVM.AST.Type as T
+import qualified LLVM.CodeGenOpt as CodeGenOpt
+import qualified LLVM.CodeModel as CodeModel
+import qualified LLVM.IRBuilder.Instruction as IRI
+import qualified LLVM.IRBuilder.Module as IRM
+import qualified LLVM.Linking as Linking
+import qualified LLVM.OrcJIT as OJ
+import qualified LLVM.OrcJIT.CompileLayer as OJ
+import qualified LLVM.Relocation as Reloc
+import qualified LLVM.Target as Target
 
-import           Naturals
-import           Telomare                    (FragIndex)
+import Naturals
+import Telomare (FragIndex)
 
 foreign import ccall "dynamic" haskFun :: FunPtr (IO (Ptr Int64)) -> IO (Ptr Int64)
 

@@ -3,23 +3,21 @@
 
 module Telomare.TypeChecker where
 
-import           Control.Applicative
-import           Control.Lens.Plated  (transform)
-import           Control.Monad.Except
-import           Control.Monad.State  (State)
-import qualified Control.Monad.State  as State
-import qualified Data.DList           as DList
-import           Data.Map             (Map)
-import qualified Data.Map             as Map
-import           Data.Set             (Set)
-import qualified Data.Set             as Set
-import           Debug.Trace
-import           PrettyPrint
-import           Telomare             (FragExpr (..), FragExprUR (..),
-                                       FragIndex (..), PartialType (..),
-                                       PrettyPartialType (PrettyPartialType),
-                                       RecursionSimulationPieces (..),
-                                       Term3 (..), rootFrag)
+import Control.Applicative
+import Control.Lens.Plated (transform)
+import Control.Monad.Except
+import Control.Monad.State (State)
+import qualified Control.Monad.State as State
+import qualified Data.DList as DList
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Debug.Trace
+import PrettyPrint
+import Telomare (FragExpr (..), FragExprUR (..), FragIndex (..),
+                 PartialType (..), PrettyPartialType (PrettyPartialType),
+                 RecursionSimulationPieces (..), Term3 (..), rootFrag)
 
 debug :: Bool
 debug = False

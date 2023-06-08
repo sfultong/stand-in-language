@@ -3,45 +3,37 @@
 {-# LANGUAGE TupleSections   #-}
 module Telomare.Eval where
 
-import           Control.Lens.Plated
-import           Control.Monad.Except
-import           Control.Monad.Reader      (Reader, runReader)
-import           Control.Monad.State       (StateT)
-import qualified Control.Monad.State       as State
-import           Control.Monad.Trans.Accum (AccumT)
+import Control.Lens.Plated
+import Control.Monad.Except
+import Control.Monad.Reader (Reader, runReader)
+import Control.Monad.State (StateT)
+import qualified Control.Monad.State as State
+import Control.Monad.Trans.Accum (AccumT)
 import qualified Control.Monad.Trans.Accum as Accum
-import           Data.DList                (DList)
-import           Data.Functor.Foldable     (cata, embed, project)
-import           Data.Map                  (Map)
-import qualified Data.Map                  as Map
-import           Data.Set                  (Set)
-import qualified Data.Set                  as Set
-import           Data.Void
-import           Debug.Trace
+import Data.DList (DList)
+import Data.Functor.Foldable (cata, embed, project)
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Data.Void
+import Debug.Trace
 
-import           System.IO
-import           System.Process
+import System.IO
+import System.Process
 
-import           Telomare                  (BreakState, BreakState', ExprA (..),
-                                            FragExpr (..),
-                                            FragIndex (FragIndex), IExpr (..),
-                                            PartialType (..),
-                                            RecursionPieceFrag,
-                                            RecursionSimulationPieces (..),
-                                            RunTimeError (..),
-                                            TelomareLike (..), Term3 (Term3),
-                                            Term4 (Term4),
-                                            UnsizedRecursionToken (..), app,
-                                            g2s, innerChurchF, insertAndGetKey,
-                                            pattern AbortAny,
-                                            pattern AbortRecursion,
-                                            pattern AbortUser, rootFrag, s2g,
-                                            unFragExprUR)
-import           Telomare.Optimizer        (optimize)
-import           Telomare.Possible         (evalA)
-import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
-                                            simpleEval)
-import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
+import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
+                 FragIndex (FragIndex), IExpr (..), PartialType (..),
+                 RecursionPieceFrag, RecursionSimulationPieces (..),
+                 RunTimeError (..), TelomareLike (..), Term3 (Term3),
+                 Term4 (Term4), UnsizedRecursionToken (..), app, g2s,
+                 innerChurchF, insertAndGetKey, pattern AbortAny,
+                 pattern AbortRecursion, pattern AbortUser, rootFrag, s2g,
+                 unFragExprUR)
+import Telomare.Optimizer (optimize)
+import Telomare.Possible (evalA)
+import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
+import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
 
 data ExpP = ZeroP
     | PairP ExpP ExpP

@@ -4,27 +4,25 @@
 
 module Telomare.RunTime where
 
-import           Control.Exception
-import           Control.Monad.Except
-import           Control.Monad.Fix
-import           Data.Foldable
-import           Data.Functor.Foldable hiding (fold)
-import           Data.Functor.Identity
-import qualified Data.Map              as Map
-import           Data.Set              (Set)
-import qualified Data.Set              as Set
-import           Debug.Trace
-import           GHC.Exts              (fromList)
-import           Naturals              hiding (debug, debugTrace)
-import           PrettyPrint
-import           System.IO
-import           System.Process
-import           Telomare              (AbstractRunTime (eval), DataType (..),
-                                        FragIndex (FragIndex), IExpr (..),
-                                        IExprF (..), PrettyIExpr (PrettyIExpr),
-                                        RunResult, RunTimeError (..),
-                                        TelomareLike (fromTelomare, toTelomare))
-import           Text.Read             (readMaybe)
+import Control.Exception
+import Control.Monad.Except
+import Control.Monad.Fix
+import Data.Foldable
+import Data.Functor.Foldable hiding (fold)
+import Data.Functor.Identity
+import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Debug.Trace
+import GHC.Exts (fromList)
+import Naturals hiding (debug, debugTrace)
+import PrettyPrint
+import System.IO
+import System.Process
+import Telomare (AbstractRunTime (eval), DataType (..), FragIndex (FragIndex),
+                 IExpr (..), IExprF (..), PrettyIExpr (PrettyIExpr), RunResult,
+                 RunTimeError (..), TelomareLike (fromTelomare, toTelomare))
+import Text.Read (readMaybe)
 
 debug :: Bool
 debug = False

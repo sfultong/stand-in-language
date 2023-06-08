@@ -1,30 +1,30 @@
 {-# LANGUAGE StandaloneDeriving #-}
 module Main where
 
-import           Control.DeepSeq
-import           Data.Char
-import qualified Data.Vector.Storable  as S
+import Control.DeepSeq
+import Data.Char
+import qualified Data.Vector.Storable as S
 
-import           Foreign.Marshal.Alloc
-
-
-import           Criterion.Main
-import           Criterion.Measurement
-import           Criterion.Types
+import Foreign.Marshal.Alloc
 
 
-import           Telomare
+import Criterion.Main
+import Criterion.Measurement
+import Criterion.Types
+
+
+import Telomare
 --import Telomare.Llvm
-import qualified System.IO.Strict      as Strict
-import           Telomare.Eval
-import           Telomare.Optimizer
-import           Telomare.Parser
-import           Telomare.RunTime
-import           Telomare.Serializer
-import           Telomare.Serializer.C
-import           Telomare.TypeChecker  (inferType, typeCheck)
+import qualified System.IO.Strict as Strict
+import Telomare.Eval
+import Telomare.Optimizer
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.Serializer
+import Telomare.Serializer.C
+import Telomare.TypeChecker (inferType, typeCheck)
 
-import           System.Mem
+import System.Mem
 
 performTests :: IExpr -> IO ()
 performTests iexpr = do

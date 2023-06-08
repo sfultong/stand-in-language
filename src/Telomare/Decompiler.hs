@@ -2,17 +2,15 @@
 
 module Telomare.Decompiler where
 
-import           Control.Monad       (foldM, liftM2)
+import Control.Monad (foldM, liftM2)
 import qualified Control.Monad.State as State
-import           Data.List           (intercalate)
-import qualified Data.Map            as Map
-import           Data.Semigroup      (Max (..))
-import           Telomare            (FragExpr (..), FragIndex (FragIndex),
-                                      IExpr (..), LamType (..), ParserTerm (..),
-                                      Term1, Term2, Term3 (Term3),
-                                      Term4 (Term4), buildFragMap, deferF,
-                                      rootFrag, unFragExprUR)
-import           Telomare.Parser     (UnprocessedParsedTerm (..))
+import Data.List (intercalate)
+import qualified Data.Map as Map
+import Data.Semigroup (Max (..))
+import Telomare (FragExpr (..), FragIndex (FragIndex), IExpr (..), LamType (..),
+                 ParserTerm (..), Term1, Term2, Term3 (Term3), Term4 (Term4),
+                 buildFragMap, deferF, rootFrag, unFragExprUR)
+import Telomare.Parser (UnprocessedParsedTerm (..))
 
 decompileUPT :: UnprocessedParsedTerm -> String
 decompileUPT =
