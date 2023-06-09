@@ -2,16 +2,15 @@
 
 module Main where
 
-import           Data.Char
-import qualified Options.Applicative  as O
-import qualified System.IO.Strict     as Strict
+import Data.Char
+import qualified Options.Applicative as O
+import qualified System.IO.Strict as Strict
 --import           Telomare
-import           Telomare.Eval        (compileMain, evalLoop, schemeEval)
+import Telomare.Eval (compileMain, evalLoop, schemeEval)
 --import           Telomare.Optimizer
-import           Telomare.Parser      (UnprocessedParsedTerm (..), parseMain,
-                                       parsePrelude)
+import Telomare.Parser (UnprocessedParsedTerm (..), parseMain, parsePrelude)
 --import           Telomare.RunTime
-import           Telomare.TypeChecker (inferType, typeCheck)
+import Telomare.TypeChecker (inferType, typeCheck)
 --import Telomare.Llvm
 
 data TelomareOpts = TelomareOpts

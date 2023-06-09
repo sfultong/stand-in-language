@@ -1,37 +1,37 @@
 {-# LANGUAGE CApiFFI #-}
 module Main where
 
-import           Control.Applicative        (liftA2)
-import           Control.Monad.IO.Class
-import           Control.Monad.Reader       (Reader, runReader)
-import qualified Control.Monad.State        as State
-import           Data.Bifunctor
-import           Data.Char
-import qualified Data.DList                 as DList
-import           Data.List                  (partition)
-import qualified Data.Map                   as Map
-import           Data.Monoid
-import           Data.Void
-import           Debug.Trace
-import           Naturals
-import           System.Exit
-import           System.IO
-import qualified System.IO.Strict           as Strict
-import           Telomare
-import           Telomare.Decompiler
-import           Telomare.Eval
-import           Telomare.Optimizer
-import           Telomare.Parser
-import           Telomare.Possible
-import           Telomare.RunTime
-import           Telomare.Serializer
-import           Telomare.TypeChecker
-import           Test.Hspec
-import           Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
-import           Test.QuickCheck
+import Control.Applicative (liftA2)
+import Control.Monad.IO.Class
+import Control.Monad.Reader (Reader, runReader)
+import qualified Control.Monad.State as State
+import Data.Bifunctor
+import Data.Char
+import qualified Data.DList as DList
+import Data.List (partition)
+import qualified Data.Map as Map
+import Data.Monoid
+import Data.Void
+import Debug.Trace
+import Naturals
+import System.Exit
+import System.IO
+import qualified System.IO.Strict as Strict
+import Telomare
+import Telomare.Decompiler
+import Telomare.Eval
+import Telomare.Optimizer
+import Telomare.Parser
+import Telomare.Possible
+import Telomare.RunTime
+import Telomare.Serializer
+import Telomare.TypeChecker
+import Test.Hspec
+import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
+import Test.QuickCheck
 
 -- Common datatypes for generating Telomare AST.
-import           Common
+import Common
 
 -- recursively finds shrink matching invariant, ordered simplest to most complex
 shrinkComplexCase :: Arbitrary a => (a -> Bool) -> [a] -> [a]

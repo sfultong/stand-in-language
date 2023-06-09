@@ -6,43 +6,43 @@
 
 module Main where
 
-import           Common
-import           Control.Lens.Fold
-import           Control.Lens.Plated
-import           Control.Monad
-import           Control.Monad.Except      (ExceptT, MonadError, catchError,
-                                            runExceptT, throwError)
-import           Control.Monad.Fix         (fix)
-import           Control.Monad.IO.Class    (liftIO)
-import qualified Control.Monad.State       as State
-import           Data.Algorithm.Diff       (getGroupedDiff)
-import           Data.Algorithm.DiffOutput (ppDiff)
-import           Data.Bifunctor
-import           Data.Either               (fromRight)
-import           Data.Functor.Foldable
-import           Data.List
-import           Data.Map                  (Map, fromList, toList)
-import qualified Data.Map                  as Map
-import           Data.Ord
-import qualified Data.Semigroup            as Semigroup
-import qualified Data.Set                  as Set
-import           Debug.Trace               (trace, traceShowId)
-import           System.IO
-import qualified System.IO.Strict          as Strict
-import           System.IO.Unsafe          (unsafePerformIO)
-import           System.Process
-import           Telomare
-import           Telomare.Eval
-import           Telomare.Parser
-import           Telomare.RunTime
-import           Test.QuickCheck
-import           Test.Tasty
-import           Test.Tasty.HUnit
-import           Test.Tasty.QuickCheck     as QC
-import           Text.Megaparsec
-import           Text.Megaparsec.Debug
-import           Text.Megaparsec.Error
-import           Text.Show.Pretty          (ppShow)
+import Common
+import Control.Lens.Fold
+import Control.Lens.Plated
+import Control.Monad
+import Control.Monad.Except (ExceptT, MonadError, catchError, runExceptT,
+                             throwError)
+import Control.Monad.Fix (fix)
+import Control.Monad.IO.Class (liftIO)
+import qualified Control.Monad.State as State
+import Data.Algorithm.Diff (getGroupedDiff)
+import Data.Algorithm.DiffOutput (ppDiff)
+import Data.Bifunctor
+import Data.Either (fromRight)
+import Data.Functor.Foldable
+import Data.List
+import Data.Map (Map, fromList, toList)
+import qualified Data.Map as Map
+import Data.Ord
+import qualified Data.Semigroup as Semigroup
+import qualified Data.Set as Set
+import Debug.Trace (trace, traceShowId)
+import System.IO
+import qualified System.IO.Strict as Strict
+import System.IO.Unsafe (unsafePerformIO)
+import System.Process
+import Telomare
+import Telomare.Eval
+import Telomare.Parser
+import Telomare.RunTime
+import Test.QuickCheck
+import Test.Tasty
+import Test.Tasty.HUnit
+import Test.Tasty.QuickCheck as QC
+import Text.Megaparsec
+import Text.Megaparsec.Debug
+import Text.Megaparsec.Error
+import Text.Show.Pretty (ppShow)
 
 main :: IO ()
 main = defaultMain tests

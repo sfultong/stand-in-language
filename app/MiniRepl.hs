@@ -5,34 +5,30 @@
 
 module Main where
 
-import           Control.Monad.IO.Class
-import qualified Control.Monad.State      as State
-import           Data.List
-import qualified Data.Map                 as Map
-import           Debug.Trace              (trace)
-import           Naturals
-import           Options.Applicative      hiding (ParseError, (<|>))
-import qualified Options.Applicative      as O
-import           PrettyPrint
-import           System.Console.Haskeline
-import           System.Exit              (exitSuccess)
-import qualified System.IO.Strict         as Strict
-import           Text.Megaparsec
-import           Text.Megaparsec.Char
+import Control.Monad.IO.Class
+import qualified Control.Monad.State as State
+import Data.List
+import qualified Data.Map as Map
+import Debug.Trace (trace)
+import Naturals
+import Options.Applicative hiding (ParseError, (<|>))
+import qualified Options.Applicative as O
+import PrettyPrint
+import System.Console.Haskeline
+import System.Exit (exitSuccess)
+import qualified System.IO.Strict as Strict
+import Text.Megaparsec
+import Text.Megaparsec.Char
 
-import           Telomare                 (IExpr (..),
-                                           PrettyIExpr (PrettyIExpr),
-                                           PrettyPartialType (PrettyPartialType),
-                                           TelomareLike (fromTelomare, toTelomare),
-                                           Term3)
-import           Telomare.Eval            (EvalError (..), compileUnitTest)
-import           Telomare.Parser          (TelomareParser,
-                                           UnprocessedParsedTerm (..),
-                                           parseAssignment, parseLongExpr,
-                                           parsePrelude, process,
-                                           runTelomareParser)
-import           Telomare.RunTime         (fastInterpretEval, simpleEval)
-import           Telomare.TypeChecker     (inferType)
+import Telomare (IExpr (..), PrettyIExpr (PrettyIExpr),
+                 PrettyPartialType (PrettyPartialType),
+                 TelomareLike (fromTelomare, toTelomare), Term3)
+import Telomare.Eval (EvalError (..), compileUnitTest)
+import Telomare.Parser (TelomareParser, UnprocessedParsedTerm (..),
+                        parseAssignment, parseLongExpr, parsePrelude, process,
+                        runTelomareParser)
+import Telomare.RunTime (fastInterpretEval, simpleEval)
+import Telomare.TypeChecker (inferType)
 
 -- Parsers for assignments/expressions within REPL
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

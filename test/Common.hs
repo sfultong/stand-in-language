@@ -7,16 +7,16 @@
 
 module Common where
 
-import           Control.Applicative
-import           Data.Bifunctor
-import qualified Data.Map             as Map
+import Control.Applicative
+import Data.Bifunctor
+import qualified Data.Map as Map
 
-import           Test.QuickCheck
-import           Test.QuickCheck.Gen
+import Test.QuickCheck
+import Test.QuickCheck.Gen
 
-import           Telomare
-import           Telomare.Parser
-import           Telomare.TypeChecker
+import Telomare
+import Telomare.Parser
+import Telomare.TypeChecker
 
 class TestableIExpr a where
   getIExpr :: a -> IExpr
