@@ -6,27 +6,26 @@
 -- {-# LANGUAGE EmptyDataDecls #-}
 module Naturals where
 
-import           Control.Applicative
-import           Control.DeepSeq
-import           Control.Monad.Fix
-import           Control.Monad.Identity
-import           Control.Monad.State.Lazy
-import           Data.Binary
-import           Data.Functor
-import           Data.Int                 (Int64)
-import           Data.Map                 (Map)
-import           Data.Monoid
-import           Data.Set                 (Set)
-import           Debug.Trace
-import           GHC.Generics
+import Control.Applicative
+import Control.DeepSeq
+import Control.Monad.Fix
+import Control.Monad.Identity
+import Control.Monad.State.Lazy
+import Data.Binary
+import Data.Functor
+import Data.Int (Int64)
+import Data.Map (Map)
+import Data.Monoid
+import Data.Set (Set)
+import Debug.Trace
+import GHC.Generics
 
 import qualified Control.Monad.State.Lazy as State
-import qualified Data.Map                 as Map
-import qualified Data.Set                 as Set
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 
-import           Telomare                 (FragExpr (..), FragIndex (..),
-                                           IExpr (..), pattern App,
-                                           pattern ChurchNum, pattern ToChurch)
+import Telomare (FragExpr (..), FragIndex (..), IExpr (..), pattern App,
+                 pattern ChurchNum, pattern ToChurch)
 
 debug :: Bool
 debug = True

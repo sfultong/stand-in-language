@@ -4,14 +4,14 @@ module Telomare.Serializer (
   , unsafeDeserialize
 ) where
 
-import           Data.Word
+import Data.Word
 
-import           Data.Vector.Storable         (Vector, fromList, (!))
-import qualified Data.Vector.Storable         as S
+import Data.Vector.Storable (Vector, fromList, (!))
+import qualified Data.Vector.Storable as S
 import qualified Data.Vector.Storable.Mutable as SM
 
-import           Telomare                     (IExpr (..))
-import           Telomare.Serializer.C
+import Telomare (IExpr (..))
+import Telomare.Serializer.C
 
 
 serialize :: IExpr -> Vector Word8

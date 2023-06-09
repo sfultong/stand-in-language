@@ -4,33 +4,32 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
-import           Control.Applicative
-import           Control.DeepSeq
-import           Control.Exception
-import           Control.Monad
-import           Data.Char
-import           Data.Either
-import           GHC.Generics         (Generic)
-import           System.IO            (hPutStrLn, stderr)
+import Control.Applicative
+import Control.DeepSeq
+import Control.Exception
+import Control.Monad
+import Data.Char
+import Data.Either
+import GHC.Generics (Generic)
+import System.IO (hPutStrLn, stderr)
 
-import qualified System.IO.Strict     as Strict
-import           Telomare
-import           Telomare.Eval
-import           Telomare.Optimizer
-import           Telomare.Parser
-import           Telomare.RunTime
-import           Telomare.TypeChecker (TypeCheckError (..), inferType,
-                                       typeCheck)
+import qualified System.IO.Strict as Strict
+import Telomare
+import Telomare.Eval
+import Telomare.Optimizer
+import Telomare.Parser
+import Telomare.RunTime
+import Telomare.TypeChecker (TypeCheckError (..), inferType, typeCheck)
 
-import           MemoryBench.Cases
-import           MemoryBench.LLVM
-import           Paths_telomare
+import MemoryBench.Cases
+import MemoryBench.LLVM
+import Paths_telomare
 
-import           Text.Parsec.Error    (ParseError)
-import qualified Weigh                as Weigh
-import           Weigh                hiding (Case, Max)
+import Text.Parsec.Error (ParseError)
+import qualified Weigh as Weigh
+import Weigh hiding (Case, Max)
 
-import           Debug.Trace
+import Debug.Trace
 
 foreign import capi "gc.h GC_INIT" gcInit :: IO ()
 foreign import ccall "gc.h GC_allow_register_threads" gcAllowRegisterThreads :: IO ()

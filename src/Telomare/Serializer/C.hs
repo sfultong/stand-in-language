@@ -41,20 +41,20 @@ module Telomare.Serializer.C (
     , telomare_free
 ) where
 
-import           Telomare                 (IExpr (..))
+import Telomare (IExpr (..))
 
-import           Data.Vector.Storable     (Vector, fromList, (!))
-import qualified Data.Vector.Storable     as S
-import           Data.Word
+import Data.Vector.Storable (Vector, fromList, (!))
+import qualified Data.Vector.Storable as S
+import Data.Word
 
-import           Foreign.C.Types
-import           Foreign.ForeignPtr
-import           Foreign.Marshal.Alloc
-import           Foreign.Marshal.Array
-import           Foreign.Ptr
-import           Foreign.Storable.Generic
+import Foreign.C.Types
+import Foreign.ForeignPtr
+import Foreign.Marshal.Alloc
+import Foreign.Marshal.Array
+import Foreign.Ptr
+import Foreign.Storable.Generic
 
-import           GHC.Generics             (Generic)
+import GHC.Generics (Generic)
 
 -- | Type alias for expression tag for C
 type CTypeId = CUChar

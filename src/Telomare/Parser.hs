@@ -7,52 +7,47 @@
 
 module Telomare.Parser where
 
-import           Codec.Binary.UTF8.String   (encode)
-import           Control.Lens.Combinators
-import           Control.Lens.Operators
-import           Control.Lens.Plated
-import           Control.Monad
-import           Control.Monad.State        (State)
-import qualified Control.Monad.State        as State
-import           Crypto.Hash                (Digest, SHA256, hash)
-import           Data.Bifunctor
-import qualified Data.ByteArray             as BA
-import           Data.ByteString            (ByteString)
-import qualified Data.ByteString            as BS
-import           Data.Char
-import qualified Data.Foldable              as F
-import           Data.Functor               (($>))
-import           Data.Functor.Foldable
-import           Data.Functor.Foldable.TH
-import           Data.List                  (delete, elem, elemIndex)
-import           Data.Map                   (Map, fromList, toList)
-import qualified Data.Map                   as Map
-import           Data.Maybe                 (fromJust)
-import           Data.Set                   (Set, (\\))
-import qualified Data.Set                   as Set
-import           Data.Void
-import           Data.Word                  (Word8)
-import           Debug.Trace
-import qualified System.IO.Strict           as Strict
-import           Text.Megaparsec            hiding (State)
-import           Text.Megaparsec.Char
+import Codec.Binary.UTF8.String (encode)
+import Control.Lens.Combinators
+import Control.Lens.Operators
+import Control.Lens.Plated
+import Control.Monad
+import Control.Monad.State (State)
+import qualified Control.Monad.State as State
+import Crypto.Hash (Digest, SHA256, hash)
+import Data.Bifunctor
+import qualified Data.ByteArray as BA
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import Data.Char
+import qualified Data.Foldable as F
+import Data.Functor (($>))
+import Data.Functor.Foldable
+import Data.Functor.Foldable.TH
+import Data.List (delete, elem, elemIndex)
+import Data.Map (Map, fromList, toList)
+import qualified Data.Map as Map
+import Data.Maybe (fromJust)
+import Data.Set (Set, (\\))
+import qualified Data.Set as Set
+import Data.Void
+import Data.Word (Word8)
+import Debug.Trace
+import qualified System.IO.Strict as Strict
+import Text.Megaparsec hiding (State)
+import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
-import           Text.Megaparsec.Debug
-import           Text.Megaparsec.Pos
-import           Text.Read                  (readMaybe)
+import Text.Megaparsec.Debug
+import Text.Megaparsec.Pos
+import Text.Read (readMaybe)
 
 
-import           Telomare                   (BreakState', FragExpr (..),
-                                             FragExprUR (..), FragIndex (..),
-                                             IExpr (..), LamType (..),
-                                             ParserTerm (..), ParserTermF (..),
-                                             RecursionPieceFrag,
-                                             RecursionSimulationPieces (..),
-                                             Term1 (..), Term2 (..), Term3 (..),
-                                             UnsizedRecursionToken, appF, clamF,
-                                             deferF, lamF, nextBreakToken,
-                                             unsizedRecursionWrapper, varNF)
-import           Telomare.TypeChecker       (typeCheck)
+import Telomare (BreakState', FragExpr (..), FragExprUR (..), FragIndex (..),
+                 IExpr (..), LamType (..), ParserTerm (..), ParserTermF (..),
+                 RecursionPieceFrag, RecursionSimulationPieces (..), Term1 (..),
+                 Term2 (..), Term3 (..), UnsizedRecursionToken, appF, clamF,
+                 deferF, lamF, nextBreakToken, unsizedRecursionWrapper, varNF)
+import Telomare.TypeChecker (typeCheck)
 
 data UnprocessedParsedTerm
   = VarUP String
