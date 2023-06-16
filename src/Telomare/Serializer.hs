@@ -75,8 +75,8 @@ deserializer_inside cont i | fromIntegral i == zero_type = case cont of
     Call1 c -> Call1 $ \_ -> c Zero
     CallN c -> c Zero
 deserializer_inside cont i | fromIntegral i == pair_type = case cont of
-    Call1 c ->  CallN $ \e1 -> Call1 (\e2 -> c (Pair e1 e2))
-    CallN c ->  CallN $ \e1 -> CallN (\e2 -> c (Pair e1 e2))
+    Call1 c ->  CallN $ \e1 -> Call1 (c . Pair e1)
+    CallN c ->  CallN $ \e1 -> CallN (c . Pair e1)
 deserializer_inside cont i | fromIntegral i == env_type = case cont of
     Call1 c -> Call1 $ \_ -> c Env
     CallN c -> c Env
@@ -87,8 +87,8 @@ deserializer_inside cont i | fromIntegral i == defer_type = case cont of
     Call1 c -> Call1 $ \e -> c (Defer e)
     CallN c -> CallN $ \e -> c (Defer e)
 deserializer_inside cont i | fromIntegral i == gate_type = case cont of
-    Call1 c ->  CallN $ \e1 -> Call1 (\e2 -> c (Gate e1 e2))
-    CallN c ->  CallN $ \e1 -> CallN (\e2 -> c (Gate e1 e2))
+    Call1 c ->  CallN $ \e1 -> Call1 (c . Gate e1)
+    CallN c ->  CallN $ \e1 -> CallN (c . Gate e1)
 deserializer_inside cont i | fromIntegral i == pleft_type = case cont of
     Call1 c -> Call1 $ \e -> c (PLeft e)
     CallN c -> CallN $ \e -> c (PLeft e)

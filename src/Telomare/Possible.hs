@@ -1,11 +1,9 @@
-{-# LANGUAGE DeriveFunctor       #-}
-{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE DeriveTraversable   #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeFamilies        #-}
+
 module Telomare.Possible where
 
 import Control.Applicative
@@ -77,7 +75,7 @@ instance Show1 PartExprF where
     DeferSF x -> shows "DeferSF (" . showsPrec 0 x . shows ")"
     GateSF l r -> shows "GateSF (" . showsPrec 0 l . shows ", " . showsPrec 0 r . shows ")"
     LeftSF x -> shows "LeftSF (" . showsPrec 0 x . shows ")"
-    RightSF x -> shows "RightSF (" . showsPrec  0 x . shows ")"
+    RightSF x -> shows "RightSF (" . showsPrec 0 x . shows ")"
 
 newtype EnhancedExpr f = EnhancedExpr {unEnhanceExpr :: SplitFunctor f PartExprF (EnhancedExpr f)} -- deriving (Eq, Show)
 

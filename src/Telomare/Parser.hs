@@ -106,7 +106,7 @@ ints2t = foldr (TPair . i2t) TZero
 
 -- |String to ParserTerm
 s2t :: String -> ParserTerm l v
-s2t = ints2t . map ord
+s2t = ints2t . fmap ord
 
 -- |Int to Church encoding
 i2c :: Int -> Term1
@@ -125,7 +125,7 @@ debruijinize _ TZero = pure TZero
 debruijinize vl (TPair a b) = TPair <$> debruijinize vl a <*> debruijinize vl b
 debruijinize vl (TVar n) = case elemIndex n vl of
                              Just i  -> pure $ TVar i
-                             Nothing -> fail $ "undefined identifier " ++ n
+                             Nothing -> fail ("undefined identifier " <> n)
 debruijinize vl (TApp i c) = TApp <$> debruijinize vl i <*> debruijinize vl c
 debruijinize vl (TCheck c tc) = TCheck <$> debruijinize vl c <*> debruijinize vl tc
 debruijinize vl (TITE i t e) = TITE <$> debruijinize vl i
@@ -209,7 +209,7 @@ identifier = lexeme . try $ p >>= check
   where
     p = (:) <$> letterChar <*> many (alphaNumChar <|> char '_' <?> "variable")
     check x = if x `elem` rws
-              then fail $ "keyword " ++ show x ++ " cannot be an identifier"
+              then fail ("keyword " <> (show x <> " cannot be an identifier"))
               else pure x
 
 -- |Parser for parenthesis.

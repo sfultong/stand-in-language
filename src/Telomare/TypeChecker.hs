@@ -1,5 +1,4 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE LambdaCase    #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Telomare.TypeChecker where
 
@@ -29,7 +28,7 @@ newtype DebugTypeMap = DebugTypeMap (Map Int PartialType)
 
 instance Show DebugTypeMap where
   show (DebugTypeMap x) = ("typeMap:\n" ++) .
-    concat . map ((++ "\n") . show . (\(i,t) -> (i, PrettyPartialType t))) $ Map.toAscList x
+    concatMap ((++ "\n") . show . Data.Bifunctor.second PrettyPartialType) $ Map.toAscList x
 
 data TypeCheckError
   = UnboundType Int
@@ -70,7 +69,7 @@ makeAssociations ta tb = case (ta, tb) of
 
 buildTypeMap :: Set TypeAssociation -> Either TypeCheckError (Map Int PartialType)
 buildTypeMap assocSet =
-  let multiMap = Map.fromListWith DList.append . map (\(TypeAssociation i t) -> (i, DList.singleton t))
+  let multiMap = Map.fromListWith DList.append . fmap (\(TypeAssociation i t) -> (i, DList.singleton t))
         $ Set.toList assocSet
       getKeys = \case
         TypeVariable i -> DList.singleton i
@@ -144,7 +143,7 @@ annotate (Term3 termMap) =
       annotate' = \case
         ZeroFrag -> pure ZeroTypeP
         PairFrag a b -> PairTypeP <$> annotate' a <*> annotate' b
-        EnvFrag -> (\(t, _, _) -> t) <$> State.get
+        EnvFrag -> (State.gets (\(t, _, _) -> t))
         SetEnvFrag x -> do
           xt <- annotate' x
           (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
@@ -169,8 +168,8 @@ annotate (Term3 termMap) =
           (ra, _) <- withNewEnv $ pure ()
           associateVar (PairTypeP AnyType ra) xt
           pure ra
-        TraceFrag -> (\(t, _, _) -> t) <$> State.get
-        AuxFrag (NestedSetEnvs _) -> (\(t, _, _) -> t) <$> State.get
+        TraceFrag -> (State.gets (\(t, _, _) -> t))
+        AuxFrag (NestedSetEnvs _) -> (State.gets (\(t, _, _) -> t))
         AuxFrag (RecursionTest (FragExprUR x)) -> annotate' x
       initInputType :: FragIndex -> AnnotateState ()
       initInputType fi = let (ArrTypeP it _) = getFragType fi in State.modify (\(_, s, i) -> (it, s, i))

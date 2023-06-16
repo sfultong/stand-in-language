@@ -139,7 +139,7 @@ fromC' type_id ptr = case type_id of
         (CPRight t v) <- peek $ castPtr ptr
         PRight <$> fromC' t v
     x | x == trace_type    -> return Trace
-    otherwise -> error "Telomare.Serializer.fromC': Invalid type id - possibly corrupted data."
+    _ -> error "Telomare.Serializer.fromC': Invalid type id - possibly corrupted data."
 
 
 
@@ -160,7 +160,7 @@ toC' :: IExpr          -- ^ IExpr to traverse
              -> Ptr CTypeId    -- ^ Previous expression id
              -> Ptr (Ptr CRep) -- ^ Previous pointer to a value
              -> IO ()
-toC' (Zero) ptr_type ptr_value = poke ptr_type zero_type >> poke ptr_value nullPtr
+toC' Zero ptr_type ptr_value = poke ptr_type zero_type >> poke ptr_value nullPtr
 toC' (Pair e1 e2) ptr_type ptr_value = do
     value <- malloc :: IO (Ptr CPair)
     let align = alignment (undefined :: CPair)
@@ -172,7 +172,7 @@ toC' (Pair e1 e2) ptr_type ptr_value = do
     poke ptr_value $ castPtr value
     toC' e1 ptr_left_type ptr_left_value
     toC' e2 ptr_right_type ptr_right_value
-toC' (Env)  ptr_type ptr_value = poke ptr_type env_type >> poke ptr_value nullPtr
+toC' Env  ptr_type ptr_value = poke ptr_type env_type >> poke ptr_value nullPtr
 toC' (SetEnv e) ptr_type ptr_value = do
     value <- malloc :: IO (Ptr CSetEnv)
     let align      = alignment (undefined :: CSetEnv)

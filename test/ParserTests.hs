@@ -153,7 +153,7 @@ unitTests = testGroup "Unit tests"
   , testCase "Ad hoc user defined types success" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
       -- res `compare` "\n\4603\a\ndone" @?= EQ
-      (length res) `compare` 7 @?= EQ -- This might be weak, but the above is too fragil. The number 4603 can change and the test should still be successful.
+      length res `compare` 7 @?= EQ -- This might be weak, but the above is too fragil. The number 4603 can change and the test should still be successful.
   , testCase "Ad hoc user defined types failure" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesFailure
       res `compare` "\nMyInt must not be 0\ndone" @?= EQ
@@ -242,7 +242,7 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseTopLevel <* scn <* eof) testShowBoard5
       res `compare` True @?= EQ
   , testCase "testShowBoard6" $ do
-      res <- parseSuccessful (parseApplied) testShowBoard6
+      res <- parseSuccessful parseApplied testShowBoard6
       res `compare` True @?= EQ
   , testCase "testLetShowBoard0" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetShowBoard0
@@ -294,25 +294,25 @@ unitTests = testGroup "Unit tests"
       res `compare` False @?= EQ
   , testCase "test automatic open close lambda" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
-      (fromRight TZero $ validateVariables [] res) `compare` closedLambdaPair @?= EQ
+      fromRight TZero (validateVariables [] res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
-      (fromRight TZero $ validateVariables [] res) `compare` closedLambdaPair @?= EQ
+      fromRight TZero (validateVariables [] res) `compare` closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 3" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
-      (fromRight TZero $ validateVariables [] res) `compare` expr6 @?= EQ
+      fromRight TZero (validateVariables [] res) `compare` expr6 @?= EQ
   , testCase "test automatic open close lambda 4" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> (x, x)"
-      (fromRight TZero $ validateVariables [] res) `compare` expr5 @?= EQ
+      fromRight TZero (validateVariables [] res) `compare` expr5 @?= EQ
   , testCase "test automatic open close lambda 5" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
-      (fromRight TZero $ validateVariables [] res) `compare` expr4 @?= EQ
+      fromRight TZero (validateVariables [] res) `compare` expr4 @?= EQ
   , testCase "test automatic open close lambda 6" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
-      (fromRight TZero $ validateVariables [] res) `compare` expr3 @?= EQ
+      fromRight TZero (validateVariables [] res) `compare` expr3 @?= EQ
   , testCase "test automatic open close lambda 7" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
-      (fromRight TZero $ validateVariables [] res) `compare` expr2 @?= EQ
+      fromRight TZero (validateVariables [] res) `compare` expr2 @?= EQ
   ]
 
 hashtest0 = unlines ["let wrapper = 2",
@@ -356,19 +356,18 @@ aux1 = Pair (Defer (Pair (PLeft (PRight Env)) (Pair (PLeft Env) (PRight (PRight 
 aux2 = Pair Zero (Pair Zero Zero)
 
 test_rEval' :: String -> IO String
-test_rEval' input = runMain input
+test_rEval' = runMain
   where
     runMain :: String -> IO String
     runMain s = case compileUnitTest <$> parseMain [] s of
       Left e -> error $ concat ["failed to parse ", s, " ", e]
-      Right (Right g) -> evalLoop_ $ g
+      Right (Right g) -> evalLoop_ g
       Right z -> error $ "compilation failed somehow, with result " <> show z
 
-rEvalError = unlines $
-  [ "main = \\i -> (0, 0)"
+rEvalError = unlines [ "main = \\i -> (0, 0)"
   ]
 
-userDefAdHocTypesSuccess = unlines $
+userDefAdHocTypesSuccess = unlines
   [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
   , "                        then \"MyInt must not be 0\""
   , "                   else  i"
@@ -380,7 +379,7 @@ userDefAdHocTypesSuccess = unlines $
   , "main = \\i -> ((left MyInt) 8, 0)"
   ]
 
-userDefAdHocTypesFailure = unlines $
+userDefAdHocTypesFailure = unlines
   [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
   , "                        then \"MyInt must not be 0\""
   , "                   else  i"
@@ -396,7 +395,7 @@ userDefAdHocTypesFailure = unlines $
 
 myTrace a = trace (show a) a
 
-dependantTopLevelBindings = unlines $
+dependantTopLevelBindings = unlines
   [ "f = (0,0)"
   , "g = (0,0)"
   , "h = [f,g,f]"
@@ -416,7 +415,7 @@ testWtictactoe = do
     Right _ -> return True
     Left _  -> return False
 
-letExpr = unlines $
+letExpr = unlines
   [ "let x = 0"
   , "    y = 0"
   , "    f = (x,y)"
@@ -424,111 +423,111 @@ letExpr = unlines $
   ]
 
 -- | Telomare Parser AST representation of: \x -> \y -> \z -> [zz1, yy3, yy4, z, zz6]
-expr9 = TLam (Closed ("x"))
-          (TLam (Open ("y"))
-            (TLam (Open ("z"))
+expr9 = TLam (Closed "x")
+          (TLam (Open "y")
+            (TLam (Open "z")
               (TPair
-                (TVar ("zz1"))
+                (TVar "zz1")
                 (TPair
-                  (TVar ("yy3"))
+                  (TVar "yy3")
                   (TPair
-                    (TVar ("yy5"))
+                    (TVar "yy5")
                     (TPair
-                      (TVar ("z"))
+                      (TVar "z")
                       (TPair
-                        (TVar ("zz6"))
+                        (TVar "zz6")
                         TZero)))))))
 
 -- | Telomare Parser AST representation of: \x -> \y -> \z -> [zz, yy0, yy0, z, zz]
-expr8 = TLam (Closed ("x"))
-          (TLam (Open ("y"))
-            (TLam (Open ("z"))
+expr8 = TLam (Closed "x")
+          (TLam (Open "y")
+            (TLam (Open "z")
               (TPair
-                (TVar ("zz"))
+                (TVar "zz")
                 (TPair
-                  (TVar ("yy0"))
+                  (TVar "yy0")
                   (TPair
-                    (TVar ("yy0"))
+                    (TVar "yy0")
                     (TPair
-                      (TVar ("z"))
+                      (TVar "z")
                       (TPair
-                        (TVar ("zz"))
+                        (TVar "zz")
                         TZero)))))))
 
 -- | Telomare Parser AST representation of: "\z -> [x,x,y,x,z,y,z]"
-expr7 = TLam (Open ("z"))
+expr7 = TLam (Open "z")
           (TPair
-            (TVar ("x"))
+            (TVar "x")
             (TPair
-              (TVar ("x"))
+              (TVar "x")
               (TPair
-                (TVar ("y"))
+                (TVar "y")
                 (TPair
-                  (TVar ("x"))
+                  (TVar "x")
                   (TPair
-                    (TVar ("z"))
+                    (TVar "z")
                     (TPair
-                      (TVar ("y"))
+                      (TVar "y")
                       (TPair
-                        (TVar ("z"))
+                        (TVar "z")
                         TZero)))))))
 
 -- | Telomare Parser AST representation of: \x -> \y -> \z -> z
 expr6 :: Term1
-expr6 = TLam (Closed ("x"))
-          (TLam (Closed ("y"))
-            (TLam (Closed ("z"))
-              (TVar ("z"))))
+expr6 = TLam (Closed "x")
+          (TLam (Closed "y")
+            (TLam (Closed "z")
+              (TVar "z")))
 
 -- | Telomare Parser AST representation of: \x -> (x, x)
-expr5 = TLam (Closed ("x"))
+expr5 = TLam (Closed "x")
           (TPair
-            (TVar ("x"))
-            (TVar ("x")))
+            (TVar "x")
+            (TVar "x"))
 
 -- | Telomare Parser AST representation of: \x -> \x -> \x -> x
-expr4 = TLam (Closed ("x"))
-          (TLam (Closed ("x"))
-            (TLam (Closed ("x"))
-              (TVar ("x"))))
+expr4 = TLam (Closed "x")
+          (TLam (Closed "x")
+            (TLam (Closed "x")
+              (TVar "x")))
 
 -- | Telomare Parser AST representation of: \x -> \y -> \z -> [x,y,z]
-expr3 = TLam (Closed ("x"))
-          (TLam (Open ("y"))
-            (TLam (Open ("z"))
+expr3 = TLam (Closed "x")
+          (TLam (Open "y")
+            (TLam (Open "z")
               (TPair
-                (TVar ("x"))
+                (TVar "x")
                 (TPair
-                  (TVar ("y"))
+                  (TVar "y")
                   (TPair
-                    (TVar ("z"))
+                    (TVar "z")
                     TZero)))))
 
 -- | Telomare Parser AST representation of: \a -> (a, (\a -> (a,0)))
-expr2 = TLam (Closed ("a"))
+expr2 = TLam (Closed "a")
           (TPair
-            (TVar ("a"))
-            (TLam (Closed ("a"))
+            (TVar "a")
+            (TLam (Closed "a")
               (TPair
-                (TVar ("a"))
+                (TVar "a")
                 TZero)))
 
 
 -- | Telomare Parser AST representation of: \x -> [x, x, x]
-expr1 = TLam (Closed ("x"))
+expr1 = TLam (Closed "x")
           (TPair
-            (TVar ("x"))
+            (TVar "x")
             (TPair
-              (TVar ("x"))
+              (TVar "x")
               (TPair
-                (TVar ("x"))
+                (TVar "x")
                 TZero)))
 
-expr = TLam (Closed ("x"))
-         (TLam (Open ("y"))
+expr = TLam (Closed "x")
+         (TLam (Open "y")
            (TPair
-             (TVar ("x"))
-             (TVar ("y"))))
+             (TVar "x")
+             (TVar "y")))
 
 range = unlines
   [ "range = \\a b -> let layer = \\recur i -> if dMinus b i"
@@ -538,7 +537,7 @@ range = unlines
   , "r = range 2 5"
   ]
 
-closedLambdaPair = TLam (Closed ("x")) (TLam (Open ("y")) (TPair (TVar ("x")) (TVar ("y"))))
+closedLambdaPair = TLam (Closed "x") (TLam (Open "y") (TPair (TVar "x") (TVar "y")))
 
 testLetIndentation = unlines
   [ "let x = 0"
@@ -567,33 +566,33 @@ testPair1 = unlines
   , ")"
   ]
 
-testITE1 = unlines $
+testITE1 = unlines
   [ "if"
   , "  1"
   , "then 1"
   , "else"
   , "  2"
   ]
-testITE2 = unlines $
+testITE2 = unlines
   [ "if 1"
   , "  then"
   , "                1"
   , "              else 2"
   ]
-testITE3 = unlines $
+testITE3 = unlines
   [ "if 1"
   , "   then"
   , "                1"
   , "              else 2"
   ]
-testITE4 = unlines $
+testITE4 = unlines
   [ "if 1"
   , "    then"
   , "                1"
   , "              else 2"
   ]
 
-testITEwPair = unlines $
+testITEwPair = unlines
   [ "if"
   , "    1"
   , "  then (\"Hello, world!\", 0)"
@@ -601,7 +600,7 @@ testITEwPair = unlines $
   , "    (\"Goodbye, world!\", 1)"
   ]
 
-testCompleteLambdawITEwPair = unlines $
+testCompleteLambdawITEwPair = unlines
   [ "\\input ->"
   , "  if"
   , "    1"
@@ -610,7 +609,7 @@ testCompleteLambdawITEwPair = unlines $
   , "    (\"Goodbye, world!\", 1)"
   ]
 
-testLambdawITEwPair = unlines $
+testLambdawITEwPair = unlines
   [ "\\input ->"
   , "  if"
   , "    1"
@@ -625,27 +624,27 @@ runTestParsePrelude = do
     Right _ -> return True
     Left _  -> return False
 
-testParseAssignmentwCLwITEwPair2 = unlines $
+testParseAssignmentwCLwITEwPair2 = unlines
   [ "main = \\input -> if 1"
   , "                  then"
   , "                   (\"Hello, world!\", 0)"
   , "                  else (\"Goodbye, world!\", 0)"
   ]
-testParseAssignmentwCLwITEwPair3 = unlines $
+testParseAssignmentwCLwITEwPair3 = unlines
   [ "main = \\input ->"
   , "  if 1"
   , "   then"
   , "     (\"Hello, world!\", 0)"
   , "   else (\"Goodbye, world!\", 0)"
   ]
-testParseAssignmentwCLwITEwPair4 = unlines $
+testParseAssignmentwCLwITEwPair4 = unlines
   [ "main = \\input"
   , "-> if 1"
   , "    then"
   , "       (\"Hello, world!\", 0)"
   , "      else (\"Goodbye, world!\", 0)"
   ]
-testParseAssignmentwCLwITEwPair5 = unlines $
+testParseAssignmentwCLwITEwPair5 = unlines
   [ "main"
   , "  = \\input"
   , "-> if 1"
@@ -653,7 +652,7 @@ testParseAssignmentwCLwITEwPair5 = unlines $
   , "       (\"Hello, world!\", 0)"
   , "      else (\"Goodbye, world!\", 0)"
   ]
-testParseAssignmentwCLwITEwPair6 = unlines $
+testParseAssignmentwCLwITEwPair6 = unlines
   [ "main"
   , "  = \\input"
   , " -> if 1"
@@ -661,7 +660,7 @@ testParseAssignmentwCLwITEwPair6 = unlines $
   , "       (\"Hello, world!\", 0)"
   , "      else (\"Goodbye, world!\", 0)"
   ]
-testParseAssignmentwCLwITEwPair7 = unlines $
+testParseAssignmentwCLwITEwPair7 = unlines
   [ "main"
   , "  = \\input"
   , " -> if 1"
@@ -669,7 +668,7 @@ testParseAssignmentwCLwITEwPair7 = unlines $
   , "             (\"Hello, world!\", 0)"
   , "           else (\"Goodbye, world!\", 0)"
   ]
-testParseAssignmentwCLwITEwPair1 = unlines $
+testParseAssignmentwCLwITEwPair1 = unlines
   [ "main"
   , "  = \\input"
   , " -> if 1"
@@ -678,7 +677,7 @@ testParseAssignmentwCLwITEwPair1 = unlines $
   , "     else (\"Goodbye, world!\", 0)"
   ]
 
-testParseTopLevelwCLwITEwPair = unlines $
+testParseTopLevelwCLwITEwPair = unlines
   [ "main"
   , "  = \\input"
   , " -> if 1"
@@ -687,7 +686,7 @@ testParseTopLevelwCLwITEwPair = unlines $
   , "      else (\"Goodbye, world!\", 0)"
   ]
 
-testMainwCLwITEwPair = unlines $
+testMainwCLwITEwPair = unlines
   [ "main"
   , "  = \\input"
   , " -> if 1"
@@ -701,7 +700,7 @@ testMain3 = "main = 0"
 test4 = "(\\x -> if x then \"f\" else 0)"
 test5 = "\\x -> if x then \"f\" else 0"
 test6 = "if x then \"1\" else 0"
-test7 = unlines $
+test7 = unlines
   [ "if x then \"1\""
   , "else 0"
   ]
@@ -725,12 +724,11 @@ runTestMainWType = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error pe
-  case parseMain prelude $ testMain2 of
+  case parseMain prelude testMain2 of
     Right x  -> return True
     Left err -> return False
 
-testList0 = unlines $
-  [ "[ 0"
+testList0 = unlines [ "[ 0"
   , ", 1"
   , ", 2"
   , "]"
@@ -740,17 +738,17 @@ testList1 = "[0,1,2]"
 
 testList2 = "[ 0 , 1 , 2 ]"
 
-testList3 = unlines $
+testList3 = unlines
   [ "[ 0 , 1"
   , ", 2 ]"
   ]
 
-testList4 = unlines $
+testList4 = unlines
   [ "[ 0 , 1"
   , ",2 ]"
   ]
 
-testList5 = unlines $
+testList5 = unlines
   [ "[ 0,"
   , "  1,"
   , "  2 ]"
@@ -868,7 +866,7 @@ testShowBoard5 = unlines
   , "               (1)"
   ]
 
-fiveApp = concat
+fiveApp = unlines
   [ "main = let fiveApp = $5\n"
   , "       in fiveApp (\\x -> (x,0)) 0"
   ]
@@ -880,7 +878,7 @@ showAllTransformations input = do
   let section description body = do
         putStrLn "\n-----------------------------------------------------------------"
         putStrLn $ "----" <> description <> ":\n"
-        putStrLn $ body
+        putStrLn body
       prelude = case parsePrelude preludeFile of
                   Right x  -> x
                   Left err -> error err
@@ -889,7 +887,7 @@ showAllTransformations input = do
               Left x  -> error x
   section "Input" input
   section "UnprocessedParsedTerm" $ show upt
-  section "optimizeBuiltinFunctions" $ show . optimizeBuiltinFunctions $ upt
+  section "optimizeBuiltinFunctions" . show . optimizeBuiltinFunctions $ upt
   let optimizeBuiltinFunctionsVar = optimizeBuiltinFunctions upt
       str1 = lines . show $ optimizeBuiltinFunctionsVar
       str0 = lines . show $ upt
@@ -921,7 +919,7 @@ showAllTransformations input = do
   section "toTelomare" . show $ toTelomareVar
   section "Diff toTelomare" $ ppDiff diff
   putStrLn "\n-----------------------------------------------------------------"
-  putStrLn $ "---- stepEval:\n"
+  putStrLn "---- stepEval:\n"
   x <- stepIEval toTelomareVar
   print x
   -- let iEvalVar0 = iEval () Zero toTelomareVar
@@ -932,7 +930,7 @@ stepIEval =
       wio = rEval Zero
   in wioIO . wio
 
-data WrappedIO a = WrappedIO
+newtype WrappedIO a = WrappedIO
   { wioIO :: IO a
   } deriving (Functor)
 
@@ -944,7 +942,7 @@ instance Applicative WrappedIO where
   (<*>) (WrappedIO f) (WrappedIO a) = WrappedIO $ f <*> a
 
 instance Monad WrappedIO where
-  (>>=) (WrappedIO a) f = WrappedIO $ a >>= (wioIO . f)
+  (>>=) (WrappedIO a) f = WrappedIO $ a >>= wioIO . f
 
 instance (MonadError RunTimeError) WrappedIO where
   throwError = undefined

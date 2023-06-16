@@ -47,11 +47,9 @@
           cabal-install
           haskell-language-server
           hlint
-	  ghcid
-	  stylish-haskell
-	  hvm.defaultPackage.${system}
-	  
-
+          ghcid
+          stylish-haskell
+          hvm.defaultPackage.${system}
         ]);
 	
         checks = {
