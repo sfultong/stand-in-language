@@ -7,6 +7,7 @@ import Control.Lens.Plated (transform)
 import Control.Monad.Except
 import Control.Monad.State (State)
 import qualified Control.Monad.State as State
+import Data.Bifunctor (second)
 import qualified Data.DList as DList
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -28,7 +29,7 @@ newtype DebugTypeMap = DebugTypeMap (Map Int PartialType)
 
 instance Show DebugTypeMap where
   show (DebugTypeMap x) = ("typeMap:\n" ++) .
-    concatMap ((++ "\n") . show . Data.Bifunctor.second PrettyPartialType) $ Map.toAscList x
+    concatMap ((++ "\n") . show . second PrettyPartialType) $ Map.toAscList x
 
 data TypeCheckError
   = UnboundType Int

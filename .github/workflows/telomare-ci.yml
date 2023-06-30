@@ -61,6 +61,31 @@ jobs:
         with:
           message: 'stylish-haskell formatting automatically applied'
           default_author: github_actions
+  lint:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout telomare repository
+        uses: actions/checkout@v3
+      - uses: cachix/install-nix-action@v20
+        with:
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - uses: cachix/cachix-action@v12
+        with:
+          name: telomare
+          signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
+          extraPullNames: nix-community
+      - name: hlint linting
+        run: |
+          output=$(nix develop -c hlint . --no-exit-code)
+          if [ "$output" = "No hints" ]; then
+              echo "Success! No Hlint suggestions."
+          else
+              echo "Failure: Hlint has some suggestions for your commit"
+              echo "$output"
+              exit 1
+          fi
   release:
     if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
     needs: [tests, format]

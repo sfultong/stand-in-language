@@ -228,7 +228,6 @@ data FragExpr a
 makeBaseFunctor ''FragExpr -- Functorial version FragExprF.
 
 instance Plated (FragExpr a) where
-  plate :: Traversal' (FragExpr a) (FragExpr a)
   plate f = \case
     PairFrag a b -> PairFrag <$> f a <*> f b
     SetEnvFrag x -> SetEnvFrag <$> f x
