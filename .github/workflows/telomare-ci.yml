@@ -34,15 +34,11 @@ jobs:
         echo ${{ github.ref }}
         echo ${{ github.repository }}
   format:
-    if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
     needs: tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository
         uses: actions/checkout@v3
-        with:
-          repository: Stand-In-Language/stand-in-language
-          token: ${{ secrets.API_TOKEN_GITHUB }}
       - uses: cachix/install-nix-action@v20
         with:
           extra_nix_config: |
@@ -54,13 +50,15 @@ jobs:
           extraPullNames: nix-community
       - name: stylish-haskell formatting
         run: |
-          ls
           nix develop -c stylish-haskell -irv .
-          echo stylish-haskell formatting finished
-      - uses: EndBug/add-and-commit@v7
-        with:
-          message: 'stylish-haskell formatting automatically applied'
-          default_author: github_actions
+          output=$(git diff)
+          if [ "$output" = "" ]; then
+              echo "Success! No formatting suggestions."
+          else
+              echo "Failure: stylish-haskell has some formatting suggestions:"
+              echo "$output"
+              exit 1
+          fi
   lint:
     needs: tests
     runs-on: ubuntu-latest
