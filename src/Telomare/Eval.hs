@@ -147,8 +147,8 @@ convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
                                in Term4 $ fmap changeType newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
--- findChurchSize = pure . convertPT (const 255)
-findChurchSize = calculateRecursionLimits
+findChurchSize = pure . convertPT (const 255)
+-- findChurchSize = calculateRecursionLimits
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4

@@ -789,6 +789,18 @@ insertAndGetKey v = do
   pure nextKey
 
 -- abort codes
+-- t x = if x <= 1
+-- fact1 r x = if x <= 1
+--    then 1
+--    else x * (r (x - 1))
+-- fix fact1
+-- (\f x -> f x) fact1 (\_ -> error!) 3 -- error!
+-- (\f x -> f (f x)) fact1 (\_ -> error!) 3 -- error!
+-- (\f x -> f (f (f x))) fact1 (\_ -> error!) 3 -- 3, happy!
+-- setenv env -- church numeral 1
+-- setenv (setenv env) -- church numeral 2
+
+
 pattern AbortRecursion :: IExpr
 pattern AbortRecursion = Pair Zero Zero
 pattern AbortUser :: IExpr -> IExpr

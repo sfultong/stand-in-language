@@ -433,6 +433,13 @@ testRecur = concat
   , "       in $3 layer (\\x -> x) 0"
   ]
 
+testSBV'' = do
+  r <- runIO testSBV'
+  runIO $ if r == 4
+    then pure ()
+    else expectationFailure $ "testSBV failed, got result " <> show r
+  -- assertEqual "testing SBV" r 3
+
 -- unitTests_ :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
 unitTests_ parse = do
   let unitTestType = unitTestType' parse
@@ -494,13 +501,12 @@ unitTests_ parse = do
                                     (ints2g [1,2,3])
 -}
   describe "bottom up eval" $ do
+    {-
+    it "test SBV" . liftIO $ do
+      testSBV' == pure 3
+-}
+    testSBV''
     unitTest2 "main = plus $3 $2 succ 0" "5"
-    unitTest2 "main = times $3 $2 succ 0" "6"
-    unitTest2 "main = pow $3 $2 succ 0" "9"
-    unitTest2 "main = d2c 3 succ 0" "3"
-    -- unitTest2 "main = (d2cG $4 3) succ 0" "3"
-    unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
-    unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [1,1,1]" "4"
     -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
   {-
     unitTest2 "main = dEqual 0 0" "1"

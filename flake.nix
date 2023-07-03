@@ -14,7 +14,7 @@
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
-          compiler = pkgs.haskell.packages."ghc922";
+          compiler = pkgs.haskell.packages."ghc92";
           project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
                 addBuildDepends = (t.flip hl.addBuildDepends)
@@ -35,6 +35,10 @@
                 addBuildTools
                 # hl.dontHaddock
               ];
+
+	      overrides = self: super: {
+		  sbv = pkgs.haskell.lib.compose.markUnbroken (pkgs.haskell.lib.dontCheck super.sbv);
+	      };
             };
 
       in {
@@ -48,7 +52,7 @@
           haskell-language-server
           hlint
 	  ghcid
-	  stylish-haskell
+	  # stylish-haskell
 	  hvm.defaultPackage. "x86_64-linux"
 	  
 
