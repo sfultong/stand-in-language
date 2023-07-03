@@ -27,12 +27,12 @@ decompileUPT =
         RightUP _   -> True
         TraceUP _   -> True
         LetUP _ _   -> True
-        ITEUP _ _ _ -> True
+        ITEUP {} -> True
         _           -> False
       needsFirstParens = \case
         LamUP _ _   -> True
         LetUP _ _   -> True
-        ITEUP _ _ _ -> True
+        ITEUP {} -> True
         _           -> False
       drawParens x = if needsParens x
         then drawList [showS " (", draw x, showS ")"]
@@ -113,9 +113,9 @@ decompileTerm1 = \case
 
 decompileTerm2 :: Term2 -> Term1
 decompileTerm2 =
-  let nameSupply = map (:[]) ['a'..'z'] ++ [x <> y | x <- nameSupply, y <- nameSupply]
+  let nameSupply = (fmap (:[]) ['a'..'z'] <> ([x <> y | x <- nameSupply, y <- nameSupply]))
       getName n = if n < 0
-        then nameSupply !! 0
+        then head nameSupply
         else nameSupply !! n
       go = \case
         TZero -> pure TZero
@@ -127,8 +127,8 @@ decompileTerm2 =
         TLeft x -> TLeft <$> go x
         TRight x -> TRight <$> go x
         TTrace x -> TTrace <$> go x
-        TLam (Open ()) x -> (\(Max n, r) -> (Max n, (TLam (Open (getName n)) r))) $ go x -- warning, untested
-        TLam (Closed ()) x -> (\(Max n, r) -> (Max 0, (TLam (Closed (getName n)) r))) $ go x
+        TLam (Open ()) x -> (\(Max n, r) -> (Max n, TLam (Open (getName n)) r)) $ go x -- warning, untested
+        TLam (Closed ()) x -> (\(Max n, r) -> (Max 0, TLam (Closed (getName n)) r)) $ go x
         TLimitedRecursion t r b -> TLimitedRecursion <$> go t <*> go r <*> go b
   in snd . go
 

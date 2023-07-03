@@ -41,30 +41,30 @@ nEval (NExprs m) =
       eval env frag = let recur = eval env in case frag of
         (NPair a b) -> NPair <$> recur a <*> recur b
         NEnv -> pure env
-        (NLeft x) -> recur x >>= \y -> case y of
+        (NLeft x) -> recur x >>= \case
           (NPair l _) -> pure l
           NZero       -> pure NZero
-          z           -> error ("nleft on " ++ show z ++ " before " ++ show x)
-        (NRight x) -> recur x >>= \y -> case y of
+          z           -> error ("nleft on " <> show z <> (" before " <> show x))
+        (NRight x) -> recur x >>= \case
           (NPair _ r) -> pure r
           NZero       -> pure NZero
-          z           -> error ("nright on " ++ show z)
+          z           -> error ("nright on " <> show z)
         (NDefer ind) -> case Map.lookup ind m of
           (Just x) -> pure x
-          _ -> throwError $ GenericRunTimeError ("nEval bad index for function: " ++ show ind) Zero
+          _ -> throwError $ GenericRunTimeError ("nEval bad index for function: " <> show ind) Zero
         NTrace -> pure $ trace (show env) env
-        (NSetEnv x) -> recur x >>= \y -> case y of
+        (NSetEnv x) -> recur x >>= \case
           (NPair c i) -> case c of
             NGate a b -> case i of
               NZero -> recur a
               _     -> recur b
             _ -> eval i c
-          z -> error ("nEval nsetenv - not pair - " ++ show z)
+          z -> error ("nEval nsetenv - not pair - " <> show z)
         (NApp c i) -> do
           nc <- recur c
           ni <- recur i
           let appl (NPair c e) i = eval (NPair i e) c
-              appl y z = error ("nEval napp appl no pair " ++ show y ++ " --- " ++ show z)
+              appl y z = error ("nEval napp appl no pair " <> show y <> (" --- " <> show z))
           case nc of
             p@(NPair _ _) -> appl p ni
             (NLamNum n e) -> pure $ case ni of
@@ -75,16 +75,16 @@ nEval (NExprs m) =
               let fStep 0 _ = 0
                   fStep _ NZero = 0
                   fStep x (NPair pr NZero) = 1 + fStep (x - 1) pr
-                  fStep _ z = error ("napp ntonum fstep bad pair: " ++ show z)
+                  fStep _ z = error ("napp ntonum fstep bad pair: " <> show z)
               in pure $ NPair (NPair (NNum $ fStep nn ni) NEnv) nenv
-            z -> error ("nEval napp error - non pair c - " ++ show z ++ " <<from>> " ++ show c)
+            z -> error ("nEval napp error - non pair c - " <> show z <> (" <<from>> " <> show c))
         (NOldDefer x) -> pure x
         (NNum x) -> let buildF 0 = NLeft NEnv
                         buildF x = NApp (NLeft (NRight NEnv)) (buildF (x - 1))
                     in pure $ buildF x
-        (NTwiddle x) -> recur x >>= \nx -> case nx of
+        (NTwiddle x) -> recur x >>= \case
           (NPair (NPair c e) i) -> pure $ NPair c (NPair i e)
-          z -> error ("neval ntwiddle not pairpair: " ++ show z)
+          z -> error ("neval ntwiddle not pairpair: " <> show z)
         z -> pure z
   in case Map.lookup (FragIndex 0) m of
     (Just f) -> eval NZero f
@@ -169,7 +169,7 @@ instance TelomareLike NExprs where
           (NLeft x)     -> PLeft <$> fromNExpr x
           (NRight x)    -> PRight <$> fromNExpr x
           NTrace        -> pure Trace
-          (NDefer i)    -> Map.lookup i m >>= (fmap Defer . fromNExpr)
+          (NDefer i)    -> Map.lookup i m >>= fmap Defer . fromNExpr
           (NOldDefer x) -> Defer <$> fromNExpr x
           _             -> Nothing
     in Map.lookup resultIndex m >>= fromNExpr
@@ -177,11 +177,11 @@ instance AbstractRunTime NExprs where
   eval x@(NExprs m) = (\r -> NExprs $ Map.insert resultIndex r m) <$> nEval x
 
 evalAndConvert :: (Show a, AbstractRunTime a) => a -> RunResult IExpr
-evalAndConvert x = let ar = eval x in (toTelomare <$> ar) >>= \r -> case r of
+evalAndConvert x = let ar = eval x in (ar >>= (\case
   Nothing -> do
     ar' <- ar
     throwError . ResultConversionError $ show ar'
-  Just ir -> pure ir
+  Just ir -> pure ir) . toTelomare)
 
 -- |Evaluation with hvm backend
 hvmEval :: IExpr -> IO IExpr
@@ -199,18 +199,18 @@ hvmEval x = do
     Nothing -> error $ "Error: hvm failed to produce output. \nIExpr fed to hvm:\n" <> show x
 
 simpleEval :: IExpr -> IO IExpr
-simpleEval x = runExceptT (eval x) >>= \r -> case r of
+simpleEval x = runExceptT (eval x) >>= \case
   Left e  -> fail (show e)
   Right i -> pure i
 
 fastInterpretEval :: IExpr -> IO IExpr
 fastInterpretEval e = do
-  let traceShow x = if debug then trace ("toNExpr\n" ++ showNExprs x) x else x
+  let traceShow x = if debug then trace ("toNExpr\n" <> showNExprs x) x else x
       nExpr :: NExprs
       nExpr = traceShow $ fromTelomare e
   result <- runExceptT $ evalAndConvert nExpr
   case result of
-    Left e  -> error ("runtime error: " ++ show e)
+    Left e  -> error ("runtime error: " <> show e)
     Right r -> pure r
 
 {- commenting out until fixed
@@ -239,10 +239,10 @@ pureEval :: IExpr -> Either RunTimeError IExpr
 pureEval = rEval Zero
 
 showPass :: (Show a, MonadIO m) => m a -> m a
-showPass a = a >>= (liftIO . print) >> a
+showPass a = a >>= liftIO . print >> a
 
 tEval :: IExpr -> IO IExpr
-tEval x = runExceptT (fix (\f e g -> showPass $ iEval f e g) Zero x) >>= \r -> case r of
+tEval x = runExceptT (fix (\f e g -> showPass $ iEval f e g) Zero x) >>= \case
   Left e  -> fail (show e)
   Right i -> pure i
 
@@ -253,7 +253,7 @@ typedEval typeCheck iexpr prettyPrint = if typeCheck iexpr ZeroType
 
 debugEval :: (IExpr -> DataType -> Bool) -> IExpr -> IO ()
 debugEval typeCheck iexpr = if typeCheck iexpr ZeroType
-  then tEval iexpr >>= (print . PrettyIExpr)
+  then tEval iexpr >>= print . PrettyIExpr
   else putStrLn "failed typecheck"
 
 fullEval typeCheck i = typedEval typeCheck i print

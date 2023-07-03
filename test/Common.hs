@@ -1,9 +1,7 @@
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE TupleSections              #-}
-{-# LANGUAGE TypeSynonymInstances       #-}
+{-# LANGUAGE DeriveFunctor     #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE TupleSections     #-}
 
 module Common where
 
@@ -21,15 +19,15 @@ import Telomare.TypeChecker
 class TestableIExpr a where
   getIExpr :: a -> IExpr
 
-data TestIExpr = TestIExpr IExpr
+newtype TestIExpr = TestIExpr IExpr
 
-data ValidTestIExpr = ValidTestIExpr TestIExpr
+newtype ValidTestIExpr = ValidTestIExpr TestIExpr
 
-data ArrowTypedTestIExpr = ArrowTypedTestIExpr TestIExpr
+newtype ArrowTypedTestIExpr = ArrowTypedTestIExpr TestIExpr
 
 newtype URTestExpr = URTestExpr {unURTest :: Term3} deriving Show
 
-data IExprWrapper a = IExprWrapper a
+newtype IExprWrapper a = IExprWrapper a
   deriving (Eq, Show, Functor)
 
 instance Applicative IExprWrapper where
@@ -70,7 +68,7 @@ instance Arbitrary TestIExpr where
     tree i = let half = div i 2
                  pure2 = pure . TestIExpr
              in case i of
-                  0 -> oneof $ map pure2 [zero, var]
+                  0 -> oneof $ fmap pure2 [zero, var]
                   x -> oneof
                     [ pure2 zero
                     , pure2 var
@@ -87,11 +85,11 @@ instance Arbitrary TestIExpr where
     Env -> []
     Gate a b -> TestIExpr a : TestIExpr b :
       [lift2Texpr Gate a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
-    (PLeft x) -> TestIExpr x : (map (lift1Texpr pleft) . shrink $ TestIExpr x)
-    (PRight x) -> TestIExpr x : (map (lift1Texpr pright) . shrink $ TestIExpr x)
+    (PLeft x) -> TestIExpr x : (fmap (lift1Texpr pleft) . shrink $ TestIExpr x)
+    (PRight x) -> TestIExpr x : (fmap (lift1Texpr pright) . shrink $ TestIExpr x)
     Trace -> []
-    (SetEnv x) -> TestIExpr x : (map (lift1Texpr SetEnv) . shrink $ TestIExpr x)
-    (Defer x) -> TestIExpr x : (map (lift1Texpr Defer) . shrink $ TestIExpr x)
+    (SetEnv x) -> TestIExpr x : (fmap (lift1Texpr SetEnv) . shrink $ TestIExpr x)
+    (Defer x) -> TestIExpr x : (fmap (lift1Texpr Defer) . shrink $ TestIExpr x)
     (Pair a b) -> TestIExpr a : TestIExpr  b :
       [lift2Texpr pair a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
 
@@ -113,7 +111,7 @@ genTypedTree ti t i =
                   then (pure var :)
                   else id
       optionGate ti' to = if ti' == ZeroType
-                          then ((pure Gate <*> genTypedTree ti to half <*> genTypedTree ti to half) :)
+                          then ((Gate <$> genTypedTree ti to half <*> genTypedTree ti to half) :)
                           else id
       setEnvOption to = arbitrary >>= makeSetEnv where
         makeSetEnv ti' = SetEnv <$> genTypedTree ti (PairType (ArrType ti' to) ti') (i - 1)
@@ -129,7 +127,7 @@ genTypedTree ti t i =
                           , rightOption ZeroType
                           ]
                     PairType ta tb ->
-                      (pure pair <*> genTypedTree ti ta half <*> genTypedTree ti tb half) :
+                      (pair <$> genTypedTree ti ta half <*> genTypedTree ti tb half) :
                       if i < 1
                       then []
                       else [ setEnvOption (PairType ta tb)
@@ -186,20 +184,20 @@ genTypedTree' ti t i =
 
 instance Arbitrary DataTypedIExpr where
   arbitrary = IExprWrapper <$> sized (genTypedTree Nothing ZeroType)
-  shrink (IExprWrapper x) = map (IExprWrapper . getIExpr) . filter zeroTyped . shrink $ TestIExpr x
+  shrink (IExprWrapper x) = fmap (IExprWrapper . getIExpr) . filter zeroTyped . shrink $ TestIExpr x
 
 instance Arbitrary URTestExpr where -- TODO needs to be tested since refactor
-  arbitrary = fmap (URTestExpr . Term3 . Map.map FragExprUR . buildFragMap . wrapWithUR)
-    . sequence $ map sized
-    [genTypedTree' Nothing (PairType (ArrType ZeroType ZeroType) ZeroType)
-    ,genTypedTree' Nothing (PairType (ArrType (PairType (ArrType ZeroType ZeroType) ZeroType)
-                                              (PairType (ArrType ZeroType ZeroType) ZeroType))
-                                      ZeroType)
-    ,genTypedTree' Nothing (PairType (ArrType ZeroType ZeroType) ZeroType)
-    ,genTypedTree' Nothing ZeroType
-    ]
-    where wrapWithUR [t, r, b, i] =
-            appF (unsizedRecursionWrapper (toEnum 0) t r b) i
+  arbitrary = URTestExpr . Term3 . Map.map FragExprUR . buildFragMap . wrapWithUR <$> mapM sized
+      [genTypedTree' Nothing (PairType (ArrType ZeroType ZeroType) ZeroType)
+      ,genTypedTree' Nothing (PairType (ArrType (PairType (ArrType ZeroType ZeroType) ZeroType)
+                                                (PairType (ArrType ZeroType ZeroType) ZeroType))
+                                        ZeroType)
+      ,genTypedTree' Nothing (PairType (ArrType ZeroType ZeroType) ZeroType)
+      ,genTypedTree' Nothing ZeroType
+      ]
+      where wrapWithUR [t, r, b, i] =
+              appF (unsizedRecursionWrapper (toEnum 0) t r b) i
+
 
 typeable x = case inferType (fromTelomare $ getIExpr x) of
   Left _ -> False
@@ -207,13 +205,13 @@ typeable x = case inferType (fromTelomare $ getIExpr x) of
 
 instance Arbitrary ValidTestIExpr where
   arbitrary = ValidTestIExpr <$> suchThat arbitrary typeable
-  shrink (ValidTestIExpr te) = map ValidTestIExpr . filter typeable $ shrink te
+  shrink (ValidTestIExpr te) = fmap ValidTestIExpr . filter typeable $ shrink te
 
 simpleArrowTyped x = inferType (fromTelomare $ getIExpr x) == Right (ArrTypeP ZeroTypeP ZeroTypeP)
 
 instance Arbitrary ArrowTypedTestIExpr where
   arbitrary = ArrowTypedTestIExpr <$> suchThat arbitrary simpleArrowTyped
-  shrink (ArrowTypedTestIExpr atte) = map ArrowTypedTestIExpr . filter simpleArrowTyped $ shrink atte
+  shrink (ArrowTypedTestIExpr atte) = fmap ArrowTypedTestIExpr . filter simpleArrowTyped $ shrink atte
 
 instance Arbitrary UnprocessedParsedTerm where
   arbitrary = sized (genTree []) where
@@ -221,12 +219,12 @@ instance Arbitrary UnprocessedParsedTerm where
     leaves varList =
       oneof $
           (if not (null varList) then ((VarUP <$> elements varList) :) else id)
-          [ StringUP <$> elements (map (("s" <>) . show) [1..9]) -- chooseAny
+          [ StringUP <$> elements (fmap (("s" <>) . show) [1..9]) -- chooseAny
           , IntUP <$> elements [0..9]
           , ChurchUP <$> elements [0..9]
           ]
     lambdaTerms = ["w", "x", "y", "z"]
-    letTerms = map (("l" <>) . show) [1..255]
+    letTerms = fmap (("l" <>) . show) [1..255]
     identifierList = frequency
       [ (1, pure . cycle $ letTerms)
       , (3, pure . cycle $ lambdaTerms <> letTerms)
@@ -280,30 +278,29 @@ instance Arbitrary UnprocessedParsedTerm where
       x -> pure . ChurchUP $ x - 1
     UnsizedRecursionUP t r b -> t : r : b : [UnsizedRecursionUP nt nr nb | (nt, nr, nb) <- shrink (t,r,b)]
     VarUP _ -> []
-    HashUP x -> x : map HashUP (shrink x)
-    LeftUP x -> x : map LeftUP (shrink x)
-    RightUP x -> x : map RightUP (shrink x)
-    TraceUP x -> x : map TraceUP (shrink x)
-    LamUP v x -> x : map (LamUP v) (shrink x)
+    HashUP x -> x : fmap HashUP (shrink x)
+    LeftUP x -> x : fmap LeftUP (shrink x)
+    RightUP x -> x : fmap RightUP (shrink x)
+    TraceUP x -> x : fmap TraceUP (shrink x)
+    LamUP v x -> x : fmap (LamUP v) (shrink x)
     ITEUP i t e -> i : t : e : [ITEUP ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
     ListUP l -> case l of
-      [e] -> if null $ shrink e then [e] else e : map (ListUP . pure) (shrink e)
-      _   -> head l : ListUP (tail l) : map (ListUP . shrink) l
+      [e] -> if null $ shrink e then [e] else e : fmap (ListUP . pure) (shrink e)
+      _   -> head l : ListUP (tail l) : fmap (ListUP . shrink) l
   {-
     LetUP l i -> i : case l of -- TODO make this do proper, full enumeration
       [(v,e)] -> if null $ shrink e then [e] else e : map (flip LetUP i . pure . (v,)) (shrink e) <> (map (LetUP l) (shrink i))
       _ -> let shrinkBinding (n, v) = map (n,) $ shrink v
            in snd (head l) : LetUP (tail l) i : map (flip LetUP i . second shrink) l
 -}
-    LetUP l i -> let shrinkBinding (n, v) = map (n,) $ shrink v
-                     removeAt n x = let (f,s) = splitAt n x in f ++ tail s
+    LetUP l i -> let shrinkBinding (n, v) = ((n,) <$> shrink v)
+                     removeAt n x = let (f,s) = splitAt n x in (f <> tail s)
                      makeOptions f n [] = error "debugging split here"
-                     makeOptions f n x = let (pa,c:pz) = splitAt n x in map ((pa ++) . (:pz)) $ f c
+                     makeOptions f n x = let (pa,c:pz) = splitAt n x in ((pa ++) . (:pz) <$> f c)
                      lessBindings = if length l > 1
                        then [LetUP (removeAt n l) i | n <- [0..length l - 1]]
                        else []
-                 in i : lessBindings
-                    ++ concat [map (flip LetUP i) $ makeOptions shrinkBinding n l | n <- [0..length l - 1]]
+                 in i : (lessBindings <> concat [(`LetUP` i) <$> makeOptions shrinkBinding n l | n <- [0..length l - 1]])
     PairUP a b -> a : b : [PairUP na nb | (na, nb) <- shrink (a,b)]
     AppUP f i -> f : i : [AppUP nf ni | (nf, ni) <- shrink (f,i)]
 
@@ -316,7 +313,7 @@ instance Arbitrary Term1 where
           [ pure TZero
           ]
     lambdaTerms = ["w", "x", "y", "z"]
-    letTerms = map (("l" <>) . show) [1..255]
+    letTerms = fmap (("l" <>) . show) [1..255]
     identifierList = frequency
       [ (1, pure . cycle $ letTerms)
       , (3, pure . cycle $ lambdaTerms <> letTerms)
@@ -349,11 +346,11 @@ instance Arbitrary Term1 where
     TZero -> []
     TLimitedRecursion t r b -> t : r : b : [TLimitedRecursion nt nr nb | (nt, nr, nb) <- shrink (t,r,b)]
     TVar _ -> []
-    THash x -> x : map THash (shrink x)
-    TLeft x -> x : map TLeft (shrink x)
-    TRight x -> x : map TRight (shrink x)
-    TTrace x -> x : map TTrace (shrink x)
-    TLam v x -> x : map (TLam v) (shrink x)
+    THash x -> x : fmap THash (shrink x)
+    TLeft x -> x : fmap TLeft (shrink x)
+    TRight x -> x : fmap TRight (shrink x)
+    TTrace x -> x : fmap TTrace (shrink x)
+    TLam v x -> x : fmap (TLam v) (shrink x)
     TITE i t e -> i : t : e : [TITE ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
     TPair a b -> a : b : [TPair na nb | (na, nb) <- shrink (a,b)]
     TApp f i -> f : i : [TApp nf ni | (nf, ni) <- shrink (f,i)]
@@ -372,11 +369,11 @@ instance Arbitrary Term2 where
     TZero -> []
     TLimitedRecursion t r b -> t : r : b : [TLimitedRecursion nt nr nb | (nt, nr, nb) <- shrink (t,r,b)]
     TVar _ -> []
-    THash x -> x : map THash (shrink x)
-    TLeft x -> x : map TLeft (shrink x)
-    TRight x -> x : map TRight (shrink x)
-    TTrace x -> x : map TTrace (shrink x)
-    TLam v x -> x : map (TLam v) (shrink x)
+    THash x -> x : fmap THash (shrink x)
+    TLeft x -> x : fmap TLeft (shrink x)
+    TRight x -> x : fmap TRight (shrink x)
+    TTrace x -> x : fmap TTrace (shrink x)
+    TLam v x -> x : fmap (TLam v) (shrink x)
     TITE i t e -> i : t : e : [TITE ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
     TPair a b -> a : b : [TPair na nb | (na, nb) <- shrink (a,b)]
     TApp f i -> f : i : [TApp nf ni | (nf, ni) <- shrink (f,i)]

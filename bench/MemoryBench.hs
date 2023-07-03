@@ -1,5 +1,4 @@
 {-# LANGUAGE CApiFFI             #-}
-{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
@@ -26,7 +25,7 @@ import MemoryBench.LLVM
 import Paths_telomare
 
 import Text.Parsec.Error (ParseError)
-import qualified Weigh as Weigh
+import qualified Weigh
 import Weigh hiding (Case, Max)
 
 import Debug.Trace
@@ -63,7 +62,7 @@ processCase bindings (Case label code) = do
     wgroup label weighs
 
 processAllCases :: Bindings -> [Case] -> Weigh ()
-processAllCases bindings cases = mapM_ (processCase bindings) cases
+processAllCases bindings = mapM_ (processCase bindings)
 
 benchEvalSimple :: IExpr -> IO IExpr
 benchEvalSimple iexpr = simpleEval (SetEnv (Pair (Defer iexpr) Zero))

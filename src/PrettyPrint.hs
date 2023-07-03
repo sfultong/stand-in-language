@@ -22,17 +22,17 @@ showPIExpr l i (Pair a b) =
 showPIExpr l i (Gate a b) = -- "G"
   "G\n" <> indent i <> showPIExpr l (i + 1) a <> "\n" <> indent i <> showPIExpr l (i + 1) b
 showPIExpr _ _ Trace = "T"
-showPIExpr l i (Defer x) = concat ["D ", showPIExpr l i x]
-showPIExpr l i (PLeft x) = concat ["L ", showPIExpr l i x]
-showPIExpr l i (PRight x) = concat ["R ", showPIExpr l i x]
-showPIExpr l i (SetEnv x) = concat ["S ", showPIExpr l i x]
+showPIExpr l i (Defer x) = "D " <> showPIExpr l i x
+showPIExpr l i (PLeft x) = "L " <> showPIExpr l i x
+showPIExpr l i (PRight x) = "R " <> showPIExpr l i x
+showPIExpr l i (SetEnv x) = "S " <> showPIExpr l i x
 
 showPIE = showPIExpr 80 1
 
 showTPIExpr :: Map Int PartialType -> Int -> Int -> IExpr -> String
 showTPIExpr typeMap l i expr =
   let recur = showTPIExpr typeMap l i
-      indented x = concat [indent i, showTPIExpr typeMap l (i + 1) x]
+      indented x = (indent i <> showTPIExpr typeMap l (i + 1) x)
   in case expr of
     Zero       -> "Z"
     Env        -> "E"
@@ -52,25 +52,25 @@ showNExpr nMap l i expr =
   NGate a b -> showTwo "G" a b
   NTrace -> "T"
   (NDefer ind) -> case Map.lookup ind nMap of
-    (Just n) -> concat ["D ", recur n]
-    _        -> "NDefer error: no function found for " ++ show ind
-  (NLeft x) -> concat ["L ", recur x]
-  (NRight x) -> concat ["R ", recur x]
-  (NSetEnv x) -> concat ["S ", recur x]
+    (Just n) -> "D " <> recur n
+    _        -> "NDefer error: no function found for " <> show ind
+  (NLeft x) -> "L " <> recur x
+  (NRight x) -> "R " <> recur x
+  (NSetEnv x) -> "S " <> recur x
   (NAdd a b) -> showTwo "+" a b
   (NMult a b) -> showTwo "X" a b
   (NPow a b) -> showTwo "^" a b
   (NApp c i) -> showTwo "$" c i
   (NNum n) -> show n --concat ["()"]
   (NToChurch c i) -> showTwo "<" c i
-  (NOldDefer x) -> concat ["% ", recur x]
-  (NTwiddle x) -> concat ["W ", recur x]
+  (NOldDefer x) -> "% " <> recur x
+  (NTwiddle x) -> "W " <> recur x
 
 showNIE (NExprs m) = case Map.lookup (FragIndex 0) m of
   Just f -> showNExpr m 80 1 f
   _      -> "error: no root nexpr"
 
-showFragInds inds = let showInd (FragIndex i) = i in show (map showInd inds)
+showFragInds inds = let showInd (FragIndex i) = i in show (fmap showInd inds)
 
 showOneNExpr :: Int -> Int -> NExpr -> String
 showOneNExpr l i expr =
@@ -84,22 +84,22 @@ showOneNExpr l i expr =
       NGate a b                -> showTwo "G" a b
       NTrace                   -> "T"
       (NDefer (FragIndex ind)) -> concat ["[", show ind, "]"]
-      (NLeft x)                -> concat ["L ", recur x]
-      (NRight x)               -> concat ["R ", recur x]
-      (NSetEnv x)              -> concat ["S ", recur x]
+      (NLeft x)                -> "L " <> recur x
+      (NRight x)               -> "R " <> recur x
+      (NSetEnv x)              -> "S " <> recur x
       (NAdd a b)               -> showTwo "+" a b
       (NMult a b)              -> showTwo "X" a b
       (NPow a b)               -> showTwo "^" a b
       (NApp c i)               -> showTwo "$" c i
       (NNum n)                 -> show n --concat ["()"]
       (NToChurch c i)          -> showTwo "<" c i
-      (NOldDefer x)            -> concat ["% ", recur x]
-      (NTwiddle x)             -> concat ["W ", recur x]
+      (NOldDefer x)            -> "% " <> recur x
+      (NTwiddle x)             -> "W " <> recur x
       NToNum                   -> "["
 
 showNExprs :: NExprs -> String
 showNExprs (NExprs m) = concatMap
-  (\((FragIndex k),(v)) -> concat [show k, " ", showOneNExpr 80 2 v, "\n"])
+  (\(FragIndex k,v) -> concat [show k, " ", showOneNExpr 80 2 v, "\n"])
   $ Map.toList m
 
 -- termMap, function->type lookup, root frag type

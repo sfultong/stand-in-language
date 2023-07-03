@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TupleSections   #-}
+
 module Telomare.Eval where
 
 import Control.Lens.Plated
@@ -107,7 +107,7 @@ instance TelomareLike ExpP where
   toTelomare = fix fromFullEnv
 
 partiallyEvaluate :: ExpP -> Either RunTimeError IExpr
-partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= (pureEval . optimize))
+partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= pureEval . optimize)
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 
 convertPT :: (UnsizedRecursionToken -> Int) -> Term3 -> Term4
@@ -189,18 +189,18 @@ eval' = pure
 
 schemeEval :: IExpr -> IO ()
 schemeEval iexpr = case eval' iexpr of
-  Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
+  Left err -> putStrLn ("Failed compiling main, " <> show err)
   Right peExp ->
     do
-      writeFile "scheme.txt" ('(' : (show $ app peExp Zero) ++ ")")
-      (_, Just mhout, _, _) <- createProcess (shell ("chez-script runtime.so")) { std_out = CreatePipe }
+      writeFile "scheme.txt" ('(' : (show (app peExp Zero) <> ")"))
+      (_, Just mhout, _, _) <- createProcess (shell "chez-script runtime.so") { std_out = CreatePipe }
       scheme <- hGetContents mhout
       putStrLn scheme
 
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr = case eval' iexpr of
-  Left err -> putStrLn . concat $ ["Failed compiling main, ", show err]
+  Left err -> putStrLn ("Failed compiling main, " <> show err)
   Right peExp ->
     let mainLoop s = do
           result <- simpleEval $ app peExp s
@@ -214,14 +214,14 @@ evalLoop iexpr = case eval' iexpr of
                 _ -> do
                   inp <- s2g <$> getLine
                   mainLoop $ Pair inp newState
-            r -> putStrLn $ concat ["runtime error, dumped ", show r]
+            r -> putStrLn ("runtime error, dumped " <> show r)
     in mainLoop Zero
 
 -- |Same as `evalLoop`, but keeping what was displayed.
 -- TODO: make evalLoop and evalLoop always share eval method (i.e. simpleEval, hvmEval)
 evalLoop_ :: IExpr -> IO String
 evalLoop_ iexpr = case eval' iexpr of
-  Left err -> pure . concat $ ["Failed compiling main, ", show err]
+  Left err -> pure ("Failed compiling main, " <> show err)
   Right peExp ->
     let mainLoop prev s = do
           -- result <- optimizedEval (app peExp s)
@@ -230,13 +230,13 @@ evalLoop_ iexpr = case eval' iexpr of
           case result of
             Zero -> pure $ prev <> "\n" <> "aborted"
             (Pair disp newState) -> do
-              let d = g2s $ disp
+              let d = g2s disp
               case newState of
                 Zero -> pure $ prev <> "\n" <> d <> "\ndone"
                 _ -> do
                   inp <- s2g <$> getLine
                   mainLoop (prev <> "\n" <> d) $ Pair inp newState
-            r -> pure $ concat ["runtime error, dumped ", show r]
+            r -> pure ("runtime error, dumped " <> show r)
     in mainLoop "" Zero
 
 calculateRecursionLimits :: Term3 -> Either EvalError Term4

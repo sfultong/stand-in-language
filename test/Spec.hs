@@ -36,9 +36,9 @@ import Common
 -- recursively finds shrink matching invariant, ordered simplest to most complex
 shrinkComplexCase :: Arbitrary a => (a -> Bool) -> [a] -> [a]
 shrinkComplexCase test a =
-  let shrinksWithNextLevel = map (\x -> (x, filter test $ shrink x)) a
+  let shrinksWithNextLevel = fmap (\x -> (x, filter test $ shrink x)) a
       (recurseable, nonRecursable) = partition (not . null . snd) shrinksWithNextLevel
-  in shrinkComplexCase test (concat $ map snd recurseable) ++ map fst nonRecursable
+  in (shrinkComplexCase test (concatMap snd recurseable) <> fmap fst nonRecursable)
 
 three_succ = app (app (toChurch 3) (lam (pair (varN 0) zero))) zero
 
@@ -57,7 +57,7 @@ h2c i =
         -- app v1 (app (app (app v3 (pleft v2)) v1) v0)
         else churchbase
       stopf i churchf churchbase = churchbase
-  in \cf cb -> layer (layer (layer (layer stopf))) i cf cb
+  in layer (layer (layer (layer stopf))) i
 
 
 {-
@@ -295,25 +295,22 @@ testEval iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
 unitTest :: String -> String -> IExpr -> Spec
 unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroTypeP (fromTelomare iexpr))
   then do
-    result <- (show . PrettyIExpr) <$> testEval iexpr
+    result <- show . PrettyIExpr <$> testEval iexpr
     result `shouldBe` expected
   else expectationFailure ( concat [name, " failed typecheck: ", show (typeCheck ZeroTypeP (fromTelomare iexpr))])
 
 unitTestRefinement :: String -> Bool -> IExpr -> Spec
 unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromTelomare iexpr) of
   Right t -> case (pureEval iexpr, shouldSucceed) of
-    (Left err, True) -> do
-      expectationFailure $ concat [name, ": failed refinement type -- ", show err]
-    (Right _, False) -> do
-      expectationFailure $ concat [name, ": expected refinement failure, but passed"]
+    (Left err, True) -> expectationFailure $ concat [name, ": failed refinement type -- ", show err]
+    (Right _, False) -> expectationFailure $ name <> ": expected refinement failure, but passed"
     _ -> pure ()
-  Left err -> do
-    expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
+  Left err -> expectationFailure $ concat ["refinement test failed typecheck: ", name, " ", show err]
 
 unitTestQC :: Testable p => String -> Int -> p -> Spec
-unitTestQC name times p = modifyMaxSuccess (const times) . it name . property $ p
+unitTestQC name times = modifyMaxSuccess (const times) . it name . property
 
-churchType = (ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType))
+churchType = ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType)
 
 -- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
 -- quickcheckBuiltInOptimizedDoesNotChangeEval up =
@@ -405,7 +402,7 @@ qcTestAbortExtract (URTestExpr (Term3 termMap), i) =
   extractedTestResult = or $ fmap runTest tests
 -}
 
-testRecur = concat
+testRecur = unlines
   [ "main = let layer = \\recur x -> recur (x, 0)"
   , "       in $3 layer (\\x -> x) 0"
   ]
@@ -470,8 +467,7 @@ unitTests_ parse = do
   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
 -}
-  describe "refinement" $ do
-    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
+  describe "refinement" $ unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" (== Left (StaticCheckError "user abort: fail"))
   {-
     unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
     unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
@@ -570,11 +566,11 @@ unitTests parse = do
                                      (ints2g [1,2,3])
 
   describe "refinement" $ do
-    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" $ (== Left (StaticCheckError "user abort: fail"))
-    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
-    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ (== Left (StaticCheckError "user abort: boop"))
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ (not . null)
+    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" (== Left (StaticCheckError "user abort: fail"))
+    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" (not . null)
+    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" (not . null)
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" (== Left (StaticCheckError "user abort: boop"))
+    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" (not . null)
 
   describe "unitTest2" $ do
     unitTest2 "main = 0" "0"
@@ -652,10 +648,7 @@ testExpr = concat
   , "       in (a,1)\n"
   ]
 
-fiveApp = concat
-  [ "main = let fiveApp = $5\n"
-  , "       in fiveApp (\\x -> (x,0)) 0"
-  ]
+fiveApp = "main = let fiveApp = $5\n" <> "       in fiveApp (\\x -> (x,0)) 0"
 
 nestedNamedFunctionsIssue = concat
   [ "main = let bindTest = \\tlb -> let f1 = \\f -> f tlb\n"
@@ -686,10 +679,10 @@ nexprTests = do
 
 unitTest2' parse s r = it s $ case fmap compileUnitTest (parse s) of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
-  Right (Right g) -> fmap (show . PrettyIExpr) (testEval g) >>= \r2 -> if r2 == r
+  Right (Right g) -> testEval g >>= (\r2 -> if r2 == r
     then pure ()
-    else expectationFailure $ concat [s, " result ", r2]
-  Right (Left e) -> expectationFailure $ concat ["failed to compile: ", show e]
+    else expectationFailure $ concat [s, " result ", r2]) . show . PrettyIExpr
+  Right (Left e) -> expectationFailure $ "failed to compile: " <> show e
 
 {-
 runPossible iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
@@ -751,6 +744,5 @@ main = do
       Left pe -> error $ show pe
     parse = parseMain prelude
 
-  hspec $ do
-    unitTests parse
+  hspec $ unitTests parse
     --nexprTests

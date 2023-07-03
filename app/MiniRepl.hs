@@ -1,12 +1,14 @@
 {-# LANGUAGE CApiFFI               #-}
 {-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE TupleSections         #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant $" #-}
 
 module Main where
 
 import Control.Monad.IO.Class
 import qualified Control.Monad.State as State
+import Data.Functor ((<&>))
 import Data.List
 import qualified Data.Map as Map
 import Debug.Trace (trace)
@@ -60,14 +62,14 @@ data ReplStep a = ReplAssignment a
 
 -- | Combination of `parseReplExpr` and `parseReplAssignment`
 parseReplStep :: TelomareParser (ReplStep [(String, UnprocessedParsedTerm )])
-parseReplStep = try (parseReplAssignment >>= (pure . ReplAssignment))
-                <|> (parseReplExpr >>= (pure . ReplExpr))
+parseReplStep = try (parseReplAssignment <&> ReplAssignment)
+                <|> (parseReplExpr <&> ReplExpr)
 
 -- | Try to parse the given string and update the bindings.
 runReplParser :: [(String, UnprocessedParsedTerm)]
               -> String
               -> Either String (ReplStep [(String, UnprocessedParsedTerm)])
-runReplParser prelude str = (fmap . fmap) (prelude <>) $ runTelomareParser parseReplStep str
+runReplParser prelude str = fmap (prelude <>) <$> runTelomareParser parseReplStep str
 
 -- Common functions
 -- ~~~~~~~~~~~~~~~~
@@ -85,17 +87,17 @@ maybeToRight Nothing  = Left CompileConversionError
 
 -- |Extra processing (see `Telomare.Parser.process`) useful for the MinRepl's context.
 process' :: [(String, UnprocessedParsedTerm)] -> UnprocessedParsedTerm -> Maybe Term3
-process' bindings x = rightToMaybe . process bindings $ x
+process' bindings = rightToMaybe . process bindings
 
 -- |Obtain expression from the bindings and transform them into maybe a Term3.
 resolveBinding' :: String
                 -> [(String, UnprocessedParsedTerm)]
                 -> Maybe Term3
-resolveBinding' name bindings = lookup name bindings >>= (rightToMaybe . process bindings)
+resolveBinding' name bindings = lookup name bindings >>= rightToMaybe . process bindings
 
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
 resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
-resolveBinding name bindings = rightToMaybe $ compileUnitTest =<< (maybeToRight $ resolveBinding' name bindings)
+resolveBinding name bindings = rightToMaybe $ compileUnitTest =<< maybeToRight (resolveBinding' name bindings)
 
 -- |Print last expression bound to
 -- the _tmp_ variable in the bindings
@@ -110,7 +112,7 @@ printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
       let compile' x = case compileUnitTest x of
                          Left err -> Left . show $ err
                          Right r  -> Right r
-      case compile' =<< (process bindings (LetUP bindings upt)) of
+      case compile' =<< process bindings (LetUP bindings upt) of
         Left err -> printer err
         Right iexpr' -> do
           iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
@@ -122,7 +124,7 @@ printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
 
 data ReplState = ReplState
     { replBindings :: [(String, UnprocessedParsedTerm)]
-    , replEval     :: (IExpr -> IO IExpr)
+    , replEval     :: IExpr -> IO IExpr
     -- ^ Backend function used to compile IExprs.
     }
 
@@ -130,18 +132,17 @@ data ReplState = ReplState
 replStep :: (IExpr -> IO IExpr)
          -> [(String, UnprocessedParsedTerm)]
          -> String
-         -> InputT IO ([(String,UnprocessedParsedTerm)])
+         -> InputT IO [(String, UnprocessedParsedTerm)]
 replStep eval bindings s = do
     let e_new_bindings = runReplParser bindings s
     case e_new_bindings of
         Left err -> do
-            outputStrLn $ "Parse error: " ++ err
+            outputStrLn ("Parse error: " <> err)
             return bindings
         Right (ReplExpr new_bindings) -> do
             printLastExpr outputStrLn (liftIO . eval) new_bindings
             return bindings
-        Right (ReplAssignment new_bindings) -> do
-            return new_bindings
+        Right (ReplAssignment new_bindings) -> return new_bindings
 
 -- | Obtain a multiline string.
 replMultiline :: [String] -> InputT IO String
@@ -149,7 +150,7 @@ replMultiline buffer = do
     minput <- getInputLine ""
     case minput of
         Nothing   -> return ""
-        Just ":}" -> return $ concat $ intersperse "\n" $ reverse buffer
+        Just ":}" -> return (intercalate "\n" (reverse buffer))
         Just s    -> replMultiline (s : buffer)
 
 -- | Main loop for the REPL.
@@ -163,7 +164,7 @@ replLoop (ReplState bs eval) = do
             new_bs <- replStep eval bs =<< replMultiline []
             replLoop $ ReplState new_bs eval
         Just s | ":dn" `isPrefixOf` s -> do
-                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":dn" s of
+                   liftIO $ case runReplParser bs . dropWhile (== ' ') <$> stripPrefix ":dn" s of
                      Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
                        Just iexpr -> do
                          putStrLn . showNExprs $ fromTelomare iexpr
@@ -172,7 +173,7 @@ replLoop (ReplState bs eval) = do
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
         Just s | ":d" `isPrefixOf` s -> do
-                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":d" s of
+                   liftIO $ case runReplParser bs . dropWhile (== ' ') <$> stripPrefix ":d" s of
                      Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
                        Just iexpr -> putStrLn $ showPIE iexpr
                        _          -> putStrLn "some sort of error?"
@@ -188,7 +189,7 @@ replLoop (ReplState bs eval) = do
                    replLoop $ ReplState bs eval
 -}
         Just s | ":t" `isPrefixOf` s -> do
-                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":t" s of
+                   liftIO $ case runReplParser bs . dropWhile (== ' ') <$> stripPrefix ":t" s of
                      Just (Right (ReplExpr new_bindings)) -> case resolveBinding' "_tmp_" new_bindings of
                        Just iexpr -> print $ PrettyPartialType <$> inferType iexpr
                        _ -> putStrLn "some sort of error?"
@@ -240,11 +241,10 @@ startExpr :: (IExpr -> IO IExpr)
           -> [(String, UnprocessedParsedTerm)]
           -> String
           -> IO ()
-startExpr eval bindings s_expr = do
-    case runReplParser bindings s_expr of
-        Left err                 -> error $ "Parse error: " ++ err
-        Right (ReplAssignment _) -> error $ "Expression is an assignment"
-        Right (ReplExpr binds)   -> printLastExpr putStrLn eval binds
+startExpr eval bindings s_expr = case runReplParser bindings s_expr of
+    Left err                 -> error $ ("Parse error: " <> err)
+    Right (ReplAssignment _) -> error "Expression is an assignment"
+    Right (ReplExpr binds)   -> printLastExpr putStrLn eval binds
 
 main = do
     e_prelude <- parsePrelude <$> Strict.readFile "Prelude.tel"

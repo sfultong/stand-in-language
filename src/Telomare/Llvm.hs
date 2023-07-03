@@ -129,13 +129,13 @@ makeModule iexpr = flip evalState (Map.empty, 0) . buildModuleT "TelomareModule"
         IRI.store resultPair 0 result
         IRI.ret resultC
 
-data DebugModule = DebugModule AST.Module
+newtype DebugModule = DebugModule AST.Module
 
 instance Show DebugModule where
   show (DebugModule m) = concatMap showDefinition $ moduleDefinitions m
-    where showDefinition (GlobalDefinition f@(Function _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _)) = displayFunction f
+    where showDefinition (GlobalDefinition f@(Function {})) = displayFunction f
           showDefinition _ = ""
-          displayFunction f = concat [show (name f), "\n", (concatMap displayBlock (basicBlocks f)), "\n"]
+          displayFunction f = concat [show (name f), "\n", concatMap displayBlock (basicBlocks f), "\n"]
           displayBlock (BasicBlock n inst term) =
             concat ["  ", show n, "\n", concatMap displayInstruction inst, "    ", show term, "\n"]
           displayInstruction i = concat ["    ", show i, "\n"]
@@ -167,11 +167,10 @@ debugLog jitConfig = if debugOutput jitConfig
   else const $ pure ()
 
 optimizeModule :: JITConfig -> Mod.Module -> IO ()
-optimizeModule jitConfig module' = do
-  withPassManager defaultCuratedPassSetSpec
-    { optLevel = Just (optimizerLevelToWord (optimizerLevel jitConfig)) } $ \pm -> do
-    _ <- runPassManager pm module'
-    pure ()
+optimizeModule jitConfig module' = withPassManager defaultCuratedPassSetSpec
+  { optLevel = Just (optimizerLevelToWord (optimizerLevel jitConfig)) } $ \pm -> do
+  _ <- runPassManager pm module'
+  pure ()
 
 data JITConfig = JITConfig
   { debugOutput    :: !Bool
@@ -237,12 +236,11 @@ evalJIT jitConfig amod = do
 evalJIT _ _ = undefined
 
 printTimings :: TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> TimeSpec -> IO ()
-printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer beforeAddingModule afterAddingModule beforeRun afterRun = do
-  printf "module serialization: %s, optimizer %s, adding module: %s, run: %s\n"
-    (fmtTS moduleSerialization)
-    (fmtTS optimizer)
-    (fmtTS addingModule)
-    (fmtTS run)
+printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer beforeAddingModule afterAddingModule beforeRun afterRun = printf "module serialization: %s, optimizer %s, adding module: %s, run: %s\n"
+  (fmtTS moduleSerialization)
+  (fmtTS optimizer)
+  (fmtTS addingModule)
+  (fmtTS run)
   where
     moduleSerialization = afterModuleSerialization `diffTimeSpec` beforeModuleSerialization
     optimizer = afterOptimizer `diffTimeSpec` afterModuleSerialization
@@ -250,7 +248,7 @@ printTimings beforeModuleSerialization afterModuleSerialization afterOptimizer b
     run = afterRun `diffTimeSpec` beforeRun
 
 fmtTS :: TimeSpec -> String
-fmtTS (TimeSpec s ns) = printf "%.3f" (fromIntegral s + fromIntegral ns / (10 ^ (9 :: Int)) :: Double)
+fmtTS (TimeSpec s ns) = printf "%.3f" (fromIntegral s + fromIntegral ns / 10 ^ (9 :: Int) :: Double)
 
 intT :: Type
 intT = IntegerType 64
@@ -333,13 +331,13 @@ doFunction body = do
     Just f -> pure f
     Nothing -> do
       let name = Name ("function_" <> toShort (Base16.encode h))
-      _ <- lift $ IRM.function name [(intT, ParameterName "env")] intT $ \_ -> do
+      _ <- lift . IRM.function name [(intT, ParameterName "env")] intT $ (\_ -> do
          -- TODO fix
          -- x <- toLLVM body
          x <- undefined
-         IRI.ret x
+         IRI.ret x)
       let r = ConstantOperand (C.PtrToInt (C.GlobalReference funT name) intT)
-      modify (\(m, i) -> (Map.insert h r m, i))
+      modify (Data.Bifunctor.first (Map.insert h r))
       pure r
   where h = BS.pack . BA.unpack . hash' $ encode body
         hash' :: BSL.ByteString -> Digest SHA256
@@ -348,8 +346,8 @@ doFunction body = do
 doAnonFunction :: TelomareBuilder Operand -> TelomareBuilder Operand
 doAnonFunction doBody = do
   (_, fn) <- get
-  let name = Name $ fromString ("anonFunction_" ++ show fn)
-  _ <- lift $ IRM.function name [(intT, ParameterName "env")] intT $ \_ -> doBody >>= IRI.ret
+  let name = Name $ fromString ("anonFunction_" <> show fn)
+  _ <- lift . IRM.function name [(intT, ParameterName "env")] intT $ (\_ -> doBody >>= IRI.ret)
   modify (\(m, i) -> (m, i + 1))
   pure $ ConstantOperand (C.PtrToInt (C.GlobalReference funT name) intT)
 

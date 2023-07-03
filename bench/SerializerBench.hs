@@ -1,4 +1,3 @@
-{-# LANGUAGE StandaloneDeriving #-}
 module Main where
 
 import Control.DeepSeq
@@ -33,11 +32,11 @@ performTests iexpr = do
     serialized `deepseq` putStrLn $ "GC stats:"
     performGC
     print =<< getGCStatistics
-    putStrLn $ "The vector contains " ++ show len ++ " bytes."
+    putStrLn ("The vector contains " <> (show len <> " bytes."))
     c_rep        <- toC iexpr
     c_serialized <- serializedToC serialized
 
-    defaultMain $
+    defaultMain
       [ bgroup "Vector"
         [ bench "serialization"   $ nf serialize   iexpr
         , bench "deserialization" $ nf deserialize serialized

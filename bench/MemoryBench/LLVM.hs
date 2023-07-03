@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections       #-}
+
 module MemoryBench.LLVM where
 
 import LLVM.AST hiding (Module)

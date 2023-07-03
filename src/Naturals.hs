@@ -2,8 +2,8 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PatternSynonyms            #-}
--- {-# LANGUAGE GADTs #-}
--- {-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE TupleSections              #-}
+
 module Naturals where
 
 import Control.Applicative
@@ -62,8 +62,8 @@ data ExprFrag
   | FToNum
   deriving (Eq, Show, Ord)
 
-traceSet inds ft x = if elem (FragIndex 8) inds
-                  then debugTrace ("env at apply index: " ++ show (ft x)) x
+traceSet inds ft x = if FragIndex 8 `elem` inds
+                  then debugTrace ("env at apply index: " <> show (ft x)) x
                   else x
 -- traceSet _ x = x
 
@@ -114,8 +114,8 @@ instance Show NExprs where
           NEnv -> "NEnv"
           (NSetEnv x) -> concat ["NSetEnv (", showInner x, ")"]
           (NDefer ind) -> case Map.lookup ind m of
-            Just x -> concat ["NDefer (", showInner x, ")"]
-            Nothing -> concat ["ERROR undefined index in showing NExprs: ", show ind]
+            Just x  -> concat ["NDefer (", showInner x, ")"]
+            Nothing -> "ERROR undefined index in showing NExprs: " <> show ind
           NGate l r -> "NGate (" <> showInner l <> " " <> showInner r <> " )"
           (NLeft x) -> concat ["NLeft (", showInner x, ")"]
           (NRight x) -> concat ["NRight (", showInner x, ")"]
@@ -159,13 +159,13 @@ fromFrag fragMap frag = let recur = fromFrag fragMap in case frag of
   FEnv -> Env
   (FSetEnv x) -> SetEnv $ recur x
   (FDefer fi) -> case Map.lookup fi fragMap of
-    Nothing      -> error ("fromFrag bad index " ++ show fi)
+    Nothing      -> error ("fromFrag bad index " <> show fi)
     Just subFrag -> Defer $ recur subFrag
   FGate l r -> Gate (recur l) (recur r)
   (FLeft x) -> PLeft $ recur x
   (FRight x) -> PRight $ recur x
   FTrace -> Trace
-  z -> error ("fromFrag TODO convert " ++ show z)
+  z -> error ("fromFrag TODO convert " <> show z)
 
 matchChurchPlus :: Map FragIndex ExprFrag -> ExprFrag -> Maybe (ExprFrag, ExprFrag)
 matchChurchPlus fragMap frag =
@@ -191,14 +191,14 @@ matchChurchMult fragMap frag =
       def _            = Nothing
       firstArg (FLeft FEnv) = Just ()
       firstArg _            = Nothing
-  in lam frag >>= matchApp >>= (\(m, a) -> (,) <$> pure m <*> (matchApp a >>= (\(n, fa) -> firstArg fa >> pure n)))
+  in lam frag >>= matchApp >>= (\(m, a) -> (m, ) <$> (matchApp a >>= (\(n, fa) -> firstArg fa >> pure n)))
 
 matchApp :: ExprFrag -> Maybe (ExprFrag, ExprFrag)
 matchApp (FApp c i) = Just (c, i)
 matchApp _          = Nothing
 
 fragmentExpr :: IExpr -> Map FragIndex ExprFrag
-fragmentExpr iexpr = let (expr, (li, m)) = State.runState (toFrag iexpr) ((FragIndex 1), Map.empty)
+fragmentExpr iexpr = let (expr, (li, m)) = State.runState (toFrag iexpr) (FragIndex 1, Map.empty)
                          fragMap = Map.insert (FragIndex 0) expr m
                          -- tt x = trace (show x) x
                      in fragMap
