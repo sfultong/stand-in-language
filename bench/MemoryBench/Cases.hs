@@ -15,8 +15,8 @@ import Text.Parsec.Char
 
 import qualified System.IO.Strict as Strict
 
-import Data.Maybe
 import Data.Functor (($>), (<$))
+import Data.Maybe
 
 type Label    = String
 

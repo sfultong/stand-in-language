@@ -134,7 +134,7 @@ newtype DebugModule = DebugModule AST.Module
 instance Show DebugModule where
   show (DebugModule m) = concatMap showDefinition $ moduleDefinitions m
     where showDefinition (GlobalDefinition f@(Function {})) = displayFunction f
-          showDefinition _ = ""
+          showDefinition _                                  = ""
           displayFunction f = concat [show (name f), "\n", concatMap displayBlock (basicBlocks f), "\n"]
           displayBlock (BasicBlock n inst term) =
             concat ["  ", show n, "\n", concatMap displayInstruction inst, "    ", show term, "\n"]

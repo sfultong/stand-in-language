@@ -21,19 +21,19 @@ decompileUPT =
       drawIndent = State.get >>= (\n -> pure $ replicate n ' ')
       drawList = fmap mconcat . sequence
       needsParens = \case -- will need parens if on right side of application
-        AppUP _ _   -> True
-        LamUP _ _   -> True
-        LeftUP _    -> True
-        RightUP _   -> True
-        TraceUP _   -> True
-        LetUP _ _   -> True
-        ITEUP {} -> True
-        _           -> False
+        AppUP _ _ -> True
+        LamUP _ _ -> True
+        LeftUP _  -> True
+        RightUP _ -> True
+        TraceUP _ -> True
+        LetUP _ _ -> True
+        ITEUP {}  -> True
+        _         -> False
       needsFirstParens = \case
-        LamUP _ _   -> True
-        LetUP _ _   -> True
-        ITEUP {} -> True
-        _           -> False
+        LamUP _ _ -> True
+        LetUP _ _ -> True
+        ITEUP {}  -> True
+        _         -> False
       drawParens x = if needsParens x
         then drawList [showS " (", draw x, showS ")"]
         else drawList [showS " ", draw x]
