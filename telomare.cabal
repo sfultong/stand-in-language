@@ -39,8 +39,6 @@ library
                      , Telomare.Possible
                      , Telomare.RunTime
                      , Telomare.TypeChecker
-                     , Telomare.Serializer
-                     , Telomare.Serializer.C
   build-depends:       base
                      , base16-bytestring
                      , binary
@@ -137,20 +135,7 @@ test-suite telomare-parser-test
                      , pretty-show
                      , process
                      , lens
-  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
-  default-language:    Haskell2010
-
-test-suite telomare-serializer-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      test/
-  main-is:             SerializerSpec.hs
-  other-modules:       Common
-  build-depends:       base
-                     , containers
-                     , telomare
-                     , strict
-                     , hspec
-                     , QuickCheck
+                     , unix
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 

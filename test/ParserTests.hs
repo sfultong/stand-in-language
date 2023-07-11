@@ -30,7 +30,7 @@ import Debug.Trace (trace, traceShowId)
 import System.IO
 import qualified System.IO.Strict as Strict
 import System.IO.Unsafe (unsafePerformIO)
-import System.Process
+import System.Process hiding (createPipe)
 import Telomare
 import Telomare.Eval
 import Telomare.Parser
@@ -43,6 +43,10 @@ import Text.Megaparsec
 import Text.Megaparsec.Debug
 import Text.Megaparsec.Error
 import Text.Show.Pretty (ppShow)
+
+import System.Posix.IO
+import System.Posix.Process
+import System.Posix.Types
 
 main :: IO ()
 main = defaultMain tests
@@ -152,8 +156,7 @@ unitTests = testGroup "Unit tests"
       res `compare` True @?= EQ
   , testCase "Ad hoc user defined types success" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
-      -- res `compare` "\n\4603\a\ndone" @?= EQ
-      length res `compare` 7 @?= EQ -- This might be weak, but the above is too fragil. The number 4603 can change and the test should still be successful.
+      res `compare` "\n\a\ndone" @?= EQ
   , testCase "Ad hoc user defined types failure" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesFailure
       res `compare` "\nMyInt must not be 0\ndone" @?= EQ
@@ -313,7 +316,90 @@ unitTests = testGroup "Unit tests"
   , testCase "test automatic open close lambda 7" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
       fromRight TZero (validateVariables [] res) `compare` expr2 @?= EQ
+  , testCase "test tictactoe.tel" $ do
+      res <- tictactoe
+      fullRunTicTacToeString `compare` res  @?= EQ
   ]
+
+tictactoe :: IO String
+tictactoe = do
+  preludeString <- Strict.readFile "Prelude.tel"
+  telomareString <- Strict.readFile "tictactoe.tel"
+  (pid, hIn, hOut, hErr) <- forkWithStandardFds $ runMain preludeString telomareString
+  hPutStrLn hIn "1"
+  hFlush hIn
+  hPutStrLn hIn "9"
+  hFlush hIn
+  hPutStrLn hIn "2"
+  hFlush hIn
+  hPutStrLn hIn "8"
+  hFlush hIn
+  hPutStrLn hIn "3"
+  hFlush hIn
+  hGetContents hOut
+
+fullRunTicTacToeString = unlines
+  [ "1|2|3"
+  , "-+-+-"
+  , "4|5|6"
+  , "-+-+-"
+  , "7|8|9"
+  , "Player 2's turn"
+  , "please input number of square: "
+  , "O|2|3"
+  , "-+-+-"
+  , "4|5|6"
+  , "-+-+-"
+  , "7|8|9"
+  , "Player 1's turn"
+  , "please input number of square: "
+  , "O|2|3"
+  , "-+-+-"
+  , "4|5|6"
+  , "-+-+-"
+  , "7|8|X"
+  , "Player 2's turn"
+  , "please input number of square: "
+  , "O|O|3"
+  , "-+-+-"
+  , "4|5|6"
+  , "-+-+-"
+  , "7|8|X"
+  , "Player 1's turn"
+  , "please input number of square: "
+  , "O|O|3"
+  , "-+-+-"
+  , "4|5|6"
+  , "-+-+-"
+  , "7|X|X"
+  , "Player 2's turn"
+  , "please input number of square: "
+  , "Player 2wins!"
+  , "done"
+  ]
+
+forkWithStandardFds :: IO () -> IO (ProcessID, Handle, Handle, Handle)
+forkWithStandardFds act = do
+    (r0, w0) <- createPipe
+    (r1, w1) <- createPipe
+    (r2, w2) <- createPipe
+    pid <- forkProcess $ do
+      -- the six closeFd's aren't strictly speaking necessary,
+      -- but they're good hygiene
+      closeFd w0 >> dupTo r0 stdInput
+      closeFd r1 >> dupTo w1 stdOutput
+      closeFd r2 >> dupTo w2 stdError
+      act
+    hIn  <- closeFd r0 >> fdToHandle w0
+    hOut <- closeFd w1 >> fdToHandle r1
+    hErr <- closeFd w2 >> fdToHandle r2
+    pure (pid, hIn, hOut, hErr)
+
+-- testUserDefAdHocTypes :: String -> IO String
+-- testUserDefAdHocTypes input = do
+--   preludeString <- Strict.readFile "Prelude.tel"
+--   (_, _, hOut, _) <- forkWithStandardFds $ runMain preludeString input
+--   hGetContents hOut
 
 hashtest0 = unlines ["let wrapper = 2",
                 "  in (# wrapper)"]
@@ -326,15 +412,6 @@ hashtest2 = unlines [ "let a = \\y -> y"
 hashtest3 = unlines [ "let b = \\x -> x"
                , "in (# b)"
                ]
-
-testTictactoeFull :: IO Bool
-testTictactoeFull = do
-  callCommand "nix build"
-  (Just hin, Just hout, _, _) <- createProcess (proc "./result/bin/telomare" ["tictactoe.tel"]) { std_in = CreatePipe, std_out = CreatePipe }
-  hPutStr hin "1\n9\n2\n8\n3\n"
-  output <- hGetContents hout
-  let res = take 12 . drop (length output - 19) $ output
-  pure $ res == "Player 2wins"
 
 testUserDefAdHocTypes :: String -> IO String
 testUserDefAdHocTypes input = do

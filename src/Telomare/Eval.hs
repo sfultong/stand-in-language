@@ -31,6 +31,7 @@ import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
                  pattern AbortRecursion, pattern AbortUser, rootFrag, s2g,
                  unFragExprUR)
 import Telomare.Optimizer (optimize)
+import Telomare.Parser (UnprocessedParsedTerm (..), parseMain, parsePrelude)
 import Telomare.Possible (evalA)
 import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
 import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
@@ -186,6 +187,18 @@ compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>=
   Right (Just i) -> pure i
   Right Nothing  -> Left CompileConversionError
   Left e         -> Left e
+
+runMain preludeString s =
+  let prelude :: [(String, UnprocessedParsedTerm)]
+      prelude =
+        case parsePrelude preludeString of
+          Right p -> p
+          Left pe -> error pe
+  in
+    case compileMain <$> parseMain prelude s of
+      Left e -> putStrLn $ concat ["failed to parse ", s, " ", e]
+      Right (Right g) -> evalLoop g
+      Right z -> putStrLn $ "compilation failed somehow, with result " <> show z
 
 eval' :: IExpr -> Either String IExpr
 eval' = pure
