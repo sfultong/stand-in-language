@@ -34,7 +34,6 @@ jobs:
         echo ${{ github.ref }}
         echo ${{ github.repository }}
   format:
-    needs: tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository
@@ -60,7 +59,6 @@ jobs:
               exit 1
           fi
   lint:
-    needs: tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository
