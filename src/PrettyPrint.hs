@@ -4,6 +4,7 @@
 module PrettyPrint where
 
 import           Control.Monad.State (State)
+-- import           Data.Functor.Foldable
 import           Data.Map (Map)
 import           Naturals (NExpr (..), NExprs (..), NResult)
 import           Telomare (FragExpr (..), FragExprUR (..), FragIndex (..),
@@ -21,6 +22,8 @@ class PrettyPrintable1 p where
 
 instance (PrettyPrintable1 f, PrettyPrintable x) => PrettyPrintable (f x) where
   showP = showP1
+
+-- instance (Base r ~ PrettyPrintable1 f, Recursive r) => PrettyPrintable r where
 
 prettyPrint :: PrettyPrintable p => p -> String
 prettyPrint x = State.evalState (showP x) 0

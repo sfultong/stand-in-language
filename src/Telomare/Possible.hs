@@ -124,6 +124,19 @@ data BitsExprF f
   | UnsizedChurchNumeralB
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
+instance Show1 BitsExprF where
+  liftShowsPrec showsPrec showList prec = \case
+    ZeroB -> shows "ZeroB"
+    PairB a b -> shows "PairB (" . showsPrec 0 a . shows ", " . showsPrec 0 b . shows ")"
+    FunctionB vi x -> shows "FunctionB " . shows vi . shows " (" . showsPrec 0 x  . shows ")"
+    SetEnvB x -> shows "SetEnvB (" . showsPrec 0 x . shows ")"
+    GateB l r -> shows "GateB (" . showsPrec 0 l . shows ", " . showsPrec 0 r . shows ")"
+    VarB vi -> shows "VarB " . shows vi
+    UnusedBits -> shows "UnusedBits"
+    AbortB -> shows "AbortB"
+    RecursionTestB x -> shows "RecursionTestB (" . showsPrec 0 x . shows ")"
+    UnsizedChurchNumeralB -> shows "UnsizedChurchNumeralB"
+
 type BitsExpr = Fix BitsExprF
 
 data BitsExprWMap = BitsExprWMap BitsExpr (Map VarIndex BitsExpr)
@@ -254,28 +267,40 @@ cata3 f = c where c = f . fmap (fmap (fmap c . project) . project) . project
 
 -- evalB :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
 evalB :: BitsExprWMap -> BitsExprWMap
-evalB (BitsExprWMap x varMap) = BitsExprWMap (f varMap x) varMap where
+evalB (BitsExprWMap x varMap) = showExpr $ BitsExprWMap (f varMap x) varMap where
+  showExpr = trace ("evalB BitsExprWMap\n" <> prettyPrint (BitsExprWMap x varMap))
+  showAssign v e = trace ("Assigning inputs for " <> show (fromEnum v) <> "\n" <> prettyPrint e)
   f :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
   f vm x = case project x of
     fun@(FunctionB _ _) -> embed fun
-    RecursionTestB x' -> embed . fmap (f vm) $ project x'
     x' -> case fmap (f vm) x' of
+      RecursionTestB x'' -> x''
+      VarB vi -> case Map.lookup vi vm of
+        Nothing -> error ("evalB varB var not found in map: " <> show vi)
+        Just x'' -> x''
       SetEnvB (Fix (PairB df e)) -> case project df of
-        FunctionB vi dx -> f (assignInputVars (deepLookup vm . embed $ VarB vi) e vm) dx
+        FunctionB vi dx -> showAssign vi e $ f (assignInputVars (deepLookup vm . embed $ VarB vi) e vm) dx
         GateB l r -> case project e of
           ZeroB -> l
           PairB _ _ -> r
         AbortB -> case project e of
           ZeroB -> embed . FunctionB tempIndex . embed $ VarB tempIndex
           _ -> embed AbortB
+        z -> error ("evalB setenv pair f _, found unexpected f of " <> show z)
+      x'' -> embed x''
+  assignInputVars :: BitsExpr -> BitsExpr -> Map VarIndex BitsExpr -> Map VarIndex BitsExpr
   assignInputVars vin vars = case (project vin, project vars) of
     (PairB a b, PairB c d) -> assignInputVars a c . assignInputVars b d
     (VarB k, v) -> Map.insert k $ embed v
+    (UnusedBits, _) -> id
+    -- (_, ZeroB) -> id -- this seems wrong and should be removed
+    (za, zb) -> error ("evalB assignInputVars unexpected\n" <> prettyPrint za <> "\n" <> prettyPrint zb)
   -- deepLookup :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
   deepLookup vm vin = case vin of
     vo@(Fix (VarB v)) -> case Map.lookup v vm of
       Nothing -> vo
       (Just (Fix p@(PairB _ _))) -> embed $ fmap (deepLookup vm) p
+    x -> x
   tempIndex = toEnum (-1)
 
 instance TelomareLike BitsExprWMap where
@@ -307,6 +332,12 @@ instance TelomareLike BitsExprWMap where
 
 evalB' :: IExpr -> Maybe IExpr
 evalB' = toTelomare . evalB . fromTelomare
+
+evalB'' :: IExpr -> IO IExpr
+evalB'' = f . evalB' where
+  f = \case
+    Nothing -> error "evalB' evaluated to Nothing"
+    Just x -> pure x
 
 {-
 evalB varMap = ($ varMap) . cata3 f where
@@ -750,6 +781,36 @@ instance PrettyPrintable1 UnsizedRecursionF where
 
 instance PrettyPrintable1 VoidF where
   showP1 _ = error "VoidF should never be inhabited, so should not be PrettyPrintable1"
+
+instance PrettyPrintable1 BitsExprF where
+  showP1 = \case
+    ZeroB -> pure "Z"
+    PairB a b -> indentWithTwoChildren' "P" (showP a) (showP b)
+    FunctionB vi x -> indentWithOneChild' ("F" <> show (fromEnum vi)) (showP x)
+    SetEnvB x -> indentWithOneChild' "S" $ showP x
+    GateB l r -> indentWithTwoChildren' "G" (showP l) (showP r)
+    VarB vi -> pure $ "V" <> (show $ fromEnum vi)
+    UnusedBits -> pure "U"
+    AbortB -> pure "A"
+    RecursionTestB x -> indentWithOneChild' "T" $ showP x
+    UnsizedChurchNumeralB -> pure "?"
+
+instance PrettyPrintable BitsExpr where
+  showP = showP . project
+
+instance PrettyPrintable BitsExprWMap where
+  showP (BitsExprWMap expr m) = pure x where
+    x = prettyPrint expr <> vs -- State.evalState vs 0
+    showV = show . fromEnum
+    vs = cata getF expr where
+      getF = \case
+        FunctionB v ix -> (("\n" <>) . flip State.evalState 0 . indentWithOneChild' (showV v <> " -") $ lf (embed $ VarB v)) <> ix where
+          lf x = case project x of
+            VarB vi -> case Map.lookup vi m of
+              Nothing -> pure $ "V" <> showV vi
+              Just (Fix (PairB a b)) -> indentWithTwoChildren' "P" (lf a) (lf b)
+            x' -> showP x'
+        x -> Data.Foldable.fold x
 
 term3ToUnsizedExpr :: Functor f => Int -> Term3 -> UnsizedExpr f
 term3ToUnsizedExpr maxSize (Term3 termMap) =
