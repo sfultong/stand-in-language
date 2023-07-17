@@ -24,7 +24,6 @@ import Telomare.Optimizer
 import Telomare.Parser
 import Telomare.Possible
 import Telomare.RunTime
-import Telomare.Serializer
 import Telomare.TypeChecker
 import Test.Hspec
 import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)

@@ -41,7 +41,10 @@
         packages.telomare = project "telomare" [ ]; # [3]
         packages.default = self.packages.${system}.telomare;
 
-        defaultApp = self.packages.${system}.telomare;
+        app.default = {
+          type = "app";
+          program = self.packages.${system}.telomare + "/bin/telomare";
+        };
 
         devShells.default = project "telomare" (with compiler; [ # [4]
           cabal-install
