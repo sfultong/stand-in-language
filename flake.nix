@@ -41,9 +41,14 @@
         packages.telomare = project "telomare" [ ]; # [3]
         packages.default = self.packages.${system}.telomare;
 
-        app.default = {
+        apps.default = {
           type = "app";
           program = self.packages.${system}.telomare + "/bin/telomare";
+        };
+
+        apps.repl = {
+          type = "app";
+          program = self.packages.${system}.telomare + "/bin/telomare-mini-repl";
         };
 
         devShells.default = project "telomare" (with compiler; [ # [4]
