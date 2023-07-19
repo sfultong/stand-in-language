@@ -38,21 +38,17 @@ import Telomare.TypeChecker (inferType)
 -- than in the compiler. For example it is possible.
 -- to overwrite top-level bindings.
 
--- | Add a Telomare expression to the ParserState.
-addReplBound :: String -> UnprocessedParsedTerm -> [(String, UnprocessedParsedTerm)]
-addReplBound name expr = [(name, expr)]
-
 -- | Assignment parsing from the repl.
 parseReplAssignment :: TelomareParser [(String, UnprocessedParsedTerm)]
 parseReplAssignment = do
   (var, expr) <- parseAssignment <* eof
-  pure $ addReplBound var expr
+  pure [(var, expr)]
 
 -- | Parse only an expression
 parseReplExpr :: TelomareParser [(String, UnprocessedParsedTerm)]
 parseReplExpr = do
   expr <- parseLongExpr <* eof
-  pure $ addReplBound "_tmp_" expr
+  pure [("_tmp_", expr)]
 
 -- | Information about what has the REPL parsed.
 data ReplStep a = ReplAssignment a
@@ -82,7 +78,6 @@ maybeToRight :: Maybe a -> Either EvalError a
 maybeToRight (Just x) = Right x
 -- This will become a Maybe right after being used, so it doesn't matter what error is present
 maybeToRight Nothing  = Left CompileConversionError
-
 
 -- |Extra processing (see `Telomare.Parser.process`) useful for the MinRepl's context.
 process' :: [(String, UnprocessedParsedTerm)] -> UnprocessedParsedTerm -> Maybe Term3
@@ -117,7 +112,6 @@ printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
         iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
         printer $ (show . PrettyIExpr) iexpr
 
-
 -- REPL related logic
 -- ~~~~~~~~~~~~~~~~~~
 
@@ -137,19 +131,19 @@ replStep eval bindings s = do
   case e_new_bindings of
     Left err -> do
       outputStrLn ("Parse error: " <> err)
-      return bindings
+      pure bindings
     Right (ReplExpr new_bindings) -> do
       printLastExpr outputStrLn (liftIO . eval) new_bindings
-      return bindings
-    Right (ReplAssignment new_bindings) -> return new_bindings
+      pure bindings
+    Right (ReplAssignment new_bindings) -> pure new_bindings
 
 -- | Obtain a multiline string.
 replMultiline :: [String] -> InputT IO String
 replMultiline buffer = do
   minput <- getInputLine ""
   case minput of
-    Nothing   -> return ""
-    Just ":}" -> return (intercalate "\n" (reverse buffer))
+    Nothing   -> pure ""
+    Just ":}" -> pure $ intercalate "\n" (reverse buffer)
     Just s    -> replMultiline (s : buffer)
 
 -- | Main loop for the REPL.
@@ -157,7 +151,7 @@ replLoop :: ReplState -> InputT IO ()
 replLoop (ReplState bs eval) = do
   minput <- getInputLine "telomare> "
   case minput of
-    Nothing   -> return ()
+    Nothing   -> pure ()
     Just ":q" -> liftIO exitSuccess
     Just ":{" -> do
       new_bs <- replStep eval bs =<< replMultiline []
@@ -194,7 +188,16 @@ replLoop (ReplState bs eval) = do
           _ -> putStrLn "some sort of error?"
         _ -> putStrLn "parse error"
       replLoop $ ReplState bs eval
-    Just s    -> do
+    Just fileName | ":l " `isPrefixOf` fileName -> do
+      let fileName' = drop 3 fileName
+      fileString <- liftIO $ Strict.readFile fileName'
+      let eitherFileBindings = parsePrelude fileString
+      case parsePrelude fileString of
+        Left errStr -> do
+          liftIO . putStrLn $ "Error from loaded file: " <> errStr
+          replLoop $ ReplState bs eval
+        Right fileBindings -> replLoop $ ReplState (bs <> fileBindings) eval
+    Just s -> do
       new_bs <- replStep eval bs s
       replLoop $ ReplState new_bs eval
 
@@ -249,8 +252,8 @@ main = do
   e_prelude <- parsePrelude <$> Strict.readFile "Prelude.tel"
   settings  <- execParser opts
   eval <- case _backend settings of
-    SimpleBackend   -> return simpleEval
-    NaturalsBackend -> return fastInterpretEval
+    SimpleBackend   -> pure simpleEval
+    NaturalsBackend -> pure fastInterpretEval
   let bindings = case e_prelude of
                    Left  _   ->  []
                    Right bds -> bds
