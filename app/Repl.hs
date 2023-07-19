@@ -79,10 +79,6 @@ maybeToRight (Just x) = Right x
 -- This will become a Maybe right after being used, so it doesn't matter what error is present
 maybeToRight Nothing  = Left CompileConversionError
 
--- |Extra processing (see `Telomare.Parser.process`) useful for the MinRepl's context.
-process' :: [(String, UnprocessedParsedTerm)] -> UnprocessedParsedTerm -> Maybe Term3
-process' bindings = rightToMaybe . process bindings
-
 -- |Obtain expression from the bindings and transform them into maybe a Term3.
 resolveBinding' :: String
                 -> [(String, UnprocessedParsedTerm)]

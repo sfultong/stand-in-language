@@ -58,7 +58,7 @@ To get around it, you should copy `libgc.so.1` (provided by the `bohem` garbage 
    $ cd <your/local/proyect/location>/telomare
    $ nix-shell shell.nix
    $ cabal new-build
-   $ cabal new-run telomare-mini-repl -- --haskell
+   $ cabal new-run telomare-repl -- --haskell
    ```
 2. Profit!
    
