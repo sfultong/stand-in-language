@@ -8,6 +8,7 @@ module Main where
 
 import Control.Monad.IO.Class
 import qualified Control.Monad.State as State
+import Data.Bifunctor (first)
 import Data.Functor ((<&>))
 import Data.List
 import qualified Data.Map as Map
@@ -19,17 +20,16 @@ import PrettyPrint
 import System.Console.Haskeline
 import System.Exit (exitSuccess)
 import qualified System.IO.Strict as Strict
-import Text.Megaparsec
-import Text.Megaparsec.Char
 import Telomare (IExpr (..), PrettyIExpr (PrettyIExpr),
                  PrettyPartialType (PrettyPartialType),
                  TelomareLike (fromTelomare, toTelomare), Term3)
 import Telomare.Eval (EvalError (..), compileUnitTest)
 import Telomare.Parser (TelomareParser, UnprocessedParsedTerm (..),
-                        parseAssignment, parseLongExpr, parsePrelude, process,
-                        runTelomareParser)
+                        parseAssignment, parseLongExpr, parsePrelude, process)
 import Telomare.RunTime (fastInterpretEval, simpleEval)
 import Telomare.TypeChecker (inferType)
+import Text.Megaparsec
+import Text.Megaparsec.Char
 
 -- Parsers for assignments/expressions within REPL
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -40,9 +40,7 @@ import Telomare.TypeChecker (inferType)
 
 -- | Assignment parsing from the repl.
 parseReplAssignment :: TelomareParser [(String, UnprocessedParsedTerm)]
-parseReplAssignment = do
-  (var, expr) <- parseAssignment <* eof
-  pure [(var, expr)]
+parseReplAssignment = singleton <$> (parseAssignment <* eof)
 
 -- | Parse only an expression
 parseReplExpr :: TelomareParser [(String, UnprocessedParsedTerm)]
@@ -64,7 +62,7 @@ parseReplStep = try (parseReplAssignment <&> ReplAssignment)
 runReplParser :: [(String, UnprocessedParsedTerm)]
               -> String
               -> Either String (ReplStep [(String, UnprocessedParsedTerm)])
-runReplParser prelude str = fmap (prelude <>) <$> runTelomareParser parseReplStep str
+runReplParser prelude str = fmap (prelude <>) <$> first errorBundlePretty (runParser parseReplStep "" str)
 
 -- Common functions
 -- ~~~~~~~~~~~~~~~~
@@ -181,7 +179,7 @@ replLoop (ReplState bs eval) = do
       liftIO $ case runReplParser bs . dropWhile (== ' ') <$> stripPrefix ":t" s of
         Just (Right (ReplExpr new_bindings)) -> case resolveBinding' "_tmp_" new_bindings of
           Just iexpr -> print $ PrettyPartialType <$> inferType iexpr
-          _ -> putStrLn "some sort of error?"
+          _          -> putStrLn "some sort of error?"
         _ -> putStrLn "parse error"
       replLoop $ ReplState bs eval
     Just fileName | ":l " `isPrefixOf` fileName -> do
