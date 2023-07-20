@@ -26,8 +26,8 @@ jobs:
         nix build
         echo nix run tests:
         nix flake check
-        echo testing telomare-mini-repl:
-        [[ "8" -eq $(nix develop -c cabal run telomare-mini-repl -- --expr 'succ 7' | tail -n 1) ]]
+        echo testing telomare-repl:
+        [[ "8" -eq $(nix develop -c cabal run telomare-repl -- --expr 'succ 7' | tail -n 1) ]]
         echo building for legacy nix-shell:
         nix-build
         nix-shell --run "echo OK"

@@ -48,7 +48,7 @@
 
         apps.repl = {
           type = "app";
-          program = self.packages.${system}.telomare + "/bin/telomare-mini-repl";
+          program = self.packages.${system}.telomare + "/bin/telomare-repl";
         };
 
         devShells.default = project "telomare" (with compiler; [ # [4]
