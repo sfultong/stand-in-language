@@ -15,10 +15,12 @@
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
           compiler = pkgs.haskell.packages."ghc924";
-          project = executable-name: devTools: # [1]
+          project = runTests: executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
                 addBuildDepends = (t.flip hl.addBuildDepends)
                   [ hvm.defaultPackage.${system} ];
+                doRunTests =
+                  if runTests then hl.doCheck else hl.dontCheck;
             in compiler.developPackage {
               root = pkgs.lib.sourceFilesBySuffices ./.
                        [ ".cabal"
@@ -33,12 +35,13 @@
               modifier = (t.flip t.pipe) [
                 addBuildDepends
                 addBuildTools
+                doRunTests
                 # hl.dontHaddock
               ];
             };
 
       in {
-        packages.telomare = project "telomare" [ ]; # [3]
+        packages.telomare = project false "telomare" [ ]; # [3]
         packages.default = self.packages.${system}.telomare;
 
         apps.default = {
@@ -51,7 +54,7 @@
           program = self.packages.${system}.telomare + "/bin/telomare-repl";
         };
 
-        devShells.default = project "telomare" (with compiler; [ # [4]
+        devShells.default = project false "telomare-with-tools" (with compiler; [ # [4]
           cabal-install
           haskell-language-server
           hlint
@@ -61,10 +64,7 @@
         ]);
 	
         checks = {
-          build = self.packages.${system}.default;
-          test-suit = project "telomare-test" [ ];
-          parser-test-suit = project "telomare-parser-test" [ ];
-          serializer-test-suit = project "telomare-serializer-test" [ ];
+          build-and-tests = project true "telomare-with-tests" [ ];
         };
       });
 }
