@@ -270,6 +270,7 @@ evalB :: BitsExprWMap -> BitsExprWMap
 evalB (BitsExprWMap x varMap) = showExpr $ BitsExprWMap (f varMap x) varMap where
   showExpr = trace ("evalB BitsExprWMap\n" <> prettyPrint (BitsExprWMap x varMap))
   showAssign v e = trace ("Assigning inputs for " <> show (fromEnum v) <> "\n" <> prettyPrint e)
+  showFVar x = trace ("f input resolves to\n" <> prettyPrint x) x
   f :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
   f vm x = case project x of
     fun@(FunctionB _ _) -> embed fun
@@ -279,7 +280,7 @@ evalB (BitsExprWMap x varMap) = showExpr $ BitsExprWMap (f varMap x) varMap wher
         Nothing -> error ("evalB varB var not found in map: " <> show vi)
         Just x'' -> x''
       SetEnvB (Fix (PairB df e)) -> case project df of
-        FunctionB vi dx -> showAssign vi e $ f (assignInputVars (deepLookup vm . embed $ VarB vi) e vm) dx
+        FunctionB vi dx -> showAssign vi e $ f (assignInputVars (showFVar . deepLookup varMap . embed $ VarB vi) e vm) dx
         GateB l r -> case project e of
           ZeroB -> l
           PairB _ _ -> r
@@ -291,8 +292,13 @@ evalB (BitsExprWMap x varMap) = showExpr $ BitsExprWMap (f varMap x) varMap wher
   assignInputVars :: BitsExpr -> BitsExpr -> Map VarIndex BitsExpr -> Map VarIndex BitsExpr
   assignInputVars vin vars = case (project vin, project vars) of
     (PairB a b, PairB c d) -> assignInputVars a c . assignInputVars b d
+    (PairB a b, ZeroB) -> assignInputVars a (embed ZeroB) . assignInputVars b (embed ZeroB)
     (VarB k, v) -> Map.insert k $ embed v
     (UnusedBits, _) -> id
+  {-
+    (ZeroB, _) -> id
+    (FunctionB _ _, _) -> id
+-}
     -- (_, ZeroB) -> id -- this seems wrong and should be removed
     (za, zb) -> error ("evalB assignInputVars unexpected\n" <> prettyPrint za <> "\n" <> prettyPrint zb)
   -- deepLookup :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
@@ -300,6 +306,8 @@ evalB (BitsExprWMap x varMap) = showExpr $ BitsExprWMap (f varMap x) varMap wher
     vo@(Fix (VarB v)) -> case Map.lookup v vm of
       Nothing -> vo
       (Just (Fix p@(PairB _ _))) -> embed $ fmap (deepLookup vm) p
+      -- Just z -> error ("evalB deepLookup found\n" <> prettyPrint z)
+      _ -> vo
     x -> x
   tempIndex = toEnum (-1)
 
