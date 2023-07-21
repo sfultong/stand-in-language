@@ -22,12 +22,10 @@ jobs:
       run: |
         echo cachix use
         cachix use iohk
-        echo nix build:
-        nix build
-        echo nix run tests:
-        nix flake check
-        echo testing telomare-repl:
-        [[ "8" -eq $(nix develop -c cabal run telomare-repl -- --expr 'succ 7' | tail -n 1) ]]
+        echo nix build and tests:
+        nix -Lv flake check
+        echo testing telomare-repl and nix develop:
+        [[ "8" -eq $(nix -Lv develop -c cabal run telomare-repl -- --expr 'succ 7' | tail -n 1) ]]
         echo building for legacy nix-shell:
         nix-build
         nix-shell --run "echo OK"
