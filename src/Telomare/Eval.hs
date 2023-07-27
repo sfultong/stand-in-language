@@ -200,60 +200,49 @@ runMain preludeString s =
       Right (Right g) -> evalLoop g
       Right z -> putStrLn $ "compilation failed somehow, with result " <> show z
 
-eval' :: IExpr -> Either String IExpr
-eval' = pure
-
 schemeEval :: IExpr -> IO ()
-schemeEval iexpr = case eval' iexpr of
-  Left err -> putStrLn ("Failed compiling main, " <> show err)
-  Right peExp ->
-    do
-      writeFile "scheme.txt" ('(' : (show (app peExp Zero) <> ")"))
-      (_, Just mhout, _, _) <- createProcess (shell "chez-script runtime.so") { std_out = CreatePipe }
-      scheme <- hGetContents mhout
-      putStrLn scheme
+schemeEval iexpr = do
+  writeFile "scheme.txt" ('(' : (show (app iexpr Zero) <> ")"))
+  (_, Just mhout, _, _) <- createProcess (shell "chez-script runtime.so") { std_out = CreatePipe }
+  scheme <- hGetContents mhout
+  putStrLn scheme
 
 
 evalLoop :: IExpr -> IO ()
-evalLoop iexpr = case eval' iexpr of
-  Left err -> putStrLn ("Failed compiling main, " <> show err)
-  Right peExp ->
-    let mainLoop s = do
-          result <- simpleEval $ app peExp s
-
-          case result of
-            Zero -> putStrLn "aborted"
-            (Pair disp newState) -> do
-              putStrLn . g2s $ disp
-              case newState of
-                Zero -> putStrLn "done"
-                _ -> do
-                  inp <- s2g <$> getLine
-                  mainLoop $ Pair inp newState
-            r -> putStrLn ("runtime error, dumped " <> show r)
-    in mainLoop Zero
+evalLoop iexpr =
+  let mainLoop s = do
+        result <- simpleEval $ app iexpr s
+        case result of
+          Zero -> putStrLn "aborted"
+          (Pair disp newState) -> do
+            putStrLn . g2s $ disp
+            case newState of
+              Zero -> putStrLn "done"
+              _ -> do
+                inp <- s2g <$> getLine
+                mainLoop $ Pair inp newState
+          r -> putStrLn ("runtime error, dumped " <> show r)
+  in mainLoop Zero
 
 -- |Same as `evalLoop`, but keeping what was displayed.
 -- TODO: make evalLoop and evalLoop always share eval method (i.e. simpleEval, hvmEval)
 evalLoop_ :: IExpr -> IO String
-evalLoop_ iexpr = case eval' iexpr of
-  Left err -> pure ("Failed compiling main, " <> show err)
-  Right peExp ->
-    let mainLoop prev s = do
-          -- result <- optimizedEval (app peExp s)
-          result <- simpleEval (app peExp s)
-          --result <- simpleEval $ traceShowId $ app peExp s
-          case result of
-            Zero -> pure $ prev <> "\n" <> "aborted"
-            (Pair disp newState) -> do
-              let d = g2s disp
-              case newState of
-                Zero -> pure $ prev <> "\n" <> d <> "\ndone"
-                _ -> do
-                  inp <- s2g <$> getLine
-                  mainLoop (prev <> "\n" <> d) $ Pair inp newState
-            r -> pure ("runtime error, dumped " <> show r)
-    in mainLoop "" Zero
+evalLoop_ iexpr =
+  let mainLoop prev s = do
+        -- result <- optimizedEval (app peExp s)
+        result <- simpleEval (app iexpr s)
+        --result <- simpleEval $ traceShowId $ app peExp s
+        case result of
+          Zero -> pure $ prev <> "\n" <> "aborted"
+          (Pair disp newState) -> do
+            let d = g2s disp
+            case newState of
+              Zero -> pure $ prev <> "\n" <> d <> "\ndone"
+              _ -> do
+                inp <- s2g <$> getLine
+                mainLoop (prev <> "\n" <> d) $ Pair inp newState
+          r -> pure ("runtime error, dumped " <> show r)
+  in mainLoop "" Zero
 
 calculateRecursionLimits :: Term3 -> Either EvalError Term4
 calculateRecursionLimits t3@(Term3 termMap) =
