@@ -1,11 +1,13 @@
 {-# LANGUAGE CApiFFI               #-}
 {-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Redundant $" #-}
 
 module Main where
 
+import qualified Control.Exception as Exception
 import Control.Monad.IO.Class
 import qualified Control.Monad.State as State
 import Data.Bifunctor (first)
@@ -89,22 +91,25 @@ resolveBinding name bindings = rightToMaybe $ compileUnitTest =<< maybeToRight (
 
 -- |Print last expression bound to
 -- the _tmp_ variable in the bindings
-printLastExpr :: (MonadIO m)
-              => (String -> m ())    -- ^Printing function
-              -> (IExpr -> m IExpr) -- ^Telomare backend
+printLastExpr :: (IExpr -> IO IExpr) -- ^Telomare backend
               -> [(String, UnprocessedParsedTerm)]
-              -> m ()
-printLastExpr printer eval bindings = case lookup "_tmp_" bindings of
-  Nothing -> printer "Could not find _tmp_ in bindings"
-  Just upt -> do
-    let compile' x = case compileUnitTest x of
-                       Left err -> Left . show $ err
-                       Right r  -> Right r
-    case compile' =<< process bindings (LetUP bindings upt) of
-      Left err -> printer err
-      Right iexpr' -> do
-        iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
-        printer $ (show . PrettyIExpr) iexpr
+              -> IO ()
+printLastExpr eval bindings = do
+  res :: Either Exception.SomeException () <- Exception.try $
+    case lookup "_tmp_" bindings of
+      Nothing -> putStrLn "Could not find _tmp_ in bindings"
+      Just upt -> do
+        let compile' x = case compileUnitTest x of
+                           Left err -> Left . show $ err
+                           Right r  -> Right r
+        case compile' =<< process bindings (LetUP bindings upt) of
+          Left err -> putStrLn err
+          Right iexpr' -> do
+            iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
+            print . PrettyIExpr $ iexpr
+  case res of
+    Left err -> print err
+    Right _  -> pure ()
 
 -- REPL related logic
 -- ~~~~~~~~~~~~~~~~~~
@@ -127,7 +132,7 @@ replStep eval bindings s = do
       outputStrLn ("Parse error: " <> err)
       pure bindings
     Right (ReplExpr new_bindings) -> do
-      printLastExpr outputStrLn (liftIO . eval) new_bindings
+      liftIO $ printLastExpr eval new_bindings
       pure bindings
     Right (ReplAssignment new_bindings) -> pure new_bindings
 
@@ -240,15 +245,15 @@ startExpr :: (IExpr -> IO IExpr)
 startExpr eval bindings s_expr = case runReplParser bindings s_expr of
   Left err                 -> error $ ("Parse error: " <> err)
   Right (ReplAssignment _) -> error "Expression is an assignment"
-  Right (ReplExpr binds)   -> printLastExpr putStrLn eval binds
+  Right (ReplExpr binds)   -> printLastExpr eval binds
 
 main = do
   e_prelude <- parsePrelude <$> Strict.readFile "Prelude.tel"
   settings  <- execParser opts
-  eval <- case _backend settings of
-    SimpleBackend   -> pure simpleEval
-    NaturalsBackend -> pure fastInterpretEval
-  let bindings = case e_prelude of
+  let eval = case _backend settings of
+               SimpleBackend   -> simpleEval
+               NaturalsBackend -> fastInterpretEval
+      bindings = case e_prelude of
                    Left  _   ->  []
                    Right bds -> bds
   case _expr settings of
