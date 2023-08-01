@@ -18,10 +18,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void
 import Debug.Trace
-
 import System.IO
 import System.Process
-
 import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
                  FragIndex (FragIndex), IExpr (..), PartialType (..),
                  RecursionPieceFrag, RecursionSimulationPieces (..),
@@ -31,8 +29,9 @@ import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
                  pattern AbortRecursion, pattern AbortUser, rootFrag, s2g,
                  unFragExprUR)
 import Telomare.Optimizer (optimize)
-import Telomare.Parser (UnprocessedParsedTerm (..), parseMain, parsePrelude)
+import Telomare.Parser (UnprocessedParsedTerm (..), parsePrelude)
 import Telomare.Possible (evalA)
+import Telomare.Resolver (parseMain)
 import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
 import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
 

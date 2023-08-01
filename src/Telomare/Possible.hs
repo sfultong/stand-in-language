@@ -3,29 +3,25 @@
 {-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 
 module Telomare.Possible where
 
-import Control.Applicative
-import Control.Lens.Plated
-import Control.Monad
+import Control.Applicative (Alternative ((<|>)))
 import Control.Monad.Reader (Reader, ReaderT)
 import qualified Control.Monad.Reader as Reader
 import Control.Monad.State (State, StateT)
 import qualified Control.Monad.State as State
-import Control.Monad.Trans.Class
 import Data.DList (DList)
 import qualified Data.DList as DList
-import Data.Foldable
-import Data.Functor.Classes
-import Data.Functor.Foldable
-import Data.Functor.Foldable.TH
+import Data.Functor.Classes (Eq1 (..), Show1 (liftShowsPrec), eq1, showsPrec1)
+import Data.Functor.Foldable (Base, Corecursive (embed),
+                              Recursive (cata, project))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Void
+import Data.Void (Void)
 import Debug.Trace
 import Telomare (FragExpr (..), FragIndex, IExpr (..),
                  TelomareLike (fromTelomare, toTelomare), Term4 (..),
@@ -105,8 +101,11 @@ pattern SuperWrap x = EnhancedExpr (SplitFunctor (Left (SplitFunctor (Right x)))
 pattern AbortWrap :: AbortableF (AbortExpr f) -> AbortExpr f
 pattern AbortWrap x = EnhancedExpr (SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Right x))))))
 
-evalEnhanced :: Functor o => (EnhancedExpr o -> PartExprF (EnhancedExpr o) -> EnhancedExpr o)
-  -> EnhancedExpr o -> EnhancedExpr o -> EnhancedExpr o
+evalEnhanced :: Functor o
+             => (EnhancedExpr o -> PartExprF (EnhancedExpr o) -> EnhancedExpr o)
+             -> EnhancedExpr o
+             -> EnhancedExpr o
+             -> EnhancedExpr o
 evalEnhanced handleOther env (EnhancedExpr (SplitFunctor g)) =
   let wrap = embed . SplitFunctor . pure -- could just use BasicExpr
       recur = evalEnhanced handleOther env

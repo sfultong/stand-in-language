@@ -27,7 +27,8 @@ import Telomare (IExpr (..), PrettyIExpr (PrettyIExpr),
                  TelomareLike (fromTelomare, toTelomare), Term3)
 import Telomare.Eval (EvalError (..), compileUnitTest)
 import Telomare.Parser (TelomareParser, UnprocessedParsedTerm (..),
-                        parseAssignment, parseLongExpr, parsePrelude, process)
+                        parseAssignment, parseLongExpr, parsePrelude)
+import Telomare.Resolver (process)
 import Telomare.RunTime (fastInterpretEval, simpleEval)
 import Telomare.TypeChecker (inferType)
 import Text.Megaparsec

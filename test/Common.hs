@@ -14,6 +14,7 @@ import Test.QuickCheck.Gen
 
 import Telomare
 import Telomare.Parser
+import Telomare.Resolver
 import Telomare.TypeChecker
 
 class TestableIExpr a where
