@@ -54,7 +54,7 @@
           program = self.packages.${system}.telomare + "/bin/telomare-repl";
         };
 
-        devShells.default = project false "telomare-with-tools" (with compiler; [ # [4]
+        devShells.default = project true "telomare-with-tools" (with compiler; [ # [4]
           cabal-install
           haskell-language-server
           hlint
