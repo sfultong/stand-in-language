@@ -1,7 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs";
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
     flake-compat = {
       url = "github:edolstra/flake-compat";
       flake = false;
@@ -9,8 +9,11 @@
     hvm.url = "github:hhefesto/HVM";
   };
 
-  outputs = { self, nixpkgs, flake-utils, flake-compat, hvm }:
-    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (system:
+  outputs = inputs@{ self, nixpkgs, flake-utils, flake-compat, hvm, flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = [ "x86_64-linux" "aarch64-linux" ];
+      imports = [];
+      perSystem = { self', system, ... }:
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
@@ -62,9 +65,10 @@
           stylish-haskell
           hvm.defaultPackage.${system}
         ]);
-	
+
         checks = {
           build-and-tests = project true "telomare-with-tests" [ ];
         };
-      });
+      };
+    };
 }
