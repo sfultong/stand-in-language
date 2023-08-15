@@ -1,8 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase        #-}
 
--- |
-
 module Telomare.Resolver where
 
 import Codec.Binary.UTF8.String (encode)
@@ -10,16 +8,16 @@ import Control.Lens.Combinators (transform)
 import Control.Monad ((<=<))
 import qualified Control.Monad.State as State
 import Crypto.Hash (Digest, SHA256, hash)
-import Data.Bifunctor (Bifunctor (first))
+import Data.Bifunctor (Bifunctor (first), bimap)
 import qualified Data.ByteArray as BA
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import Data.Char (ord)
 import qualified Data.Foldable as F
 import Data.Functor.Foldable (Base, Corecursive (ana, apo), Recursive (cata))
-import Data.List (delete, elem, elemIndex)
-import Data.Map (Map, fromList, toList)
+import Data.List (delete, elem, elemIndex, zip4)
 import qualified Data.Map as Map
+import Data.Map.Strict (Map, fromList, keys)
 import Data.Set (Set, (\\))
 import qualified Data.Set as Set
 import Telomare (BreakState', FragExpr (..), FragExprUR (..), FragIndex (..),
@@ -27,10 +25,10 @@ import Telomare (BreakState', FragExpr (..), FragExprUR (..), FragIndex (..),
                  RecursionPieceFrag, RecursionSimulationPieces (..), Term1 (..),
                  Term2 (..), Term3 (..), UnsizedRecursionToken, appF, clamF,
                  deferF, lamF, nextBreakToken, unsizedRecursionWrapper, varNF)
-import Telomare.Parser (TelomareParser (..), UnprocessedParsedTerm (..),
+import Telomare.Parser (Pattern (..), PatternF (..), TelomareParser (..),
+                        UnprocessedParsedTerm (..), UnprocessedParsedTermF (..),
                         parseWithPrelude)
 import Text.Megaparsec (errorBundlePretty, runParser)
-
 
 type VarList = [String]
 
@@ -60,6 +58,219 @@ i2c x = TLam (Closed "f") (TLam (Open "x") (inner x))
 
 instance MonadFail (Either String) where
   fail = Left
+
+findInts :: Pattern -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
+findInts = cata alg where
+  alg :: Base Pattern [UnprocessedParsedTerm -> UnprocessedParsedTerm]
+      -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
+  alg = \case
+    PatternPairF x y -> ((LeftUP .) <$> x) <> ((RightUP .) <$> y)
+    PatternIntF x    -> [id]
+    _                -> []
+
+fitPatternVarsToCasedUPT :: Pattern -> UnprocessedParsedTerm -> UnprocessedParsedTerm
+fitPatternVarsToCasedUPT p upt = applyVars2UPT varsOnUPT $ pattern2UPT p where
+  varsOnUPT :: Map String UnprocessedParsedTerm
+  varsOnUPT = ($ upt) <$> findPatternVars p
+  applyVars2UPT :: Map String UnprocessedParsedTerm
+                -> UnprocessedParsedTerm
+                -> UnprocessedParsedTerm
+  applyVars2UPT m = \case
+    LamUP str x ->
+      case Map.lookup str m of
+        Just a  -> AppUP (LamUP str (applyVars2UPT m x)) a
+        Nothing -> LamUP str x
+    x -> x
+
+-- |Collect all free variable names in a `UnprocessedParsedTerm` expresion
+varsUPT :: UnprocessedParsedTerm -> Set String
+varsUPT = cata alg where
+  alg :: Base UnprocessedParsedTerm (Set String) -> Set String
+  alg (VarUPF n)     = Set.singleton n
+  alg (LamUPF str x) = del str x
+  alg e              = F.fold e
+  del :: String -> Set String -> Set String
+  del n x = if Set.member n x then Set.delete n x else x
+
+mkLambda4FreeVarUPs :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+mkLambda4FreeVarUPs upt = go upt freeVars where
+  freeVars = Set.toList . varsUPT $ upt
+  go x = \case
+    []     -> x
+    (y:ys) -> LamUP y $ go x ys
+
+-- trimUPT2patternVars :: Map String (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+--                     -> UnprocessedParsedTerm
+--                     -> UnprocessedParsedTerm
+-- trimUPT2patternVars m upt =
+--   let aux = undefined
+--   in undefined
+
+findPatternVars :: Pattern -> Map String (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+findPatternVars = cata alg where
+  alg :: Base Pattern (Map String (UnprocessedParsedTerm -> UnprocessedParsedTerm))
+      -> Map String (UnprocessedParsedTerm -> UnprocessedParsedTerm)
+  alg = \case
+    PatternPairF x y -> ((LeftUP .) <$> x) <> ((RightUP .) <$> y)
+    PatternVarF str  -> Map.singleton str id
+    _                -> Map.empty
+
+pairStructureCheck :: Pattern -> UnprocessedParsedTerm -> UnprocessedParsedTerm
+pairStructureCheck p upt = AppUP (AppUP (AppUP (VarUP "foldl")
+                                           (VarUP "and"))
+                                    (IntUP 1))
+                             (ListUP $ ($ upt) <$> pairRoute2Dirs p)
+
+pairRoute2Dirs :: Pattern -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
+pairRoute2Dirs = cata alg where
+  alg :: Base Pattern [UnprocessedParsedTerm -> UnprocessedParsedTerm]
+      -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
+  alg = \case
+    PatternPairF x y -> [id] <> ((LeftUP .) <$> x) <> ((RightUP .) <$> y)
+    _                -> []
+
+-- pattern2UPT :: Pattern -> UnprocessedParsedTerm
+-- pattern2UPT p = makeLambdas res state where
+--   (res, state) = State.runState (go p) []
+--   makeLambdas :: UnprocessedParsedTerm
+--               -> [String]
+--               -> UnprocessedParsedTerm
+--   makeLambdas upt = \case
+--     []     -> upt
+--     (x:xs) -> LamUP x $ makeLambdas upt xs
+--   go :: Pattern -> State.State [String] UnprocessedParsedTerm
+--   go = \case
+--     PatternPair x y -> PairUP <$> go x <*> go y
+--     PatternInt i    -> pure $ IntUP i
+--     PatternVar str  -> State.modify (str :) >> pure (VarUP str)
+--     PatternIgnore   -> State.modify ("__ignore" :) >> pure (VarUP "__ignore")
+--       -- Note that "__ignore" is a special variable name and not accessible to users because
+--       -- parsing of VarUPs doesn't allow variable names to start with `_`
+
+pattern2UPT :: Pattern -> UnprocessedParsedTerm
+pattern2UPT = \case
+  PatternPair x y -> PairUP (pattern2UPT x) (pattern2UPT y)
+  PatternInt i    -> IntUP i
+  -- PatternVar str  -> VarUP str
+  -- PatternIgnore   -> VarUP "__ignore"
+  PatternVar str  -> IntUP 0
+  PatternIgnore   -> IntUP 0
+    -- Note that "__ignore" is a special variable name and not accessible to users because
+    -- parsing of VarUPs doesn't allow variable names to start with `_`
+
+mkCaseAlternative :: UnprocessedParsedTerm -- ^ UPT to be cased
+                  -> UnprocessedParsedTerm -- ^ Case result to be made lambda and applied
+                  -> Pattern -- ^ Pattern
+                  -> UnprocessedParsedTerm -- ^ case result as a lambda applied to the appropirate part of the UPT to be cased
+mkCaseAlternative casedUPT caseResult p = appVars2ResultLambdaAlts patternVarsOnUPT . makeLambdas caseResult . keys $ patternVarsOnUPT where
+  patternVarsOnUPT :: Map String UnprocessedParsedTerm
+  patternVarsOnUPT = ($ casedUPT) <$> findPatternVars p
+  appVars2ResultLambdaAlts :: Map String UnprocessedParsedTerm
+                           -> UnprocessedParsedTerm -- ^ case result as lambda
+                           -> UnprocessedParsedTerm
+  appVars2ResultLambdaAlts m = \case
+    lam@(LamUP varName upt) ->
+      case Map.lookup varName m of
+        Nothing -> lam
+        Just x -> AppUP (LamUP varName (appVars2ResultLambdaAlts (Map.delete varName m) upt)) x
+    x -> x
+  makeLambdas :: UnprocessedParsedTerm
+              -> [String]
+              -> UnprocessedParsedTerm
+  makeLambdas upt = \case
+    []     -> upt
+    (x:xs) -> LamUP x $ makeLambdas upt xs
+
+-- AppUP (LamUP "x" (PairUP (IntUP 0) (PairUP (IntUP 1) (IntUP 2))))
+--       (RightUP (PairUP (IntUP 0) (PairUP (IntUP 1) (IntUP 2))))
+
+
+-- main =
+--   let toCase = (0,(1,2))
+--   -- let toCase = 0
+--       caseTest =
+--         case toCase of
+--           (0,(1,3)) -> "Failure"
+--           (0,x) -> ("Success", x)
+--           -- (0,(1,2)) -> "Success"
+--           (0,(0,0)) -> "weird"
+--           0 -> "not weird"
+--   in \input -> (caseTest, 0)
+
+-- case (0, "hola") of
+--   (0,(1,3)) -> "Failure"
+--   (0,x) -> x
+
+
+-- (0, (1,2))
+input = PairUP (IntUP 0)
+               (StringUP "Hola")
+
+-- (0,x)
+aPattern = PatternPair (PatternInt 0) (PatternVar "x")
+altRes = VarUP "x"
+
+caseExpr = CaseUP input [(aPattern, altRes)]
+
+
+
+case2annidatedIfs :: UnprocessedParsedTerm -- ^ Term to be pattern matched
+                  -> [Pattern] -- ^ All patterns in a case expression
+                  -> [UnprocessedParsedTerm] -- ^ Pattern end points as ListUPs
+                  -> [UnprocessedParsedTerm] -- ^ Expresion to be cased end points as ListUPs
+                  -> [UnprocessedParsedTerm] -- ^ Case's alternatives
+                  -> UnprocessedParsedTerm
+case2annidatedIfs _ [] [] [] [] =
+  ITEUP (IntUP 1)
+        (AppUP (VarUP "abort") $ StringUP "Non-exhaustive patterns in case")
+        (IntUP 0)
+case2annidatedIfs x (aPattern:as) (patternEndPoints:bs) (exprEndPoints:cs) (resultAlternative:ds) =
+  let patternVarsOnUPT :: Map String UnprocessedParsedTerm
+      patternVarsOnUPT = ($ x) <$> findPatternVars aPattern
+  in ITEUP (AppUP (AppUP (VarUP "and")
+                         (AppUP (AppUP (VarUP "listEqual") patternEndPoints) exprEndPoints))
+                  (pairStructureCheck aPattern x))
+           (mkCaseAlternative x resultAlternative aPattern)
+           (case2annidatedIfs x as bs cs ds)
+case2annidatedIfs _ _ _ _ _ = error "case2annidatedIfs: lists don't match in size"
+
+--   ITEUP (AppUP (AppUP (VarUP "and")
+--                       (AppUP (AppUP (VarUP "listEqual")
+--                                     (ListUP [LeftUP (PairUP (IntUP 0) (StringUP "Hola"))]))
+--                              (ListUP [LeftUP (PairUP (IntUP 0) (IntUP (-1)))])))
+--                (AppUP (AppUP (AppUP (VarUP "foldl") (VarUP "and")) (IntUP 1)) (ListUP [PairUP (IntUP 0) (StringUP "Hola")])))
+--         (AppUP (LamUP "x" (VarUP "x")) (RightUP (PairUP (IntUP 0) (StringUP "Hola"))))
+--         (ITEUP (IntUP 1) (AppUP (VarUP "abort") (StringUP "Non-exhaustive patterns in case")) (IntUP 0))
+
+-- case (0, "hola") of
+--   (0,(1,3)) -> "Failure"
+--   (0,x) -> x
+
+
+duplicate x = (x,x)
+
+pairApplyList :: ([a -> a], a) -> [a]
+pairApplyList x = ($ snd x) <$> fst x
+
+removeCaseUPs :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+removeCaseUPs = transform go where
+  go :: UnprocessedParsedTerm -> UnprocessedParsedTerm
+  go = \case
+    CaseUP x ls ->
+      let duplicate :: a -> (a,a)
+          duplicate x = (x,x)
+          -- duplicate y = (y,x)
+          pairApplyList :: ([a -> a], a) -> [a]
+          pairApplyList x = ($ snd x) <$> fst x
+          patterns = fst <$> ls
+          endCases = snd <$> ls
+          dirsOnX :: [UnprocessedParsedTerm]
+          dirsOnX = fmap ListUP $ (($ x) <$>) . findInts <$> patterns
+          dirsOnPatterns :: [UnprocessedParsedTerm]
+          dirsOnPatterns = ListUP <$> (pairApplyList <$> (bimap findInts pattern2UPT . duplicate <$> patterns))
+          -- dirsOnPatterns = ListUP <$> (pairApplyList <$> (first findInts . duplicate <$> patterns))
+      in case2annidatedIfs x patterns dirsOnX dirsOnPatterns endCases
+    x -> x
 
 debruijinize :: MonadFail m => VarList -> Term1 -> m Term2
 debruijinize _ TZero = pure TZero
@@ -110,7 +321,7 @@ makeLambda :: [(String, UnprocessedParsedTerm)] -- ^Bindings
 makeLambda bindings str term1 =
   if unbound == Set.empty then TLam (Closed str) term1 else TLam (Open str) term1
   where bindings' = Set.fromList $ fst <$> bindings
-        v = vars term1
+        v = varsTerm1 term1
         unbound = (v \\ bindings') \\ Set.singleton str
 
 -- |Transformation from `UnprocessedParsedTerm` to `Term1` validating and inlining `VarUP`s
@@ -161,10 +372,9 @@ validateVariables prelude term =
         HashUP x -> THash <$> validateWithEnvironment x
   in State.evalStateT (validateWithEnvironment term) Map.empty
 
--- |Collect all variable names in a `Term1` expresion excluding terms binded
---  to lambda args
-vars :: Term1 -> Set String
-vars = cata alg where
+-- |Collect all free variable names in a `Term1` expresion
+varsTerm1 :: Term1 -> Set String
+varsTerm1 = cata alg where
   alg :: Base Term1 (Set String) -> Set String
   alg (TVarF n)            = Set.singleton n
   alg (TLamF (Open n) x)   = del n x
@@ -229,6 +439,7 @@ process2Term2 :: [(String, UnprocessedParsedTerm)] -- ^Prelude
               -> Either String Term2
 process2Term2 prelude = fmap generateAllHashes
                       . debruijinize [] <=< validateVariables prelude
+                      . removeCaseUPs
                       . optimizeBuiltinFunctions
                       . addBuiltins
 

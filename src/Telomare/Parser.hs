@@ -31,6 +31,15 @@ import Text.Megaparsec.Debug (dbg)
 import Text.Megaparsec.Pos (Pos)
 import Text.Read (readMaybe)
 
+-- |AST for patterns in `case` expressions
+data Pattern
+  = PatternVar String
+  | PatternInt Int
+  | PatternIgnore
+  | PatternPair Pattern Pattern
+  deriving (Show, Eq, Ord)
+makeBaseFunctor ''Pattern
+
 data UnprocessedParsedTerm
   = VarUP String
   | ITEUP UnprocessedParsedTerm UnprocessedParsedTerm UnprocessedParsedTerm
@@ -48,7 +57,7 @@ data UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
   | HashUP UnprocessedParsedTerm -- ^ On ad hoc user defined types, this term will be substitued to a unique Int.
-  -- TODO check
+  | CaseUP UnprocessedParsedTerm [(Pattern, UnprocessedParsedTerm)]
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
 makePrisms ''UnprocessedParsedTerm
@@ -57,6 +66,7 @@ instance Plated UnprocessedParsedTerm where
   plate f = \case
     ITEUP i t e -> ITEUP <$> f i <*> f t <*> f e
     LetUP l x   -> LetUP <$> traverse sequenceA (second f <$> l) <*> f x
+    CaseUP x l  -> CaseUP <$> f x <*> traverse sequenceA (second f <$> l)
     ListUP l    -> ListUP <$> traverse f l
     PairUP a b  -> PairUP <$> f a <*> f b
     AppUP u x   -> AppUP <$> f u <*> f x
@@ -111,7 +121,7 @@ reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
 rws :: [String]
-rws = ["let", "in", "if", "then", "else"]
+rws = ["let", "in", "if", "then", "else", "case", "of" ]
 
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
@@ -145,7 +155,7 @@ integer = toInteger <$> lexeme L.decimal
 
 -- |Parse string literal.
 parseString :: TelomareParser UnprocessedParsedTerm
-parseString = StringUP <$> (symbol "\"" *> manyTill L.charLiteral (symbol "\""))
+parseString = StringUP <$> (char '"' >> manyTill L.charLiteral (char '"'))
 
 -- |Parse number (Integer).
 parseNumber :: TelomareParser UnprocessedParsedTerm
@@ -192,6 +202,44 @@ parseHash = do
   symbol "#" <* scn
   upt <- parseSingleExpr :: TelomareParser UnprocessedParsedTerm
   pure $ HashUP upt
+
+parseCase :: TelomareParser UnprocessedParsedTerm
+parseCase = do
+  reserved "case" <* scn
+  iexpr <- parseLongExpr <* scn
+  reserved "of" <* scn
+  lpc <- many $ parseSingleCase <* scn
+  pure $ CaseUP iexpr lpc
+
+parseSingleCase :: TelomareParser (Pattern, UnprocessedParsedTerm)
+parseSingleCase = do
+  p <- parsePattern <* scn
+  reserved "->" <* scn
+  c <- parseLongExpr <* scn
+  pure (p,c)
+
+parsePattern :: TelomareParser Pattern
+parsePattern = choice $ try <$> [ parsePatternIgnore
+                                , parsePatternVar
+                                , parsePatternInt
+                                , parsePatternPair
+                                ]
+
+parsePatternPair :: TelomareParser Pattern
+parsePatternPair = parens $ do
+  p <- scn *> parsePattern <* scn
+  _ <- symbol "," <* scn
+  b <- parsePattern <* scn
+  pure $ PatternPair p b
+
+parsePatternInt :: TelomareParser Pattern
+parsePatternInt = PatternInt . fromInteger <$> integer
+
+parsePatternVar :: TelomareParser Pattern
+parsePatternVar = PatternVar <$> identifier
+
+parsePatternIgnore :: TelomareParser Pattern
+parsePatternIgnore = symbol "_" >> pure PatternIgnore
 
 -- |Parse a single expression.
 parseSingleExpr :: TelomareParser UnprocessedParsedTerm
@@ -247,6 +295,7 @@ parseLongExpr = choice $ try <$> [ parseLet
                                  , parseITE
                                  , parseLambda
                                  , parseApplied
+                                 , parseCase
                                  , parseSingleExpr
                                  ]
 
@@ -315,5 +364,4 @@ parsePrelude str = let result = runParser (scn *> many parseAssignment <* eof) "
 parseWithPrelude :: [(String, UnprocessedParsedTerm)]   -- ^Prelude
                  -> String                              -- ^Raw string to be parsed
                  -> Either String UnprocessedParsedTerm -- ^Error on Left
--- parseWithPrelude prelude str = bimap errorBundlePretty (LetUP prelude) $ runParser parseTopLevel "" str
 parseWithPrelude prelude str = first errorBundlePretty $ runParser (parseTopLevelWithPrelude prelude) "" str
