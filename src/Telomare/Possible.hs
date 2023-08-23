@@ -59,7 +59,14 @@ import           Telomare                  (FragExpr (..), FragExprUR (..), i2g,
                                             pattern AbortAny,
                                             pattern AbortRecursion, rootFrag,
                                             sindent, pattern AbortUnsizeable, IExprF (SetEnvF), indentWithChildren')
-import           Telomare.TypeChecker
+-- import           Telomare.TypeChecker
+import Telomare.RunTime (hvmEval)
+
+debug :: Bool
+debug = True
+
+debugTrace :: String -> a -> a
+debugTrace s x = if debug then trace s x else x
 
 testSBV :: SBV.Symbolic SBV.Word8
 testSBV = do
@@ -67,6 +74,7 @@ testSBV = do
   a <- SBV.sWord8 "a"
   SBV.constrain $ a + 5 .< 10
   SBV.constrain $ a .> 2
+  SBV.constrain b
   SBVC.query $ SBVC.checkSat >>= \case
       SBVC.Unk   -> undefined -- error "Solver returned unknown!"
       SBVC.Unsat -> undefined -- error "Solver couldn't solve constraints"
@@ -108,17 +116,15 @@ instance Show1 PartExprF where
 
 
 newtype VarIndex = VarIndex { unVarIndex :: Int } deriving (Eq, Ord, Enum, Show)
+newtype FunctionIndex = FunctionIndex { unFunctionIndex :: Int } deriving (Eq, Ord, Enum, Show)
 
 data BitsExprF f
   = ZeroB
   | PairB f f
-  --  | FunctionB f f
-  --  | FunctionB (Map VarIndex f) f
   | FunctionB VarIndex f
   | SetEnvB f
   | GateB f f
   | VarB VarIndex
-  | UnusedBits
   | AbortB
   | RecursionTestB f
   | UnsizedChurchNumeralB
@@ -132,10 +138,11 @@ instance Show1 BitsExprF where
     SetEnvB x -> shows "SetEnvB (" . showsPrec 0 x . shows ")"
     GateB l r -> shows "GateB (" . showsPrec 0 l . shows ", " . showsPrec 0 r . shows ")"
     VarB vi -> shows "VarB " . shows vi
-    UnusedBits -> shows "UnusedBits"
+--    UnusedBits -> shows "UnusedBits"
     AbortB -> shows "AbortB"
     RecursionTestB x -> shows "RecursionTestB (" . showsPrec 0 x . shows ")"
     UnsizedChurchNumeralB -> shows "UnsizedChurchNumeralB"
+
 
 type BitsExpr = Fix BitsExprF
 
@@ -162,7 +169,7 @@ convertEnvs = first (($ toEnum 0) . cata g) . flip State.runState (toEnum 0) . c
   f :: (Base t ~ UnsizedBase t VoidF, t ~ UnsizedExpr VoidF) => Base t (State VarIndex NumberedEnvsExpr) -> State VarIndex NumberedEnvsExpr
   f = \case
     ZeroFW x -> embed . ZeroFW <$> sequence x
-    OneFW (StuckF x) -> do
+    OneFW (StuckF _ x) -> do
       nx <- cata f x
       ni <- nextVar
       pure . embed . OneFW $ NDeferF ni nx
@@ -170,8 +177,6 @@ convertEnvs = first (($ toEnum 0) . cata g) . flip State.runState (toEnum 0) . c
     ThreeFW x -> embed . TwoFW <$> sequence x
     FourFW x -> embed . sl . sl . sl <$> sequence x
   sl = SplitFunctor . Left
-  -- g :: (Base t ~ NumberedEnvsBase, Corecursive t) => Base t (VarIndex -> t) -> (VarIndex -> t)
-  --- NumberedEnvsExpr
   g x n = case x of
     OneFW (NDeferF i x') -> embed . OneFW . NDeferF i $ x' i
     ZeroFW EnvSF -> embed . OneFW . NEnv $ n
@@ -183,57 +188,51 @@ convertEnvs = first (($ toEnum 0) . cata g) . flip State.runState (toEnum 0) . c
 
 convertToBits :: VarIndex -> NumberedEnvsExpr -> (BitsExpr, (VarIndex, Map VarIndex BitsExpr))
 convertToBits startVar = flip State.runState (startVar, Map.empty) . cata f where
-  -- f :: NumberedEnvsBase (State (VarIndex, Map VarIndex BitsExpr) BitsExpr) -> State (VarIndex, Map VarIndex BitsExpr) BitsExpr
   f = fmap embed . g
-  -- g :: NumberedEnvsBase (State (VarIndex, Map VarIndex BitsExpr) BitsExpr) -> State (VarIndex, Map VarIndex BitsExpr) (BitsExprF BitsExpr)
   g = \case
     ZeroFW x -> case x of
       ZeroSF -> pure ZeroB
       PairSF a b -> PairB <$> a <*> b
       SetEnvSF x -> SetEnvB <$> x
       GateSF l r -> GateB <$> l <*> r
-      LeftSF x' -> fmap project x' >>=  \case
+      LeftSF x' -> fmap project x' >>= \case
         VarB i -> do
           eVar <- lookupM i
           case eVar of
             Nothing -> do
               ln <- nextVar
-              addKey i . embed $ PairB (embed $ VarB ln) (embed UnusedBits)
+              rn <- nextVar
+              addKey i . embed $ PairB (embed $ VarB ln) (embed $ VarB rn)
               pure $ VarB ln
             Just (Fix (PairB l r)) -> case project l of
-              UnusedBits -> do
-                ln <- nextVar
-                modifyKey i . const . embed $ PairB (embed $ VarB ln) r
-                pure $ VarB ln
               el -> pure el
         s@(SetEnvB _) -> do
           ln <- nextVar
+          rn <- nextVar
           fin <- nextVar
-          addKey fin . embed $ PairB (embed $ VarB ln) (embed UnusedBits)
+          addKey fin . embed $ PairB (embed $ VarB ln) (embed $ VarB rn)
           pure . SetEnvB . embed $ PairB (embed . FunctionB fin . embed $ VarB ln) (embed s)
       RightSF x' -> fmap project x' >>= \case
         VarB i -> do
           eVar <- lookupM i
           case eVar of
             Nothing -> do
+              ln <- nextVar
               rn <- nextVar
-              addKey i . embed $ PairB (embed UnusedBits) (embed $ VarB rn)
+              addKey i . embed $ PairB (embed $ VarB ln) (embed $ VarB rn)
               pure $ VarB rn
             Just (Fix (PairB l r)) -> case project r of
-              UnusedBits -> do
-                rn <- nextVar
-                modifyKey i . const . embed $ PairB l (embed $ VarB rn)
-                pure $ VarB rn
               er -> pure er
         s@(SetEnvB _) -> do
+          ln <- nextVar
           rn <- nextVar
           fin <- nextVar
-          addKey fin . embed $ PairB (embed UnusedBits) (embed $ VarB rn)
+          addKey fin . embed $ PairB (embed $ VarB ln) (embed $ VarB rn)
           pure . SetEnvB . embed $ PairB (embed . FunctionB fin . embed $ VarB rn) (embed s)
     OneFW x -> case x of
       NDeferF ni x' -> FunctionB ni <$> x'
       NEnv vi -> pure $ VarB vi
-    TwoFW AbortF -> pure AbortB
+    TwoFW AbortF -> trace "convertToBits doing abort now" pure AbortB
     SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left x))))) -> case x of
       RecursionTestF _ x' -> RecursionTestB <$> x'
       SizingResultsF _ _ -> pure UnsizedChurchNumeralB
@@ -245,71 +244,59 @@ convertToBits startVar = flip State.runState (startVar, Map.empty) . cata f wher
   lookupM k = do
     (_, m) <- State.get
     pure $ Map.lookup k m
-  -- addGetKey :: BitsExpr -> State (VarIndex, Map VarIndex BitsExpr) VarIndex
   addKey k v = State.modify (second (Map.insert k v))
-  {-
-  addGetKey v = do
-    k <- nextVar
-    -- State.modify (\(i, m) -> (i, Map.insert k v m))
-    State.modify (second (Map.insert k v))
-    pure k
--}
-  modifyKey k f = State.modify (second (Map.adjust f k))
-{-
-  cata :: (Base t a -> a) -- ^ a (Base t)-algebra
-       -> t               -- ^ fixed point
-       -> a               -- ^ result
--}
---  cata f = c where c = f . fmap c . project
 
 cata3 :: Recursive t => (Base t (Base t (Base t a)) -> a) -> t -> a
 cata3 f = c where c = f . fmap (fmap (fmap c . project) . project) . project
 
--- evalB :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
+anaM' :: (Monad m, Corecursive t, x ~ Base t, Traversable x) => (a -> m (Base t a)) -> a -> m t
+anaM' f = c where c = join . fmap (fmap embed . sequence . fmap c) . f
+
+-- selective transform, stops at function boundaries
+transformS :: (BitsExprF BitsExpr -> BitsExpr) -> BitsExpr -> BitsExpr
+transformS f =
+  let s = \case
+        fu@(FunctionB _ _) -> fu
+        x -> fmap c x
+      c = f . s . project
+  in c
+
 evalB :: BitsExprWMap -> BitsExprWMap
-evalB (BitsExprWMap x varMap) = showExpr $ BitsExprWMap (f varMap x) varMap where
-  showExpr = trace ("evalB BitsExprWMap\n" <> prettyPrint (BitsExprWMap x varMap))
-  showAssign v e = trace ("Assigning inputs for " <> show (fromEnum v) <> "\n" <> prettyPrint e)
-  showFVar x = trace ("f input resolves to\n" <> prettyPrint x) x
-  f :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
-  f vm x = case project x of
-    fun@(FunctionB _ _) -> embed fun
-    x' -> case fmap (f vm) x' of
-      RecursionTestB x'' -> x''
-      VarB vi -> case Map.lookup vi vm of
-        Nothing -> error ("evalB varB var not found in map: " <> show vi)
-        Just x'' -> x''
-      SetEnvB (Fix (PairB df e)) -> case project df of
-        FunctionB vi dx -> showAssign vi e $ f (assignInputVars (showFVar . deepLookup varMap . embed $ VarB vi) e vm) dx
-        GateB l r -> case project e of
-          ZeroB -> l
-          PairB _ _ -> r
-        AbortB -> case project e of
-          ZeroB -> embed . FunctionB tempIndex . embed $ VarB tempIndex
-          _ -> embed AbortB
-        z -> error ("evalB setenv pair f _, found unexpected f of " <> show z)
-      x'' -> embed x''
+evalB (BitsExprWMap x varMap) = showExpr BitsExprWMap (transformS f x) varMap where
+  showExpr = debugTrace ("evalB BitsExprWMap\n" <> prettyPrint (BitsExprWMap x varMap))
+  f = \case
+    RecursionTestB x -> x
+    SetEnvB (Fix (PairB df e)) -> case project df of
+      GateB l r -> case project e of
+        ZeroB -> l
+        PairB _ _ -> r
+      AbortB -> trace "doing abort here" $ case project e of
+        ZeroB -> embed . FunctionB tempIndex . embed $ VarB tempIndex
+        _ -> embed AbortB
+      FunctionB vi dx -> showAssign transformS f $ transformS fillVars dx where
+        fillVars = \case
+          VarB vi' -> deepLookup boundMap vi'
+          x -> embed x
+        boundMap = assignInputVars (deepLookup varMap vi) e varMap
+        showAssign x = if vi == toEnum 8
+          then debugTrace ("assigning inputs for 8:\n" <> prettyPrint e) x
+          else x
+      z -> error ("evalB setenv pair f _, found unexpected f of " <> show z <> "\nalso, e is " <> prettyPrint e)
+    x -> embed x
   assignInputVars :: BitsExpr -> BitsExpr -> Map VarIndex BitsExpr -> Map VarIndex BitsExpr
   assignInputVars vin vars = case (project vin, project vars) of
     (PairB a b, PairB c d) -> assignInputVars a c . assignInputVars b d
-    (PairB a b, ZeroB) -> assignInputVars a (embed ZeroB) . assignInputVars b (embed ZeroB)
+    -- (PairB a b, ZeroB) -> assignInputVars a (embed ZeroB) . assignInputVars b (embed ZeroB)
     (VarB k, v) -> Map.insert k $ embed v
-    (UnusedBits, _) -> id
-  {-
-    (ZeroB, _) -> id
-    (FunctionB _ _, _) -> id
--}
-    -- (_, ZeroB) -> id -- this seems wrong and should be removed
-    (za, zb) -> error ("evalB assignInputVars unexpected\n" <> prettyPrint za <> "\n" <> prettyPrint zb)
-  -- deepLookup :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
-  deepLookup vm vin = case vin of
-    vo@(Fix (VarB v)) -> case Map.lookup v vm of
-      Nothing -> vo
-      (Just (Fix p@(PairB _ _))) -> embed $ fmap (deepLookup vm) p
-      -- Just z -> error ("evalB deepLookup found\n" <> prettyPrint z)
-      _ -> vo
-    x -> x
+    (za, zb) -> error $ "evalB assignInputVars got " <> prettyPrint za <> "\nand:\n" <> prettyPrint zb
   tempIndex = toEnum (-1)
+  deepLookup vm vi = case Map.lookup vi vm of
+    Nothing -> embed $ VarB vi
+    (Just (Fix p@(PairB _ _))) -> embed $ fmap lookupIV p where
+      lookupIV = \case
+        Fix (VarB vi') -> deepLookup vm vi'
+        x -> x
+    Just x -> x
 
 instance TelomareLike BitsExprWMap where
   fromTelomare = wrapUp . convertToBits' . convertEnvs . fromTelomare where
@@ -336,62 +323,19 @@ instance TelomareLike BitsExprWMap where
       SetEnvB x -> SetEnv <$> x
       FunctionB _ x -> Defer <$> x
       GateB l r -> Gate <$> l <*> r
-      _ -> Nothing
+      -- _ -> Nothing
+      z -> trace ("bitsexprwmap totelomare found unexpected " <> show z) Nothing
+
+debugEvalB x@(BitsExprWMap _ m) = debugTrace ("evalB evaluated to " <> prettyPrint x <> "\nand map is " <> show m) x
 
 evalB' :: IExpr -> Maybe IExpr
-evalB' = toTelomare . evalB . fromTelomare
+evalB' = toTelomare . debugEvalB . evalB . fromTelomare
 
 evalB'' :: IExpr -> IO IExpr
 evalB'' = f . evalB' where
   f = \case
     Nothing -> error "evalB' evaluated to Nothing"
     Just x -> pure x
-
-{-
-evalB varMap = ($ varMap) . cata3 f where
-  -- f :: BitsExprF (Map VarIndex BitsExpr -> BitsExpr) -> Map VarIndex BitsExpr -> BitsExpr
-  f x vm = case x of
-    SetEnvB (PairB d e) -> case d of
-      FunctionB vin x' -> x' $ assignInputVars (deepLookup vm . embed $ VarB vin) e
-    SetEnvB sep -> case project (sep vm) of
-      PairB d e' -> case project d of
-        FunctionB vin x' -> x' $ assignInputVars (deepLookup vm . embed $ VarB vin) e'
-    x -> embed . ($ vm) $ sequence x
-  assignInputVars vin vars = case (project vin, project vars) of
-    (PairB a b, PairB c d) -> assignInputVars a c . assignInputVars b d
-    (VarB k, v) -> Map.insert k v
-  -- deepLookup :: Map VarIndex BitsExpr -> BitsExpr -> BitsExpr
-  deepLookup vm vin = case vin of
-    vo@(Fix (VarB v)) -> case Map.lookup v vm of
-      Nothing -> vo
-      (Just (Fix p@(PairB _ _))) -> embed $ fmap (deepLookup vm) p
--}
-
--- convertToBits :: State (Set )
-{-
-convertToBits :: Functor f => UnsizedExpr f -> SBV.Symbolic BitsExpr
-convertToBits = mmmph . cata f where
-  f = \case
-    ZeroFW x -> case x of
-      ZeroSF -> pure $ embed ZeroB
-      PairSF a b -> embed <$> (sequence $ PairB a b)
-      EnvSF -> embed . VarB <$> nextVar
-    OneFW x -> undefined
-  makeEnv = \case
-    ZeroFW x -> case x of
-      EnvSF -> EnvAnnotation EnvSF
-  mmmph = undefined
-  nextVar = do
-    (i, m) <- State.get
-    State.put (succ i, m)
-    pure i
--}
--- next step, generate unique variables for each environment
-
-  {-
-  mergeEnv a b = case (a,b) of
-    (PairB c d, PairB e f) -> PairB (mergeEnv c e) (mergeEnv d f)
--}
 
 type BasicBase f = SplitFunctor f PartExprF
 type StuckBase g f = BasicBase (SplitFunctor f (StuckF g))
@@ -430,14 +374,14 @@ pattern OtherFW :: g x -> SplitFunctor g f x
 pattern OtherFW x = SplitFunctor (Left x)
 
 data StuckF g f
-  = StuckF g
+  = StuckF FunctionIndex g
   deriving (Functor, Foldable, Traversable)
 
 instance (Show g) => Show1 (StuckF g) where
-  liftShowsPrec showsPrec showList prec (StuckF x) = shows "StuckF (" . shows x . shows " )"
+  liftShowsPrec showsPrec showList prec (StuckF ind x) = shows "StuckF " . shows (fromEnum ind) . shows " (" . shows x . shows " )"
 
 instance (Eq g) => Eq1 (StuckF g) where
-  liftEq test (StuckF ga) (StuckF gb) = ga == gb
+  liftEq test (StuckF ga _) (StuckF gb _) = ga == gb
 
 pattern FillFunction :: (Base x ~ BasicBase f, Recursive x) => x -> x -> PartExprF x
 pattern FillFunction c e <- SetEnvSF (ZeroEE (PairSF c e))
@@ -475,6 +419,8 @@ instance Show1 f => Show (StuckExpr f) where
   show = ($ "") . showsPrec1 0 . unStuckExpr
 instance Eq1 f => Eq (StuckExpr f) where
   (==) (StuckExpr a) (StuckExpr b) = eq1 a b
+instance (Functor f, PrettyPrintable1 f) => PrettyPrintable (StuckExpr f) where
+  showP = showP . project
 
 {-
 transformStuck :: (Functor f, Functor g) => (StuckBase (StuckExpr f) f (StuckExpr g) -> StuckExpr g)
@@ -482,7 +428,7 @@ transformStuck :: (Functor f, Functor g) => (StuckBase (StuckExpr f) f (StuckExp
 -}
 transformStuck f = cata f' where
   f' = \case
-    OneFW (StuckF x) -> embed . OneFW . StuckF $ cata f' x
+    OneFW (StuckF fid x) -> embed . OneFW . StuckF fid $ cata f' x
     -- OneFW (StuckF x) -> f' . OneFW . StuckF $ cata f' x
     x -> f x
 
@@ -492,18 +438,21 @@ transformStuckM :: (Functor f, Functor g, Monad m) => (StuckBase (StuckExpr f) f
 -}
 transformStuckM f = cata f' where
   f' = \case
-    OneFW (StuckF x) -> embed . OneFW . StuckF <$> cata f' x
+    OneFW (StuckF fid x) -> embed . OneFW . StuckF fid <$> cata f' x
     x -> f x
 
-stuckStep :: (Base a ~ StuckBase a g2, Recursive a, Corecursive a) => (Base a a -> a) -> Base a a -> a
+stuckStep :: (Base a ~ StuckBase a g2, Recursive a, Corecursive a, PrettyPrintable a) => (Base a a -> a) -> Base a a -> a
 stuckStep handleOther = \case
-  ZeroFW (FillFunction (OneEE (StuckF d)) e) -> cata (basicStep (stuckStep handleOther) . replaceEnv) d where
+  ZeroFW (FillFunction (OneEE (StuckF fid d)) e) -> db $ cata (basicStep (stuckStep handleOther) . replaceEnv) d where
     e' = project e
+    db x = if fid == toEnum 5
+      then debugTrace ("stuckstep dumping output at 6:\n" <> prettyPrint e) x
+      else x
     replaceEnv = \case
       ZeroFW EnvSF -> e'
       x -> x
   -- stuck value
-  x@(OneFW (StuckF _)) -> embed x
+  x@(OneFW (StuckF _ _)) -> embed x
   x -> handleOther x
 
 evalBottomUp :: (Base t ~ BasicBase f, Corecursive t, Recursive t, Recursive t) => (Base t t -> t) -> t -> t
@@ -520,7 +469,7 @@ instance Show1 f => Show (SuperExpr f) where
 instance Eq1 f => Eq (SuperExpr f) where
   (==) (SuperExpr a) (SuperExpr b) = eq1 a b
 
-superStep :: (Base a ~ SuperBase a g2, Recursive a, Corecursive a) => (a -> a -> a) -> (Base a a -> a) -> Base a a -> a
+superStep :: (Base a ~ SuperBase a g2, Recursive a, Corecursive a, PrettyPrintable a) => (a -> a -> a) -> (Base a a -> a) -> Base a a -> a
 superStep mergeSuper handleOther =
   let step = basicStep (stuckStep (superStep mergeSuper handleOther))
   in \case
@@ -559,7 +508,8 @@ abortStep handleOther =
     ZeroFW (SetEnvSF a@(ThreeEE (AbortedF _))) -> a
     ZeroFW (FillFunction a@(ThreeEE (AbortedF _)) _) -> a
     ZeroFW (GateSwitch _ _ a@(ThreeEE (AbortedF _))) -> a
-    ZeroFW (FillFunction (ThreeEE AbortF) (ZeroEE ZeroSF)) -> embed . OneFW . StuckF . embed . ZeroFW $ EnvSF
+    ZeroFW (FillFunction (ThreeEE AbortF) (ZeroEE ZeroSF)) -> embed . OneFW . StuckF i . embed . ZeroFW $ EnvSF where
+      i = toEnum (-1)
     ZeroFW (FillFunction (ThreeEE AbortF) (TwoEE AnyPF)) -> embed . ThreeFW . AbortedF $ AbortAny
     ZeroFW (FillFunction (ThreeEE AbortF) e@(ZeroEE (PairSF _ _))) -> embed . ThreeFW $ AbortedF m where
       m = cata truncF e
@@ -593,7 +543,7 @@ instance (Functor f, Eq1 f) => Eq (UnsizedExpr f) where
 instance (Functor f, PrettyPrintable1 f) => PrettyPrintable (UnsizedExpr f) where
   showP = showP . project
 
-unsizedStep :: (Base a ~ UnsizedBase a g2, Recursive a, Corecursive a, Eq a, Show a) => (Base a a -> a) -> Base a a -> a
+unsizedStep :: (Base a ~ UnsizedBase a g2, Recursive a, Corecursive a, Eq a, Show a, PrettyPrintable a) => (Base a a -> a) -> Base a a -> a
 unsizedStep handleOther =
   let recur = unsizedStep handleOther
       unsizedMerge = mergeSuper (mergeAbort (mergeUnsized mergeUnknown))
@@ -707,7 +657,8 @@ mergeSuper mergeOther a b =
         _                                 -> TwoFW $ EitherPF (embed $ ZeroFW pa) (embed $ ZeroFW pb)
   in case (a,b) of
     (ZeroEE ba, ZeroEE bb) -> embed $ mergeZero ba bb
-    (OneEE (StuckF ba), OneEE (StuckF bb)) -> embed . OneFW . StuckF $ reMerge ba bb
+    -- (OneEE (StuckF ba), OneEE (StuckF bb)) -> embed . OneFW . StuckF $ reMerge ba bb
+    (OneEE (StuckF fida ba), OneEE (StuckF fidb _)) | fida == fidb -> embed . OneFW . StuckF fida $ ba
     (TwoEE AnyPF, _) -> embed $ TwoFW AnyPF
     (_, TwoEE AnyPF) -> embed $ TwoFW AnyPF
     (TwoEE (EitherPF a b), TwoEE (EitherPF c d)) -> embed . TwoFW $ EitherPF (reMerge a c) (reMerge b d)
@@ -767,7 +718,7 @@ instance PrettyPrintable1 PartExprF where
 
 instance PrettyPrintable f => PrettyPrintable1 (StuckF f) where
   showP1 = \case
-    StuckF d -> indentWithOneChild' "D" $ showP d
+    StuckF fid d -> indentWithOneChild' ("D" <> show (fromEnum fid)) $ showP d
 
 instance PrettyPrintable1 SuperPositionF where
   showP1 = \case
@@ -798,7 +749,6 @@ instance PrettyPrintable1 BitsExprF where
     SetEnvB x -> indentWithOneChild' "S" $ showP x
     GateB l r -> indentWithTwoChildren' "G" (showP l) (showP r)
     VarB vi -> pure $ "V" <> (show $ fromEnum vi)
-    UnusedBits -> pure "U"
     AbortB -> pure "A"
     RecursionTestB x -> indentWithOneChild' "T" $ showP x
     UnsizedChurchNumeralB -> pure "?"
@@ -808,7 +758,7 @@ instance PrettyPrintable BitsExpr where
 
 instance PrettyPrintable BitsExprWMap where
   showP (BitsExprWMap expr m) = pure x where
-    x = prettyPrint expr <> vs -- State.evalState vs 0
+    x = prettyPrint expr <> vs
     showV = show . fromEnum
     vs = cata getF expr where
       getF = \case
@@ -829,7 +779,7 @@ term3ToUnsizedExpr maxSize (Term3 termMap) =
         PairFrag a b -> ZeroFW $ PairSF (convertFrag' a) (convertFrag' b)
         EnvFrag -> ZeroFW EnvSF
         SetEnvFrag x -> ZeroFW . SetEnvSF $ convertFrag' x
-        DeferFrag ind -> OneFW . StuckF . convertFrag' . unFragExprUR $ fragLookup ind
+        DeferFrag ind -> OneFW . StuckF (toEnum $ fromEnum ind) . convertFrag' . unFragExprUR $ fragLookup ind
         AbortFrag -> ThreeFW AbortF
         GateFrag l r -> ZeroFW $ GateSF (convertFrag' l) (convertFrag' r)
         LeftFrag x -> ZeroFW . LeftSF $ convertFrag' x
@@ -883,14 +833,15 @@ sizeTerm maxSize = tidyUp . findSize . sizeF where
     let evaled = evalPossible testG
         sizingResults = map (second foldAborted) . recursionResults' $ evaled
         testG = case x of -- hacky, to handle many situations
-          OneEE (StuckF _) -> embed . ZeroFW $ fillFunction x (embed $ TwoFW AnyPF) -- from sizeF
-          ZeroEE (PairSF d@(OneEE (StuckF _)) _) -> trace "doing 'main' testG" embed . ZeroFW $ fillFunction d (embed $ TwoFW AnyPF) -- compiling main
-          _ -> trace "doing 'test' testG" embed . ZeroFW $ fillFunction (embed $ OneFW (StuckF x)) (embed $ TwoFW AnyPF) -- compiling test expression
+          OneEE (StuckF _ _) -> embed . ZeroFW $ fillFunction x (embed $ TwoFW AnyPF) -- from sizeF
+          ZeroEE (PairSF d@(OneEE (StuckF _ _)) _) -> trace "doing 'main' testG" embed . ZeroFW $ fillFunction d (embed $ TwoFW AnyPF) -- compiling main
+          _ -> trace "doing 'test' testG" embed . ZeroFW $ fillFunction (embed $ OneFW (StuckF twfid x)) (embed $ TwoFW AnyPF) -- compiling test expression
         selectResult (n, r) alt = case r of
           Just (UnsizableSR _) -> (tm, x)
           -- Nothing -> trace ("after setting sizes is\n" <> prettyPrint (setSizes n x)) (mempty, setSizes n x)
           Nothing -> (mempty, setSizes n x)
           _ -> alt
+        twfid = toEnum (-1)
     in foldr selectResult (tm, x) sizingResults
   tidyUp = \case
     (UnsizedAggregate uam, _) | not (null uam) -> case Map.minViewWithKey uam of
@@ -921,18 +872,22 @@ sizeTerm maxSize = tidyUp . findSize . sizeF where
   evalPossible = evalBottomUp (stuckStep (superStep unsizedMerge (abortStep (unsizedStep unhandledError))))
   unhandledError x = error ("sizeTerm unhandled case\n" <> prettyPrint x)
 
-instance Functor o => TelomareLike (StuckExpr o) where
--- instance (Recursive r, Base r ~ StuckBase r f) => TelomareLike r where -- do I want undecideableinstances?
-  fromTelomare = \case
-    Zero     -> embed $ ZeroFW ZeroSF
-    Pair a b -> embed . ZeroFW $ PairSF (fromTelomare a) (fromTelomare b)
-    Env      -> embed $ ZeroFW EnvSF
-    SetEnv x -> embed . ZeroFW $ SetEnvSF (fromTelomare x)
-    Defer x  -> embed . OneFW $ StuckF (fromTelomare x)
-    Gate l r -> embed . ZeroFW $ GateSF (fromTelomare l) (fromTelomare r)
-    PLeft x  -> embed . ZeroFW $ LeftSF (fromTelomare x)
-    PRight x -> embed . ZeroFW $ RightSF (fromTelomare x)
-    Trace    -> error "EnhancedExpr trace"
+instance (Functor o, Traversable o) => TelomareLike (StuckExpr o) where
+  fromTelomare = flip State.evalState (toEnum 0) . anaM' f where
+    f = \case
+      Zero -> pure $ ZeroFW ZeroSF
+      Pair a b -> pure . ZeroFW $ PairSF a b
+      Env -> pure $ ZeroFW EnvSF
+      SetEnv x -> pure . ZeroFW $ SetEnvSF x
+      Defer x -> OneFW <$> (StuckF <$> nextVar <*> anaM' f x)
+      Gate l r -> pure . ZeroFW $ GateSF l r
+      PLeft x -> pure . ZeroFW $ LeftSF x
+      PRight x -> pure . ZeroFW $ RightSF x
+      Trace    -> error "EnhancedExpr trace"
+    nextVar = do
+      i <- State.get
+      State.put $ succ i
+      pure i
   toTelomare = \case
     ZeroEE x -> case x of
       ZeroSF     -> pure Zero
@@ -942,21 +897,25 @@ instance Functor o => TelomareLike (StuckExpr o) where
       GateSF l r -> Gate <$> toTelomare l <*> toTelomare r
       LeftSF x   -> PLeft <$> toTelomare x
       RightSF x  -> PRight <$> toTelomare x
-    OneEE (StuckF x) -> Defer <$> toTelomare x
+    OneEE (StuckF _ x) -> Defer <$> toTelomare x
     _ -> Nothing
 
-instance Functor f => TelomareLike (UnsizedExpr f) where
-  fromTelomare = ana f where
+instance (Functor f, Traversable f) => TelomareLike (UnsizedExpr f) where
+  fromTelomare = flip State.evalState (toEnum 0) . anaM' f where
     f = \case
-      Zero -> ZeroFW ZeroSF
-      Pair a b -> ZeroFW $ PairSF a b
-      Env -> ZeroFW EnvSF
-      SetEnv x -> ZeroFW $ SetEnvSF x
-      Defer x -> OneFW . StuckF $ ana f x
-      Gate l r -> ZeroFW $ GateSF l r
-      PLeft x -> ZeroFW $ LeftSF x
-      PRight x -> ZeroFW $ RightSF x
+      Zero -> pure $ ZeroFW ZeroSF
+      Pair a b -> pure . ZeroFW $ PairSF a b
+      Env -> pure $ ZeroFW EnvSF
+      SetEnv x -> pure . ZeroFW $ SetEnvSF x
+      Defer x -> OneFW <$> (StuckF <$> nextVar <*> anaM' f x)
+      Gate l r -> pure . ZeroFW $ GateSF l r
+      PLeft x -> pure . ZeroFW $ LeftSF x
+      PRight x -> pure . ZeroFW $ RightSF x
       Trace -> error "fromTelomare Telomarelike UnsizedExpr -- trace"
+    nextVar = do
+      i <- State.get
+      State.put $ succ i
+      pure i
   toTelomare = cata f where
     f = \case
       ZeroFW x -> case x of
@@ -967,14 +926,14 @@ instance Functor f => TelomareLike (UnsizedExpr f) where
         GateSF l r -> Gate <$> l <*> r
         LeftSF x -> PLeft <$> x
         RightSF x -> PRight <$> x
-      OneFW (StuckF x) -> Defer <$> cata f x
+      OneFW (StuckF _ x) -> Defer <$> cata f x
       _ -> Nothing
 
 evalBU :: IExpr -> Maybe IExpr
 evalBU = toIExpr . ebu . fromTelomare where
   toIExpr = toTelomare
   ebu :: StuckExpr VoidF -> StuckExpr VoidF
-  ebu = evalBottomUp (stuckStep undefined)
+  ebu = evalBottomUp (stuckStep undefined) . (\x -> debugTrace ("evalBU starting expr:\n" <> prettyPrint x) x)
 
 evalBU' :: IExpr -> IO IExpr
 evalBU' = f . evalBU where
@@ -990,7 +949,7 @@ term4toAbortExpr (Term4 termMap) =
         PairFrag a b  -> ZeroFW $ PairSF (convertFrag' a) (convertFrag' b)
         EnvFrag       -> ZeroFW EnvSF
         SetEnvFrag x  -> ZeroFW . SetEnvSF $ convertFrag' x
-        DeferFrag ind -> OneFW . StuckF . convertFrag' $ termMap Map.! ind
+        DeferFrag ind -> OneFW . StuckF (toEnum . fromEnum $ ind) . convertFrag' $ termMap Map.! ind
         AbortFrag     -> ThreeFW AbortF
         GateFrag l r  -> ZeroFW $ GateSF (convertFrag' l) (convertFrag' r)
         LeftFrag x    -> ZeroFW . LeftSF $ convertFrag' x
@@ -1010,7 +969,7 @@ abortExprToTerm4 x =
       ZeroFW (PairSF a b) -> PairFrag <$> a <*> b
       ZeroFW EnvSF        -> pure EnvFrag
       ZeroFW (SetEnvSF x) -> SetEnvFrag <$> x
-      OneFW (StuckF x)    -> deferF $ cata convert x
+      OneFW (StuckF _ x)    -> deferF $ cata convert x
       ThreeFW AbortF      -> pure AbortFrag
       ZeroFW (GateSF l r) -> GateFrag <$> l <*> r
       ZeroFW (LeftSF x)   -> LeftFrag <$> x
@@ -1030,7 +989,7 @@ evalA combine base t =
                   in eval' . deheadMain $ term4toAbortExpr t
       -- hack to check main functions as well as unit tests
       deheadMain = \case
-        ZeroEE (PairSF (OneEE (StuckF f)) _) -> f
+        ZeroEE (PairSF (OneEE (StuckF _ f)) _) -> f
         x                                      -> x
       getAborted = \case
         ThreeFW (AbortedF e) -> Just e

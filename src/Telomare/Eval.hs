@@ -22,6 +22,7 @@ import           Debug.Trace
 import           System.IO
 import           System.Process
 
+import           PrettyPrint
 import           Telomare                  (BreakState, BreakState', ExprA (..),
                                             FragExpr (..),
                                             FragIndex (FragIndex), IExpr (..),
@@ -44,6 +45,12 @@ import           Telomare.Possible         (AbortExpr, VoidF,
 import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
                                             simpleEval)
 import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
+
+debug :: Bool
+debug = True
+
+debugTrace :: String -> a -> a
+debugTrace s x = if debug then trace s x else x
 
 data ExpP = ZeroP
     | PairP ExpP ExpP
@@ -189,10 +196,11 @@ compileUnitTest :: Term3 -> Either EvalError IExpr
 compileUnitTest = compile runStaticChecks
 
 compile :: (Term4 -> Either EvalError Term4) -> Term3 -> Either EvalError IExpr
-compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
-  Right (Just i) -> pure i
-  Right Nothing  -> Left CompileConversionError
-  Left e         -> Left e
+compile staticCheck t = debugTrace ("compiling term3:\n" <> prettyPrint t)
+  $ case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
+      Right (Just i) -> pure i
+      Right Nothing  -> Left CompileConversionError
+      Left e         -> Left e
 
 eval' :: IExpr -> Either String IExpr
 eval' = pure
