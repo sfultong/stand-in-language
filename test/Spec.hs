@@ -23,6 +23,7 @@ import Telomare.Eval
 import Telomare.Optimizer
 import Telomare.Parser
 import Telomare.Possible
+import Telomare.Resolver
 import Telomare.RunTime
 import Telomare.TypeChecker
 import Test.Hspec

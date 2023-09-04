@@ -13,22 +13,20 @@
 module Telomare where --(IExpr(..), ParserTerm(..), LamType(..), Term1(..), Term2(..), Term3(..), Term4(..)
                --, FragExpr(..), FragIndex, TelomareLike, fromTelomare, toTelomare, rootFrag) where
 
-import Control.Applicative
-import Control.DeepSeq
-import Control.Lens.Combinators
-import Control.Lens.Plated
-import Control.Monad.Except
+import Control.Applicative (Applicative (liftA2), liftA3)
+import Control.DeepSeq (NFData (..))
+import Control.Lens.Combinators (Plated (..), transform)
+import Control.Monad.Except (ExceptT)
 import Control.Monad.State (State)
 import qualified Control.Monad.State as State
-import Data.Char
-import Data.Functor.Classes
-import Data.Functor.Foldable
-import Data.Functor.Foldable.TH
+import Data.Char (chr, ord)
+import Data.Functor.Foldable (Base, Recursive (cata))
+import Data.Functor.Foldable.TH (MakeBaseFunctor (makeBaseFunctor))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Data.Void
-import GHC.Generics
+import Data.Void (Void)
+import GHC.Generics (Generic)
 
 {- top level TODO list
  - change AbortFrag form to something more convenient
