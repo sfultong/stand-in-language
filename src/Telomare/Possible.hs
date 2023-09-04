@@ -12,6 +12,7 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE ViewPatterns               #-}
+{-# LANGUAGE InstanceSigs #-}
 module Telomare.Possible where
 
 import           Control.Applicative
@@ -298,6 +299,21 @@ evalB (BitsExprWMap x varMap) = showExpr BitsExprWMap (transformS f x) varMap wh
         x -> x
     Just x -> x
 
+{-
+findSwitches :: BitsExprWMap -> Set VarIndex
+findSwitches (BitsExprWMap x varMap) = f x where
+  f = \case
+-}
+
+-- evalBits :: 
+
+-- buildConstraints :: Map VarIndex SBV.SBool ->
+{-
+buildConstraints :: BitsExprWMap -> SBV.Symbolic SBV.SBool
+buildConstraints (BitsExprWMap bitsExpr varMap) = build bitsExpr where
+  build = \case
+-}
+
 instance TelomareLike BitsExprWMap where
   fromTelomare = wrapUp . convertToBits' . convertEnvs . fromTelomare where
     convertToBits' (nee, vi) = convertToBits vi nee
@@ -557,6 +573,7 @@ unsizedStep handleOther =
     ZeroFW (SetEnvSF (FourEE sr@(SizingResultsF _ _))) -> embed . FourFW $ fmap (fullStep . ZeroFW . SetEnvSF) sr
     ZeroFW (FillFunction (FourEE sr@(SizingResultsF _ _)) e) -> embed . FourFW $ fmap (fullStep . ZeroFW . (\c -> fillFunction c e)) sr
     ZeroFW (GateSwitch l r (FourEE sr@(SizingResultsF _ _))) -> embed . FourFW $ fmap (fullStep . ZeroFW . gateSwitch l r) sr
+    FourFW (UnsizedStubF t e) -> embed . FourFW . SizingResultsF (Set.singleton t) $ iterate recurStep e
     FourFW (RecursionTestF ri x) ->
       let test = \case
             z@(ZeroEE ZeroSF) -> z
@@ -687,6 +704,7 @@ mergeUnknown a b = if a == b
 
 data UnsizedRecursionF f
   = RecursionTestF UnsizedRecursionToken f
+  | UnsizedStubF UnsizedRecursionToken f
   | SizingResultsF (Set UnsizedRecursionToken) [f]
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
@@ -717,6 +735,7 @@ instance PrettyPrintable1 PartExprF where
     RightSF x  -> indentWithOneChild' "R" $ showP x
 
 instance PrettyPrintable f => PrettyPrintable1 (StuckF f) where
+  showP1 :: (PrettyPrintable f, PrettyPrintable a) => StuckF f a -> State Int String
   showP1 = \case
     StuckF fid d -> indentWithOneChild' ("D" <> show (fromEnum fid)) $ showP d
 
@@ -733,6 +752,7 @@ instance PrettyPrintable1 AbortableF where
 instance PrettyPrintable1 UnsizedRecursionF where
   showP1 = \case
     RecursionTestF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("T(" <> show ind <> ")") $ showP x
+    UnsizedStubF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("%" <> show ind) $ showP x
     SizingResultsF _ rl -> do
       i <- State.get
       start <- indentWithChildren' "[" . map showP $ take 2 rl
@@ -786,7 +806,8 @@ term3ToUnsizedExpr maxSize (Term3 termMap) =
         RightFrag x -> ZeroFW . RightSF $ convertFrag' x
         TraceFrag -> ZeroFW EnvSF
         AuxFrag (RecursionTest tok (FragExprUR x)) -> FourFW . RecursionTestF tok $ convertFrag' x
-        AuxFrag (NestedSetEnvs t) -> FourFW . SizingResultsF (Set.singleton t) . take maxSize . iterate (embed . ZeroFW . SetEnvSF) . embed $ ZeroFW EnvSF
+        -- AuxFrag (NestedSetEnvs t) -> FourFW . SizingResultsF (Set.singleton t) . take maxSize . iterate (embed . ZeroFW . SetEnvSF) . embed $ ZeroFW EnvSF
+        AuxFrag (NestedSetEnvs t) -> FourFW . UnsizedStubF t . embed $ ZeroFW EnvSF
   in convertFrag' . unFragExprUR $ rootFrag termMap
 
 newtype UnsizedAggregate = UnsizedAggregate { unUnAgg :: Map UnsizedRecursionToken ( Bool, Bool) }
@@ -855,7 +876,9 @@ sizeTerm maxSize = tidyUp . findSize . sizeF where
       ThreeFW x -> ThreeFW x
       z         -> error "sizeTerm clean should be impossible"
   setSizes n = transformStuck $ \case
-    FourFW (SizingResultsF _ rl) -> rl !! n
+    -- FourFW (SizingResultsF _ rl) -> rl !! n
+    FourFW (UnsizedStubF _ _) -> iterate (embed . ZeroFW . SetEnvSF) (embed $ ZeroFW EnvSF) !! n
+
     FourFW (RecursionTestF _ x) -> x
     x -> embed x
   recursionResults' x = map (\n -> (n, cata (f n) x)) [1..maxSize] where
