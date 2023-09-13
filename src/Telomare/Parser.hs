@@ -35,6 +35,7 @@ import Text.Read (readMaybe)
 data Pattern
   = PatternVar String
   | PatternInt Int
+  | PatternString String
   | PatternIgnore
   | PatternPair Pattern Pattern
   deriving (Show, Eq, Ord)
@@ -221,6 +222,7 @@ parseSingleCase = do
 parsePattern :: TelomareParser Pattern
 parsePattern = choice $ try <$> [ parsePatternIgnore
                                 , parsePatternVar
+                                , parsePatternString
                                 , parsePatternInt
                                 , parsePatternPair
                                 ]
@@ -234,6 +236,9 @@ parsePatternPair = parens $ do
 
 parsePatternInt :: TelomareParser Pattern
 parsePatternInt = PatternInt . fromInteger <$> integer
+
+parsePatternString :: TelomareParser Pattern
+parsePatternString = PatternString <$> (char '"' >> manyTill L.charLiteral (char '"'))
 
 parsePatternVar :: TelomareParser Pattern
 parsePatternVar = PatternVar <$> identifier
