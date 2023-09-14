@@ -64,29 +64,28 @@ instance MonadFail (Either String) where
 -- | Finds all PatternInt leaves returning "directions" to these leaves through pairs
 -- in the form of a combination of RightUP and LeftUP from the root
 -- e.g. PatternPair (PatternVar "x") (PatternPair (PatternInt 0) (PatternVar "y"))
---      will return [RightUP . LeftUP]
+--      will return [LeftUP . RightUP]
 findInts :: Pattern -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
 findInts = cata alg where
   alg :: Base Pattern [UnprocessedParsedTerm -> UnprocessedParsedTerm]
       -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
   alg = \case
-    PatternPairF x y -> ((LeftUP .) <$> x) <> ((RightUP .) <$> y)
+    PatternPairF x y -> ((. LeftUP) <$> x) <> ((. RightUP) <$> y)
     PatternIntF x    -> [id]
     _                -> []
 
 -- | Finds all PatternString leaves returning "directions" to these leaves through pairs
 -- in the form of a combination of RightUP and LeftUP from the root
 -- e.g. PatternPair (PatternVar "x") (PatternPair (PatternString "Hello, world!") (PatternVar "y"))
---      will return [RightUP . LeftUP]
+--      will return [LeftUP . RightUP]
 findStrings :: Pattern -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
 findStrings = cata alg where
   alg :: Base Pattern [UnprocessedParsedTerm -> UnprocessedParsedTerm]
       -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
   alg = \case
-    PatternPairF x y -> ((LeftUP .) <$> x) <> ((RightUP .) <$> y)
+    PatternPairF x y -> ((. LeftUP) <$> x) <> ((. RightUP) <$> y)
     PatternStringF x -> [id]
     _                -> []
-
 
 fitPatternVarsToCasedUPT :: Pattern -> UnprocessedParsedTerm -> UnprocessedParsedTerm
 fitPatternVarsToCasedUPT p upt = applyVars2UPT varsOnUPT $ pattern2UPT p where
@@ -124,7 +123,7 @@ findPatternVars = cata alg where
   alg :: Base Pattern (Map String (UnprocessedParsedTerm -> UnprocessedParsedTerm))
       -> Map String (UnprocessedParsedTerm -> UnprocessedParsedTerm)
   alg = \case
-    PatternPairF x y -> ((LeftUP .) <$> x) <> ((RightUP .) <$> y)
+    PatternPairF x y -> ((. LeftUP) <$> x) <> ((. RightUP) <$> y)
     PatternVarF str  -> Map.singleton str id
     _                -> Map.empty
 
@@ -139,7 +138,7 @@ pairRoute2Dirs = cata alg where
   alg :: Base Pattern [UnprocessedParsedTerm -> UnprocessedParsedTerm]
       -> [UnprocessedParsedTerm -> UnprocessedParsedTerm]
   alg = \case
-    PatternPairF x y -> [id] <> ((LeftUP .) <$> x) <> ((RightUP .) <$> y)
+    PatternPairF x y -> [id] <> ((. LeftUP) <$> x) <> ((. RightUP) <$> y)
     _                -> []
 
 pattern2UPT :: Pattern -> UnprocessedParsedTerm
@@ -198,60 +197,8 @@ case2annidatedIfs x (aPattern:as) (dirs2IntsOnUPT:bs) (dirs2IntsOnPattern:cs) (d
                           , pairStructureCheck aPattern x
                           ]))
            (mkCaseAlternative x resultAlternative aPattern)
-           (case2annidatedIfs x as bs cs [] [] fs)
-case2annidatedIfs x (aPattern:as) (dirs2IntsOnUPT:bs) (dirs2IntsOnPattern:cs) [] [] (resultAlternative:fs) = -- just Int leaves left
-  let patternVarsOnUPT :: Map String UnprocessedParsedTerm
-      patternVarsOnUPT = ($ x) <$> findPatternVars aPattern
-  in ITEUP (AppUP (AppUP (VarUP "and")
-                         (AppUP (AppUP (VarUP "listEqual") dirs2IntsOnUPT) dirs2IntsOnPattern))
-                  (pairStructureCheck aPattern x))
-           (mkCaseAlternative x resultAlternative aPattern)
-           (case2annidatedIfs x as bs cs [] [] fs)
-case2annidatedIfs x (aPattern:as) [] [] (dirs2StringOnUPT:ds) (dirs2StringOnPattern:es) (resultAlternative:fs) = -- Just String leaves left
-  let patternVarsOnUPT :: Map String UnprocessedParsedTerm
-      patternVarsOnUPT = ($ x) <$> findPatternVars aPattern
-  in ITEUP (AppUP (AppUP (VarUP "and")
-                         (AppUP (AppUP (VarUP "listEqual") dirs2StringOnUPT) dirs2StringOnPattern))
-                  (pairStructureCheck aPattern x))
-           (mkCaseAlternative x resultAlternative aPattern)
-           (case2annidatedIfs x as [] [] ds es fs)
+           (case2annidatedIfs x as bs cs ds es fs)
 case2annidatedIfs _ _ _ _ _ _ _ = error "case2annidatedIfs: lists don't match in size"
-
---   ITEUP (AppUP (AppUP (AppUP (VarUP "foldl") (VarUP "and")) (IntUP 1))
---                (ListUP [AppUP (AppUP (VarUP "listEqual") (ListUP [LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))),RightUP (LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))),RightUP (RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))))])) (ListUP [LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 4))),RightUP (LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 4)))),RightUP (RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 4))))]),AppUP (AppUP (VarUP "listEqual") (ListUP [])) (ListUP []),AppUP (AppUP (AppUP (VarUP "foldl") (VarUP "and")) (IntUP 1)) (ListUP [PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)),RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))])])) (StringUP "Fail") (ITEUP (AppUP (AppUP (VarUP "and") (AppUP (AppUP (VarUP "listEqual") (ListUP [LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))),RightUP (LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))),RightUP (RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))))])) (ListUP [LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))),RightUP (LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))),RightUP (RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))))]))) (AppUP (AppUP (AppUP (VarUP "foldl") (VarUP "and")) (IntUP 1)) (ListUP [PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)),RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))]))) (StringUP "Success") (ITEUP (IntUP 1) (AppUP (VarUP "abort") (StringUP "Non-exhaustive patterns in case")) (IntUP 0)))
-
---   ITEUP (AppUP (AppUP (AppUP (VarUP "foldl") (VarUP "and")) (IntUP 1))
---                (ListUP [ AppUP (AppUP (VarUP "listEqual")
- --                                      (ListUP [ LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))
-   --                                            , RightUP (LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))))
-   --                                            , RightUP (RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))))
- --                                              ]))
- --                               (ListUP [ LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 4)))
-   --                                     , RightUP (LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 4))))
- --                                       , RightUP (RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 4))))
- --                                       ])
-  --                      , AppUP (AppUP (VarUP "listEqual") (ListUP []))
-  --                              (ListUP [])
-  --                      , AppUP (AppUP (AppUP (VarUP "foldl") (VarUP "and")) (IntUP 1))
-  --                              (ListUP [PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)),RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))])
---                        ]))
---         (StringUP "Fail")
---         (ITEUP (AppUP (AppUP (VarUP "and") (AppUP (AppUP (VarUP "listEqual") (ListUP [LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))),RightUP (LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))),RightUP (RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))))])) (ListUP [LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))),RightUP (LeftUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))),RightUP (RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3))))]))) (AppUP (AppUP (AppUP (VarUP "foldl") (VarUP "and")) (IntUP 1)) (ListUP [PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)),RightUP (PairUP (IntUP 1) (PairUP (IntUP 2) (IntUP 3)))]))) (StringUP "Success") (ITEUP (IntUP 1) (AppUP (VarUP "abort") (StringUP "Non-exhaustive patterns in case")) (IntUP 0)))
-
--- case (0(1,2)) of
---   (0,(1,3)) -> "Fail"
---   (0,(1,2)) -> "Success"
-
-aPattern = PatternPair (PatternInt 0) (PatternPair (PatternInt 1) (PatternInt 3))
-bPattern = PatternPair (PatternInt 0) (PatternPair (PatternInt 1) (PatternInt 2))
-
-caseExpr = CaseUP (PairUP (IntUP 0) (PairUP (IntUP 1) (IntUP 2)))
-                  [ (aPattern , StringUP "Fail")
-                  , (bPattern, StringUP "Success")
-                  ]
-
--- mapRoutes (.through)
---   :: Plan p1 ([p2] -> c) -> Plan p1 (Via p2 r -> c)
 
 removeCaseUPs :: UnprocessedParsedTerm -> UnprocessedParsedTerm
 removeCaseUPs = transform go where
@@ -271,10 +218,10 @@ removeCaseUPs = transform go where
           dirs2LeavesOnPattern f = ListUP <$> (pairApplyList <$> (bimap f pattern2UPT . duplicate <$> patterns))
       in case2annidatedIfs x
                            patterns
-                           (traceShow (length $ dirs2LeavesOnUPT findInts) $ dirs2LeavesOnUPT findInts)
-                           (traceShow (length $ dirs2LeavesOnPattern findInts) $ dirs2LeavesOnPattern findInts)
-                           (traceShow (length $ dirs2LeavesOnUPT findStrings) $ dirs2LeavesOnUPT findStrings)
-                           (traceShow (length $ dirs2LeavesOnPattern findStrings) $ dirs2LeavesOnPattern findStrings)
+                           (dirs2LeavesOnUPT findInts)
+                           (dirs2LeavesOnPattern findInts)
+                           (dirs2LeavesOnUPT findStrings)
+                           (dirs2LeavesOnPattern findStrings)
                            resultCaseAlts
     x -> x
 
