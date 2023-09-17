@@ -187,6 +187,7 @@ compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>=
   Right Nothing  -> Left CompileConversionError
   Left e         -> Left e
 
+runMain :: String -> String -> IO ()
 runMain preludeString s =
   let prelude :: [(String, UnprocessedParsedTerm)]
       prelude =

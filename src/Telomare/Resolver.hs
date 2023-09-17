@@ -3,8 +3,6 @@
 
 module Telomare.Resolver where
 
-import Debug.Trace (traceShowId, traceShow)
-
 import Codec.Binary.UTF8.String (encode)
 import Control.Lens.Combinators (transform)
 import Control.Monad ((<=<))
