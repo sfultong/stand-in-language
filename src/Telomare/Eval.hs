@@ -132,7 +132,7 @@ convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
                                    startKey = succ . fst $ Map.findMax termMap
                                    changeFrag = \case
                                      AuxFrag (NestedSetEnvs n) -> innerChurchF $ ll n
-                                     AuxFrag (RecursionTest _ x) -> transformM changeFrag $ unFragExprUR x
+                                     AuxFrag (SizingWrapper _ x) -> transformM changeFrag $ unFragExprUR x
                                      x -> pure x
                                    insertChanged :: FragIndex -> FragExpr RecursionPieceFrag -> BreakState RecursionPieceFrag () ()
                                    insertChanged nk nv = State.modify (\(_, k, m) -> ((), k, Map.insert nk nv m))
@@ -154,8 +154,8 @@ convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
                                in Term4 $ fmap changeType newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
-findChurchSize = pure . convertPT (const 255)
--- findChurchSize = calculateRecursionLimits
+-- findChurchSize = pure . convertPT (const 255)
+findChurchSize = calculateRecursionLimits
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4

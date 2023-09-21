@@ -139,7 +139,7 @@ instance PrettyPrintable Term3 where
       RightFrag x -> indentWithOneChild' "R" $ showFrag x
       TraceFrag -> pure "T"
       AuxFrag x -> case x of
-        RecursionTest _ x' -> indentWithOneChild' "?" . showFrag $ unFragExprUR x'
+        SizingWrapper _ x' -> indentWithOneChild' "?" . showFrag $ unFragExprUR x'
         NestedSetEnvs _ -> pure "%"
 
 showTypeDebugInfo :: TypeDebugInfo -> String
@@ -162,7 +162,7 @@ showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
           LeftFrag x                             -> "L " <> recur x
           RightFrag x                            -> "R " <> recur x
           TraceFrag                              -> "T"
-          AuxFrag (RecursionTest _ (FragExprUR x)) -> "?" <> recur x
+          AuxFrag (SizingWrapper _ (FragExprUR x)) -> "?" <> recur x
           AuxFrag (NestedSetEnvs _)              -> "%"
   in showFrag (FragIndex 0) rootType (unFragExprUR $ rootFrag termMap) <> "\n"
      <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail . Map.toAscList . Map.map unFragExprUR $ termMap)

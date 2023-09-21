@@ -127,7 +127,6 @@ data BitsExprF f
   | GateB f f
   | VarB VarIndex
   | AbortB
-  | RecursionTestB f
   | UnsizedChurchNumeralB
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
@@ -139,9 +138,7 @@ instance Show1 BitsExprF where
     SetEnvB x -> shows "SetEnvB (" . showsPrec 0 x . shows ")"
     GateB l r -> shows "GateB (" . showsPrec 0 l . shows ", " . showsPrec 0 r . shows ")"
     VarB vi -> shows "VarB " . shows vi
---    UnusedBits -> shows "UnusedBits"
     AbortB -> shows "AbortB"
-    RecursionTestB x -> shows "RecursionTestB (" . showsPrec 0 x . shows ")"
     UnsizedChurchNumeralB -> shows "UnsizedChurchNumeralB"
 
 
@@ -235,7 +232,7 @@ convertToBits startVar = flip State.runState (startVar, Map.empty) . cata f wher
       NEnv vi -> pure $ VarB vi
     TwoFW AbortF -> trace "convertToBits doing abort now" pure AbortB
     SplitFunctor (Left (SplitFunctor (Left (SplitFunctor (Left x))))) -> case x of
-      RecursionTestF _ x' -> RecursionTestB <$> x'
+      SizingWrapperF _ x' -> project <$> x'
       SizingResultsF _ _ -> pure UnsizedChurchNumeralB
   nextVar = do
     (i, m) <- State.get
@@ -266,7 +263,6 @@ evalB :: BitsExprWMap -> BitsExprWMap
 evalB (BitsExprWMap x varMap) = showExpr BitsExprWMap (transformS f x) varMap where
   showExpr = debugTrace ("evalB BitsExprWMap\n" <> prettyPrint (BitsExprWMap x varMap))
   f = \case
-    RecursionTestB x -> x
     SetEnvB (Fix (PairB df e)) -> case project df of
       GateB l r -> case project e of
         ZeroB -> l
@@ -705,6 +701,7 @@ mergeUnknown a b = if a == b
 data UnsizedRecursionF f
   = RecursionTestF UnsizedRecursionToken f
   | UnsizedStubF UnsizedRecursionToken f
+  | SizingWrapperF UnsizedRecursionToken f
   | SizingResultsF (Set UnsizedRecursionToken) [f]
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
@@ -752,6 +749,7 @@ instance PrettyPrintable1 AbortableF where
 instance PrettyPrintable1 UnsizedRecursionF where
   showP1 = \case
     RecursionTestF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("T(" <> show ind <> ")") $ showP x
+    SizingWrapperF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("&(" <> show ind <> ")") $ showP x
     UnsizedStubF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("%" <> show ind) $ showP x
     SizingResultsF _ rl -> do
       i <- State.get
@@ -770,7 +768,6 @@ instance PrettyPrintable1 BitsExprF where
     GateB l r -> indentWithTwoChildren' "G" (showP l) (showP r)
     VarB vi -> pure $ "V" <> (show $ fromEnum vi)
     AbortB -> pure "A"
-    RecursionTestB x -> indentWithOneChild' "T" $ showP x
     UnsizedChurchNumeralB -> pure "?"
 
 instance PrettyPrintable BitsExpr where
@@ -805,11 +802,19 @@ term3ToUnsizedExpr maxSize (Term3 termMap) =
         LeftFrag x -> ZeroFW . LeftSF $ convertFrag' x
         RightFrag x -> ZeroFW . RightSF $ convertFrag' x
         TraceFrag -> ZeroFW EnvSF
-        AuxFrag (RecursionTest tok (FragExprUR x)) -> FourFW . RecursionTestF tok $ convertFrag' x
-        -- AuxFrag (NestedSetEnvs t) -> FourFW . SizingResultsF (Set.singleton t) . take maxSize . iterate (embed . ZeroFW . SetEnvSF) . embed $ ZeroFW EnvSF
+        AuxFrag (SizingWrapper tok (FragExprUR x)) -> FourFW . SizingWrapperF tok $ convertFrag' x
         AuxFrag (NestedSetEnvs t) -> FourFW . UnsizedStubF t . embed $ ZeroFW EnvSF
   in convertFrag' . unFragExprUR $ rootFrag termMap
 
+{-
+data SizingStatus = SizingStatus
+  { aggTest :: Bool
+  , aggSetEnvs :: Bool
+    
+  }
+-}
+
+{-
 newtype UnsizedAggregate = UnsizedAggregate { unUnAgg :: Map UnsizedRecursionToken ( Bool, Bool) }
 
 aggTest :: UnsizedRecursionToken -> UnsizedAggregate
@@ -826,6 +831,19 @@ instance Monoid UnsizedAggregate where
 
 readyForSizing :: UnsizedAggregate -> Bool
 readyForSizing (UnsizedAggregate m) = not (null m) && all (\(a,b) -> a && b) m
+-}
+newtype UnsizedAggregate = UnsizedAggregate { unUnAgg :: Map UnsizedRecursionToken Bool }
+
+instance Semigroup UnsizedAggregate where
+  (<>) (UnsizedAggregate a) (UnsizedAggregate b) = UnsizedAggregate $ Map.unionWith (||) a b
+
+instance Monoid UnsizedAggregate where
+  mempty = UnsizedAggregate $ Map.empty
+
+aggWrapper x = UnsizedAggregate $ Map.singleton x True
+
+readyForSizing :: UnsizedAggregate -> Bool
+readyForSizing (UnsizedAggregate m) = not (null m) && and m
 
 data SizedResult = AbortedSR | UnsizableSR UnsizedRecursionToken
 
@@ -844,12 +862,18 @@ instance Semigroup a => Monoid (MonoidList a) where
   mempty = MonoidList []
 
 sizeTerm :: (Traversable f, Show1 f, Eq1 f, PrettyPrintable1 f) => Int -> UnsizedExpr f -> Either UnsizedRecursionToken (AbortExpr f)
-sizeTerm maxSize = tidyUp . findSize . sizeF where
+sizeTerm maxSize = tidyUp . findSize . second addSizingTest . sizeF where
   sizeF = transformStuckM $ \case
-    ur@(FourFW (RecursionTestF t (tm, x))) -> (aggTest t <> tm, embed . FourFW $ RecursionTestF t x)
+    ur@(FourFW (SizingWrapperF t (tm, x))) -> (aggWrapper t <> tm, embed . FourFW $ SizingWrapperF t x)
     ZeroFW (PairSF (tmc, c@(OneEE _)) (tme, e@(ZeroEE ZeroSF))) | readyForSizing (tmc <> tme) ->
-                                        findSize (tmc <> tme, embed . ZeroFW $ PairSF c e)
+                                        findSize (tmc <> tme, addSizingTest . embed . ZeroFW $ PairSF c e)
     x -> embed <$> sequence x
+  addSizingTest = transformStuck f where
+    f = \case
+      FourFW (SizingWrapperF tok (ZeroEE (PairSF d (ZeroEE (PairSF b (ZeroEE (PairSF r (ZeroEE (PairSF t (ZeroEE ZeroSF))))))))))
+        -> embed . ZeroFW . PairSF d . embed . ZeroFW . PairSF b . embed . ZeroFW . PairSF r . embed . ZeroFW $ PairSF (embed . FourFW $ RecursionTestF tok t)
+        (embed $ ZeroFW ZeroSF)
+      x -> embed x
   findSize (tm, x) =
     let evaled = evalPossible testG
         sizingResults = map (second foldAborted) . recursionResults' $ evaled
@@ -868,18 +892,17 @@ sizeTerm maxSize = tidyUp . findSize . sizeF where
     (UnsizedAggregate uam, _) | not (null uam) -> case Map.minViewWithKey uam of
                                   Just ((urt, _), _) -> Left urt
     (_, x) -> pure . clean $ x
-  clean :: Functor f => UnsizedExpr f -> AbortExpr f
+  clean :: (Functor f, PrettyPrintable1 f) => UnsizedExpr f -> AbortExpr f
   clean = transformStuck (embed . f) where
     f = \case
       ZeroFW x  -> ZeroFW x
       TwoFW x   -> TwoFW x
       ThreeFW x -> ThreeFW x
-      z         -> error "sizeTerm clean should be impossible"
+      z         -> error ("sizeTerm clean should be impossible:\n" <> prettyPrint z)
   setSizes n = transformStuck $ \case
-    -- FourFW (SizingResultsF _ rl) -> rl !! n
     FourFW (UnsizedStubF _ _) -> iterate (embed . ZeroFW . SetEnvSF) (embed $ ZeroFW EnvSF) !! n
-
     FourFW (RecursionTestF _ x) -> x
+    -- FourFW (SizingWrapperF _ x) -> x
     x -> embed x
   recursionResults' x = map (\n -> (n, cata (f n) x)) [1..maxSize] where
     f n = \case

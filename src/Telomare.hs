@@ -285,7 +285,7 @@ newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken 
 
 data RecursionSimulationPieces a
   = NestedSetEnvs UnsizedRecursionToken
-  | RecursionTest UnsizedRecursionToken a
+  | SizingWrapper UnsizedRecursionToken a
   deriving (Eq, Ord, Show)
 
 newtype FragExprUR = FragExprUR { unFragExprUR :: FragExpr (RecursionSimulationPieces FragExprUR) }
@@ -297,7 +297,7 @@ type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
 
 -- |Term3 :: Map FragIndex (FragExpr BreakExtras) -> Term3
-newtype Term3 = Term3 (Map FragIndex (FragExprUR)) deriving (Eq, Show)
+newtype Term3 = Term3 (Map FragIndex FragExprUR) deriving (Eq, Show)
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving (Eq, Show)
 
 type BreakState a b = State (b, FragIndex, Map FragIndex (FragExpr a))
@@ -509,18 +509,14 @@ unsizedRecursionWrapper urToken t r b =
                    <$> rf <*> abrt
       -- run the iterations x' number of times, then unwrap the result from the final frame
       unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
-      wrapTest = \case
-        p@(PairFrag (DeferFrag ind) e) -> do
-          State.modify (\(bi, i, m) -> (bi, i, Map.adjust (\x -> AuxFrag . RecursionTest urToken $ FragExprUR x) ind m))
-          pure p
-        _ -> error "unsizedRecursionWrapper unexpected recursion test section"
+      wrapU = fmap (AuxFrag . SizingWrapper urToken . FragExprUR)
       -- \t r b r' i -> if t i then r r' i else b i -- t r b are already on the stack when this is evaluated
       rWrap = lamF . lamF $ iteF (appF fifthArgF firstArgF)
                                  (appF (appF fourthArgF secondArgF) firstArgF)
                                  (appF thirdArgF firstArgF)
       churchNum = clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
-      trb = pairF b (pairF r (pairF (t >>= wrapTest) (pure ZeroFrag)))
-  in SetEnvFrag <$> pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb
+      trb = pairF b (pairF r (pairF t (pure ZeroFrag)))
+  in SetEnvFrag <$> wrapU (pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb)
 
 nextBreakToken :: Enum b => BreakState a b b
 nextBreakToken = do
