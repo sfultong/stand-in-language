@@ -184,18 +184,28 @@ case2annidatedIfs _ [] [] [] [] [] [] =
   ITEUP (IntUP 1)
         (AppUP (VarUP "abort") $ StringUP "Non-exhaustive patterns in case")
         (IntUP 0)
-case2annidatedIfs x (aPattern:as) (dirs2IntsOnUPT:bs) (dirs2IntsOnPattern:cs) (dirs2StringOnUPT:ds) (dirs2StringOnPattern:es) (resultAlternative:fs) =
-  let patternVarsOnUPT :: Map String UnprocessedParsedTerm
-      patternVarsOnUPT = ($ x) <$> findPatternVars aPattern
-  in ITEUP (AppUP (AppUP (AppUP (VarUP "foldl")
-                                 (VarUP "and"))
-                         (IntUP 1))
-                  (ListUP [ AppUP (AppUP (VarUP "listEqual") dirs2IntsOnUPT) dirs2IntsOnPattern
-                          , AppUP (AppUP (VarUP "listEqual") dirs2StringOnUPT) dirs2StringOnPattern
-                          , pairStructureCheck aPattern x
-                          ]))
-           (mkCaseAlternative x resultAlternative aPattern)
-           (case2annidatedIfs x as bs cs ds es fs)
+case2annidatedIfs x (aPattern:as) (ListUP [] : bs) (ListUP [] :cs) (dirs2StringOnUPT:ds) (dirs2StringOnPattern:es) (resultAlternative:fs) =
+  ITEUP (AppUP (AppUP (VarUP "and")
+                      (AppUP (AppUP (VarUP "listEqual") dirs2StringOnUPT) dirs2StringOnPattern))
+               (pairStructureCheck aPattern x))
+        (mkCaseAlternative x resultAlternative aPattern)
+        (case2annidatedIfs x as bs cs ds es fs)
+case2annidatedIfs x (aPattern:as) (dirs2IntOnUPT:bs) (dirs2IntOnPattern:cs) (ListUP [] : ds) (ListUP [] : es) (resultAlternative:fs) =
+  ITEUP (AppUP (AppUP (VarUP "and")
+                      (AppUP (AppUP (VarUP "listEqual") dirs2IntOnUPT) dirs2IntOnPattern))
+               (pairStructureCheck aPattern x))
+        (mkCaseAlternative x resultAlternative aPattern)
+        (case2annidatedIfs x as bs cs ds es fs)
+case2annidatedIfs x (aPattern:as) (dirs2IntOnUPT:bs) (dirs2IntOnPattern:cs) (dirs2StringOnUPT:ds) (dirs2StringOnPattern:es) (resultAlternative:fs) =
+  ITEUP (AppUP (AppUP (AppUP (VarUP "foldl")
+                              (VarUP "and"))
+                      (IntUP 1))
+               (ListUP [ AppUP (AppUP (VarUP "listEqual") dirs2IntOnUPT) dirs2IntOnPattern
+                       , AppUP (AppUP (VarUP "listEqual") dirs2StringOnUPT) dirs2StringOnPattern
+                       , pairStructureCheck aPattern x
+                       ]))
+        (mkCaseAlternative x resultAlternative aPattern)
+        (case2annidatedIfs x as bs cs ds es fs)
 case2annidatedIfs _ _ _ _ _ _ _ = error "case2annidatedIfs: lists don't match in size"
 
 removeCaseUPs :: UnprocessedParsedTerm -> UnprocessedParsedTerm
