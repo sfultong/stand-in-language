@@ -5,6 +5,7 @@
 
 module Main where
 
+import CaseTests (qcPropsCase, unitTestsCase)
 import Common
 import Control.Monad.Except (ExceptT, MonadError, catchError, runExceptT,
                              throwError)
@@ -31,7 +32,7 @@ main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [unitTests, qcProps]
+tests = testGroup "Tests" [unitTests, qcProps, unitTestsCase, qcPropsCase]
 
 ---------------------
 ------ Property Tests
@@ -154,20 +155,18 @@ unitTests = testGroup "Unit tests"
 
 tictactoe :: IO String
 tictactoe = do
-  preludeString <- Strict.readFile "Prelude.tel"
   telomareString <- Strict.readFile "tictactoe.tel"
-  (pid, hIn, hOut, hErr) <- forkWithStandardFds $ runMain preludeString telomareString
-  hPutStrLn hIn "1"
-  hFlush hIn
-  hPutStrLn hIn "9"
-  hFlush hIn
-  hPutStrLn hIn "2"
-  hFlush hIn
-  hPutStrLn hIn "8"
-  hFlush hIn
-  hPutStrLn hIn "3"
-  hFlush hIn
-  hGetContents hOut
+  runTelomare telomareString $ \(pid, hIn, hOut, hErr) -> do
+      hPutStrLn hIn "1"
+      hFlush hIn
+      hPutStrLn hIn "9"
+      hFlush hIn
+      hPutStrLn hIn "2"
+      hFlush hIn
+      hPutStrLn hIn "8"
+      hFlush hIn
+      hPutStrLn hIn "3"
+      hFlush hIn
 
 fullRunTicTacToeString = unlines
   [ "1|2|3"
@@ -208,23 +207,6 @@ fullRunTicTacToeString = unlines
   , "Player 2wins!"
   , "done"
   ]
-
-forkWithStandardFds :: IO () -> IO (ProcessID, Handle, Handle, Handle)
-forkWithStandardFds act = do
-    (r0, w0) <- createPipe
-    (r1, w1) <- createPipe
-    (r2, w2) <- createPipe
-    pid <- forkProcess $ do
-      -- the six closeFd's aren't strictly speaking necessary,
-      -- but they're good hygiene
-      closeFd w0 >> dupTo r0 stdInput
-      closeFd r1 >> dupTo w1 stdOutput
-      closeFd r2 >> dupTo w2 stdError
-      act
-    hIn  <- closeFd r0 >> fdToHandle w0
-    hOut <- closeFd w1 >> fdToHandle r1
-    hErr <- closeFd w2 >> fdToHandle r2
-    pure (pid, hIn, hOut, hErr)
 
 -- | Telomare Parser AST representation of: \x -> \y -> \z -> z
 expr6 :: Term1

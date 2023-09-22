@@ -12,6 +12,7 @@ import Control.Monad (void)
 import Control.Monad.State (State)
 import Data.Bifunctor (Bifunctor (first, second))
 import Data.Functor (($>))
+import Data.Functor.Foldable (Base, Recursive (cata))
 import Data.Functor.Foldable.TH (MakeBaseFunctor (makeBaseFunctor))
 import Data.Maybe (fromJust)
 import Data.Void (Void)
@@ -31,6 +32,16 @@ import Text.Megaparsec.Debug (dbg)
 import Text.Megaparsec.Pos (Pos)
 import Text.Read (readMaybe)
 
+-- |AST for patterns in `case` expressions
+data Pattern
+  = PatternVar String
+  | PatternInt Int
+  | PatternString String
+  | PatternIgnore
+  | PatternPair Pattern Pattern
+  deriving (Show, Eq, Ord)
+makeBaseFunctor ''Pattern
+
 data UnprocessedParsedTerm
   = VarUP String
   | ITEUP UnprocessedParsedTerm UnprocessedParsedTerm UnprocessedParsedTerm
@@ -48,15 +59,84 @@ data UnprocessedParsedTerm
   | TraceUP UnprocessedParsedTerm
   | CheckUP UnprocessedParsedTerm UnprocessedParsedTerm
   | HashUP UnprocessedParsedTerm -- ^ On ad hoc user defined types, this term will be substitued to a unique Int.
-  -- TODO check
+  | CaseUP UnprocessedParsedTerm [(Pattern, UnprocessedParsedTerm)]
   deriving (Eq, Ord, Show)
 makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedTerm
 makePrisms ''UnprocessedParsedTerm
+
+newtype PrettyPattern = PrettyPattern Pattern
+
+instance Show PrettyPattern where
+  show = \case
+    (PrettyPattern (PatternInt x)) -> show x
+    (PrettyPattern (PatternVar x)) -> x
+    (PrettyPattern (PatternString x)) ->  show x
+    (PrettyPattern (PatternPair x y)) -> "(" <> (show . PrettyPattern $ x) <> ", " <> (show . PrettyPattern $ y) <> ")"
+    (PrettyPattern PatternIgnore) -> "_"
+
+newtype PrettyUPT = PrettyUPT UnprocessedParsedTerm
+
+instance Show PrettyUPT where
+  show (PrettyUPT upt) = cata alg upt where
+    indentSansFirstLine :: Int -> String -> String
+    indentSansFirstLine i x = removeLastNewLine res where
+      res = unlines ((\(s:ns) -> s:((indent i <>) <$> ns)) (lines x))
+      indent 0 = []
+      indent n = ' ' : indent (n - 1)
+      removeLastNewLine str =
+        case reverse str of
+          '\n' : rest -> reverse rest
+          x           -> str
+    alg :: Base UnprocessedParsedTerm String -> String
+    alg = \case
+      IntUPF i -> show i
+      VarUPF str -> str
+      StringUPF str -> show str
+      PairUPF x y -> if length (lines (x <> y)) > 1
+                       then "( " <> indentSansFirstLine 2 x <> "\n" <>
+                            ", " <> indentSansFirstLine 2 y <> "\n" <>
+                            ")"
+                       else "(" <> x <> ", " <> y <>")"
+      (ITEUPF x y z) -> "if " <> indentSansFirstLine 3 x <> "\n" <>
+                          "  then " <> indentSansFirstLine 7 y <> "\n" <>
+                          "  else " <> indentSansFirstLine 7 z
+      (LetUPF ls x) ->
+        "let " <> indentSansFirstLine 4 (unlines (assignList <$> ls)) <> "\n" <>
+        "in " <> indentSansFirstLine 3 x
+          where
+            assignList :: (String, String) -> String
+            assignList (str, upt) = str <> " = " <> indentSansFirstLine (3 + length str) upt
+      (ListUPF []) -> "[]"
+      (ListUPF ls) ->
+        "[" <> removeFirstComma (unlines (indentSansFirstLine 2 . (", " <>) <$> ls)) <>
+        "]"
+          where
+            removeFirstComma = \case
+              (',':str) -> str
+              _         -> error "removeFirstComma: input does not start with a comma"
+      (AppUPF x y) -> "(" <> x <> " " <> "(" <> y <> ")" <>")"
+      (LamUPF str y) -> "\\ " <> str <> " -> " <> indentSansFirstLine (6 + length str) y
+      (ChurchUPF x) -> "$" <> show x
+      (LeftUPF x) -> "left (" <> indentSansFirstLine 6 x <> ")"
+      (RightUPF x) -> "right (" <> indentSansFirstLine 7 x <> ")"
+      (TraceUPF x) -> "trace (" <> indentSansFirstLine 7 x <> ")"
+      (UnsizedRecursionUPF x y z) -> "{ " <> indentSansFirstLine 2 x <>
+                                     ", " <> indentSansFirstLine 2 y <>
+                                     ", " <> indentSansFirstLine 2 z <>
+                                     "}"
+      (HashUPF x) -> "# " <> indentSansFirstLine 2 x
+      (CaseUPF x ls) -> "case " <> x <> " of\n" <>
+                        "  " <> indentSansFirstLine 2 (unlines ((\(p, r) -> indentSansFirstLine 2 (show (PrettyPattern p) <> " -> " <> r)) <$> ls))
+      (CheckUPF x y) -> if length (lines (x <> y)) > 1
+                          then "(" <> indentSansFirstLine 2 y <> " : " <> "\n" <>
+                               "    " <> indentSansFirstLine 4 y <> ")"
+                          else "(" <> y <> " : " <> x <> ")"
 
 instance Plated UnprocessedParsedTerm where
   plate f = \case
     ITEUP i t e -> ITEUP <$> f i <*> f t <*> f e
     LetUP l x   -> LetUP <$> traverse sequenceA (second f <$> l) <*> f x
+    CaseUP x l  -> CaseUP <$> f x <*> traverse sequenceA (second f <$> l)
     ListUP l    -> ListUP <$> traverse f l
     PairUP a b  -> PairUP <$> f a <*> f b
     AppUP u x   -> AppUP <$> f u <*> f x
@@ -111,7 +191,7 @@ reserved w = (lexeme . try) (string w *> notFollowedBy alphaNumChar)
 
 -- |List of reserved words
 rws :: [String]
-rws = ["let", "in", "if", "then", "else"]
+rws = ["let", "in", "if", "then", "else", "case", "of" ]
 
 -- |Variable identifiers can consist of alphanumeric characters, underscore,
 -- and must start with an English alphabet letter
@@ -145,6 +225,8 @@ integer = toInteger <$> lexeme L.decimal
 
 -- |Parse string literal.
 parseString :: TelomareParser UnprocessedParsedTerm
+-- TODO: make this a separate PR
+-- parseString = StringUP <$> (char '"' >> manyTill L.charLiteral (char '"'))
 parseString = StringUP <$> (symbol "\"" *> manyTill L.charLiteral (symbol "\""))
 
 -- |Parse number (Integer).
@@ -192,6 +274,48 @@ parseHash = do
   symbol "#" <* scn
   upt <- parseSingleExpr :: TelomareParser UnprocessedParsedTerm
   pure $ HashUP upt
+
+parseCase :: TelomareParser UnprocessedParsedTerm
+parseCase = do
+  reserved "case" <* scn
+  iexpr <- parseLongExpr <* scn
+  reserved "of" <* scn
+  lpc <- many $ parseSingleCase <* scn
+  pure $ CaseUP iexpr lpc
+
+parseSingleCase :: TelomareParser (Pattern, UnprocessedParsedTerm)
+parseSingleCase = do
+  p <- parsePattern <* scn
+  reserved "->" <* scn
+  c <- parseLongExpr <* scn
+  pure (p,c)
+
+parsePattern :: TelomareParser Pattern
+parsePattern = choice $ try <$> [ parsePatternIgnore
+                                , parsePatternVar
+                                , parsePatternString
+                                , parsePatternInt
+                                , parsePatternPair
+                                ]
+
+parsePatternPair :: TelomareParser Pattern
+parsePatternPair = parens $ do
+  p <- scn *> parsePattern <* scn
+  _ <- symbol "," <* scn
+  b <- parsePattern <* scn
+  pure $ PatternPair p b
+
+parsePatternInt :: TelomareParser Pattern
+parsePatternInt = PatternInt . fromInteger <$> integer
+
+parsePatternString :: TelomareParser Pattern
+parsePatternString = PatternString <$> (char '"' >> manyTill L.charLiteral (char '"'))
+
+parsePatternVar :: TelomareParser Pattern
+parsePatternVar = PatternVar <$> identifier
+
+parsePatternIgnore :: TelomareParser Pattern
+parsePatternIgnore = symbol "_" >> pure PatternIgnore
 
 -- |Parse a single expression.
 parseSingleExpr :: TelomareParser UnprocessedParsedTerm
@@ -247,6 +371,7 @@ parseLongExpr = choice $ try <$> [ parseLet
                                  , parseITE
                                  , parseLambda
                                  , parseApplied
+                                 , parseCase
                                  , parseSingleExpr
                                  ]
 
@@ -315,5 +440,4 @@ parsePrelude str = let result = runParser (scn *> many parseAssignment <* eof) "
 parseWithPrelude :: [(String, UnprocessedParsedTerm)]   -- ^Prelude
                  -> String                              -- ^Raw string to be parsed
                  -> Either String UnprocessedParsedTerm -- ^Error on Left
--- parseWithPrelude prelude str = bimap errorBundlePretty (LetUP prelude) $ runParser parseTopLevel "" str
 parseWithPrelude prelude str = first errorBundlePretty $ runParser (parseTopLevelWithPrelude prelude) "" str

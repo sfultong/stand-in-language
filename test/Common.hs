@@ -8,14 +8,18 @@ module Common where
 import Control.Applicative
 import Data.Bifunctor
 import qualified Data.Map as Map
-
-import Test.QuickCheck
-import Test.QuickCheck.Gen
-
+import System.IO
+import qualified System.IO.Strict as Strict
+import System.Posix.IO
+import System.Posix.Process
+import System.Posix.Types (ProcessID)
 import Telomare
+import Telomare.Eval (runMain)
 import Telomare.Parser
 import Telomare.Resolver
 import Telomare.TypeChecker
+import Test.QuickCheck
+import Test.QuickCheck.Gen
 
 class TestableIExpr a where
   getIExpr :: a -> IExpr
@@ -378,3 +382,29 @@ instance Arbitrary Term2 where
     TITE i t e -> i : t : e : [TITE ni nt ne | (ni, nt, ne) <- shrink (i,t,e)]
     TPair a b -> a : b : [TPair na nb | (na, nb) <- shrink (a,b)]
     TApp f i -> f : i : [TApp nf ni | (nf, ni) <- shrink (f,i)]
+
+runTelomare :: String
+            -> ((ProcessID, Handle, Handle, Handle) -> IO a)
+            -> IO String
+runTelomare str action = do
+  preludeString <- Strict.readFile "Prelude.tel"
+  (pid, hIn, hOut, hErr) <- forkWithStandardFds $ runMain preludeString str
+  a <- action (pid, hIn, hOut, hErr)
+  hGetContents hOut
+
+forkWithStandardFds :: IO () -> IO (ProcessID, Handle, Handle, Handle)
+forkWithStandardFds act = do
+    (r0, w0) <- createPipe
+    (r1, w1) <- createPipe
+    (r2, w2) <- createPipe
+    pid <- forkProcess $ do
+      -- the six closeFd's aren't strictly speaking necessary,
+      -- but they're good hygiene
+      closeFd w0 >> dupTo r0 stdInput
+      closeFd r1 >> dupTo w1 stdOutput
+      closeFd r2 >> dupTo w2 stdError
+      act
+    hIn  <- closeFd r0 >> fdToHandle w0
+    hOut <- closeFd w1 >> fdToHandle r1
+    hErr <- closeFd w2 >> fdToHandle r2
+    pure (pid, hIn, hOut, hErr)
