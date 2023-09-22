@@ -123,10 +123,10 @@ unitTests = testGroup "Unit tests"
      res1 `compare` res2  @?= EQ
   , testCase "Ad hoc user defined types success" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
-      res `compare` "\n\a\ndone" @?= EQ
+      res `compare` "\a\ndone\n" @?= EQ
   , testCase "Ad hoc user defined types failure" $ do
       res <- testUserDefAdHocTypes userDefAdHocTypesFailure
-      res `compare` "\nMyInt must not be 0\ndone" @?= EQ
+      res `compare` "MyInt must not be 0\ndone\n" @?= EQ
   , testCase "test automatic open close lambda" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
       validateVariables [] res `compare` Right closedLambdaPair @?= EQ
@@ -250,46 +250,32 @@ expr2 = TLam (Closed "a")
 
 closedLambdaPair = TLam (Closed "x") (TLam (Open "y") (TPair (TVar "x") (TVar "y")))
 
--- TODO: change approach to this
--- testUserDefAdHocTypes :: String -> IO String
--- testUserDefAdHocTypes input = do
---   preludeString <- Strict.readFile "Prelude.tel"
---   (_, _, hOut, _) <- forkWithStandardFds $ runMain preludeString input
---   hGetContents hOut
 testUserDefAdHocTypes :: String -> IO String
 testUserDefAdHocTypes input = do
-  preludeFile <- Strict.readFile "Prelude.tel"
-  let
-    prelude = case parsePrelude preludeFile of
-      Right p -> p
-      Left pe -> error pe
-    runMain :: String -> IO String
-    runMain s = case compileUnitTest <$> parseMain prelude s of
-      Left e -> error $ concat ["failed to parse ", s, " ", e]
-      Right (Right g) -> evalLoop_ g
-      Right z -> error $ "compilation failed somehow, with result " <> show z
-  runMain input
+  preludeString <- Strict.readFile "Prelude.tel"
+  (_, _, hOut, _) <- forkWithStandardFds $ runMain preludeString input
+  hGetContents hOut
 
 userDefAdHocTypesSuccess = unlines
   [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
-  , "                        then \"MyInt must not be 0\""
-  , "                   else  i"
-  , "           , \\i -> if dEqual (left i)"
-  , "                   then 0"
-  , "                   else \"expecting MyInt\""
-  , "           )"
+  , "                                      then \"MyInt must not be 0\""
+  , "                                      else  i"
+  , "                             , \\i -> if dEqual (left i) h"
+  , "                                      then 0"
+  , "                                      else \"expecting MyInt\""
+  , "                             )"
   , "        in wrapper (# wrapper)"
   , "main = \\i -> ((left MyInt) 8, 0)"
   ]
 
 userDefAdHocTypesFailure = unlines
   [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"
-  , "                        then \"MyInt must not be 0\""
-  , "                   else  i"
-  , "           , \\i -> if dEqual (left i)"
-  , "                   then 0"
-  , "                   else \"expecting MyInt\""
-  , "           )"
+  , "                                      then \"MyInt must not be 0\""
+  , "                                      else  i"
+  , "                             , \\i -> if dEqual (left i) h"
+  , "                                      then 0"
+  , "                                      else \"expecting MyInt\""
+  , "                             )"
   , "        in wrapper (# wrapper)"
   , "main = \\i -> ((left MyInt) 0, 0)"
   ]
