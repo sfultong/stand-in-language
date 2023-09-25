@@ -225,9 +225,7 @@ integer = toInteger <$> lexeme L.decimal
 
 -- |Parse string literal.
 parseString :: TelomareParser UnprocessedParsedTerm
--- TODO: make this a separate PR
--- parseString = StringUP <$> (char '"' >> manyTill L.charLiteral (char '"'))
-parseString = StringUP <$> (symbol "\"" *> manyTill L.charLiteral (symbol "\""))
+parseString = StringUP <$> (char '"' >> manyTill L.charLiteral (char '"' <* sc))
 
 -- |Parse number (Integer).
 parseNumber :: TelomareParser UnprocessedParsedTerm
