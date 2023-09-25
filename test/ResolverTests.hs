@@ -204,7 +204,7 @@ fullRunTicTacToeString = unlines
   , "7|X|X"
   , "Player 2's turn"
   , "please input number of square: "
-  , "Player 2wins!"
+  , "Player 2 wins!"
   , "done"
   ]
 
