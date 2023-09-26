@@ -31,6 +31,7 @@ import           Telomare.Parser          (TelomareParser,
                                            parseAssignment, parseLongExpr,
                                            parsePrelude, process,
                                            runTelomareParser)
+import           Telomare.Possible        (UnsizedExpr, VoidF)
 import           Telomare.RunTime         (fastInterpretEval, simpleEval)
 import           Telomare.TypeChecker     (inferType)
 
@@ -172,6 +173,16 @@ replLoop (ReplState bs eval) = do
                        Just iexpr -> do
                          putStrLn . showNExprs $ fromTelomare iexpr
                          putStrLn . showNIE $ fromTelomare iexpr
+                       _ -> putStrLn "some sort of error?"
+                     _ -> putStrLn "parse error"
+                   replLoop $ ReplState bs eval
+        Just s | ":ds" `isPrefixOf` s -> do
+                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":ds" s of
+                     Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
+                       Just iexpr -> do
+                         let showExpr :: UnsizedExpr VoidF
+                             showExpr = fromTelomare iexpr
+                         putStrLn $ prettyPrint showExpr
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval
