@@ -181,6 +181,26 @@ unitTests = testGroup "Unit tests"
   , testCase "testLetIncorrectIndentation2" $ do
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
+  , testCase "Case within top level definitions" $ do
+      res <- runTelomareParser parseTopLevel caseExpr0
+      res @?= caseExpr0UPT
+  ]
+
+caseExpr0UPT =
+  LetUP [ ("foo", LamUP "a" (CaseUP (VarUP "a")
+                               [ (PatternInt 0,VarUP "a")
+                               , (PatternVar "x",AppUP (VarUP "succ") (VarUP "a"))
+                               ]))
+        , ("main", LamUP "i" (PairUP (StringUP "Success")
+                                     (IntUP 0)))
+        ]
+        (LamUP "i" (PairUP (StringUP "Success") (IntUP 0)))
+caseExpr0 = unlines
+  [ "foo = \\a -> case a of"
+  , "              0 -> a"
+  , "              x -> succ a"
+  , ""
+  , "main = \\i -> (\"Success\", 0)"
   ]
 
 -- |Usefull to see if tictactoe.tel was correctly parsed
