@@ -278,7 +278,7 @@ parseCase = do
   reserved "case" <* scn
   iexpr <- parseLongExpr <* scn
   reserved "of" <* scn
-  lpc <- many $ parseSingleCase <* scn
+  lpc <- some $ try parseSingleCase <* scn
   pure $ CaseUP iexpr lpc
 
 parseSingleCase :: TelomareParser (Pattern, UnprocessedParsedTerm)
