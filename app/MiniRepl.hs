@@ -180,7 +180,7 @@ replLoop (ReplState bs eval) = do
                    liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":ds" s of
                      Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
                        Just iexpr -> do
-                         let showExpr :: UnsizedExpr VoidF
+                         let showExpr :: UnsizedExpr
                              showExpr = fromTelomare iexpr
                          putStrLn $ prettyPrint showExpr
                        _ -> putStrLn "some sort of error?"
