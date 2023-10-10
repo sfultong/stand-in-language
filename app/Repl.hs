@@ -14,6 +14,8 @@ import Data.Bifunctor (first)
 import Data.Functor ((<&>))
 import Data.List
 import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Debug.Trace (trace)
 import Naturals
 import Options.Applicative hiding (ParseError, (<|>))
@@ -118,6 +120,7 @@ printLastExpr eval bindings = do
 data ReplState = ReplState
   { replBindings :: [(String, UnprocessedParsedTerm)]
   , replEval     :: IExpr -> IO IExpr
+  , loadedFiles  :: Set FilePath
   -- ^ Backend function used to compile IExprs.
   }
 
@@ -148,14 +151,14 @@ replMultiline buffer = do
 
 -- | Main loop for the REPL.
 replLoop :: ReplState -> InputT IO ()
-replLoop (ReplState bs eval) = do
+replLoop (ReplState bs eval sf) = do
   minput <- getInputLine "telomare> "
   case minput of
     Nothing   -> pure ()
     Just ":q" -> liftIO exitSuccess
     Just ":{" -> do
       new_bs <- replStep eval bs =<< replMultiline []
-      replLoop $ ReplState new_bs eval
+      replLoop $ ReplState new_bs eval sf
     Just s | ":dn" `isPrefixOf` s -> do
       liftIO $ case runReplParser bs . dropWhile (== ' ') <$> stripPrefix ":dn" s of
         Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
@@ -164,14 +167,14 @@ replLoop (ReplState bs eval) = do
             putStrLn . showNIE $ fromTelomare iexpr
           _ -> putStrLn "some sort of error?"
         _ -> putStrLn "parse error"
-      replLoop $ ReplState bs eval
+      replLoop $ ReplState bs eval sf
     Just s | ":d" `isPrefixOf` s -> do
       liftIO $ case runReplParser bs . dropWhile (== ' ') <$> stripPrefix ":d" s of
         Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
           Just iexpr -> putStrLn $ showPIE iexpr
           _          -> putStrLn "some sort of error?"
         _ -> putStrLn "parse error"
-      replLoop $ ReplState bs eval
+      replLoop $ ReplState bs eval sf
 {-
     Just s | ":tt" `isPrefixOf` s -> do
       liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":tt" s of
@@ -187,19 +190,33 @@ replLoop (ReplState bs eval) = do
           Just iexpr -> print $ PrettyPartialType <$> inferType iexpr
           _          -> putStrLn "some sort of error?"
         _ -> putStrLn "parse error"
-      replLoop $ ReplState bs eval
+      replLoop $ ReplState bs eval sf
+    Just ":r" -> do
+      let loadFile :: FilePath -> InputT IO [(String, UnprocessedParsedTerm)]
+          loadFile fileName = do
+            fileString <- liftIO $ Strict.readFile fileName
+            case parsePrelude fileString of
+              Left errStr -> do
+                liftIO . putStrLn $ "Error from loaded file: " <> errStr
+                pure []
+              Right fileBindings -> do
+                liftIO . putStrLn $ "File " <> fileName <> " successfully loaded."
+                pure fileBindings
+      bs' <- concat <$> mapM loadFile (Set.toList sf)
+      replLoop $ ReplState bs' eval sf
     Just fileName | ":l " `isPrefixOf` fileName -> do
       let fileName' = drop 3 fileName
       fileString <- liftIO $ Strict.readFile fileName'
-      let eitherFileBindings = parsePrelude fileString
       case parsePrelude fileString of
         Left errStr -> do
           liftIO . putStrLn $ "Error from loaded file: " <> errStr
-          replLoop $ ReplState bs eval
-        Right fileBindings -> replLoop $ ReplState (bs <> fileBindings) eval
+          replLoop $ ReplState bs eval sf
+        Right fileBindings -> do
+                liftIO . putStrLn $ "File " <> fileName' <> " successfully loaded."
+                replLoop $ ReplState (bs <> fileBindings) eval (Set.insert fileName' sf)
     Just s -> do
       new_bs <- replStep eval bs s
-      replLoop $ ReplState new_bs eval
+      replLoop $ ReplState new_bs eval sf
 
 -- Command line settings
 -- ~~~~~~~~~~~~~~~~~~~~~
@@ -259,4 +276,4 @@ main = do
                    Right bds -> bds
   case _expr settings of
     Just  s -> startExpr eval bindings s
-    Nothing -> startLoop (ReplState bindings eval)
+    Nothing -> startLoop (ReplState bindings eval Set.empty)
