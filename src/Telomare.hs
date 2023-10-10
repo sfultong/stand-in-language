@@ -501,6 +501,7 @@ unsizedRecursionWrapper urToken t r b =
       abrt = lamF (SetEnvFrag <$> (PairFrag (SetEnvFrag (PairFrag AbortFrag abortToken)) <$> appF secondArgF firstArgF))
       applyF = SetEnvFrag $ RightFrag EnvFrag
       env' = RightFrag (RightFrag (RightFrag EnvFrag))
+      -- takes (rf, (f', (x, env'))), executes f' with (x, env') and creates a new frame
       rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
                                                                                                 (PairFrag applyF env')))
       -- construct the initial frame from f and x

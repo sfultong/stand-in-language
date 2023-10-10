@@ -65,7 +65,7 @@ import           Telomare                  (FragExpr (..), FragExprUR (..), i2g,
 import Telomare.RunTime (hvmEval)
 
 debug :: Bool
-debug = True
+debug = False
 
 debugTrace :: String -> a -> a
 debugTrace s x = if debug then trace s x else x
@@ -537,14 +537,17 @@ instance SuperBase (UnsizedExprF g) where
   embedP = UnsizedExprP
   extractP = \case
     UnsizedExprP x -> Just x
+    _ -> Nothing
 instance AbortBase (UnsizedExprF g) where
   embedA = UnsizedExprA
   extractA = \case
     UnsizedExprA x -> Just x
+    _ -> Nothing
 instance UnsizedBase (UnsizedExprF g) where
   embedU = UnsizedExprU
   extractU = \case
     UnsizedExprU x -> Just x
+    _ -> Nothing
 instance (Eq g) => Eq1 (UnsizedExprF g) where
   liftEq test a b = case (a,b) of
     (UnsizedExprB x, UnsizedExprB y) -> liftEq test x y
@@ -588,14 +591,17 @@ instance StuckBase (AbortExprF g) where
   embedS = uncurry AbortExprS
   extractS = \case
     AbortExprS fid x -> Just (fid, x)
+    _ -> Nothing
 instance SuperBase (AbortExprF g) where
   embedP = AbortExprP
   extractP = \case
     AbortExprP x -> Just x
+    _ -> Nothing
 instance AbortBase (AbortExprF g) where
   embedA = AbortExprA
   extractA = \case
     AbortExprA x -> Just x
+    _ -> Nothing
 instance (Eq g) => Eq1 (AbortExprF g) where
   liftEq test a b = case (a,b) of
     (AbortExprB x, AbortExprB y) -> liftEq test x y
