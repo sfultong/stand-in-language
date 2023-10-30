@@ -516,7 +516,9 @@ unsizedRecursionWrapper urToken t r b =
                                  (appF (appF fourthArgF secondArgF) firstArgF)
                                  (appF thirdArgF firstArgF)
       churchNum = clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
-      trb = pairF b (pairF r (pairF t (pure ZeroFrag)))
+      -- hack to make sure recursion test wrapper can be put in a definite place when sizing
+      tWrap = pairF (deferF $ appF secondArgF firstArgF) (pairF t $ pure ZeroFrag)
+      trb = pairF b (pairF r (pairF tWrap (pure ZeroFrag)))
   in SetEnvFrag <$> wrapU (pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb)
 
 nextBreakToken :: Enum b => BreakState a b b

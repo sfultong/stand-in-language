@@ -32,7 +32,7 @@ import           Data.Functor.Classes
 import           Data.Functor.Foldable
 import           Data.Functor.Foldable.TH
 import           Data.Kind
-import           Data.List                 (sortBy)
+import           Data.List                 (sortBy, partition)
 import           Data.Map                  (Map)
 import qualified Data.Map                  as Map
 import           Data.Monoid
@@ -234,11 +234,11 @@ transformStuckM f = cata f' where
 stuckStep :: (Base a ~ f, StuckData f ~ a, StuckBase f, BasicBase f, Recursive a, Corecursive a, PrettyPrintable a)
   => (f a -> a) -> f a -> a
 stuckStep handleOther = \case
-  FillFunction (StuckEE fid d) e -> db $ cata (basicStep (stuckStep handleOther) . replaceEnv) d where
+  ff@(FillFunction (StuckEE fid d) e) -> db $ cata (basicStep (stuckStep handleOther) . replaceEnv) d where
     e' = project e
-    db x = if fid == toEnum 5
-      then debugTrace ("stuckstep dumping output at 6:\n" <> prettyPrint e) x
-      else x
+    db = if True -- fid == toEnum 5
+      then debugTrace ("stuckstep dumping output:\n" <> prettyPrint (embed ff))
+      else id
     replaceEnv = \case
       BasicFW EnvSF -> e'
       x -> x
@@ -356,19 +356,39 @@ anyFunctionStepM handleOther x = sequence x >>= f where
     FillFunction a@(SuperEE AnyPF) _ -> pure a
     _ -> handleOther x
 
+{-
 unsizedStep :: (Base a ~ f, BasicBase f, SuperBase f, AbortBase f, UnsizedBase f, Recursive a, Corecursive a, Eq a, PrettyPrintable a)
   => (a -> a -> a) -> (f a -> a) -> (f a -> a) -> f a -> a
-unsizedStep unsizedMerge fullStep handleOther =
+-}
+-- unsizedStep :: (Base a ~ f, BasicBase f, SuperBase f, AbortBase f, UnsizedBase f, Recursive a, Corecursive a, Eq a, PrettyPrintable a)
+unsizedStep :: (Base a ~ f, StuckData f ~ a, StuckBase f, BasicBase f, SuperBase f, AbortBase f, UnsizedBase f, Foldable f, Recursive a, Corecursive a, Eq a, PrettyPrintable a)
+  => (f a -> a) -> (f a -> a) -> f a -> a
+unsizedStep fullStep handleOther ox =
   let recurStep = fullStep . embedB . SetEnvSF
-  in \case
-    FillFunction (UnsizedEE (SizingResultsF cts crl)) (UnsizedEE (SizingResultsF ets erl)) ->
+  {-
+      hasFunction = \case
+        StuckEE _ _ -> True
+        x -> getAny . foldMap (Any . hasFunction) $ project x
+      -- td :: (Base a ~ f, StuckData f ~ a, Foldable f, StuckBase f, Recursive a, Corecursive a) => a -> Bool
+      td = \case
+        rx@(UnsizedEE (SizingResultsF _ xs)) ->
+          let xrs = take 5 $ map hasFunction xs
+              (hf, hnf) = partition id xrs
+          in if (not (null hf)) && (not (null hnf))
+             then trace ("unsizedStep uncomfortable function differences:\n" <> prettyPrint (embed ox) <> "\n-----and----\n" <> prettyPrint rx) rx
+             else rx
+        _ -> error "whate are we even doing here?"
+-}
+      td = id
+  in case ox of
+    FillFunction (UnsizedEE (SizingResultsF cts crl)) (UnsizedEE (SizingResultsF ets erl)) -> td .
       unsizedEE . SizingResultsF (cts <> ets) . map fullStep $ zipWith fillFunction crl erl
-    BasicFW (LeftSF (UnsizedEE sr@(SizingResultsF _ _))) -> unsizedEE $ fmap (fullStep . embedB . LeftSF) sr
-    BasicFW (RightSF (UnsizedEE sr@(SizingResultsF _ _))) -> unsizedEE $ fmap (fullStep . embedB . RightSF) sr
-    BasicFW (SetEnvSF (UnsizedEE sr@(SizingResultsF _ _))) -> unsizedEE $ fmap (fullStep . embedB . SetEnvSF) sr
-    FillFunction (UnsizedEE sr@(SizingResultsF _ _)) e -> unsizedEE $ fmap (fullStep . (\c -> fillFunction c e)) sr
-    GateSwitch l r (UnsizedEE sr@(SizingResultsF _ _)) -> unsizedEE $ fmap (fullStep . gateSwitch l r) sr
-    UnsizedFW (UnsizedStubF t e) -> unsizedEE . SizingResultsF (Set.singleton t) $ iterate recurStep e
+    BasicFW (LeftSF (UnsizedEE sr@(SizingResultsF _ _))) -> td . unsizedEE $ fmap (fullStep . embedB . LeftSF) sr
+    BasicFW (RightSF (UnsizedEE sr@(SizingResultsF _ _))) -> td . unsizedEE $ fmap (fullStep . embedB . RightSF) sr
+    BasicFW (SetEnvSF (UnsizedEE sr@(SizingResultsF _ _))) -> td . unsizedEE $ fmap (fullStep . embedB . SetEnvSF) sr
+    FillFunction (UnsizedEE sr@(SizingResultsF _ _)) e -> td . unsizedEE $ fmap (fullStep . (\c -> fillFunction c e)) sr
+    GateSwitch l r (UnsizedEE sr@(SizingResultsF _ _)) -> td . unsizedEE $ fmap (fullStep . gateSwitch l r) sr
+    UnsizedFW (UnsizedStubF t e) -> td . unsizedEE . SizingResultsF (Set.singleton t) . tail $ iterate recurStep e
     UnsizedFW (RecursionTestF ri x) ->
       let test = \case
             z@(BasicEE ZeroSF) -> z
@@ -413,7 +433,8 @@ unsizedStepM unsizedMerge fullStep handleOther x = sequence x >>= f where
         z -> error ("evalRecursionTest checkTest unexpected\n" <> prettyPrint z)
     UnsizedFW (UnsizedStubF t e) -> capResult . head . filter sized $ iterate g (0, Just AbortedSR, pure e) where
       g (n, a, e) = let e'@(_, er) = fullStep . embedB $ SetEnvSF e in (n + 1, cata findR er, td e')
-      td x = trace ("sizing step result is now:\n" <> prettyPrint x) x
+      -- td x = trace ("sizing step result is now:\n" <> prettyPrint x) x
+      td = id
       findR = \case
         AbortFW (AbortedF AbortRecursion) -> Just AbortedSR
         AbortFW (AbortedF (AbortUnsizeable t)) -> Just . UnsizableSR . toEnum $ g2i t
@@ -507,11 +528,14 @@ mergeAbort mergeOther a b =
     (a@(AbortEE AbortF), AbortEE AbortF) -> a
     _ -> mergeOther a b
 
-mergeUnsized :: (Base x ~ f, UnsizedBase f, Eq x, Corecursive x, Recursive x) => (x -> x -> x) -> (x -> x -> x) -> x -> x -> x
+mergeUnsized :: (Base x ~ f, UnsizedBase f, PrettyPrintable x, Eq x, Corecursive x, Recursive x) => (x -> x -> x) -> (x -> x -> x) -> x -> x -> x
 mergeUnsized mergeDown mergeOther a b = case (a,b) of
   (UnsizedEE aa, UnsizedEE bb) -> case (aa,bb) of
     (RecursionTestF ta x, RecursionTestF tb y) | ta == tb -> unsizedEE . RecursionTestF ta $ mergeDown x y
-    (SizingResultsF ta x, SizingResultsF tb y) | ta == tb -> unsizedEE . SizingResultsF ta $ zipWith mergeDown x y
+    (SizingResultsF ta x, SizingResultsF tb y) -> unsizedEE . SizingResultsF (ta <> tb) $ zipWith mergeDown x y
+    (UnsizedStubF ta x, UnsizedStubF tb y) | ta == tb -> unsizedEE . UnsizedStubF ta $ mergeDown x y
+    (SizingWrapperF ta x, SizingWrapperF tb y) | ta == tb -> unsizedEE . SizingWrapperF ta $ mergeDown x y
+    _ -> mergeOther a b
   _ -> mergeOther a b
 
 mergeUnknown :: (Base x ~ f, SuperBase f, Eq x, Corecursive x, Recursive x) => x -> x -> x
@@ -561,7 +585,7 @@ instance PrettyPrintable1 UnsizedRecursionF where
   showP1 = \case
     RecursionTestF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("T(" <> show ind <> ")") $ showP x
     SizingWrapperF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("&(" <> show ind <> ")") $ showP x
-    UnsizedStubF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("%" <> show ind) $ showP x
+    UnsizedStubF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("#" <> show ind) $ showP x
     SizingResultsF _ rl -> do
       i <- State.get
       start <- indentWithChildren' "[" . map showP $ take 2 rl
@@ -828,6 +852,7 @@ readyForSizing :: UnsizedAggregate -> Bool
 readyForSizing (UnsizedAggregate m) = not (null m) && and m
 
 data SizedResult = AbortedSR | UnsizableSR UnsizedRecursionToken
+  deriving (Eq, Ord, Show)
 
 instance Semigroup SizedResult where
   (<>) a b = case (a,b) of
@@ -848,47 +873,99 @@ capMain = \case  -- make sure main functions are fully applied with Any data
   BasicEE (PairSF d@(StuckEE _ _) _) -> basicEE . SetEnvSF . basicEE . PairSF d $ superEE AnyPF
   x -> x
 
+isClosure :: (Base g ~ f, StuckData f ~ g, BasicBase f, StuckBase f, SuperBase f, Recursive g, Corecursive g) => g -> Bool
+isClosure = \case
+  BasicEE (PairSF (StuckEE _ _) _) -> True
+  _ -> False
+
 sizeTerm :: Int -> UnsizedExpr -> Either UnsizedRecursionToken AbortExpr
-sizeTerm maxSize = findSizes 0 where
+sizeTerm maxSize x = tidyUp . sizeF $ capMain x where
+  sizeF = transformStuckM $ \case
+    ur@(UnsizedFW (SizingWrapperF t (tm, x))) -> (aggWrapper t <> tm, unsizedEE $ SizingWrapperF t x)
+    BasicFW (SetEnvSF (tm, sep)) | readyForSizing tm -> findSize (tm, addSizingTest . basicEE $ SetEnvSF sep)
+    x -> embed <$> sequence x
   addSizingTest :: UnsizedExpr -> UnsizedExpr
   addSizingTest = transformStuck f where
     f = \case
-      UnsizedFW (SizingWrapperF tok (BasicEE (PairSF d (BasicEE (PairSF b (BasicEE (PairSF r (BasicEE (PairSF t (BasicEE ZeroSF))))))))))
-        -> case t of
-             BasicEE (PairSF s@(StuckEE _ _) te) ->
-               let nt = basicEE $ PairSF (unsizedEE $ RecursionTestF tok s) te
-               in basicEE . PairSF d . basicEE . PairSF b . basicEE . PairSF r . basicEE . PairSF nt $ basicEE ZeroSF
+      UnsizedFW (SizingWrapperF tok (BasicEE (PairSF d (BasicEE (PairSF b (BasicEE (PairSF r (BasicEE (PairSF tp (BasicEE ZeroSF))))))))))
+        -> case tp of
+             BasicEE (PairSF (StuckEE sid tf) e) ->
+               let nt = basicEE $ PairSF (stuckEE sid . unsizedEE $ RecursionTestF tok tf) e
+               in basicEE . PairSF d . basicEE . PairSF b . basicEE . PairSF r . basicEE $ PairSF nt (basicEE ZeroSF)
       x -> embed x
-  findSizes :: Int -> UnsizedExpr -> Either UnsizedRecursionToken AbortExpr
-  findSizes n g = let sizeMap = Map.mapMaybe id $ unSizedRecursion sr
-                      sr = fst . cata evalStep . capMain $ addSizingTest g
-                      td x = trace (prettyPrint x) x
-                      ng = setSizes sizeMap g
-                  in case getAnUnsized ng of
-                       Just uid -> if null sizeMap
-                                   then Left uid
-                                   else if n > maxSize
-                                        then Left uid
-                                        else findSizes (succ n) ng
-                       _ -> pure $ clean ng
+  fillVars = cata f where
+    f = \case
+      BasicFW EnvSF -> superEE AnyPF
+      x -> embed x
+  findSize (tm, x) =
+    let evaled = evalPossible . traceFind $ fillVars x
+        rr = recursionResults' evaled
+        sizingResults = map (second foldAborted) rr
+        selectResult (n, r) alt = case r of
+          Just (UnsizableSR _) -> trace "found unsizable" (tm, x)
+          Nothing -> (mempty, setSizes n x)
+          _ -> alt
+  {-
+        traceResults x = trace ("sizing results are " <> show x) x
+        traceResults2 = trace ("sizing results2 are:\n" <> concatMap ((<> "\n----\n") . prettyPrint . snd) (take 1 rr))
+        traceFind x' = trace ("findSize called with:\n" <> prettyPrint x') x'
+-}
+        traceFind = id
+        traceResults = id
+        traceResults2 = id
+    in if containsAbort . snd $ head rr
+       then traceResults2 (tm, x)
+       else foldr selectResult (tm, x) $ traceResults sizingResults
+  containsAbort :: UnsizedExpr -> Bool
+  containsAbort = f where
+    f = \case
+      BasicEE (SetEnvSF (BasicEE (PairSF (AbortEE AbortF) (BasicEE (PairSF (BasicEE ZeroSF) (BasicEE ZeroSF)))))) -> True
+      StuckEE _ x -> f x
+      x -> getAny . foldMap (Any . f) $ project x
+  tidyUp = \case
+    (UnsizedAggregate uam, _) | not (null uam) -> case Map.minViewWithKey uam of
+                                  Just ((urt, _), _) -> Left urt
+    (_, r) -> pure . clean $
+      if isClosure x
+      then uncap r
+      else r
+      where uncap = \case
+              BasicEE (SetEnvSF (BasicEE (PairSF d _))) -> basicEE $ PairSF d (basicEE ZeroSF)
+              _ -> error "sizeTerm tidyUp trying to uncap something that isn't a main function"
   clean = unsized2abortExpr
-  setSizes :: Map UnsizedRecursionToken Int -> UnsizedExpr -> UnsizedExpr
-  setSizes m = transformStuck $ \case
-    UnsizedFW (UnsizedStubF tok _) | Map.member tok m -> case Map.lookup tok m of
-                                       Just n -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
-    -- UnsizedFW (RecursionTestF tok x) | Map.member tok m -> x
-    UnsizedFW (SizingWrapperF _ x) -> x
+  setSizes :: Int -> UnsizedExpr -> UnsizedExpr
+  setSizes n = transformStuck $ \case
+    UnsizedFW (UnsizedStubF _ _) -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
+    UnsizedFW (RecursionTestF _ x) -> x
+    -- FourFW (SizingWrapperF _ x) -> x
     x -> embed x
-  getAnUnsized :: UnsizedExpr -> Maybe UnsizedRecursionToken
-  getAnUnsized = f where
-    f = cata f'
-    f' = \case
-      UnsizedFW (SizingWrapperF uid _) -> Just uid
-      StuckFW _ x -> f x
-      x -> foldr (<|>) Nothing x
+  recursionResults' :: UnsizedExpr -> [(Int, UnsizedExpr)]
+  recursionResults' x = map (\n -> (n, cata (f n) x)) [1..maxSize] where
+    f :: Int -> UnsizedExprF UnsizedExpr UnsizedExpr -> UnsizedExpr
+    f n = \case
+      UnsizedFW (SizingResultsF _ rl) -> rl !! (n - 1) -- sizingresults are 1-indexed
+      x -> embed x
+  foldAborted :: UnsizedExpr -> Maybe SizedResult
+  foldAborted = cata f where
+    f = \case
+      AbortFW (AbortedF AbortRecursion) -> Just AbortedSR
+      AbortFW (AbortedF (AbortUnsizeable t)) -> Just . UnsizableSR . toEnum . g2i $ t
+      x                                 -> Data.Foldable.fold x
   unsizedMerge = mergeBasic (mergeStuck (mergeAbort (mergeSuper unsizedMerge (mergeUnsized unsizedMerge mergeUnknown))))
-  evalStep :: UnsizedExprF UnsizedExpr (SizedRecursion, UnsizedExpr) -> (SizedRecursion, UnsizedExpr)
-  evalStep = basicStepM (stuckStepM (abortStepM (superStepM unsizedMerge evalStep (unsizedStepM unsizedMerge evalStep (anyFunctionStepM unhandledError)))))
+  evalStep = basicStep (stuckStep (abortStep (superStep unsizedMerge evalStep (unsizedStep evalStep (anyFunctionStep unhandledError)))))
+  debugStep :: UnsizedExprF UnsizedExpr UnsizedExpr -> UnsizedExpr
+  debugStep x =
+    let nx = evalStep x
+        hasBad = f where
+          f = \case
+            BasicEE (SetEnvSF (BasicEE (PairSF (BasicEE ZeroSF) _))) -> True
+            x -> getAny . foldMap (Any . f) $ project x
+    in if hasBad nx
+          then error ("found potential issue before:\n" <> prettyPrint x <> "\n---after---\n" <> prettyPrint nx)
+          else nx
+
+  evalPossible :: UnsizedExpr -> UnsizedExpr
+  evalPossible = evalBottomUp evalStep
   unhandledError x = error ("sizeTerm unhandled case\n" <> prettyPrint x)
 
 convertToF :: (Base g ~ f, StuckData f ~ g, BasicBase f, StuckBase f, Traversable f, Corecursive g) => IExpr -> g
