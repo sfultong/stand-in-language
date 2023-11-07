@@ -47,7 +47,7 @@ import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
 import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
 
 debug :: Bool
-debug = True
+debug = False
 
 debugTrace :: String -> a -> a
 debugTrace s x = if debug then trace s x else x
