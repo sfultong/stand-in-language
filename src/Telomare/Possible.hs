@@ -839,21 +839,6 @@ term3ToUnsizedExpr maxSize (Term3 termMap) =
         AuxFrag (NestedSetEnvs t) -> embedU . UnsizedStubF t . embed $ embedB EnvSF
   in convertFrag' . unFragExprUR $ rootFrag termMap
 
-{-
-newtype UnsizedAggregate = UnsizedAggregate { unUnAgg :: Map UnsizedRecursionToken Bool } -- this could probably be a set rather than map now
-
-instance Semigroup UnsizedAggregate where
-  (<>) (UnsizedAggregate a) (UnsizedAggregate b) = UnsizedAggregate $ Map.unionWith (||) a b
-
-instance Monoid UnsizedAggregate where
-  mempty = UnsizedAggregate $ Map.empty
-
-aggWrapper x = UnsizedAggregate $ Map.singleton x True
-
-readyForSizing :: UnsizedAggregate -> Bool
-readyForSizing (UnsizedAggregate m) = not (null m) && and m
--}
-
 data SizedResult = AbortedSR | UnsizableSR UnsizedRecursionToken
   deriving (Eq, Ord, Show)
 
@@ -885,7 +870,6 @@ sizeTerm :: Int -> UnsizedExpr -> Either UnsizedRecursionToken AbortExpr
 sizeTerm maxSize x = tidyUp . sizeF $ capMain x where
   sizeF = transformStuckM $ \case
     ur@(UnsizedFW (SizingWrapperF t (tm, x))) -> (Set.singleton t <> tm, unsizedEE $ SizingWrapperF t x)
-    -- BasicFW (SetEnvSF (tm, sep)) | readyForSizing tm -> findSize (tm, addSizingTest . basicEE $ SetEnvSF sep)
     BasicFW (SetEnvSF (tm, sep)) | not (null tm) -> foldSizes tm . basicEE $ SetEnvSF sep
     x -> embed <$> sequence x
   addSizingTest :: UnsizedExpr -> UnsizedExpr
@@ -908,50 +892,25 @@ sizeTerm maxSize x = tidyUp . sizeF $ capMain x where
         selectResult (n, r) alt = case r of
           Just (UnsizableSR t) -> trace ("unsizable one: " <> show t) Nothing
           Nothing -> Just n
-          -- Nothing -> traceResults2 Just n
           _ -> alt
-        traceResults2 = trace ("sizing results2 are:\n" <> concatMap ((<> "\n----\n") . prettyPrint . snd) (take 3 rr))
-        -- traceResults2 = id
-  {-
-    in if traceResults2 containsAbort . snd $ head rr
-       then Nothing
-       else foldr selectResult Nothing $ traceResults sizingResults
--}
     in foldr selectResult Nothing sizingResults
-  {-
-  findSizes tm x = map (\ur -> (ur, findSize . addSizingTest $ removeOthers ur x)) $ Set.toList tm where
-    removeOthers ur = transformStuck f where
-      f :: UnsizedExprF UnsizedExpr UnsizedExpr -> UnsizedExpr
-      f = \case
-        UnsizedFW (SizingWrapperF tok _) | tok /= ur -> basicEE . PairSF (superEE AnyPF) $ basicEE ZeroSF
-        x -> embed x
--}
   findSizes sm x = Map.fromList . map (\ur -> (ur, findSize . addSizingTest $ setOthers ur x)) . Set.toList $ Map.keysSet sm where
     setOthers ur = transformStuck f where
       f = \case
-        {-
-        UnsizedFW (SizingWrapperF tok _) | tok /= ur && Map.lookup tok sm == Just Nothing -> basicEE . PairSF (superEE AnyPF) $ basicEE ZeroSF
-        UnsizedFW (SizingWrapperF tok ix) | tok /= ur && Map.lookup tok sm == Just (Just _) -> ix
-        UnsizedFW (UnsizedStubF tok _) | tok /= ur && Map.lookup tok sm == Just (Just n) -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
--}
         UnsizedFW (SizingWrapperF tok ix) | tok /= ur -> case Map.lookup tok sm of
                                               Just Nothing -> basicEE . PairSF (superEE AnyPF) $ basicEE ZeroSF
-                                              -- Just (Just n) -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
-                                              -- _ -> unsizedEE $ SizingWrapperF tok ix
                                               _ -> ix
         UnsizedFW (UnsizedStubF tok ix) | tok /= ur -> case Map.lookup tok sm of
                                             Just (Just n) -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
                                             _ -> unsizedEE $ UnsizedStubF tok ix
 
         x -> embed x
-  -- foldSizes tm x = setSizes (Map.fromList $ findSizes tm x) x
   traceSizes x = trace ("findSizes results: " <> show x) x
   foldSizes us x = let sizeMap = traceSizes $ findSizes initM x
                        initM = Map.fromList . map (\urt -> (urt, Nothing)) $ Set.toList us
                        results = evalPossible . fillVars $ addSizingTest x
                        rr = recursionResults' results
                        unsizedSet = us Set.\\ Map.keysSet (Map.mapMaybe id sizeMap)
-                   -- in (unsizedSet, setSizes sizeMap x)
                    in if containsAbort . snd $ head rr
                       then (us, x)
                       else if length us > 1
@@ -971,10 +930,6 @@ sizeTerm maxSize x = tidyUp . sizeF $ capMain x where
       StuckEE _ x -> f x
       x -> getAny . foldMap (Any . f) $ project x
   tidyUp = \case
-    {-
-    (uam, _) | not (null uam) -> case Set.toList uam of
-                                  (urt:_) -> Left urt
--}
     (uam, r) | not (null uam) -> case findSize $ addSizingTest r of -- try to size everything at once
                  Just n -> tidyUp (mempty, setSizes (Map.fromList . map (\urt -> (urt, n)) $ Set.toList uam) r)
                  _ -> Left . head $ Set.toList uam
@@ -988,11 +943,6 @@ sizeTerm maxSize x = tidyUp . sizeF $ capMain x where
   clean = unsized2abortExpr
   setSizes :: Map UnsizedRecursionToken Int -> UnsizedExpr -> UnsizedExpr
   setSizes sizeMap = transformStuck $ \case
-    {-
-    UnsizedFW (UnsizedStubF _ _) -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
-    UnsizedFW (RecursionTestF _ x) -> x
-    -- FourFW (SizingWrapperF _ x) -> x
--}
     UnsizedFW sw@(SizingWrapperF tok sx) -> case Map.lookup tok sizeMap of
       Just _ -> sx
       _ -> unsizedEE sw
@@ -1024,7 +974,6 @@ sizeTerm maxSize x = tidyUp . sizeF $ capMain x where
     in if hasBad nx
           then error ("found potential issue before:\n" <> prettyPrint x <> "\n---after---\n" <> prettyPrint nx)
           else nx
-
   evalPossible :: UnsizedExpr -> UnsizedExpr
   evalPossible = evalBottomUp evalStep
   unhandledError x = error ("sizeTerm unhandled case\n" <> prettyPrint x)

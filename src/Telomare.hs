@@ -250,7 +250,7 @@ data FragExpr a
   | RightFrag (FragExpr a)
   | TraceFrag
   | AuxFrag a
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Generic, NFData)
 makeBaseFunctor ''FragExpr -- Functorial version FragExprF.
 
 instance Plated (FragExpr a) where
@@ -281,15 +281,15 @@ instance Show a => Show (FragExpr a) where
 
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
-newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken :: Int } deriving (Eq, Ord, Show, Enum)
+newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken :: Int } deriving (Eq, Ord, Show, Enum, NFData, Generic)
 
 data RecursionSimulationPieces a
   = NestedSetEnvs UnsizedRecursionToken
   | SizingWrapper UnsizedRecursionToken a
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, NFData, Generic)
 
 newtype FragExprUR = FragExprUR { unFragExprUR :: FragExpr (RecursionSimulationPieces FragExprUR) }
-  deriving (Eq, Show)
+  deriving (Eq, Show, NFData, Generic)
 
 type RecursionPieceFrag = RecursionSimulationPieces FragExprUR
 
@@ -297,7 +297,7 @@ type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
 
 -- |Term3 :: Map FragIndex (FragExpr BreakExtras) -> Term3
-newtype Term3 = Term3 (Map FragIndex FragExprUR) deriving (Eq, Show)
+newtype Term3 = Term3 (Map FragIndex FragExprUR) deriving (Eq, Show, Generic, NFData)
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving (Eq, Show)
 
 type BreakState a b = State (b, FragIndex, Map FragIndex (FragExpr a))

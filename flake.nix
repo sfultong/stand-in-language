@@ -36,9 +36,12 @@
                 # hl.dontHaddock
               ];
 
-	      overrides = self: super: {
-		  sbv = pkgs.haskell.lib.compose.markUnbroken (pkgs.haskell.lib.dontCheck super.sbv);
-	      };
+              overrides = self: super: {
+                  sbv = pkgs.haskell.lib.compose.markUnbroken (pkgs.haskell.lib.dontCheck super.sbv);
+              };
+
+              # uncomment for profiling:
+              # cabal2nixOptions = "--enable-profiling --benchmark";
             };
 
       in {
@@ -51,13 +54,11 @@
           cabal-install
           haskell-language-server
           hlint
-	  ghcid
-	  # stylish-haskell
-	  hvm.defaultPackage. "x86_64-linux"
-	  
-
+          ghcid
+          # stylish-haskell
+          hvm.defaultPackage. "x86_64-linux"
         ]);
-	
+
         checks = {
           build = self.packages.${system}.default;
           test-suit = project "telomare-test" [ ];
