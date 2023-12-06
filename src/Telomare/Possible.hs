@@ -289,10 +289,10 @@ stuckStep handleOther = \case
       StuckFW (StuckF t x) | t == needsEnvToken -> transformNoDefer (basicStep (stuckStep handleOther)) x
       x -> embed x
   -- process stuck barriers
-  BasicFW (LeftSF (StuckEE (StuckF t x))) | t == needsEnvToken -> stuckEE . StuckF t . basicEE $ LeftSF x
-  BasicFW (RightSF (StuckEE (StuckF t x))) | t == needsEnvToken -> stuckEE . StuckF t . basicEE $ RightSF x
-  BasicFW (SetEnvSF (StuckEE (StuckF t x))) | t == needsEnvToken -> stuckEE . StuckF t . basicEE $ SetEnvSF x
-  GateSwitch l r (StuckEE (StuckF t x)) | t == needsEnvToken -> stuckEE . StuckF t . embed $ gateSwitch l r x
+  BasicFW (LeftSF (StuckEE (StuckF t x))) -> stuckEE . StuckF t . basicEE $ LeftSF x
+  BasicFW (RightSF (StuckEE (StuckF t x))) -> stuckEE . StuckF t . basicEE $ RightSF x
+  BasicFW (SetEnvSF (StuckEE (StuckF t x))) -> stuckEE . StuckF t . basicEE $ SetEnvSF x
+  GateSwitch l r (StuckEE (StuckF t x)) -> stuckEE . StuckF t . embed $ gateSwitch l r x
   FillFunction (StuckEE (StuckF t c)) e | t == needsEnvToken -> stuckEE . StuckF t . embed $ fillFunction c e
   -- stuck value
   x@(StuckFW _) -> embed x
@@ -302,11 +302,18 @@ stuckStepM :: (Base a ~ f, StuckReason f ~ r, Eq r, StuckNeedsEnv r, Traversable
   => (f (m a) -> m a) -> f (m a) -> m a
 stuckStepM handleOther x = sequence x >>= f where
   f = \case
+    BasicFW EnvSF -> pure . stuckEE . StuckF needsEnvToken $ basicEE EnvSF
     FillFunction (StuckEE (DeferSF fid d)) e -> transformNoDeferM replaceEnv d where
       replaceEnv = \case
         BasicFW EnvSF -> pure e
         StuckFW (StuckF t x) | t == needsEnvToken -> x >>= transformNoDeferM (basicStepM (stuckStepM handleOther))
         x -> embed <$> sequence x
+    -- process stuck barriers
+    BasicFW (LeftSF (StuckEE (StuckF t x))) | t == needsEnvToken -> pure . stuckEE . StuckF t . basicEE $ LeftSF x
+    BasicFW (RightSF (StuckEE (StuckF t x))) | t == needsEnvToken -> pure . stuckEE . StuckF t . basicEE $ RightSF x
+    BasicFW (SetEnvSF (StuckEE (StuckF t x))) | t == needsEnvToken -> pure . stuckEE . StuckF t . basicEE $ SetEnvSF x
+    GateSwitch l r (StuckEE (StuckF t x)) | t == needsEnvToken -> pure . stuckEE . StuckF t . embed $ gateSwitch l r x
+    FillFunction (StuckEE (StuckF t c)) e | t == needsEnvToken -> pure . stuckEE . StuckF t . embed $ fillFunction c e
     -- stuck value
     x@(StuckFW _) -> pure $ embed x
     _ -> handleOther x
@@ -412,24 +419,11 @@ anyFunctionStepM handleOther x = sequence x >>= f where
     _ -> handleOther x
 
 -- {-# INLINABLE unsizedStep #-}
+  {-
 unsizedStep :: (Base a ~ f, StuckBase f, BasicBase f, SuperBase f, AbortBase f, UnsizedBase f, Foldable f, Recursive a, Corecursive a, Eq a, PrettyPrintable a)
   => (f a -> a) -> (f a -> a) -> f a -> a
 unsizedStep fullStep handleOther ox =
   let recurStep = fullStep . embedB . SetEnvSF
-  {-
-      hasFunction = \case
-        StuckEE _ _ -> True
-        x -> getAny . foldMap (Any . hasFunction) $ project x
-      -- td :: (Base a ~ f, StuckData f ~ a, Foldable f, StuckBase f, Recursive a, Corecursive a) => a -> Bool
-      td = \case
-        rx@(UnsizedEE (SizingResultsF _ xs)) ->
-          let xrs = take 5 $ map hasFunction xs
-              (hf, hnf) = partition id xrs
-          in if (not (null hf)) && (not (null hnf))
-             then trace ("unsizedStep uncomfortable function differences:\n" <> prettyPrint (embed ox) <> "\n-----and----\n" <> prettyPrint rx) rx
-             else rx
-        _ -> error "whate are we even doing here?"
--}
       td = id
   in case ox of
     FillFunction (UnsizedEE (SizingResultsF cts crl)) (UnsizedEE (SizingResultsF ets erl)) -> td .
@@ -453,7 +447,52 @@ unsizedStep fullStep handleOther ox =
     -- stuck values
     x@(UnsizedFW (SizingResultsF _ _)) -> embed x
     x -> handleOther x
+-}
 
+sizingTestStep :: UnsizedExpr (SizedRecursion, UnsizedExpr) -> (SizedRecursion, UnsizedExpr)
+sizingTestStep x = sequence x >>= f where
+  f = \case
+    UnsizedFW (RecursionTestF ri x) ->
+      let test = \case
+            z@(BasicEE ZeroSF) -> z
+            p@(BasicEE (PairSF _ _)) -> p
+            SuperEE AnyPF -> abortEE . AbortedF . AbortUnsizeable . i2g . fromEnum $ ri
+            SuperEE (EitherPF a b) -> superEE $ EitherPF (test a) (test b)
+            a@(AbortEE (AbortedF _)) -> a
+            UnsizedEE sr@(SizingResultsF _ _) -> unsizedEE $ fmap test sr
+            z -> error ("evalRecursionTest checkTest unexpected\n" <> prettyPrint z)
+      in pure $ test x
+    UnsizedFW (UnsizedStubF t e) -> capResult . head . filter sized $ iterate g (0, Just AbortedSR, pure e) where
+      g (n, a, e) = let e'@(_, er) = fullStep . embedB $ SetEnvSF e in (n + 1, cata findR er, e')
+      findR = \case
+        AbortFW (AbortedF AbortRecursion) -> Just AbortedSR
+        AbortFW (AbortedF (AbortUnsizeable t)) -> Just . UnsizableSR . toEnum $ g2i t
+
+sizingStep :: UnsizedExprF (SizedRecursion, UnsizedExpr) -> (SizedRecursion, UnsizedExpr)
+sizingStep x = sequence x >>= f where
+  f = \case
+    FillFunction (StuckEE (StuckF t c)) e | needsSizing t ->
+
+unsizedStep :: (Base a ~ f, StuckReason f ~ UnsizedStuckNeeds, StuckBase f, BasicBase f, AbortBase f, UnsizedBase f, Foldable f
+               , Recursive a, Corecursive a, Eq a, PrettyPrintable a)
+  => (f a -> a) -> (f a -> a) -> f a -> a
+unsizedStep fullStep handleOther ox =
+  case ox of
+    UnsizedFW us@(UnsizedStubF t e) -> stuckEE . StuckF (UNeedsSizing t) $ stuckEE us
+    FillFunction (StuckEE (StuckF t c)) e ->
+      let n = stuckEE . StuckF t . embed $ fillFunction c e
+          ne = transformNoDefer wrapEnv n
+          wrapEnv = \case
+            BasicFW EnvSF -> stuckEE . StuckF needsEnvToken $ basicEE EnvSF
+            x  -> embed x
+          
+      in if needsSizing t
+         then 
+    -- stuck value
+    x@(StuckFW _) -> embed x
+    x -> handleOther x
+
+{-
 newtype SizedRecursion = SizedRecursion { unSizedRecursion :: Map UnsizedRecursionToken (Maybe Int)}
 
 instance Semigroup SizedRecursion where
@@ -462,12 +501,19 @@ instance Semigroup SizedRecursion where
       (Just a', Just b') -> pure $ max a' b'
       _ -> Nothing
 
+-}
 instance Monoid SizedRecursion where
   mempty = SizedRecursion Map.empty
+
+newtype SizedRecursion = SizedRecursion { unSizedRecursion :: Map UnsizedRecursionToken Int }
+
+instance Semigroup SizedRecursion where
+  (<>) (SizedRecursion a) (SizedRecursion b) = SizedRecursion $ Map.unionWith max a b
 
 instance PrettyPrintable1 ((,) SizedRecursion) where
   showP1 (_,x) = showP x
 
+{-
 unsizedStepM :: (Base a ~ f, Traversable f, BasicBase f, SuperBase f, AbortBase f, UnsizedBase f, Recursive a, Corecursive a, Eq a, PrettyPrintable a)
   => (a -> a -> a)
   -> (f (SizedRecursion, a) -> (SizedRecursion, a)) -> (f (SizedRecursion, a) -> (SizedRecursion, a)) -> f (SizedRecursion, a) -> (SizedRecursion, a)
@@ -502,6 +548,7 @@ unsizedStepM unsizedMerge fullStep handleOther x = sequence x >>= f where
     -- stuck value
     t@(UnsizedFW (RecursionTestF _ _)) -> pure $ embed t
     _ -> handleOther x
+-}
 
 data VoidF f
   deriving (Functor, Foldable, Traversable)
@@ -593,7 +640,7 @@ mergeUnsized mergeDown mergeOther a b = case (a,b) of
   (UnsizedEE aa, UnsizedEE bb) -> case (aa,bb) of
     (RecursionTestF ta x, RecursionTestF tb y) | ta == tb -> unsizedEE . RecursionTestF ta $ mergeDown x y
     (SizingResultsF ta x, SizingResultsF tb y) -> unsizedEE . SizingResultsF (ta <> tb) $ zipWith mergeDown x y
-    (UnsizedStubF ta x, UnsizedStubF tb y) | ta == tb -> unsizedEE . UnsizedStubF ta $ mergeDown x y
+--     (UnsizedStubF ta x, UnsizedStubF tb y) | ta == tb -> unsizedEE . UnsizedStubF ta $ mergeDown x y
     (SizingWrapperF ta x, SizingWrapperF tb y) | ta == tb -> unsizedEE . SizingWrapperF ta $ mergeDown x y
     _ -> mergeOther a b
   _ -> mergeOther a b
@@ -711,25 +758,25 @@ instance PrettyPrintable1 StuckExprF where
     StuckExprB x -> showP1 x
     StuckExprS x -> showP1 x
 
--- newtype StuckExpr = StuckExpr {unStuckExpr :: StuckExprF StuckExpr StuckExpr}
 type StuckExpr = Fix StuckExprF
-{-
-type instance Base StuckExpr = StuckExprF
-instance Recursive StuckExpr where
-  project = unStuckExpr
-instance Corecursive StuckExpr where
-  embed = StuckExpr
--}
 instance PrettyPrintable StuckExpr where
   showP = showP1 . project
 
 data UnsizedStuckNeeds
   = UNeedsEnv
-  | UNeedsSizing
+  | UNeedsSizing UnsizedRecursionToken
   deriving (Eq, Show)
 
 instance StuckNeedsEnv UnsizedStuckNeeds where
   needsEnvToken = UNeedsEnv
+
+class MightNeedSizing a where
+  needsSizing :: a -> Bool
+
+instance MightNeedSizing UnsizedStuckNeeds where
+  needsSizing = \case
+    UNeedsSizing _ -> True
+    _ -> False
 
 data UnsizedExprF f
   = UnsizedExprB (PartExprF f)
@@ -897,6 +944,7 @@ term3ToUnsizedExpr maxSize (Term3 termMap) =
         TraceFrag -> embedB EnvSF
         AuxFrag (SizingWrapper tok (FragExprUR x)) -> embedU . SizingWrapperF tok $ convertFrag' x
         AuxFrag (NestedSetEnvs t) -> embedU . UnsizedStubF t . embed $ embedB EnvSF
+        -- AuxFrag (NestedSetEnvs t) -> embedS . StuckF (UNeedsSizing t) . embed $ embedB EnvSF
   in convertFrag' . unFragExprUR $ rootFrag termMap
 
 data SizedResult = AbortedSR | UnsizableSR UnsizedRecursionToken
@@ -960,9 +1008,9 @@ sizeTerm maxSize x = tidyUp . sizeF $ capMain x where
         UnsizedFW (SizingWrapperF tok ix) | tok /= ur -> case Map.lookup tok sm of
                                               Just Nothing -> basicEE . PairSF (superEE AnyPF) $ basicEE ZeroSF
                                               _ -> ix
-        UnsizedFW (UnsizedStubF tok ix) | tok /= ur -> case Map.lookup tok sm of
+        StuckFW s@(StuckF (UNeedsSizing tok) ix) | tok /= ur -> case Map.lookup tok sm of
                                             Just (Just n) -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
-                                            _ -> unsizedEE $ UnsizedStubF tok ix
+                                            _ -> stuckEE s
 
         x -> embed x
   traceSizes x = trace ("findSizes results: " <> show x) x
@@ -1006,9 +1054,9 @@ sizeTerm maxSize x = tidyUp . sizeF $ capMain x where
     UnsizedFW sw@(SizingWrapperF tok sx) -> case Map.lookup tok sizeMap of
       Just _ -> sx
       _ -> unsizedEE sw
-    UnsizedFW us@(UnsizedStubF tok _) -> case Map.lookup tok sizeMap of
+    StuckFW us@(StuckF (UNeedsSizing tok) _) -> case Map.lookup tok sizeMap of
       Just n -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
-      _ -> unsizedEE us
+      _ -> stuckEE us
     x -> embed x
   recursionResults' :: UnsizedExpr -> [(Int, UnsizedExpr)]
   recursionResults' x = map (\n -> (trace ("rr analyzing " <> show n) n, cata (f n) x)) [1..maxSize] where
