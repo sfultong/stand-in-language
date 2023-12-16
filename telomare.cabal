@@ -68,6 +68,8 @@ library
                      , crypto-api
                      , utf8-string
                      , process
+                     , free
+                     , comonad
   -- uncomment this line to get a cabal repl. Use appropiate complete path (will error with a relative path).
   -- extra-lib-dirs:      /home/hhefesto/src/telomare/lib
 
