@@ -74,7 +74,15 @@ library
   -- extra-lib-dirs:      /home/hhefesto/src/telomare/lib
 
   default-language:    Haskell2010
-  ghc-options:         -ddump-to-file -ddump-splices
+  ghc-options:         -threaded
+                       -rtsopts
+                       -prof
+                       -fprof-auto
+                       -fexternal-interpreter
+                       "-with-rtsopts=-N -p -s -hT"
+                       -v
+                       -static
+                       -staticlib
 
 executable telomare
   hs-source-dirs:      app

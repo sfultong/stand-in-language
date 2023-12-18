@@ -17,7 +17,8 @@ import Debug.Trace
 import PrettyPrint
 import Telomare (FragExpr (..), FragExprUR (..), FragIndex (..),
                  PartialType (..), PrettyPartialType (PrettyPartialType),
-                 RecursionSimulationPieces (..), Term3 (..), rootFrag)
+                 RecursionSimulationPieces (..), Term3 (..), rootFrag, FragExprF (..))
+import Control.Comonad.Cofree (Cofree ((:<)))
 
 debug :: Bool
 debug = False
@@ -140,38 +141,38 @@ getFragType (FragIndex i) = ArrTypeP (TypeVariable $ i * 2) (TypeVariable $ i * 
 
 annotate :: Term3 -> AnnotateState PartialType
 annotate (Term3 termMap) =
-  let annotate' :: FragExpr (RecursionSimulationPieces FragExprUR) -> AnnotateState PartialType
+  let annotate' :: Cofree (FragExprF (RecursionSimulationPieces FragExprUR)) (Int, Int) -> AnnotateState PartialType
       annotate' = \case
-        ZeroFrag -> pure ZeroTypeP
-        PairFrag a b -> PairTypeP <$> annotate' a <*> annotate' b
-        EnvFrag -> (State.gets (\(t, _, _) -> t))
-        SetEnvFrag x -> do
+        anno :< ZeroFragF -> pure ZeroTypeP
+        anno :< PairFragF a b -> PairTypeP <$> annotate' a <*> annotate' b
+        anno :< EnvFragF -> (State.gets (\(t, _, _) -> t))
+        anno :< SetEnvFragF x -> do
           xt <- annotate' x
           (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
           associateVar (PairTypeP (ArrTypeP it ot) it) xt
           pure ot
-        DeferFrag ind -> pure $ getFragType ind
-        AbortFrag -> do
+        anno :< DeferFragF ind -> pure $ getFragType ind
+        anno :< AbortFragF -> do
           (it, _) <- withNewEnv $ pure ()
           pure (ArrTypeP ZeroTypeP (ArrTypeP it it))
-        GateFrag l r -> do
+        anno :< GateFragF l r -> do
           lt <- annotate' l
           rt <- annotate' r
           associateVar lt rt
           pure $ ArrTypeP ZeroTypeP lt
-        LeftFrag x -> do
+        anno :< LeftFragF x -> do
           xt <- annotate' x
           (la, _) <- withNewEnv $ pure ()
           associateVar (PairTypeP la AnyType) xt
           pure la
-        RightFrag x -> do
+        anno :< RightFragF x -> do
           xt <- annotate' x
           (ra, _) <- withNewEnv $ pure ()
           associateVar (PairTypeP AnyType ra) xt
           pure ra
-        TraceFrag -> (State.gets (\(t, _, _) -> t))
-        AuxFrag (NestedSetEnvs _) -> (State.gets (\(t, _, _) -> t))
-        AuxFrag (RecursionTest (FragExprUR x)) -> annotate' x
+        anno :< TraceFragF -> (State.gets (\(t, _, _) -> t))
+        anno :< AuxFragF (NestedSetEnvs _) -> (State.gets (\(t, _, _) -> t))
+        anno :< AuxFragF (RecursionTest (FragExprUR x)) -> annotate' x
       initInputType :: FragIndex -> AnnotateState ()
       initInputType fi = let (ArrTypeP it _) = getFragType fi in State.modify (\(_, s, i) -> (it, s, i))
       associateOutType fi ot = let (ArrTypeP _ ot2) = getFragType fi in associateVar ot ot2

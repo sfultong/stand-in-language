@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Telomare.Eval where
 
@@ -27,13 +28,14 @@ import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
                  Term4 (Term4), UnsizedRecursionToken (..), app, g2s,
                  innerChurchF, insertAndGetKey, pattern AbortAny,
                  pattern AbortRecursion, pattern AbortUser, rootFrag, s2g,
-                 unFragExprUR)
+                 unFragExprUR, FragExprF (..), forget)
 import Telomare.Optimizer (optimize)
-import Telomare.Parser (UnprocessedParsedTerm (..), parsePrelude)
+import Telomare.Parser (UnprocessedParsedTerm (..), parsePrelude, AnnotatedUPT)
 import Telomare.Possible (evalA)
 import Telomare.Resolver (parseMain)
 import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
 import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
+import Control.Comonad.Cofree (Cofree((:<)), hoistCofree)
 
 data ExpP = ZeroP
     | PairP ExpP ExpP
@@ -113,28 +115,61 @@ partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 convertPT :: (UnsizedRecursionToken -> Int) -> Term3 -> Term4
 convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
                                    startKey = succ . fst $ Map.findMax termMap
+                                   changeFrag :: Cofree (FragExprF RecursionPieceFrag) (Int, Int)
+                                              -> State.State
+                                                   ((), FragIndex,
+                                                    Map
+                                                      FragIndex
+                                                      (Cofree (FragExprF RecursionPieceFrag) (Int, Int)))
+                                                   (Cofree (FragExprF RecursionPieceFrag) (Int, Int))
                                    changeFrag = \case
-                                     AuxFrag (NestedSetEnvs n) -> innerChurchF $ ll n
-                                     AuxFrag (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
+                                     anno :< AuxFragF (NestedSetEnvs n) -> innerChurchF anno $ ll n
+                                     anno :< AuxFragF (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
                                      x -> pure x
-                                   insertChanged :: FragIndex -> FragExpr RecursionPieceFrag -> BreakState RecursionPieceFrag () ()
+                                   -- insertChanged :: FragIndex -> FragExpr RecursionPieceFrag -> BreakState RecursionPieceFrag () ()
+                                   insertChanged :: FragIndex
+                                                 -> Cofree (FragExprF RecursionPieceFrag) (Int, Int)
+                                                 -> BreakState RecursionPieceFrag () ()
                                    insertChanged nk nv = State.modify (\(_, k, m) -> ((), k, Map.insert nk nv m))
+                                   -- builder :: State.State ( ()
+                                   --                        , FragIndex
+                                   --                        , Map
+                                   --                            FragIndex
+                                   --                            (Cofree
+                                   --                               (FragExprF (RecursionSimulationPieces Telomare.FragExprUR))
+                                   --                               (Int, Int))
+                                   --                        )
+                                   --                        a1
                                    builder = sequence $ Map.mapWithKey (\k v -> transformM changeFrag v >>= insertChanged k) unURedMap
                                    (_,_,newMap) = State.execState builder ((), startKey, unURedMap)
-                                   changeType :: FragExpr RecursionPieceFrag -> FragExpr Void
+                                   changeType :: FragExprF a x -> FragExprF b x
                                    changeType = \case
-                                     ZeroFrag -> ZeroFrag
-                                     PairFrag a b -> PairFrag (changeType a) (changeType b)
-                                     EnvFrag -> EnvFrag
-                                     SetEnvFrag x -> SetEnvFrag (changeType x)
-                                     DeferFrag ind -> DeferFrag ind
-                                     AbortFrag -> AbortFrag
-                                     GateFrag l r -> GateFrag (changeType l) (changeType r)
-                                     LeftFrag x -> LeftFrag (changeType x)
-                                     RightFrag x -> RightFrag (changeType x)
-                                     TraceFrag -> TraceFrag
-                                     AuxFrag z -> error ("convertPT should be no AuxFrags here " <> show z)
-                               in Term4 $ fmap changeType newMap
+                                     ZeroFragF -> ZeroFragF
+                                     PairFragF a b -> PairFragF a b
+                                     EnvFragF -> EnvFragF
+                                     SetEnvFragF x -> SetEnvFragF x
+                                     DeferFragF ind -> DeferFragF ind
+                                     AbortFragF -> AbortFragF
+                                     GateFragF l r -> GateFragF l r
+                                     LeftFragF x -> LeftFragF x
+                                     RightFragF x -> RightFragF x
+                                     TraceFragF -> TraceFragF
+                                     AuxFragF z -> error ("convertPT should be no AuxFrags here TODO" ) -- <> show z)
+
+                                   -- changeType :: FragExpr RecursionPieceFrag -> FragExpr Void
+                                   -- changeType = \case
+                                   --   ZeroFrag -> ZeroFrag
+                                   --   PairFrag a b -> PairFrag (changeType a) (changeType b)
+                                   --   EnvFrag -> EnvFrag
+                                   --   SetEnvFrag x -> SetEnvFrag (changeType x)
+                                   --   DeferFrag ind -> DeferFrag ind
+                                   --   AbortFrag -> AbortFrag
+                                   --   GateFrag l r -> GateFrag (changeType l) (changeType r)
+                                   --   LeftFrag x -> LeftFrag (changeType x)
+                                   --   RightFrag x -> RightFrag (changeType x)
+                                   --   TraceFrag -> TraceFrag
+                                   --   AuxFrag z -> error ("convertPT should be no AuxFrags here " <> show z)
+                               in Term4 $ fmap (hoistCofree changeType) newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
 findChurchSize = pure . convertPT (const 255)
@@ -144,12 +179,12 @@ findChurchSize = pure . convertPT (const 255)
 removeChecks :: Term4 -> Term4
 removeChecks (Term4 m) =
   let f = \case
-        AbortFrag -> DeferFrag ind
+        anno :< AbortFragF -> anno :< DeferFragF ind
         x         -> x
       (ind, newM) = State.runState builder m
       builder = do
-        envDefer <- insertAndGetKey EnvFrag
-        insertAndGetKey $ DeferFrag envDefer
+        envDefer <- insertAndGetKey $ (0,0) :< EnvFragF
+        insertAndGetKey $ (0,0) :< DeferFragF envDefer
   in Term4 $ Map.map (transform f) newM
 
 convertAbortMessage :: IExpr -> String
@@ -189,7 +224,7 @@ compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>=
 
 runMain :: String -> String -> IO ()
 runMain preludeString s =
-  let prelude :: [(String, UnprocessedParsedTerm)]
+  let prelude :: [(String, AnnotatedUPT)]
       prelude =
         case parsePrelude preludeString of
           Right p -> p

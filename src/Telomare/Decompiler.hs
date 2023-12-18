@@ -9,8 +9,9 @@ import qualified Data.Map as Map
 import Data.Semigroup (Max (..))
 import Telomare (FragExpr (..), FragIndex (FragIndex), IExpr (..), LamType (..),
                  ParserTerm (..), Term1, Term2, Term3 (Term3), Term4 (Term4),
-                 buildFragMap, deferF, rootFrag, unFragExprUR)
+                 buildFragMap, deferF, rootFrag, unFragExprUR, tag, FragExprF (..), ParserTermF (..))
 import Telomare.Parser (UnprocessedParsedTerm (..))
+import Control.Comonad.Cofree (Cofree ((:<)))
 
 decompileUPT :: UnprocessedParsedTerm -> String
 decompileUPT =
@@ -98,18 +99,18 @@ decompileUPT =
 
 decompileTerm1 :: Term1 -> UnprocessedParsedTerm
 decompileTerm1 = \case
-  TZero -> IntUP 0
-  TPair a b -> PairUP (decompileTerm1 a) (decompileTerm1 b)
-  TVar n -> VarUP n
-  TApp f x -> AppUP (decompileTerm1 f) (decompileTerm1 x)
-  TCheck c x -> CheckUP (decompileTerm1 c) (decompileTerm1 x)
-  TITE i t e ->ITEUP (decompileTerm1 i) (decompileTerm1 t) (decompileTerm1 e)
-  TLeft x -> LeftUP (decompileTerm1 x)
-  TRight x -> RightUP (decompileTerm1 x)
-  TTrace x -> TraceUP (decompileTerm1 x)
-  TLam (Open n) x -> LamUP n (decompileTerm1 x)
-  TLam (Closed n) x -> LamUP n (decompileTerm1 x) -- not strictly equivalent
-  TLimitedRecursion t r b -> UnsizedRecursionUP (decompileTerm1 t) (decompileTerm1 r) (decompileTerm1 b)
+  _ :< TZeroF -> IntUP 0
+  _ :< TPairF a b -> PairUP (decompileTerm1 a) (decompileTerm1 b)
+  _ :< TVarF n -> VarUP n
+  _ :< TAppF f x -> AppUP (decompileTerm1 f) (decompileTerm1 x)
+  _ :< TCheckF c x -> CheckUP (decompileTerm1 c) (decompileTerm1 x)
+  _ :< TITEF i t e ->ITEUP (decompileTerm1 i) (decompileTerm1 t) (decompileTerm1 e)
+  _ :< TLeftF x -> LeftUP (decompileTerm1 x)
+  _ :< TRightF x -> RightUP (decompileTerm1 x)
+  _ :< TTraceF x -> TraceUP (decompileTerm1 x)
+  _ :< TLamF (Open n) x -> LamUP n (decompileTerm1 x)
+  _ :< TLamF (Closed n) x -> LamUP n (decompileTerm1 x) -- not strictly equivalent
+  _ :< TLimitedRecursionF t r b -> UnsizedRecursionUP (decompileTerm1 t) (decompileTerm1 r) (decompileTerm1 b)
 
 decompileTerm2 :: Term2 -> Term1
 decompileTerm2 =
@@ -117,36 +118,43 @@ decompileTerm2 =
       getName n = if n < 0
         then head nameSupply
         else nameSupply !! n
+      go :: Term2
+         -> (Max Int, Term1)
       go = \case
-        TZero -> pure TZero
-        TPair a b -> TPair <$> go a <*> go b
-        TVar n ->  (Max n, TVar (getName n))
-        TApp f x -> TApp <$> go f <*> go x
-        TCheck c x -> TCheck <$> go c <*> go x
-        TITE i t e -> TITE <$> go i <*> go t <*> go e
-        TLeft x -> TLeft <$> go x
-        TRight x -> TRight <$> go x
-        TTrace x -> TTrace <$> go x
-        TLam (Open ()) x -> (\(Max n, r) -> (Max n, TLam (Open (getName n)) r)) $ go x -- warning, untested
-        TLam (Closed ()) x -> (\(Max n, r) -> (Max 0, TLam (Closed (getName n)) r)) $ go x
-        TLimitedRecursion t r b -> TLimitedRecursion <$> go t <*> go r <*> go b
+        anno :< TZeroF -> pure $ anno :< TZeroF
+        anno :< TPairF a b -> (\x y -> anno :< TPairF x y) <$> go a <*> go b
+        anno :< TVarF n ->  (Max n, anno :< TVarF (getName n))
+        anno :< TAppF f x -> (\y z -> anno :< TAppF y z) <$> go f <*> go x
+        anno :< TCheckF c x -> (\y z -> anno :< TCheckF y z) <$> go c <*> go x
+        anno :< TITEF i t e -> (\x y z -> anno :< TITEF x y z) <$> go i <*> go t <*> go e
+        anno :< TLeftF x -> (anno :<) . TLeftF <$> go x
+        anno :< TRightF x -> (anno :<) . TRightF <$> go x
+        anno :< TTraceF x -> (anno :<) . TTraceF <$> go x
+        anno :< TLamF (Open ()) x -> (\(Max n, r) -> (Max n, (anno :<) $ TLamF (Open (getName n)) r)) $ go x -- warning, untested
+        anno :< TLamF (Closed ()) x -> (\(Max n, r) -> (Max 0, (anno :<) $ TLamF (Closed (getName n)) r)) $ go x
+        anno :< TLimitedRecursionF t r b -> (\x y z -> anno :< TLimitedRecursionF x y z) <$> go t <*> go r <*> go b
   in snd . go
 
-decompileFragMap :: Map.Map FragIndex (FragExpr a) -> Term2
+decompileFragMap :: Map.Map FragIndex (Cofree (FragExprF a) (Int, Int)) -> Term2
 decompileFragMap tm =
-  let decomp = let recur = decomp in \case
-        ZeroFrag -> TZero
-        PairFrag a b -> TPair (recur a) (recur b)
-        EnvFrag -> TVar 0
-        SetEnvFrag x -> TApp (TLam (Closed ()) (TApp (TLeft (TVar 0)) (TRight (TVar 0)))) $ recur x
-        DeferFrag ind -> TLam (Closed ()) . recur $ tm Map.! ind
-        AbortFrag -> TLam (Closed ()) . TLam (Open ())
-          $ TCheck (TLam (Closed ()) (TVar 1)) (TVar 0)
-        GateFrag l r -> TLam (Closed ()) $ TITE (TVar 0) (recur r) (recur l)
-        LeftFrag x -> TLeft $ recur x
-        RightFrag x -> TRight $ recur x
-        TraceFrag -> TLam (Closed ()) $ TTrace (TVar 0)
-        AuxFrag _ -> error "decompileFragMap: TODO AuxFrag" -- TLimitedRecursion
+  let decomp :: Cofree (FragExprF a) (Int, Int)
+             -> Term2
+      decomp = let recur = decomp in \case
+        anno :< ZeroFragF -> anno :< TZeroF
+        anno :< PairFragF a b -> anno :< TPairF (recur a) (recur b)
+        anno :< EnvFragF -> anno :< TVarF 0
+        anno :< SetEnvFragF x -> anno :< TAppF (anno :< TLamF (Closed ()) (anno :< TAppF (anno :< TLeftF (anno :< TVarF 0))
+                                                                                         (anno :< TRightF (anno :< TVarF 0))))
+                                               (recur x)
+        anno :< DeferFragF ind -> anno :< (TLamF (Closed ()) . recur $ tm Map.! ind)
+        anno :< AbortFragF -> anno :< TLamF (Closed ()) (anno :< (TLamF (Open ()) $
+                                            (anno :< TCheckF (anno :< TLamF (Closed ()) (anno :< TVarF 1))
+                                                             (anno :< TVarF 0))))
+        anno :< GateFragF l r -> anno :< TLamF (Closed ()) (anno :< TITEF (anno :< TVarF 0) (recur r) (recur l))
+        anno :< LeftFragF x -> anno :< TLeftF (recur x)
+        anno :< RightFragF x -> anno :< TRightF (recur x)
+        anno :< TraceFragF -> anno :< TLamF (Closed ()) (anno :< TTraceF (anno :< TVarF 0))
+        anno :< AuxFragF _ -> error "decompileFragMap: TODO AuxFrag" -- TLimitedRecursion
   in decomp $ rootFrag tm
 
 decompileTerm4 :: Term4 -> Term2
@@ -157,13 +165,13 @@ decompileTerm3 (Term3 tm) = decompileFragMap $ Map.map unFragExprUR tm
 
 decompileIExpr :: IExpr -> Term4
 decompileIExpr x = let build = \case
-                         Zero     -> pure ZeroFrag
-                         Pair a b -> PairFrag <$> build a <*> build b
-                         Env      -> pure EnvFrag
-                         SetEnv x -> SetEnvFrag <$> build x
-                         Gate l r -> GateFrag <$> build l <*> build r
-                         PLeft x  -> LeftFrag <$> build x
-                         PRight x -> RightFrag <$> build x
-                         Trace    -> pure TraceFrag
+                         Zero     -> pure . tag (0,0) $ ZeroFrag
+                         Pair a b -> (\x y -> (0,0) :< PairFragF x y) <$> build a <*> build b
+                         Env      -> pure . tag (0,0) $ EnvFrag
+                         SetEnv x -> ((0,0) :<) . SetEnvFragF <$> build x
+                         Gate l r -> (\x y -> (0,0) :< GateFragF x y) <$> build l <*> build r
+                         PLeft x  -> ((0,0) :<) . LeftFragF <$> build x
+                         PRight x -> ((0,0) :<) . RightFragF <$> build x
+                         Trace    -> pure . tag (0,0) $ TraceFrag
                          Defer x  -> deferF $ build x
                    in Term4 . buildFragMap $ build x
