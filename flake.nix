@@ -17,7 +17,7 @@
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
-          compiler = pkgs.haskell.packages."ghc924";
+          compiler = pkgs.haskell.packages."ghc92";
           project = runTests: executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
                 addBuildDepends = (t.flip hl.addBuildDepends)
@@ -41,6 +41,8 @@
                 doRunTests
                 # hl.dontHaddock
               ];
+
+              cabal2nixOptions = "--enable-profiling --benchmark";
             };
 
       in {

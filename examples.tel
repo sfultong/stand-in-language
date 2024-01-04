@@ -1,7 +1,8 @@
 -- File for small illustrative telomare programs and for testing
 
 -- Hello World example.
-main = \input -> ("Hello, World!", 0)
+-- main = \input -> (map (\c -> succ c) "Hello, World!", 0)
+main = \input -> (map succ [66], 0)
 
 -- -- refinement fail
 -- main : (\x -> if x then "fail" else 0) = 1
