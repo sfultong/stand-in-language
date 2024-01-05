@@ -34,6 +34,7 @@ import Test.Tasty.QuickCheck as QC
 import Text.Megaparsec
 import Text.Megaparsec.Debug
 import Text.Megaparsec.Error
+import Control.Comonad.Cofree (Cofree ((:<)))
 
 main :: IO ()
 main = defaultMain tests
@@ -182,7 +183,8 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
   , testCase "Case within top level definitions" $ do
-      res <- runTelomareParser parseTopLevel caseExpr0
+      res' <- runTelomareParser parseTopLevel caseExpr0
+      let res = forget res'
       res @?= caseExpr0UPT
   ]
 

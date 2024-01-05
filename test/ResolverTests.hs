@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-
+{-# LANGUAGE ScopedTypeVariables #-}
 module Main where
 
 import CaseTests (qcPropsCase, unitTestsCase)
@@ -27,6 +27,8 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck as QC
 import Text.Megaparsec (eof)
 import Text.Show.Pretty (ppShow)
+
+type Term2' = ParserTerm () Int
 
 main :: IO ()
 main = defaultMain tests
@@ -61,12 +63,13 @@ containsTHash = \case
   x          -> False
 
 onlyHashUPsChanged :: Term2 -> Bool
-onlyHashUPsChanged term2 = let diffList = diffTerm2 (term2, generateAllHashes term2)
-                               isHash :: Term2 -> Bool
-                               isHash = \case
-                                 THash _ -> True
-                                 _       -> False
-                           in and $ fmap (isHash . fst) diffList
+onlyHashUPsChanged term2' = let term2 = forget term2'
+                                diffList = diffTerm2 (term2, generateAllHashes term2)
+                                isHash :: Term2 -> Bool
+                                isHash = \case
+                                  THash _ -> True
+                                  _       -> False
+                            in and $ fmap (isHash . fst) diffList
 
 checkAllHashes :: Term2 -> Bool
 checkAllHashes = noDups . allHashesToTerm2
@@ -76,10 +79,10 @@ noDups = not . f []
     f seen (x:xs) = x `elem` seen || f (x:seen) xs
     f seen []     = False
 
-allHashesToTerm2 :: Term2 -> [Term2]
+allHashesToTerm2 :: Term2 -> [Term2']
 allHashesToTerm2 term2 =
-  let term2WithoutTHash = generateAllHashes term2
-      interm :: (Term2, Term2) -> [Term2]
+  let term2WithoutTHash = forget . generateAllHashes $ term2
+      interm :: (Term2', Term2') -> [Term2']
       interm = \case
         (THash _ , x) -> [x]
         (TITE a b c, TITE a' b' c') -> interm (a, a') <> interm (b, b') <> interm (c, c')
@@ -92,9 +95,9 @@ allHashesToTerm2 term2 =
         (TTrace a, TTrace a') -> interm (a, a')
         (x, x') | x /= x' -> error "x and x' should be the same (inside of allHashesToTerm2, within interm)"
         (x, x') -> []
-  in curry interm term2 term2WithoutTHash
+  in curry interm (forget term2) term2WithoutTHash
 
-diffTerm2 :: (Term2, Term2) -> [(Term2, Term2)]
+diffTerm2 :: (Term2', Term2') -> [(Term2', Term2')]
 diffTerm2 = \case
   (TITE a b c, TITE a' b' c') -> diffTerm2 (a, a') <> diffTerm2 (b, b') <> diffTerm2 (c, c')
   (TPair a b, TPair a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
@@ -129,25 +132,25 @@ unitTests = testGroup "Unit tests"
       res `compare` "MyInt must not be 0\ndone\n" @?= EQ
   , testCase "test automatic open close lambda" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
-      validateVariables [] res `compare` Right closedLambdaPair @?= EQ
+      (forget <$> validateVariables [] res) `compare` Right closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 2" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
-      validateVariables [] res `compare` Right closedLambdaPair @?= EQ
+      (forget <$> validateVariables [] res) `compare` Right closedLambdaPair @?= EQ
   , testCase "test automatic open close lambda 3" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
-      validateVariables [] res `compare` Right expr6 @?= EQ
+      (forget <$> validateVariables [] res) `compare` Right expr6 @?= EQ
   , testCase "test automatic open close lambda 4" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> (x, x)"
-      validateVariables [] res `compare` Right expr5 @?= EQ
+      (forget <$> validateVariables [] res) `compare` Right expr5 @?= EQ
   , testCase "test automatic open close lambda 5" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
-      validateVariables [] res `compare` Right expr4 @?= EQ
+      (forget <$> validateVariables [] res) `compare` Right expr4 @?= EQ
   , testCase "test automatic open close lambda 6" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
-      validateVariables [] res `compare` Right expr3 @?= EQ
+      (forget <$> validateVariables [] res) `compare` Right expr3 @?= EQ
   , testCase "test automatic open close lambda 7" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
-      validateVariables [] res `compare` Right expr2 @?= EQ
+      (forget <$> validateVariables [] res) `compare` Right expr2 @?= EQ
   , testCase "test tictactoe.tel" $ do
       res <- tictactoe
       fullRunTicTacToeString `compare` res  @?= EQ
@@ -209,11 +212,11 @@ fullRunTicTacToeString = unlines
   ]
 
 -- | Telomare Parser AST representation of: \x -> \y -> \z -> z
-expr6 :: Term1
-expr6 = TLam (Closed "x")
-          (TLam (Closed "y")
-            (TLam (Closed "z")
-              (TVar "z")))
+expr6 =
+  TLam (Closed "x")
+       (TLam (Closed "y")
+         (TLam (Closed "z")
+           (TVar "z")))
 
 -- | Telomare Parser AST representation of: \x -> (x, x)
 expr5 = TLam (Closed "x")

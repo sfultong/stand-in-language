@@ -5,11 +5,13 @@ module CaseTests (unitTestsCase, qcPropsCase) where
 import Common
 import qualified Control.Monad.State as State
 import Data.Functor.Foldable (Base, Recursive (cata))
+import Telomare (forget)
 import Telomare.Parser
 import Telomare.Resolver (pattern2UPT)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck as QC
+import Control.Comonad.Cofree (Cofree ((:<)))
 
 caseTests :: IO ()
 caseTests = defaultMain tests
@@ -24,7 +26,7 @@ tests = testGroup "Tests" [unitTestsCase, qcPropsCase]
 caseExprStrWithPattern :: Pattern -> String
 caseExprStrWithPattern p = unlines
   [ "main ="
-  , "  let toCase = " <> (show . PrettyUPT . pattern2UPT $ p)
+  , "  let toCase = " <> (show . PrettyUPT . forget . pattern2UPT (0,0) $ p)
   , "      caseTest ="
   , "        case toCase of"
   , "          " <> (show . PrettyPattern $ p) <> " -> \"True\""
@@ -35,7 +37,7 @@ caseExprStrWithPattern p = unlines
 caseExprStrWithPatternIgnore :: Pattern -> String
 caseExprStrWithPatternIgnore p = unlines
   [ "main ="
-  , "  let toCase = " <> (show . PrettyUPT . pattern2UPT $ p)
+  , "  let toCase = " <> (show . PrettyUPT . forget . pattern2UPT (0,0) $ p)
   , "      caseTest ="
   , "        case toCase of"
   , "          _ -> \"True\""

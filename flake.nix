@@ -42,7 +42,7 @@
                 # hl.dontHaddock
               ];
 
-              cabal2nixOptions = "--enable-profiling --benchmark";
+              # cabal2nixOptions = "--enable-profiling";
             };
 
       in {
