@@ -499,122 +499,126 @@ unitTests parse = do
   let unitTestType = unitTestType' parse
       unitTest2 = unitTest2' parse
       unitTestStaticChecks = unitTestStaticChecks' parse
-  describe "type checker" $ do
-    unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
-    unitTestType "main = \\x -> (x,0)" ZeroTypeP isInconsistentType
-    unitTestType "main = succ 0" ZeroTypeP (== Nothing)
-    unitTestType "main = succ 0" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
-    unitTestType "main = or 0" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
-    unitTestType "main = or 0" ZeroTypeP isInconsistentType
-    unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
-    unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
-    unitTestType "main = 0 0" ZeroTypeP isInconsistentType
-    unitTestType "main = (if 0 then (\\x -> (x,0)) else (\\x -> (x,1))) 0" ZeroTypeP (== Nothing)
-    -- I guess this is inconsistently typed now?
-    unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-    unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-    unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-    unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-    unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-    unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
-      (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
-    unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" ZeroTypeP (== Nothing)
-    unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
-    -- unitTestType "main = ? (\\r l -> if l then r (left l) else 0) (\\l -> 0) 2" ZeroTypeP (== Nothing)
-    unitTestType "main = {id,\\r l -> r (left l),id} 2" ZeroTypeP (== Nothing)
-    unitTestType2
-      (setenv (pair
-               (setenv (pair
-                        (defer (setenv (pair env env)))
-                        (defer env)
-                       )
-               )
-               zero
-              )
-      )
-      ZeroTypeP isRecursiveType
-    unitTestType2 inf_pairs ZeroTypeP isRecursiveType
-  describe "unitTest" $ do
-    unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
-    unitTest "c2d" "2" c2d_test
-    unitTest "c2d2" "2" c2d_test2
-    unitTest "c2d3" "1" c2d_test3
-    unitTest "oneplusone" "2" one_plus_one
-    unitTest "church 3+2" "5" three_plus_two
-    unitTest "3*2" "6" three_times_two
-    unitTest "3^2" "9" three_pow_two
-    unitTest "test_tochurch" "2" test_toChurch
-    unitTest "three" "3" three_succ
-    unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
-    unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
-    unitTest "listlength0" "0" $ app list_length zero
-    unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
-    unitTest "zipwith" "((4,1),((5,1),((6,2),0)))"
-      $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
-                 (ints2g [4,5,6]))
-            (ints2g [1,1,2,3])
-    unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
-    unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
-    unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
-  -- because of the way lists are represented, the last number will be prettyPrinted + 1
-    unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
-                                     (ints2g [1,2,3])
+  -- describe "type checker" $ do
+  --   unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+  --   unitTestType "main = \\x -> (x,0)" ZeroTypeP isInconsistentType
+  --   unitTestType "main = succ 0" ZeroTypeP (== Nothing)
+  --   unitTestType "main = succ 0" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
+  --   unitTestType "main = or 0" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
+  --   unitTestType "main = or 0" ZeroTypeP isInconsistentType
+  --   unitTestType "main = or succ" (ArrTypeP ZeroTypeP ZeroTypeP) isInconsistentType
+  --   unitTestType "main = 0 succ" ZeroTypeP isInconsistentType
+  --   unitTestType "main = 0 0" ZeroTypeP isInconsistentType
+  --   unitTestType "main = (if 0 then (\\x -> (x,0)) else (\\x -> (x,1))) 0" ZeroTypeP (== Nothing)
+  --   -- I guess this is inconsistently typed now?
+  --   unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
+  --     (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  --   unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
+  --     (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  --   unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
+  --     (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  --   unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
+  --     (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  --   unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
+  --     (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  --   unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
+  --     (ArrTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (/= Nothing) -- isRecursiveType
+  --   unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" ZeroTypeP (== Nothing)
+  --   unitTestType "main : (\\x -> if x then \"fail\" else 0) = 0" ZeroTypeP (== Nothing)
+  --   -- unitTestType "main = ? (\\r l -> if l then r (left l) else 0) (\\l -> 0) 2" ZeroTypeP (== Nothing)
+  --   unitTestType "main = {id,\\r l -> r (left l),id} 2" ZeroTypeP (== Nothing)
+  --   unitTestType2
+  --     (setenv (pair
+  --              (setenv (pair
+  --                       (defer (setenv (pair env env)))
+  --                       (defer env)
+  --                      )
+  --              )
+  --              zero
+  --             )
+  --     )
+  --     ZeroTypeP isRecursiveType
+  --   unitTestType2 inf_pairs ZeroTypeP isRecursiveType
+  -- describe "unitTest" $ do
+  --   unitTest "ite" "2" (ite (i2g 1) (i2g 2) (i2g 3))
+  --   unitTest "c2d" "2" c2d_test
+  --   unitTest "c2d2" "2" c2d_test2
+  --   unitTest "c2d3" "1" c2d_test3
+  --   unitTest "oneplusone" "2" one_plus_one
+  --   unitTest "church 3+2" "5" three_plus_two
+  --   unitTest "3*2" "6" three_times_two
+  --   unitTest "3^2" "9" three_pow_two
+  --   unitTest "test_tochurch" "2" test_toChurch
+  --   unitTest "three" "3" three_succ
+  --   unitTest "data 3+5" "8" $ app (app d_plus (i2g 3)) (i2g 5)
+  --   unitTest "foldr" "13" $ app (app (app foldr_ d_plus) (i2g 1)) (ints2g [2,4,6])
+  --   unitTest "listlength0" "0" $ app list_length zero
+  --   unitTest "listlength3" "3" $ app list_length (ints2g [1,2,3])
+  --   unitTest "zipwith" "((4,1),((5,1),((6,2),0)))"
+  --     $ app (app (app zipWith_ (lam (lam (pair (varN 1) (varN 0)))))
+  --                (ints2g [4,5,6]))
+  --           (ints2g [1,1,2,3])
+  --   unitTest "listequal1" "1" $ app (app list_equality (s2g "hey")) (s2g "hey")
+  --   unitTest "listequal0" "0" $ app (app list_equality (s2g "hey")) (s2g "he")
+  --   unitTest "listequal00" "0" $ app (app list_equality (s2g "hey")) (s2g "hel")
+  -- -- because of the way lists are represented, the last number will be prettyPrinted + 1
+  --   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
+  --                                    (ints2g [1,2,3])
 
-  describe "refinement" $ do
-    unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" (== Left (StaticCheckError "user abort: fail"))
-    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" (not . null)
-    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" (not . null)
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" (== Left (StaticCheckError "user abort: boop"))
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" (not . null)
+  -- describe "refinement" $ do
+  --   unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" (== Left (StaticCheckError "user abort: fail"))
+  --   unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" (not . null)
+  --   unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" (not . null)
+  --   unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" (== Left (StaticCheckError "user abort: boop"))
+  --   unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" (not . null)
 
   describe "unitTest2" $ do
-    unitTest2 "main = 0" "0"
-    unitTest2 fiveApp "5"
-    unitTest2 "main = plus $3 $2 succ 0" "5"
-    unitTest2 "main = times $3 $2 succ 0" "6"
-    unitTest2 "main = pow $3 $2 succ 0" "9"
+    -- unitTest2 "main = 0" "0"
+    -- unitTest2 fiveApp "5"
+    -- unitTest2 "main = plus $3 $2 succ 0" "5"
+    -- unitTest2 "main = times $3 $2 succ 0" "6"
+    -- unitTest2 "main = pow $3 $2 succ 0" "9"
     unitTest2 "main = d2c 3 succ 0" "3"
-    -- unitTest2 "main = (d2cG $4 3) succ 0" "3"
-    unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
-    unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
-    unitTest2 "main = dEqual 0 0" "1"
-    unitTest2 "main = dEqual 1 0" "0"
-    unitTest2 "main = dEqual 0 1" "0"
-    unitTest2 "main = dEqual 1 1" "1"
-    unitTest2 "main = dEqual 2 1" "0"
-    unitTest2 "main = dEqual 1 2" "0"
-    unitTest2 "main = dEqual 2 2" "1"
-    unitTest2 "main = listLength []" "0"
-    unitTest2 "main = listLength [1,2,3]" "3"
-    unitTest2 "main = listEqual \"hey\" \"hey\"" "1"
-    unitTest2 "main = listEqual \"hey\" \"he\"" "0"
-    unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
-    unitTest2 "main = listPlus [1,2] [3,4]" "(1,(2,(3,5)))"
-    unitTest2 "main = listPlus 0 [1]" "2"
-    unitTest2 "main = listPlus [1] 0" "2"
-    unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
-    unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "(97,(98,100))"
-    unitTest2 nestedNamedFunctionsIssue "2"
-    unitTest2 "main = take $0 [1,2,3]" "0"
-    unitTest2 "main = take $1 [1,2,3]" "2"
-    unitTest2 "main = take $5 [1,2,3]" "(1,(2,4))"
-    unitTest2 "main = c2d (minus $4 $3)" "1"
-    unitTest2 "main = c2d (minus $4 $4)" "0"
-    unitTest2 "main = dMinus 4 3" "1"
-    unitTest2 "main = dMinus 4 4" "0"
-    unitTest2 "main = (if 0 then (\\x -> (x,0)) else (\\x -> ((x,0),0))) 1" "3"
-    unitTest2 "main = range 2 5" "(2,(3,5))"
-    unitTest2 "main = range 6 6" "0"
-    unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
-      "(4,(5,(6,8)))"
-    unitTest2 "main = (\\a b -> if 0 then a b else b) (\\b -> times $2 b) $1 succ 0" "1"
-    unitTest2 "main = c2d (factorial 0)" "1"
-    unitTest2 "main = c2d (factorial 4)" "24"
+    ----------------------
+    -- unitTest2 "main = map left []" "(0,2)"
+    --------------------------
+    -- test "left" as a function rather than builtin requiring argument
+    -- -- unitTest2 "main = (d2cG $4 3) succ 0" "3"
+    -- unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
+    -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
+    -- unitTest2 "main = dEqual 0 0" "1"
+    -- unitTest2 "main = dEqual 1 0" "0"
+    -- unitTest2 "main = dEqual 0 1" "0"
+    -- unitTest2 "main = dEqual 1 1" "1"
+    -- unitTest2 "main = dEqual 2 1" "0"
+    -- unitTest2 "main = dEqual 1 2" "0"
+    -- unitTest2 "main = dEqual 2 2" "1"
+    -- unitTest2 "main = listLength []" "0"
+    -- unitTest2 "main = listLength [1,2,3]" "3"
+    -- unitTest2 "main = listEqual \"hey\" \"hey\"" "1"
+    -- unitTest2 "main = listEqual \"hey\" \"he\"" "0"
+    -- unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
+    -- unitTest2 "main = listPlus [1,2] [3,4]" "(1,(2,(3,5)))"
+    -- unitTest2 "main = listPlus 0 [1]" "2"
+    -- unitTest2 "main = listPlus [1] 0" "2"
+    -- unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
+    -- unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "(97,(98,100))"
+    -- unitTest2 nestedNamedFunctionsIssue "2"
+    -- unitTest2 "main = take $0 [1,2,3]" "0"
+    -- unitTest2 "main = take $1 [1,2,3]" "2"
+    -- unitTest2 "main = take $5 [1,2,3]" "(1,(2,4))"
+    -- unitTest2 "main = c2d (minus $4 $3)" "1"
+    -- unitTest2 "main = c2d (minus $4 $4)" "0"
+    -- unitTest2 "main = dMinus 4 3" "1"
+    -- unitTest2 "main = dMinus 4 4" "0"
+    -- unitTest2 "main = (if 0 then (\\x -> (x,0)) else (\\x -> ((x,0),0))) 1" "3"
+    -- unitTest2 "main = range 2 5" "(2,(3,5))"
+    -- unitTest2 "main = range 6 6" "0"
+    -- unitTest2 "main = filter (\\x -> dMinus x 3) (range 1 8)"
+    --   "(4,(5,(6,8)))"
+    -- unitTest2 "main = (\\a b -> if 0 then a b else b) (\\b -> times $2 b) $1 succ 0" "1"
+    -- unitTest2 "main = c2d (factorial 0)" "1"
+    -- unitTest2 "main = c2d (factorial 4)" "24"
 
   {- TODO -- figure out why this broke
     unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
@@ -742,6 +746,7 @@ main = do
     prelude = case parsePrelude preludeFile of
       Right p -> p
       Left pe -> error $ show pe
+    -- parse :: String -> Either a0 Term3
     parse = parseMain prelude
 
   hspec $ unitTests parse

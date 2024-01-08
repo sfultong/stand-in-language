@@ -30,7 +30,10 @@ import GHC.Generics (Generic)
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Text.Show.Deriving (deriveShow1)
 import Data.Eq.Deriving (deriveEq1)
+import Data.Ord.Deriving (deriveOrd1)
 import qualified Control.Comonad.Trans.Cofree as CofreeT (CofreeF(..))
+import Debug.Trace (traceShowId, traceShow, trace)
+
 
 {- top level TODO list
  - change AbortFrag form to something more convenient
@@ -131,6 +134,8 @@ data ParserTerm l v
   deriving (Eq, Ord, Functor, Foldable, Traversable)
 makeBaseFunctor ''ParserTerm -- Functorial version ParserTermF
 deriveShow1 ''ParserTermF
+deriveEq1 ''ParserTermF
+deriveOrd1 ''ParserTermF
 
 instance Plated (ParserTerm l v) where
   plate f = \case
@@ -227,7 +232,7 @@ data FragExpr a
   | RightFrag (FragExpr a)
   | TraceFrag
   | AuxFrag a
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Functor)
 makeBaseFunctor ''FragExpr -- Functorial version FragExprF.
 deriveShow1 ''FragExprF
 deriveEq1 ''FragExprF
@@ -243,17 +248,17 @@ instance Plated (FragExpr a) where
 
 showFragAlg :: Show a => (Base (FragExpr a)) (State Int String) -> State Int String
 showFragAlg = \case
-      ZeroFragF         -> sindent "ZeroF"
-      (PairFragF sl sr) -> indentWithTwoChildren "PairF" sl sr
-      EnvFragF          -> sindent "EnvF"
-      (SetEnvFragF sx)  -> indentWithOneChild "SetEnvF" sx
-      (DeferFragF i)    -> sindent $ "DeferF " <> show i
-      AbortFragF        -> sindent "AbortFragF"
-      (GateFragF sx sy) -> indentWithTwoChildren "GateF" sx sy
-      (LeftFragF sl)    -> indentWithOneChild "LeftF" sl
-      (RightFragF sr)   -> indentWithOneChild "RightF" sr
-      TraceFragF        -> sindent "TraceF"
-      (AuxFragF x)      -> sindent $ "AuxF " <> show x
+      ZeroFragF         -> sindent "ZeroFrag"
+      (PairFragF sl sr) -> indentWithTwoChildren "PairFrag" sl sr
+      EnvFragF          -> sindent "EnvFrag"
+      (SetEnvFragF sx)  -> indentWithOneChild "SetEnvFrag" sx
+      (DeferFragF i)    -> sindent $ "DeferFrag " <> show i
+      AbortFragF        -> sindent "AbortFrag"
+      (GateFragF sx sy) -> indentWithTwoChildren "GateFrag" sx sy
+      (LeftFragF sl)    -> indentWithOneChild "LeftFrag" sl
+      (RightFragF sr)   -> indentWithOneChild "RightFrag" sr
+      TraceFragF        -> sindent "TraceFrag"
+      (AuxFragF x)      -> sindent $ "AuxFrag " <> show x
 
 instance Show a => Show (FragExpr a) where
   show fexp = State.evalState (cata showFragAlg fexp) 0
@@ -265,7 +270,7 @@ newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken 
 data RecursionSimulationPieces a
   = NestedSetEnvs UnsizedRecursionToken
   | RecursionTest a
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Functor)
 
 newtype FragExprUR =
   FragExprUR { unFragExprUR :: Cofree (FragExprF (RecursionSimulationPieces FragExprUR))
@@ -435,7 +440,7 @@ pattern ToChurch <-
       (Lam (Lam (Lam FirstArg)))
     )
 
-deferF :: BreakState' a b -> BreakState' a b
+deferF :: forall a b. Show a => BreakState' a b -> BreakState' a b
 deferF x = do
   bx@(anno :< _) <- x
   (uri, fi@(FragIndex i), fragMap) <- State.get
@@ -453,23 +458,34 @@ setEnvF x = do
   x'@(anno :< _) <- x
   pure $ anno :< SetEnvFragF x'
 
-appF :: BreakState' a b -> BreakState' a b -> BreakState' a b
-appF c i = do
-  bc@(anno :< _) <- c
-  let twiddleF = deferF . pure . tag anno $ PairFrag (LeftFrag (RightFrag EnvFrag))
-                                                     (PairFrag (LeftFrag EnvFrag)
-                                                               (RightFrag (RightFrag EnvFrag)))
-  setEnvF . setEnvF $ pairF twiddleF (pairF i c)
+appF :: (Show a, Enum b, Show b) => BreakState' a b -> BreakState' a b -> BreakState' a b
+appF c i =
+  -- (_, fi, fm) <- State.get
+  -- (anno :< _) <- c
 
-lamF :: BreakState' a b -> BreakState' a b
-lamF x = do
-  (anno :< _) <- x
-  pairF (deferF x) $ pure (anno :< EnvFragF)
+  let (anno :< _) = State.evalState c (toEnum 0, FragIndex 1, Map.empty)
+      twiddleF = deferF . pure . tag anno $ PairFrag (LeftFrag (RightFrag EnvFrag))
+                                                          (PairFrag (LeftFrag EnvFrag)
+                                                                    (RightFrag (RightFrag EnvFrag)))
+  -- (_, fi', fm') <- State.get
+  -- trace ("(" <> (show fi) <> " ,,,, " <> (show fi') <> ")") $
+  in setEnvF . setEnvF $ pairF twiddleF (pairF i c)
 
-clamF :: BreakState' a b -> BreakState' a b
-clamF x = do
-  (anno :< _) <- x
-  pairF (deferF x) $ pure (anno :< ZeroFragF)
+showRunBreakState' :: forall a b. (Show a, Enum b) => BreakState' a b -> String
+showRunBreakState' bs = show (forget
+  (State.evalState bs (toEnum 0, FragIndex 1, Map.empty)) :: FragExpr a)
+
+lamF :: (Show a, Enum b) => BreakState' a b -> BreakState' a b
+lamF x =
+  let (anno :< _) = State.evalState x (toEnum 0, FragIndex 1, Map.empty)
+  -- (anno :< _) <- x
+  in pairF (deferF x) $ pure (anno :< EnvFragF)
+
+clamF :: (Show a, Enum b) => BreakState' a b -> BreakState' a b
+clamF x =
+  let (anno :< _) = State.evalState x (toEnum 0, FragIndex 1, Map.empty)
+  -- (anno :< _) <- x
+  in pairF (deferF x) $ pure (anno :< ZeroFragF)
 
 innerChurchF :: (Int, Int) -> Int -> BreakState' a b
 innerChurchF anno x = if x < 0
@@ -540,7 +556,7 @@ unsizedRecursionWrapper urToken t r b =
       -- trb = pairF b (pairF r (pairF (wrapTest <$> t) (pure ZeroFrag)))
   in setEnvF $ pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb
 
-nextBreakToken :: Enum b => BreakState a b b
+nextBreakToken :: (Enum b, Show b) => BreakState a b b
 nextBreakToken = do
   (token, fi, fm) <- State.get
   State.put (succ token, fi, fm)
@@ -796,6 +812,7 @@ forgetAnnotationFragExprUR = FragExprURSA . cata ff . forget' . unFragExprUR whe
      -> FragExpr (RecursionSimulationPieces FragExprURSansAnnotation)
   ff = \case
     AuxFragF (RecursionTest x) -> AuxFrag . RecursionTest . forgetAnnotationFragExprUR $ x
+    AuxFragF (NestedSetEnvs t) -> AuxFrag . NestedSetEnvs $ t
     ZeroFragF -> ZeroFrag
     PairFragF a b -> PairFrag a b
     EnvFragF -> EnvFrag

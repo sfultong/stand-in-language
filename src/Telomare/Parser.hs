@@ -21,7 +21,7 @@ import qualified System.IO.Strict as Strict
 import Telomare (ParserTerm (..), ParserTermF (..), RecursionPieceFrag,
                  RecursionSimulationPieces (..), Term1 (..), Term2 (..),
                  Term3 (..), UnsizedRecursionToken, appF, clamF, deferF, lamF,
-                 nextBreakToken, unsizedRecursionWrapper, varNF)
+                 nextBreakToken, unsizedRecursionWrapper, varNF, forget)
 import Telomare.TypeChecker (typeCheck)
 import Text.Megaparsec (MonadParsec (eof, notFollowedBy, try), Parsec, Pos,
                         between, choice, errorBundlePretty, many, manyTill,
@@ -158,6 +158,7 @@ instance Plated UnprocessedParsedTerm where
     TraceUP x   -> TraceUP <$> f x
     HashUP x    -> HashUP <$> f x
     CheckUP c x -> CheckUP <$> f c <*> f x
+    UnsizedRecursionUP x y z -> UnsizedRecursionUP <$> f x <*> f y <*> f z
     x           -> pure x
 
 -- |TelomareParser :: * -> *
@@ -486,3 +487,7 @@ parseWithPrelude :: [(String, AnnotatedUPT)]   -- ^Prelude
                  -> String                              -- ^Raw string to be parsed
                  -> Either String AnnotatedUPT -- ^Error on Left
 parseWithPrelude prelude str = first errorBundlePretty $ runParser (parseTopLevelWithPrelude prelude) "" str
+
+
+-- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
+-- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))

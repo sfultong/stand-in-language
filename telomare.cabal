@@ -97,7 +97,6 @@ executable telomare
                        --"-with-rtsopts=-N -p -s -hT"
                        -- -prof
                        -- -fprof-auto
-                       -v3
   build-depends:       base
                      , containers
                      , telomare

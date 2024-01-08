@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Telomare.Resolver where
 
@@ -21,18 +22,22 @@ import Data.Map.Strict (Map, fromList, keys)
 import Data.Set (Set, (\\))
 import qualified Data.Set as Set
 import Telomare (BreakState', FragExpr (..), FragExprUR (..), FragIndex (..),
-                 IExpr (..), LamType (..), ParserTerm (..), ParserTermF (..),
+                 IExpr (..), IExprF (..), LamType (..), ParserTerm (..), ParserTermF (..),
                  RecursionPieceFrag, RecursionSimulationPieces (..), Term1 (..),
                  Term2 (..), Term3 (..), UnsizedRecursionToken, appF, clamF,
-                 deferF, lamF, nextBreakToken, unsizedRecursionWrapper, varNF, FragExprF (..), pairF, tag, setEnvF, gateF)
+                 deferF, lamF, nextBreakToken, unsizedRecursionWrapper, varNF,
+                 FragExprF (..), pairF, tag, setEnvF, gateF, forget,
+                 DataType (..), PartialType (..), showRunBreakState')
 import Telomare.Parser (Pattern (..), PatternF (..), TelomareParser (..),
                         UnprocessedParsedTerm (..), UnprocessedParsedTermF (..),
-                        parseWithPrelude, AnnotatedUPT)
+                        parseWithPrelude, AnnotatedUPT, PrettyUPT(..))
 import Text.Megaparsec (errorBundlePretty, runParser)
 import Control.Comonad.Cofree (Cofree (..))
 import Control.Comonad
 import Control.Comonad.Trans.Cofree (CofreeF)
 import qualified Control.Comonad.Trans.Cofree as C
+import Debug.Trace (trace, traceShow, traceShowId)
+import PrettyPrint (TypeDebugInfo(..), showTypeDebugInfo)
 
 type VarList = [String]
 
@@ -343,16 +348,97 @@ debruijinize vl = \case
   (anno :< TLamF (Open n) x) -> (\y -> anno :< TLamF (Open ()) y) <$> debruijinize (n : vl) x
   (anno :< TLamF (Closed n) x) -> (\y -> anno :< TLamF (Closed ()) y) <$> debruijinize (n : vl) x
   (anno :< TLimitedRecursionF t r b) -> (\x y z -> anno :< TLimitedRecursionF x y z) <$> debruijinize vl t <*> debruijinize vl r <*> debruijinize vl b
+--    $ trace ("trace statement:\n" <> show (forget term1 :: ParserTerm String String)) term1
 
 rewriteOuterTag :: anno -> Cofree a anno -> Cofree a anno
-rewriteOuterTag anno (anno' :< x) = anno :< x
+rewriteOuterTag anno (_ :< x) = anno :< x
+
+y :: ParserTerm () Int
+y =
+                (TApp
+                  (TVar 3)
+                  -- (TLeft
+                    (TVar 2))
+                     -- )
+yy :: FragExpr RecursionPieceFrag
+yy = forget $ State.evalState (splitExpr' $ tag (0,0) y) (toEnum 0, FragIndex 1, Map.empty)
+
+-- xx  :: FragExpr RecursionPieceFrag
+-- xx = forget $ State.evalState (splitExpr' $ tag (0,0) x) (toEnum 0, FragIndex 1, Map.empty)
+
+-- x :: ParserTerm () Int
+-- x =
+--           -- TApp
+--           --   (TVar 1)
+--             -- (TApp
+--               (TApp
+--                 (TApp
+--                   (TVar 3)
+--                   (--TLeft
+--                     (TVar 2)))
+--                 (TVar 1))
+--               -- (TVar 0))
+z = 1
+
+foo = putStrLn . showRunBreakState' $
+        appF (appF v v) v
+          where
+            v :: BreakState' RecursionPieceFrag UnsizedRecursionToken
+            v = pure . tag (0,0) $ LeftFrag EnvFrag
+
+aux =
+  -- TApp
+  --   (TApp
+  --     (TApp
+        (TLimitedRecursion
+          (TLam (Closed ())
+            (TVar 0))
+          (TLam (Closed ())
+            (TVar 0))
+          (TLam (Closed ())
+            (TVar 0))
+          -- (TLam (Closed ())
+          --   (TLam (Open ())
+          --     (TLam (Open ())
+          --       (TLam (Open ())
+          --         (TApp
+          --           (TVar 1)
+          --           (TApp
+          --             (TApp
+          --               (TApp
+          --                 (TVar 3)
+          --                 (TLeft
+          --                   (TVar 2)))
+          --               (TVar 12))
+          --             (TVar 0)))))))
+          -- (TLam (Closed ())
+          --   (TLam (Closed ())
+          --     (TLam (Closed ())
+          --       (TVar 0))))
+        )
+    --     TZero)
+    --   (TLam (Closed ())
+    --     (TPair
+    --       (TVar 0)
+    --       TZero)))
+    -- TZero
+
+auxx  :: FragExpr RecursionPieceFrag
+auxx = forget $ State.evalState (splitExpr' $ tag (0,0) aux) (toEnum 0, FragIndex 1, Map.empty)
 
 splitExpr' :: Term2 -> BreakState' RecursionPieceFrag UnsizedRecursionToken
-splitExpr' = \case
+splitExpr' term2 = (\case
   (anno :< TZeroF) -> pure (anno :< ZeroFragF)
   (anno :< TPairF a b) -> rewriteOuterTag anno <$> pairF (splitExpr' a) (splitExpr' b)
   (anno :< TVarF n) -> pure . tag anno $ varNF n
-  (anno :< TAppF c i) -> rewriteOuterTag anno <$> appF (splitExpr' c) (splitExpr' i)
+  (anno :< TAppF c i) ->
+                         -- trace (  "\n<<<<splitExpr'TAppF:\n\n"
+                         --       <> showRunBreakState' (splitExpr' c) <> "\n"
+                         --       <> showRunBreakState' (splitExpr' i) <> "\n\n"
+                         --       <> showRunBreakState' (appF (splitExpr' c) (splitExpr' i)) <> "\n"
+                         --       <> "\nsplitExpr'TAppF>>>>\n"
+                         --       )
+    rewriteOuterTag anno <$> appF (splitExpr' c) (splitExpr' i)
   (anno :< TCheckF tc c) ->
     let performTC = deferF ((\ia -> setEnvF (pairF (setEnvF (pairF (pure $ tag anno AbortFrag) ia))
                                                    (pure . tag anno $ RightFrag EnvFrag))) $ appF (pure . tag anno $ LeftFrag EnvFrag)
@@ -364,11 +450,126 @@ splitExpr' = \case
   (anno :< TTraceF x) -> rewriteOuterTag anno <$> setEnvF (pairF (deferF (pure . tag anno $ TraceFrag)) (splitExpr' x))
   (anno :< TLamF (Open ()) x) -> rewriteOuterTag anno <$> lamF (splitExpr' x)
   (anno :< TLamF (Closed ()) x) -> rewriteOuterTag anno <$> clamF (splitExpr' x)
-  (anno :< TLimitedRecursionF t r b) -> rewriteOuterTag anno <$> (nextBreakToken >>= (\x -> unsizedRecursionWrapper x (splitExpr' t) (splitExpr' r) (splitExpr' b)))
+  (anno :< TLimitedRecursionF t r b) ->
+    rewriteOuterTag anno <$> (nextBreakToken >>=
+      (\x -> -- trace ("trace statment: \n" <> show ((forget $ State.evalState (unsizedRecursionWrapper x (splitExpr' t) (splitExpr' r) (splitExpr' b)) (toEnum 0, FragIndex 1, Map.empty)) :: FragExpr RecursionPieceFrag))
+        -- (_, fi, _) <- State.get
+        -- trace ("<<<<trace statment:\n" <>
+        --         (show fi
+        --           -- <> "\n" <> (show (forget t :: ParserTerm () Int)) <> "\n"
+        --           -- <> (show $ ((forget $ State.evalState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)) :: FragExpr RecursionPieceFrag))
+        --           -- <> "\n" <> (show (forget r :: ParserTerm () Int)) <> "\n"
+        --           -- <> (show $ ((forget $ State.evalState (splitExpr' r) (toEnum 0, FragIndex 1, Map.empty)) :: FragExpr RecursionPieceFrag))
+        --           -- <> "\n" <> (show (forget b :: ParserTerm () Int)) <> "\n"
+        --           -- <> (show $ ((forget $ State.evalState (splitExpr' b) (toEnum 0, FragIndex 1, Map.empty)) :: FragExpr RecursionPieceFrag))
+        --         ) <> "\ntrace statment>>>>\n")
+
+              unsizedRecursionWrapper x (splitExpr' t) (splitExpr' r) (splitExpr' b)))) term2
+                --  $ trace ("\ntrace statement term2:\n" <> show (forget term2 :: ParserTerm () Int) <> "\n}}}}}}End\n") term2
+
+-- newtype FragExprUR =
+--   FragExprUR { unFragExprUR :: Cofree (FragExprF (RecursionSimulationPieces FragExprUR))
+--                                       (Int,Int)
+--              }
+--   deriving (Eq, Show)
+
+-- newtype Fix f = Fix { unFix :: f (Fix f) }
+
+-- -- | Change base functor in 'Fix'.
+-- hoistFix :: Functor f => (forall a. f a -> g a) -> Fix f -> Fix g
+-- hoistFix nt = go where go (Fix f) = Fix (nt (fmap go f))
+
+-- -- | Like 'hoistFix' but 'fmap'ping over @g@.
+-- hoistFix' :: Functor g => (forall a. f a -> g a) -> Fix f -> Fix g
+-- hoistFix' nt = go where go (Fix f) = Fix (fmap go (nt f))
+
+
+newtype FragExprUR' =
+  FragExprUR' { unFragExprUR' :: FragExpr (RecursionSimulationPieces FragExprUR')
+              }
+  deriving (Eq, Show)
+
+newtype Term3' = Term3' (Map FragIndex FragExprUR') deriving (Eq, Show)
+
+
+-- forgetFragExprUR :: FragExprUR -> FragExprUR'
+-- forgetFragExprUR :: FragExprUR -> FragExpr (RecursionSimulationPieces (FragExpr (RecursionSimulationPieces FragExprUR)))
+-- forgetFragExprUR :: FragExprUR -> FragExpr (RecursionSimulationPieces (Cofree (FragExprF (RecursionSimulationPieces FragExprUR)) (Int, Int)))
+-- forgetFragExprUR :: FragExprUR -> FragExpr (RecursionSimulationPieces FragExprUR)
+-- forgetFragExprUR x = (fmap . fmap) (forget . unFragExprUR) (forget . unFragExprUR $ x)
+-- forgetFragExprUR = go where go (FragExprUR x) = FragExprUR' (forget x)
+
+forgetFragmap :: Term3 -> Term3'
+forgetFragmap (Term3 map) = Term3' undefined
+
 
 splitExpr :: Term2 -> Term3
-splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
-              in Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m
+splitExpr t = -- let (bf, (_,_,m)) = State.runState (splitExpr' $ trace (show (forget t :: ParserTerm () Int)) t) (toEnum 0, FragIndex 1, Map.empty)
+              let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
+              -- in traceShow (forget t :: ParserTerm () Int) $ Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m
+              -- in traceShow (forget t :: ParserTerm () Int) $ traceShowId (Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m)
+              -- in traceShow (forget t :: ParserTerm () Int) $ trace (showTypeDebugInfo . auxWrapper $ Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m) (Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m)
+              -- in trace (showTypeDebugInfo . auxWrapper $ Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m) (Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m)
+                  aux = Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m
+
+
+              -- in trace ("trace statement:\n" <> show (aux)) aux
+              in aux
+
+-- auxWrapper :: Term3 -> TypeDebugInfo
+-- auxWrapper t3 = TypeDebugInfo t3 (\x -> ZeroTypeP) ZeroTypeP
+
+-- aux =
+--   LetUP [("zero",IntUP 0),("left",LamUP "x" (LeftUP (VarUP "x"))),("right",LamUP "x" (RightUP (VarUP "x"))),("trace",LamUP "x" (TraceUP (VarUP "x"))),("pair",LamUP "x" (LamUP "y" (PairUP (VarUP "x") (VarUP "y")))),("app",LamUP "x" (LamUP "y" (AppUP (VarUP "x") (VarUP "y"))))]
+--    (LetUP [("id",LamUP "x" (VarUP "x")),("and",LamUP "a" (LamUP "b" (ITEUP (VarUP "a") (VarUP "b") (IntUP 0)))),("or",LamUP "a" (LamUP "b" (ITEUP (VarUP "a") (IntUP 1) (VarUP "b")))),("not",LamUP "x" (ITEUP (VarUP "x") (IntUP 0) (IntUP 1))),("succ",LamUP "x" (PairUP (VarUP "x") (IntUP 0))),("d2c",UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))),("c2d",LamUP "c" (AppUP (AppUP (VarUP "c") (VarUP "succ")) (IntUP 0))),("plus",LamUP "m" (LamUP "n" (LamUP "f" (LamUP "x" (AppUP (AppUP (VarUP "m") (VarUP "f")) (AppUP (AppUP (VarUP "n") (VarUP "f")) (VarUP "x"))))))),("times",LamUP "m" (LamUP "n" (LamUP "f" (AppUP (VarUP "m") (AppUP (VarUP "n") (VarUP "f")))))),("pow",LamUP "m" (LamUP "n" (AppUP (VarUP "n") (VarUP "m")))),("dMinus",LamUP "a" (LamUP "b" (AppUP (AppUP (AppUP (VarUP "d2c") (VarUP "b")) (LamUP "x" (AppUP (VarUP "left") (VarUP "x")))) (VarUP "a")))),("minus",LamUP "a" (LamUP "b" (AppUP (VarUP "d2c") (AppUP (AppUP (VarUP "b") (LamUP "x" (AppUP (VarUP "left") (VarUP "x")))) (AppUP (VarUP "c2d") (VarUP "a")))))),("range",LamUP "a" (LamUP "b" (AppUP (UnsizedRecursionUP (LamUP "i" (AppUP (AppUP (VarUP "dMinus") (VarUP "b")) (VarUP "i"))) (LamUP "recur" (LamUP "i" (PairUP (VarUP "i") (AppUP (VarUP "recur") (PairUP (VarUP "i") (IntUP 0)))))) (LamUP "i" (IntUP 0))) (VarUP "a")))),("map",LamUP "f" (UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "l" (PairUP (AppUP (VarUP "f") (AppUP (VarUP "left") (VarUP "l"))) (AppUP (VarUP "recur") (AppUP (VarUP "right") (VarUP "l")))))) (LamUP "l" (IntUP 0)))),("foldr",LamUP "f" (LamUP "b" (LamUP "ta" (LetUP [("fixed",UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "l" (LamUP "accum" (AppUP (AppUP (VarUP "f") (AppUP (VarUP "left") (VarUP "l"))) (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "right") (VarUP "l"))) (VarUP "accum")))))) (LamUP "l" (LamUP "accum" (VarUP "accum"))))] (AppUP (AppUP (VarUP "fixed") (VarUP "ta")) (VarUP "b")))))),("foldl",LamUP "f" (LamUP "b" (LamUP "ta" (LetUP [("fixed",UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "l" (LamUP "accum" (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "right") (VarUP "l"))) (AppUP (AppUP (VarUP "f") (VarUP "accum")) (AppUP (VarUP "left") (VarUP "l"))))))) (LamUP "l" (LamUP "accum" (VarUP "accum"))))] (AppUP (AppUP (VarUP "fixed") (VarUP "ta")) (VarUP "b")))))),("zipWith",LamUP "f" (LamUP "a" (LamUP "b" (LetUP [("fixed",UnsizedRecursionUP (LamUP "ab" (AppUP (AppUP (VarUP "and") (AppUP (VarUP "left") (VarUP "ab"))) (AppUP (VarUP "right") (VarUP "ab")))) (LamUP "recur" (LamUP "ab" (PairUP (AppUP (AppUP (VarUP "f") (AppUP (VarUP "left") (AppUP (VarUP "left") (VarUP "ab")))) (AppUP (VarUP "left") (AppUP (VarUP "right") (VarUP "ab")))) (AppUP (VarUP "recur") (PairUP (AppUP (VarUP "right") (AppUP (VarUP "left") (VarUP "ab"))) (AppUP (VarUP "right") (AppUP (VarUP "right") (VarUP "ab")))))))) (LamUP "ab" (IntUP 0)))] (AppUP (VarUP "fixed") (PairUP (VarUP "a") (VarUP "b"))))))),("filter",LamUP "f" (AppUP (AppUP (VarUP "foldr") (LamUP "a" (LamUP "b" (ITEUP (AppUP (VarUP "f") (VarUP "a")) (PairUP (VarUP "a") (VarUP "b")) (VarUP "b"))))) (IntUP 0))),("dEqual",LamUP "a" (LamUP "b" (LetUP [("equalsOne",LamUP "x" (ITEUP (VarUP "x") (AppUP (VarUP "not") (AppUP (VarUP "left") (VarUP "x"))) (IntUP 0)))] (ITEUP (VarUP "a") (AppUP (VarUP "equalsOne") (AppUP (AppUP (AppUP (VarUP "d2c") (AppUP (VarUP "left") (VarUP "a"))) (LamUP "x" (AppUP (VarUP "left") (VarUP "x")))) (VarUP "b"))) (AppUP (VarUP "not") (VarUP "b")))))),("listLength",AppUP (AppUP (VarUP "foldr") (LamUP "a" (LamUP "b" (AppUP (VarUP "succ") (VarUP "b"))))) (IntUP 0)),("listEqual",LamUP "a" (LamUP "b" (LetUP [("pairsEqual",AppUP (AppUP (AppUP (VarUP "zipWith") (VarUP "dEqual")) (VarUP "a")) (VarUP "b")),("lengthEqual",AppUP (AppUP (VarUP "dEqual") (AppUP (VarUP "listLength") (VarUP "a"))) (AppUP (VarUP "listLength") (VarUP "b")))] (AppUP (AppUP (AppUP (VarUP "foldr") (VarUP "and")) (IntUP 1)) (PairUP (VarUP "lengthEqual") (VarUP "pairsEqual")))))),("listPlus",LamUP "a" (LamUP "b" (AppUP (AppUP (AppUP (VarUP "foldr") (LamUP "x" (LamUP "l" (PairUP (VarUP "x") (VarUP "l"))))) (VarUP "b")) (VarUP "a")))),("concat",AppUP (AppUP (VarUP "foldr") (VarUP "listPlus")) (IntUP 0)),("drop",LamUP "n" (LamUP "l" (AppUP (AppUP (VarUP "n") (LamUP "x" (AppUP (VarUP "right") (VarUP "x")))) (VarUP "l")))),("take",LamUP "n" (LamUP "l" (LetUP [("lengthed",AppUP (AppUP (VarUP "n") (LamUP "x" (PairUP (IntUP 0) (VarUP "x")))) (IntUP 0))] (AppUP (AppUP (AppUP (VarUP "zipWith") (LamUP "a" (LamUP "b" (VarUP "a")))) (VarUP "l")) (VarUP "lengthed"))))),("factorial",LamUP "n" (AppUP (AppUP (AppUP (VarUP "foldr") (LamUP "a" (LamUP "b" (AppUP (AppUP (VarUP "times") (AppUP (VarUP "d2c") (VarUP "a"))) (VarUP "b"))))) (ChurchUP 1)) (AppUP (AppUP (VarUP "range") (IntUP 1)) (PairUP (VarUP "n") (IntUP 0))))),("quicksort",UnsizedRecursionUP (LamUP "l" (AppUP (VarUP "right") (VarUP "l"))) (LamUP "recur" (LamUP "l" (LetUP [("t",AppUP (VarUP "left") (VarUP "l")),("test",LamUP "x" (AppUP (AppUP (VarUP "dMinus") (VarUP "x")) (VarUP "t"))),("p1",AppUP (AppUP (VarUP "filter") (VarUP "test")) (AppUP (VarUP "right") (VarUP "l"))),("p2",AppUP (AppUP (VarUP "filter") (LamUP "x" (AppUP (VarUP "not") (AppUP (VarUP "test") (VarUP "x"))))) (AppUP (VarUP "right") (VarUP "l")))] (AppUP (AppUP (VarUP "listPlus") (AppUP (VarUP "recur") (VarUP "p2"))) (PairUP (VarUP "t") (AppUP (VarUP "recur") (VarUP "p1"))))))) (VarUP "id")),("abort",LamUP "str" (LetUP [("x",CheckUP (LamUP "y" (AppUP (AppUP (VarUP "listPlus") (StringUP "abort: ")) (VarUP "str"))) (IntUP 1))] (VarUP "x"))),("assert",LamUP "t" (LamUP "s" (ITEUP (AppUP (VarUP "not") (VarUP "t")) (PairUP (IntUP 1) (VarUP "s")) (IntUP 0)))),("truncate",LamUP "n" (LetUP [("layer",LamUP "recur" (LamUP "current" (ITEUP (VarUP "current") (PairUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "current"))) (AppUP (VarUP "recur") (AppUP (VarUP "right") (VarUP "current")))) (IntUP 0))))] (AppUP (AppUP (VarUP "n") (VarUP "layer")) (LamUP "x" (IntUP 0))))),("main",AppUP (AppUP (AppUP (VarUP "d2c") (IntUP 0)) (VarUP "succ")) (IntUP 0))] (AppUP (AppUP (AppUP (VarUP "d2c") (IntUP 0)) (VarUP "succ")) (IntUP 0)))
+
+-- LetUP [("zero",IntUP 0),("left",LamUP "x" (LeftUP (VarUP "x"))),("right",LamUP "x" (RightUP (VarUP "x"))),("trace",LamUP "x" (TraceUP (VarUP "x"))),("pair",LamUP "x" (LamUP "y" (PairUP (VarUP "x") (VarUP "y")))),("app",LamUP "x" (LamUP "y" (AppUP (VarUP "x") (VarUP "y"))))] (LetUP [("id",LamUP "x" (VarUP "x")),("and",LamUP "a" (LamUP "b" (ITEUP (VarUP "a") (VarUP "b") (IntUP 0)))),("or",LamUP "a" (LamUP "b" (ITEUP (VarUP "a") (IntUP 1) (VarUP "b")))),("not",LamUP "x" (ITEUP (VarUP "x") (IntUP 0) (IntUP 1))),("succ",LamUP "x" (PairUP (VarUP "x") (IntUP 0))),("d2c",UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))),("c2d",LamUP "c" (AppUP (AppUP (VarUP "c") (VarUP "succ")) (IntUP 0))),("plus",LamUP "m" (LamUP "n" (LamUP "f" (LamUP "x" (AppUP (AppUP (VarUP "m") (VarUP "f")) (AppUP (AppUP (VarUP "n") (VarUP "f")) (VarUP "x"))))))),("times",LamUP "m" (LamUP "n" (LamUP "f" (AppUP (VarUP "m") (AppUP (VarUP "n") (VarUP "f")))))),("pow",LamUP "m" (LamUP "n" (AppUP (VarUP "n") (VarUP "m")))),("dMinus",LamUP "a" (LamUP "b" (AppUP (AppUP (AppUP (VarUP "d2c") (VarUP "b")) (LamUP "x" (AppUP (VarUP "left") (VarUP "x")))) (VarUP "a")))),("minus",LamUP "a" (LamUP "b" (AppUP (VarUP "d2c") (AppUP (AppUP (VarUP "b") (LamUP "x" (AppUP (VarUP "left") (VarUP "x")))) (AppUP (VarUP "c2d") (VarUP "a")))))),("range",LamUP "a" (LamUP "b" (AppUP (UnsizedRecursionUP (LamUP "i" (AppUP (AppUP (VarUP "dMinus") (VarUP "b")) (VarUP "i"))) (LamUP "recur" (LamUP "i" (PairUP (VarUP "i") (AppUP (VarUP "recur") (PairUP (VarUP "i") (IntUP 0)))))) (LamUP "i" (IntUP 0))) (VarUP "a")))),("map",LamUP "f" (UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "l" (PairUP (AppUP (VarUP "f") (AppUP (VarUP "left") (VarUP "l"))) (AppUP (VarUP "recur") (AppUP (VarUP "right") (VarUP "l")))))) (LamUP "l" (IntUP 0)))),("foldr",LamUP "f" (LamUP "b" (LamUP "ta" (LetUP [("fixed",UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "l" (LamUP "accum" (AppUP (AppUP (VarUP "f") (AppUP (VarUP "left") (VarUP "l"))) (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "right") (VarUP "l"))) (VarUP "accum")))))) (LamUP "l" (LamUP "accum" (VarUP "accum"))))] (AppUP (AppUP (VarUP "fixed") (VarUP "ta")) (VarUP "b")))))),("foldl",LamUP "f" (LamUP "b" (LamUP "ta" (LetUP [("fixed",UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "l" (LamUP "accum" (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "right") (VarUP "l"))) (AppUP (AppUP (VarUP "f") (VarUP "accum")) (AppUP (VarUP "left") (VarUP "l"))))))) (LamUP "l" (LamUP "accum" (VarUP "accum"))))] (AppUP (AppUP (VarUP "fixed") (VarUP "ta")) (VarUP "b")))))),("zipWith",LamUP "f" (LamUP "a" (LamUP "b" (LetUP [("fixed",UnsizedRecursionUP (LamUP "ab" (AppUP (AppUP (VarUP "and") (AppUP (VarUP "left") (VarUP "ab"))) (AppUP (VarUP "right") (VarUP "ab")))) (LamUP "recur" (LamUP "ab" (PairUP (AppUP (AppUP (VarUP "f") (AppUP (VarUP "left") (AppUP (VarUP "left") (VarUP "ab")))) (AppUP (VarUP "left") (AppUP (VarUP "right") (VarUP "ab")))) (AppUP (VarUP "recur") (PairUP (AppUP (VarUP "right") (AppUP (VarUP "left") (VarUP "ab"))) (AppUP (VarUP "right") (AppUP (VarUP "right") (VarUP "ab")))))))) (LamUP "ab" (IntUP 0)))] (AppUP (VarUP "fixed") (PairUP (VarUP "a") (VarUP "b"))))))),("filter",LamUP "f" (AppUP (AppUP (VarUP "foldr") (LamUP "a" (LamUP "b" (ITEUP (AppUP (VarUP "f") (VarUP "a")) (PairUP (VarUP "a") (VarUP "b")) (VarUP "b"))))) (IntUP 0))),("dEqual",LamUP "a" (LamUP "b" (LetUP [("equalsOne",LamUP "x" (ITEUP (VarUP "x") (AppUP (VarUP "not") (AppUP (VarUP "left") (VarUP "x"))) (IntUP 0)))] (ITEUP (VarUP "a") (AppUP (VarUP "equalsOne") (AppUP (AppUP (AppUP (VarUP "d2c") (AppUP (VarUP "left") (VarUP "a"))) (LamUP "x" (AppUP (VarUP "left") (VarUP "x")))) (VarUP "b"))) (AppUP (VarUP "not") (VarUP "b")))))),("listLength",AppUP (AppUP (VarUP "foldr") (LamUP "a" (LamUP "b" (AppUP (VarUP "succ") (VarUP "b"))))) (IntUP 0)),("listEqual",LamUP "a" (LamUP "b" (LetUP [("pairsEqual",AppUP (AppUP (AppUP (VarUP "zipWith") (VarUP "dEqual")) (VarUP "a")) (VarUP "b")),("lengthEqual",AppUP (AppUP (VarUP "dEqual") (AppUP (VarUP "listLength") (VarUP "a"))) (AppUP (VarUP "listLength") (VarUP "b")))] (AppUP (AppUP (AppUP (VarUP "foldr") (VarUP "and")) (IntUP 1)) (PairUP (VarUP "lengthEqual") (VarUP "pairsEqual")))))),("listPlus",LamUP "a" (LamUP "b" (AppUP (AppUP (AppUP (VarUP "foldr") (LamUP "x" (LamUP "l" (PairUP (VarUP "x") (VarUP "l"))))) (VarUP "b")) (VarUP "a")))),("concat",AppUP (AppUP (VarUP "foldr") (VarUP "listPlus")) (IntUP 0)),("drop",LamUP "n" (LamUP "l" (AppUP (AppUP (VarUP "n") (LamUP "x" (AppUP (VarUP "right") (VarUP "x")))) (VarUP "l")))),("take",LamUP "n" (LamUP "l" (LetUP [("lengthed",AppUP (AppUP (VarUP "n") (LamUP "x" (PairUP (IntUP 0) (VarUP "x")))) (IntUP 0))] (AppUP (AppUP (AppUP (VarUP "zipWith") (LamUP "a" (LamUP "b" (VarUP "a")))) (VarUP "l")) (VarUP "lengthed"))))),("factorial",LamUP "n" (AppUP (AppUP (AppUP (VarUP "foldr") (LamUP "a" (LamUP "b" (AppUP (AppUP (VarUP "times") (AppUP (VarUP "d2c") (VarUP "a"))) (VarUP "b"))))) (ChurchUP 1)) (AppUP (AppUP (VarUP "range") (IntUP 1)) (PairUP (VarUP "n") (IntUP 0))))),("quicksort",UnsizedRecursionUP (LamUP "l" (AppUP (VarUP "right") (VarUP "l"))) (LamUP "recur" (LamUP "l" (LetUP [("t",AppUP (VarUP "left") (VarUP "l")),("test",LamUP "x" (AppUP (AppUP (VarUP "dMinus") (VarUP "x")) (VarUP "t"))),("p1",AppUP (AppUP (VarUP "filter") (VarUP "test")) (AppUP (VarUP "right") (VarUP "l"))),("p2",AppUP (AppUP (VarUP "filter") (LamUP "x" (AppUP (VarUP "not") (AppUP (VarUP "test") (VarUP "x"))))) (AppUP (VarUP "right") (VarUP "l")))] (AppUP (AppUP (VarUP "listPlus") (AppUP (VarUP "recur") (VarUP "p2"))) (PairUP (VarUP "t") (AppUP (VarUP "recur") (VarUP "p1"))))))) (VarUP "id")),("abort",LamUP "str" (LetUP [("x",CheckUP (LamUP "y" (AppUP (AppUP (VarUP "listPlus") (StringUP "abort: ")) (VarUP "str"))) (IntUP 1))] (VarUP "x"))),("assert",LamUP "t" (LamUP "s" (ITEUP (AppUP (VarUP "not") (VarUP "t")) (PairUP (IntUP 1) (VarUP "s")) (IntUP 0)))),("truncate",LamUP "n" (LetUP [("layer",LamUP "recur" (LamUP "current" (ITEUP (VarUP "current") (PairUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "current"))) (AppUP (VarUP "recur") (AppUP (VarUP "right") (VarUP "current")))) (IntUP 0))))] (AppUP (AppUP (VarUP "n") (VarUP "layer")) (LamUP "x" (IntUP 0))))),("main",AppUP (AppUP (AppUP (VarUP "d2c") (IntUP 0)) (VarUP "succ")) (IntUP 0))] (AppUP (AppUP (AppUP (VarUP "d2c") (IntUP 0)) (VarUP "succ")) (IntUP 0)))
+
+-- aux1 =
+--   SetEnvF
+--     PairF
+--       DeferF FragIndex {unFragIndex = 158}
+--       PairF
+--         PairF
+--           DeferF FragIndex {unFragIndex = 165}
+--           ZeroF
+--         PairF
+--           PairF
+--             DeferF FragIndex {unFragIndex = 308}
+--             ZeroF
+--           PairF
+--             PairF
+--               AuxF RecursionTest
+--                    (FragExprUR {unFragExprUR = (1,1) :< DeferFragF (FragIndex {unFragIndex = 309})})
+--               ZeroF
+--             ZeroF
+
+
+
+
+-- SetEnvF
+--   PairF
+--     DeferF FragIndex {unFragIndex = 15}
+--     PairF
+--       PairF
+--         DeferF FragIndex {unFragIndex = 18}
+--         ZeroF
+--       PairF
+--         PairF
+--           DeferF FragIndex {unFragIndex = 28}
+--           ZeroF
+--         PairF
+--           PairF
+--             AuxF RecursionTest (FragExprUR {unFragExprUR = DeferF FragIndex {unFragIndex = 29}})
+--             ZeroF
+--           ZeroF
+
+
+
+
+
+
+
 
 -- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
 -- Automatic recognition of Close or Open type of `TLam`.
@@ -430,6 +631,7 @@ validateVariables prelude term =
         anno :< TraceUPF x -> (\y -> anno :< TTraceF y) <$> validateWithEnvironment x
         anno :< CheckUPF cf x -> (\y y'-> anno :< TCheckF y y') <$> validateWithEnvironment cf <*> validateWithEnvironment x
         anno :< HashUPF x -> (\y -> anno :< THashF y) <$> validateWithEnvironment x
+  -- in State.evalStateT (validateWithEnvironment (traceShow (forget term :: UnprocessedParsedTerm) term)) Map.empty
   in State.evalStateT (validateWithEnvironment term) Map.empty
 
 -- |Collect all free variable names in a `Term1` expresion
@@ -443,6 +645,8 @@ varsTerm1 = cata alg where
   del :: String -> Set String -> Set String
   del n x = if Set.member n x then Set.delete n x else x
 
+-- (0,0) :<  AppUPF ((1,27) :< VarUPF "a") ((1,33) :< AppUPF ((1,34) :< VarUPF "left") ((1,39) :< VarUPF "i"))
+
 optimizeBuiltinFunctions :: AnnotatedUPT -> AnnotatedUPT
 optimizeBuiltinFunctions = transform optimize where
   optimize = \case
@@ -450,7 +654,7 @@ optimizeBuiltinFunctions = transform optimize where
       case f of
         VarUPF "pair" -> anno0 :< PairUPF x y
         VarUPF "app"  -> anno0 :< AppUPF x y
-        _            -> twoApp
+        _             -> twoApp
     oneApp@(anno0 :< AppUPF (anno1 :< f) x) ->
       case f of
         VarUPF "left"  -> anno0 :< LeftUPF x
@@ -505,6 +709,7 @@ process2Term2 prelude = fmap generateAllHashes
                       . debruijinize [] <=< validateVariables prelude
                       . removeCaseUPs
                       . optimizeBuiltinFunctions
+                      -- . (\x -> traceShow (forget x :: UnprocessedParsedTerm) x)
                       . addBuiltins
 
 -- |Helper function to compile to Term2
@@ -519,3 +724,241 @@ parseMain :: [(String, AnnotatedUPT)] -- ^Prelude: [(VariableName, BindedUPT)]
           -> String                            -- ^Raw string to be parserd.
           -> Either String Term3               -- ^Error on Left.
 parseMain prelude s = parseWithPrelude prelude s >>= process prelude
+
+-- master ->
+-- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
+----------
+-- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (LeftUP (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
+-- <- annotated
+
+
+-- (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
+-- (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
+-- (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (LeftUP (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
+-- (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (LeftUP (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
+-- AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))
+-- AppUP (VarUP "recur") (LeftUP (VarUP "i"))
+
+
+--  *Telomare.Resolver
+-- λ> optimizeBuiltinFunctions $ UnsizedRecursionUP (VarUP "id")
+--                                                  (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
+--                                                  (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
+-- UnsizedRecursionUP (VarUP "id")
+--                    (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
+--                    (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
+
+-- UnsizedRecursionUP (VarUP "id")
+--   (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (LeftUP (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
+--   (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
+
+-- λ> optimizeBuiltinFunctions $ UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
+
+-- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
+
+
+
+
+
+
+
+
+
+
+{-
+If you have
+
+```
+λ> x
+TApp
+  TVar 3
+  TVar 2
+```
+
+Then you get the same result in both versions (with annotations and master) from evaluation that into `splitExpr'`:
+
+```
+λ> forget $ State.evalState (splitExpr' $ tag (0,0) x) (toEnum 0, FragIndex 1, Map.empty) -- for version with annotations
+λ> State.evalState (splitExpr' x) (toEnum 0, FragIndex 1, Map.empty) -- for master version
+SetEnvF
+  SetEnvF
+    PairF
+      DeferF FragIndex {unFragIndex = 1}
+      PairF
+        LeftF
+          RightF
+            RightF
+              EnvF
+        LeftF
+          RightF
+            RightF
+              RightF
+                EnvF
+```
+
+But if you have an extra level of `TApp`
+
+```
+λ> x
+TApp
+  TApp
+    TVar 3
+    TVar 2
+  TVar 1
+```
+
+Then on the version with annotations you get:
+```
+SetEnvF
+  SetEnvF
+    PairF
+      DeferF FragIndex {unFragIndex = 2}
+      PairF
+        LeftF
+          RightF
+            EnvF
+        SetEnvF
+          SetEnvF
+            PairF
+              DeferF FragIndex {unFragIndex = 3}
+              PairF
+                LeftF
+                  RightF
+                    RightF
+                      EnvF
+                LeftF
+                  RightF
+                    RightF
+                      RightF
+                        EnvF
+```
+
+And without annotations (`master`) you get the same thing, but with the FragIndexes having values 1 and 2.
+
+If you add another level of `TApp`:
+
+```
+λ> x
+TApp
+  TApp
+    TApp
+      TVar 3
+      TVar 2
+    TVar 1
+  TVar 0
+```
+
+then you get:
+
+```
+SetEnvF
+  SetEnvF
+    PairF
+      DeferF FragIndex {unFragIndex = 4}
+      PairF
+        LeftF
+          EnvF
+        SetEnvF
+          SetEnvF
+            PairF
+              DeferF FragIndex {unFragIndex = 6}
+              PairF
+                LeftF
+                  RightF
+                    EnvF
+                SetEnvF
+                  SetEnvF
+                    PairF
+                      DeferF FragIndex {unFragIndex = 7}
+                      PairF
+                        LeftF
+                          RightF
+                            RightF
+                              EnvF
+                        LeftF
+                          RightF
+                            RightF
+                              RightF
+                                EnvF
+```
+
+And with the correct version you get indexes 1,2,3 correspondingly from top to buttom.
+
+
+This is most of the involved code:
+```
+deferF :: BreakState' a b -> BreakState' a b
+deferF x = do
+  bx@(anno :< _) <- x
+  (uri, fi@(FragIndex i), fragMap) <- State.get
+  State.put (uri, FragIndex (i + 1), Map.insert fi bx fragMap)
+  pure $ anno :< DeferFragF fi
+
+pairF :: BreakState' a b -> BreakState' a b -> BreakState' a b
+pairF x y = do
+  bx@(anno :< _) <- x
+  by <- y
+  pure $ anno :< PairFragF bx by
+
+setEnvF :: BreakState' a b -> BreakState' a b
+setEnvF x = do
+  x'@(anno :< _) <- x
+  pure $ anno :< SetEnvFragF x'
+
+appF :: BreakState' a b -> BreakState' a b -> BreakState' a b
+appF c i = do
+  (_, x, _) <- State.get
+  (anno :< _) <- c
+  let twiddleF = deferF . pure . tag anno $ PairFrag (LeftFrag (RightFrag EnvFrag))
+                                                     (PairFrag (LeftFrag EnvFrag)
+                                                               (RightFrag (RightFrag EnvFrag)))
+  (_, x', _) <- State.get
+  -- trace (show x <> " ,,, " <> show x') $ (\tf p -> (0,0) :< SetEnvFragF ((0,0) :< SetEnvFragF ((0,0) :< PairFragF tf p))) <$> twiddleF
+  --                                                    <*> ((\x y -> (0,0) :< PairFragF x y) <$> i <*> c)
+  trace (show x <> " ,,, " <> show x') $ setEnvF . setEnvF $ pairF twiddleF (pairF i c)
+```
+
+Note the last trace. When ran it outputs (for the 3 level AppT):
+
+```
+*Telomare.Resolver
+λ> xx
+FragIndex {unFragIndex = 1} ,,, FragIndex {unFragIndex = 1}
+FragIndex {unFragIndex = 1} ,,, FragIndex {unFragIndex = 2}
+FragIndex {unFragIndex = 3} ,,, FragIndex {unFragIndex = 3}
+FragIndex {unFragIndex = 1} ,,, FragIndex {unFragIndex = 4}
+SetEnvF
+  SetEnvF
+    PairF
+      DeferF FragIndex {unFragIndex = 4}
+      PairF
+        LeftF
+          EnvF
+FragIndex {unFragIndex = 5} ,,, FragIndex {unFragIndex = 5}
+FragIndex {unFragIndex = 5} ,,, FragIndex {unFragIndex = 6}
+        SetEnvF
+          SetEnvF
+            PairF
+              DeferF FragIndex {unFragIndex = 6}
+              PairF
+                LeftF
+                  RightF
+                    EnvF
+FragIndex {unFragIndex = 7} ,,, FragIndex {unFragIndex = 7}
+                SetEnvF
+                  SetEnvF
+                    PairF
+                      DeferF FragIndex {unFragIndex = 7}
+                      PairF
+                        LeftF
+                          RightF
+                            RightF
+                              EnvF
+                        LeftF
+                          RightF
+                            RightF
+                              RightF
+                                EnvF
+```
+
+-}
