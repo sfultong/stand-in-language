@@ -498,13 +498,14 @@ unsizedRecursionWrapper urToken t r b =
       fourthArgF = pure . LeftFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
       fifthArgF = pure . LeftFrag . RightFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
       abortToken = PairFrag ZeroFrag ZeroFrag
+      -- b is on the stack when this is called, so args are (i, (b, 0))
       abrt = lamF (SetEnvFrag <$> (PairFrag (SetEnvFrag (PairFrag AbortFrag abortToken)) <$> appF secondArgF firstArgF))
       applyF = SetEnvFrag $ RightFrag EnvFrag
       env' = RightFrag (RightFrag (RightFrag EnvFrag))
       -- takes (rf, (f', (x, env'))), executes f' with (x, env') and creates a new frame
       rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
                                                                                                 (PairFrag applyF env')))
-      -- construct the initial frame from f and x
+      -- construct the initial frame from f and x ((b, (rWrap, 0)) -> (rf, (rf, (f', (x, env')))))
       frameSetup = (\ff a -> PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
                                                      (PairFrag a (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
                    <$> rf <*> abrt
