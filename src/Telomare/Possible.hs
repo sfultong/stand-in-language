@@ -203,9 +203,9 @@ leftB = basicEE . LeftSF
 rightB :: (Base g ~ f, BasicBase f, Corecursive g) => g -> g
 rightB = basicEE . RightSF
 
-pattern FillFunction :: (Base g ~ f, BasicBase f, Recursive g) => g -> g -> f g
-pattern FillFunction c e <- BasicFW (SetEnvSF (BasicEE (PairSF c e)))
-pattern GateSwitch :: (Base g ~ f, BasicBase f, Recursive g) => g -> g -> g -> f g
+pattern FillFunction :: (Base g ~ f, BasicBase f, Recursive g) => g -> g -> g
+pattern FillFunction c e <- BasicEE (SetEnvSF (BasicEE (PairSF c e)))
+pattern GateSwitch :: (Base g ~ f, BasicBase f, Recursive g) => g -> g -> g -> g
 pattern GateSwitch l r s <- FillFunction (BasicEE (GateSF l r)) s
 
 fillFunction :: (Base g ~ f, BasicBase f, Corecursive g) => g -> g -> g
@@ -214,21 +214,21 @@ fillFunction c e = setEnvB (pairB c e)
 gateSwitch :: (Base g ~ f, BasicBase f, Corecursive g) => g -> g -> g -> g
 gateSwitch  l r = fillFunction (gateB l r)
 
-basicStep :: (Base g ~ f, BasicBase f, Corecursive g, Recursive g) => (f g -> g) -> f g -> g
+basicStep :: (Base g ~ f, BasicBase f, Corecursive g, Recursive g) => (g -> f g) -> g -> f g
 basicStep handleOther = \case
-  BasicFW (LeftSF z@(BasicEE ZeroSF)) -> z
-  BasicFW (LeftSF (BasicEE (PairSF l _))) -> l
-  BasicFW (RightSF z@(BasicEE ZeroSF)) -> z
-  BasicFW (RightSF (BasicEE (PairSF _ r))) -> r
-  GateSwitch l _ (BasicEE ZeroSF) -> l
-  GateSwitch _ r (BasicEE (PairSF _ _)) -> r
+  BasicEE (LeftSF z@(BasicEE ZeroSF)) -> project z
+  BasicEE (LeftSF (BasicEE (PairSF l _))) -> project l
+  BasicEE (RightSF z@(BasicEE ZeroSF)) -> project z
+  BasicEE (RightSF (BasicEE (PairSF _ r))) -> project r
+  GateSwitch l _ (BasicEE ZeroSF) -> project l
+  GateSwitch _ r (BasicEE (PairSF _ _)) -> project r
   -- stuck values
-  x@(BasicFW ZeroSF) -> embed x
-  x@(BasicFW (PairSF _ _)) -> embed x
-  x@(BasicFW (GateSF _ _)) -> embed x
+  x@(BasicEE ZeroSF) -> project x
+  x@(BasicEE (PairSF _ _)) -> project x
+  x@(BasicEE (GateSF _ _)) -> project x
   x -> handleOther x
 
-basicStepM :: (Base g ~ f, BasicBase f, Traversable f, Corecursive g, Recursive g, PrettyPrintable g, Monad m) => (f (m g) -> m g) -> f (m g) -> m g
+basicStepM :: (Base g ~ f, BasicBase f, Traversable f, Corecursive g, Recursive g, PrettyPrintable g, Monad m) => (m g -> f (m g)) -> m g -> f (m g)
 basicStepM handleOther x = sequence x >>= f where
   f = \case
     BasicFW (LeftSF z@(BasicEE ZeroSF)) -> pure z
@@ -243,19 +243,36 @@ basicStepM handleOther x = sequence x >>= f where
     x@(BasicFW (GateSF _ _)) -> pure $ embed x
     _ -> handleOther x
 
+{-
 transformNoDefer :: (Base g ~ f, StuckBase f, Recursive g) => (f g -> g) -> g -> g
 transformNoDefer f = c where
   c = f . c' . project
   c' = \case
     s@(StuckFW (DeferSF _ _)) -> s
     x -> fmap c x
+-}
+transformNoDefer :: (Base g ~ f, StuckBase f, Recursive g) => (g -> f g) -> g -> g
+transformNoDefer f = c where
+  c = embed . c' . f
+  c' = \case
+    s@(StuckFW (DeferSF _ _)) -> s
+    x -> fmap c x
 
+{-
 transformNoDeferM :: (Base g ~ f, StuckBase f, Monad m, Recursive g) => (f (m g) -> m g) -> g -> m g
 transformNoDeferM f = c where
   c = f . c' . project
   c' = \case
     s@(StuckFW (DeferSF _ _)) -> fmap pure s
     x -> fmap c x
+-}
+transformNoDeferM :: (Base g ~ f, StuckBase f, Monad m, Recursive g, Corecursive g) => (g -> f (m g)) -> g -> m g
+transformNoDeferM f = c where
+  -- c = fmap embed . sequence . (fmap . fmap) c' . f
+  c = fmap embed . sequence . fmap (fmap c') . f
+  c' = \case
+    s@(StuckEE (DeferSF _ _)) -> undefined -- pure <$> project s
+    x -> c x
 
 stuckStep :: (Base a ~ f, StuckBase f, BasicBase f, Recursive a, Corecursive a, PrettyPrintable a)
   => (f a -> a) -> f a -> a
