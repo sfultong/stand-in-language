@@ -579,11 +579,11 @@ unitTests parse = do
     -- unitTest2 "main = times $3 $2 succ 0" "6"
     -- unitTest2 "main = pow $3 $2 succ 0" "9"
     unitTest2 "main = d2c 3 succ 0" "3"
-    ----------------------
+
     -- unitTest2 "main = map left []" "(0,2)"
-    --------------------------
+
     -- test "left" as a function rather than builtin requiring argument
-    -- -- unitTest2 "main = (d2cG $4 3) succ 0" "3"
+    -- unitTest2 "main = (d2cG $4 3) succ 0" "3"
     -- unitTest2 "main = plus (d2c 5) (d2c 4) succ 0" "9"
     -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
     -- unitTest2 "main = dEqual 0 0" "1"

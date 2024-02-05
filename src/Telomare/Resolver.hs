@@ -27,7 +27,7 @@ import Telomare (BreakState', FragExpr (..), FragExprUR (..), FragIndex (..),
                  Term2 (..), Term3 (..), UnsizedRecursionToken, appF, clamF,
                  deferF, lamF, nextBreakToken, unsizedRecursionWrapper, varNF,
                  FragExprF (..), pairF, tag, setEnvF, gateF, forget,
-                 DataType (..), PartialType (..), showRunBreakState')
+                 DataType (..), PartialType (..), showRunBreakState', forgetAnnotationFragExprUR)
 import Telomare.Parser (Pattern (..), PatternF (..), TelomareParser (..),
                         UnprocessedParsedTerm (..), UnprocessedParsedTermF (..),
                         parseWithPrelude, AnnotatedUPT, PrettyUPT(..))
@@ -387,41 +387,41 @@ foo = putStrLn . showRunBreakState' $
             v = pure . tag (0,0) $ LeftFrag EnvFrag
 
 aux =
-  -- TApp
-  --   (TApp
-  --     (TApp
+  TApp
+    (TApp
+      (TApp
         (TLimitedRecursion
-          (TLam (Closed ())
-            (TVar 0))
-          (TLam (Closed ())
-            (TVar 0))
-          (TLam (Closed ())
-            (TVar 0))
           -- (TLam (Closed ())
-          --   (TLam (Open ())
-          --     (TLam (Open ())
-          --       (TLam (Open ())
-          --         (TApp
-          --           (TVar 1)
-          --           (TApp
-          --             (TApp
-          --               (TApp
-          --                 (TVar 3)
-          --                 (TLeft
-          --                   (TVar 2)))
-          --               (TVar 12))
-          --             (TVar 0)))))))
+          --   (TVar 0))
           -- (TLam (Closed ())
-          --   (TLam (Closed ())
-          --     (TLam (Closed ())
-          --       (TVar 0))))
+          --   (TVar 0))
+          (TLam (Closed ())
+            (TVar 0))
+          (TLam (Closed ())
+            (TLam (Open ())
+              (TLam (Open ())
+                (TLam (Open ())
+                  (TApp
+                    (TVar 1)
+                    (TApp
+                      (TApp
+                        (TApp
+                          (TVar 3)
+                          (TLeft
+                            (TVar 2)))
+                        (TVar 12))
+                      (TVar 0)))))))
+          (TLam (Closed ())
+            (TLam (Closed ())
+              (TLam (Closed ())
+                (TVar 0))))
         )
-    --     TZero)
-    --   (TLam (Closed ())
-    --     (TPair
-    --       (TVar 0)
-    --       TZero)))
-    -- TZero
+        TZero)
+      (TLam (Closed ())
+        (TPair
+          (TVar 0)
+          TZero)))
+    TZero
 
 auxx  :: FragExpr RecursionPieceFrag
 auxx = forget $ State.evalState (splitExpr' $ tag (0,0) aux) (toEnum 0, FragIndex 1, Map.empty)
@@ -463,8 +463,9 @@ splitExpr' term2 = (\case
         --           -- <> "\n" <> (show (forget b :: ParserTerm () Int)) <> "\n"
         --           -- <> (show $ ((forget $ State.evalState (splitExpr' b) (toEnum 0, FragIndex 1, Map.empty)) :: FragExpr RecursionPieceFrag))
         --         ) <> "\ntrace statment>>>>\n")
-
-              unsizedRecursionWrapper x (splitExpr' t) (splitExpr' r) (splitExpr' b)))) term2
+              -- (_,fi,_) <- State.get
+              -- trace (show fi) $
+                unsizedRecursionWrapper x (splitExpr' t) (splitExpr' r) (splitExpr' b)))) term2
                 --  $ trace ("\ntrace statement term2:\n" <> show (forget term2 :: ParserTerm () Int) <> "\n}}}}}}End\n") term2
 
 -- newtype FragExprUR =
@@ -696,11 +697,15 @@ addBuiltins aupt = (0,0) :< LetUPF
   ]
   aupt
 
+-- forgetTerm3 :: Term3 -> Map FragIndex Telomare.FragExprURSansAnnotation
+forgetTerm3 t3@(Term3 x) = forgetAnnotationFragExprUR <$> x
+
 -- |Process an `AnnotatedUPT` to a `Term3` with failing capability.
 process :: [(String, AnnotatedUPT)] -- ^Prelude
         -> AnnotatedUPT
         -> Either String Term3
-process prelude upt = splitExpr <$> process2Term2 prelude upt
+process prelude upt = let aux = splitExpr <$> process2Term2 prelude upt
+                      in trace (show $ forgetTerm3 <$> aux) aux
 
 process2Term2 :: [(String, AnnotatedUPT)] -- ^Prelude
               -> AnnotatedUPT
