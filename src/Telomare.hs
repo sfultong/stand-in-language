@@ -499,7 +499,7 @@ gateF x y = do
   pure $ anno :< GateFragF x' y'
 
 iteF :: BreakState' a b -> BreakState' a b -> BreakState' a b -> BreakState' a b
-iteF x y z = setEnvF (pairF (gateF x y) z)
+iteF x y z = setEnvF (pairF (gateF z y) x)
 
 
 aux :: BreakState' RecursionPieceFrag UnsizedRecursionToken
@@ -537,7 +537,7 @@ unsizedRecursionWrapper urToken t r b =
       abortToken = pure . tag (0,0) $ PairFrag ZeroFrag ZeroFrag
       abortFragF = pure $ (0,0) :< AbortFragF
       abrt = lamF (setEnvF $ pairF (setEnvF (pairF abortFragF abortToken))
-                                       (appF secondArgF firstArgF))
+                                   (appF secondArgF firstArgF))
       applyF = SetEnvFrag $ RightFrag EnvFrag
       env' = RightFrag (RightFrag (RightFrag EnvFrag))
       rf = deferF . pure . tag (0,0) $
@@ -546,15 +546,17 @@ unsizedRecursionWrapper urToken t r b =
                            (PairFrag (LeftFrag (RightFrag EnvFrag))
                                      (PairFrag applyF env')))
       -- construct the initial frame from f and x
-      -- frameSetup = pairF rf (pairF rf (pairF (pure . tag (0,0) $ LeftFrag (LeftFrag (RightFrag EnvFrag)))
-      --                                        (pairF abrt (pure . tag (0,0) $
-      --                                                      RightFrag (LeftFrag (RightFrag EnvFrag))))))
       frameSetup = do
         rf' <- rf
-        abrt' <- abrt
-        (\ff a -> pure . tag (0,0) $ PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
-                                                                            (PairFrag a (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
-                    (forget rf') (forget abrt')
+        pairF (pure rf') (pairF (pure rf') (pairF (pure . tag (0,0) $ LeftFrag (LeftFrag (RightFrag EnvFrag)))
+                                  (pairF abrt (pure . tag (0,0) $
+                                                RightFrag (LeftFrag (RightFrag EnvFrag))))))
+      -- frameSetup = do
+      --   rf' <- rf
+      --   abrt' <- abrt
+      --   (\ff a -> pure . tag (0,0) $ PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
+      --                                                                       (PairFrag a (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
+      --               (forget rf') (forget abrt')
       -- run the iterations x' number of times, then unwrap the result from the final frame
       unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
       wrapTest = \case
@@ -569,7 +571,7 @@ unsizedRecursionWrapper urToken t r b =
       churchNum = clamF (lamF (setEnvF (pairF (deferF (pure . tag (0,0) $ unwrapFrame)) frameSetup)))
       trb = pairF b (pairF r (pairF (wrapTest <$> t) (pure . tag (0,0) $ ZeroFrag)))
       -- trb = pairF b (pairF r (pairF (wrapTest <$> t) (pure ZeroFrag)))
-  in -- trace ("\n<<<\n" <> showRunBreakState' frameSetup <> "\n>>>>\n")
+  in -- trace ("\n<<<\n" <> showRunBreakState' rWrap <> "\n>>>>\n")
        setEnvF $ pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb
 
 -- (pairF (deferF (pure . tag (0,0) $ unwrapFrame)) frameSetup)

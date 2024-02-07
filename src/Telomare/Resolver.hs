@@ -378,53 +378,58 @@ yy = forget $ State.evalState (splitExpr' $ tag (0,0) y) (toEnum 0, FragIndex 1,
 --                     (TVar 2)))
 --                 (TVar 1))
 --               -- (TVar 0))
-z = 1
+-- z = 1
 
-foo = putStrLn . showRunBreakState' $
-        appF (appF v v) v
-          where
-            v :: BreakState' RecursionPieceFrag UnsizedRecursionToken
-            v = pure . tag (0,0) $ LeftFrag EnvFrag
+-- foo = putStrLn . showRunBreakState' $
+--         appF (appF v v) v
+--           where
+--             v :: BreakState' RecursionPieceFrag UnsizedRecursionToken
+--             v = pure . tag (0,0) $ LeftFrag EnvFrag
 
 aux =
-  TApp
-    (TApp
-      (TApp
+  -- TApp
+  --   (TApp
+  --     (TApp
         (TLimitedRecursion
-          -- (TLam (Closed ())
-          --   (TVar 0))
-          -- (TLam (Closed ())
-          --   (TVar 0))
           (TLam (Closed ())
             (TVar 0))
           (TLam (Closed ())
-            (TLam (Open ())
-              (TLam (Open ())
-                (TLam (Open ())
-                  (TApp
-                    (TVar 1)
-                    (TApp
-                      (TApp
-                        (TApp
-                          (TVar 3)
-                          (TLeft
-                            (TVar 2)))
-                        (TVar 12))
-                      (TVar 0)))))))
+            (TVar 0))
           (TLam (Closed ())
-            (TLam (Closed ())
-              (TLam (Closed ())
-                (TVar 0))))
+            (TVar 0))
+          -- (TLam (Closed ())
+          --   (TLam (Open ())
+          --     (TLam (Open ())
+          --       (TLam (Open ())
+          --         (TApp
+          --           (TVar 1)
+          --           (TApp
+          --             (TApp
+          --               (TApp
+          --                 (TVar 3)
+          --                 (TLeft
+          --                   (TVar 2)))
+          --               (TVar 12))
+          --             (TVar 0)))))))
+          -- (TLam (Closed ())
+          --   (TLam (Closed ())
+          --     (TLam (Closed ())
+          --       (TVar 0))))
         )
-        TZero)
-      (TLam (Closed ())
-        (TPair
-          (TVar 0)
-          TZero)))
-    TZero
+    --     TZero)
+    --   (TLam (Closed ())
+    --     (TPair
+    --       (TVar 0)
+    --       TZero)))
+    -- TZero
 
-auxx  :: FragExpr RecursionPieceFrag
-auxx = forget $ State.evalState (splitExpr' $ tag (0,0) aux) (toEnum 0, FragIndex 1, Map.empty)
+-- auxx  :: FragExpr RecursionPieceFrag
+-- auxx :: (Cofree (FragExprF RecursionPieceFrag) (Int, Int),
+ -- (UnsizedRecursionToken, FragIndex,
+ --  Map FragIndex (Cofree (FragExprF RecursionPieceFrag) (Int, Int))))
+auxx  :: (FragExpr RecursionPieceFrag, (UnsizedRecursionToken, FragIndex,
+                            Map FragIndex (FragExpr RecursionPieceFrag)))
+auxx = bimap forget (fmap . fmap $ forget) $ State.runState (splitExpr' $ tag (0,0) aux) (toEnum 0, FragIndex 1, Map.empty)
 
 splitExpr' :: Term2 -> BreakState' RecursionPieceFrag UnsizedRecursionToken
 splitExpr' term2 = (\case
@@ -507,13 +512,7 @@ forgetFragmap (Term3 map) = Term3' undefined
 splitExpr :: Term2 -> Term3
 splitExpr t = -- let (bf, (_,_,m)) = State.runState (splitExpr' $ trace (show (forget t :: ParserTerm () Int)) t) (toEnum 0, FragIndex 1, Map.empty)
               let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
-              -- in traceShow (forget t :: ParserTerm () Int) $ Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m
-              -- in traceShow (forget t :: ParserTerm () Int) $ traceShowId (Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m)
-              -- in traceShow (forget t :: ParserTerm () Int) $ trace (showTypeDebugInfo . auxWrapper $ Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m) (Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m)
-              -- in trace (showTypeDebugInfo . auxWrapper $ Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m) (Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m)
                   aux = Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m
-
-
               -- in trace ("trace statement:\n" <> show (aux)) aux
               in aux
 
@@ -705,7 +704,7 @@ process :: [(String, AnnotatedUPT)] -- ^Prelude
         -> AnnotatedUPT
         -> Either String Term3
 process prelude upt = let aux = splitExpr <$> process2Term2 prelude upt
-                      in trace (show $ forgetTerm3 <$> aux) aux
+                      in aux -- trace (show $ forgetTerm3 <$> aux) aux
 
 process2Term2 :: [(String, AnnotatedUPT)] -- ^Prelude
               -> AnnotatedUPT
@@ -730,240 +729,101 @@ parseMain :: [(String, AnnotatedUPT)] -- ^Prelude: [(VariableName, BindedUPT)]
           -> Either String Term3               -- ^Error on Left.
 parseMain prelude s = parseWithPrelude prelude s >>= process prelude
 
--- master ->
--- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
-----------
--- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (LeftUP (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
--- <- annotated
+-- (FragIndex {unFragIndex = 7},
+-- SetEnvFrag
+--   PairFrag
+--     GateFrag
+--       SetEnvFrag
+--         SetEnvFrag
+--           PairFrag
+--             DeferFrag FragIndex {unFragIndex = 3}
+--             PairFrag
+--               LeftFrag
+--                 EnvFrag
+--               LeftFrag
+--                 RightFrag
+--                   RightFrag
+--                     RightFrag
+--                       RightFrag
+--                         EnvFrag
+--       SetEnvFrag
+--         SetEnvFrag
+--           PairFrag
+--             DeferFrag FragIndex {unFragIndex = 4}
+--             PairFrag
+--               LeftFrag
+--                 EnvFrag
+--               SetEnvFrag
+--                 SetEnvFrag
+--                   PairFrag
+--                     DeferFrag FragIndex {unFragIndex = 5}
+--                     PairFrag
+--                       LeftFrag
+--                         RightFrag
+--                           EnvFrag
+--                       LeftFrag
+--                         RightFrag
+--                           RightFrag
+--                             RightFrag
+--                               EnvFrag
+--     SetEnvFrag
+--       SetEnvFrag
+--         PairFrag
+--           DeferFrag FragIndex {unFragIndex = 6}
+--           PairFrag
+--             LeftFrag
+--               EnvFrag
+--             LeftFrag
+--               RightFrag
+--                 RightFrag
+--                   EnvFrag)
 
 
--- (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
--- (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
--- (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (LeftUP (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
--- (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (LeftUP (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
--- AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))
--- AppUP (VarUP "recur") (LeftUP (VarUP "i"))
-
-
---  *Telomare.Resolver
--- λ> optimizeBuiltinFunctions $ UnsizedRecursionUP (VarUP "id")
---                                                  (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
---                                                  (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
--- UnsizedRecursionUP (VarUP "id")
---                    (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
---                    (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
-
--- UnsizedRecursionUP (VarUP "id")
---   (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (LeftUP (VarUP "i"))) (VarUP "f")) (VarUP "b")))))))
---   (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
-
--- λ> optimizeBuiltinFunctions $ UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
-
--- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
-
-
-
-
-
-
-
-
-
-
-{-
-If you have
-
-```
-λ> x
-TApp
-  TVar 3
-  TVar 2
-```
-
-Then you get the same result in both versions (with annotations and master) from evaluation that into `splitExpr'`:
-
-```
-λ> forget $ State.evalState (splitExpr' $ tag (0,0) x) (toEnum 0, FragIndex 1, Map.empty) -- for version with annotations
-λ> State.evalState (splitExpr' x) (toEnum 0, FragIndex 1, Map.empty) -- for master version
-SetEnvF
-  SetEnvF
-    PairF
-      DeferF FragIndex {unFragIndex = 1}
-      PairF
-        LeftF
-          RightF
-            RightF
-              EnvF
-        LeftF
-          RightF
-            RightF
-              RightF
-                EnvF
-```
-
-But if you have an extra level of `TApp`
-
-```
-λ> x
-TApp
-  TApp
-    TVar 3
-    TVar 2
-  TVar 1
-```
-
-Then on the version with annotations you get:
-```
-SetEnvF
-  SetEnvF
-    PairF
-      DeferF FragIndex {unFragIndex = 2}
-      PairF
-        LeftF
-          RightF
-            EnvF
-        SetEnvF
-          SetEnvF
-            PairF
-              DeferF FragIndex {unFragIndex = 3}
-              PairF
-                LeftF
-                  RightF
-                    RightF
-                      EnvF
-                LeftF
-                  RightF
-                    RightF
-                      RightF
-                        EnvF
-```
-
-And without annotations (`master`) you get the same thing, but with the FragIndexes having values 1 and 2.
-
-If you add another level of `TApp`:
-
-```
-λ> x
-TApp
-  TApp
-    TApp
-      TVar 3
-      TVar 2
-    TVar 1
-  TVar 0
-```
-
-then you get:
-
-```
-SetEnvF
-  SetEnvF
-    PairF
-      DeferF FragIndex {unFragIndex = 4}
-      PairF
-        LeftF
-          EnvF
-        SetEnvF
-          SetEnvF
-            PairF
-              DeferF FragIndex {unFragIndex = 6}
-              PairF
-                LeftF
-                  RightF
-                    EnvF
-                SetEnvF
-                  SetEnvF
-                    PairF
-                      DeferF FragIndex {unFragIndex = 7}
-                      PairF
-                        LeftF
-                          RightF
-                            RightF
-                              EnvF
-                        LeftF
-                          RightF
-                            RightF
-                              RightF
-                                EnvF
-```
-
-And with the correct version you get indexes 1,2,3 correspondingly from top to buttom.
-
-
-This is most of the involved code:
-```
-deferF :: BreakState' a b -> BreakState' a b
-deferF x = do
-  bx@(anno :< _) <- x
-  (uri, fi@(FragIndex i), fragMap) <- State.get
-  State.put (uri, FragIndex (i + 1), Map.insert fi bx fragMap)
-  pure $ anno :< DeferFragF fi
-
-pairF :: BreakState' a b -> BreakState' a b -> BreakState' a b
-pairF x y = do
-  bx@(anno :< _) <- x
-  by <- y
-  pure $ anno :< PairFragF bx by
-
-setEnvF :: BreakState' a b -> BreakState' a b
-setEnvF x = do
-  x'@(anno :< _) <- x
-  pure $ anno :< SetEnvFragF x'
-
-appF :: BreakState' a b -> BreakState' a b -> BreakState' a b
-appF c i = do
-  (_, x, _) <- State.get
-  (anno :< _) <- c
-  let twiddleF = deferF . pure . tag anno $ PairFrag (LeftFrag (RightFrag EnvFrag))
-                                                     (PairFrag (LeftFrag EnvFrag)
-                                                               (RightFrag (RightFrag EnvFrag)))
-  (_, x', _) <- State.get
-  -- trace (show x <> " ,,, " <> show x') $ (\tf p -> (0,0) :< SetEnvFragF ((0,0) :< SetEnvFragF ((0,0) :< PairFragF tf p))) <$> twiddleF
-  --                                                    <*> ((\x y -> (0,0) :< PairFragF x y) <$> i <*> c)
-  trace (show x <> " ,,, " <> show x') $ setEnvF . setEnvF $ pairF twiddleF (pairF i c)
-```
-
-Note the last trace. When ran it outputs (for the 3 level AppT):
-
-```
-*Telomare.Resolver
-λ> xx
-FragIndex {unFragIndex = 1} ,,, FragIndex {unFragIndex = 1}
-FragIndex {unFragIndex = 1} ,,, FragIndex {unFragIndex = 2}
-FragIndex {unFragIndex = 3} ,,, FragIndex {unFragIndex = 3}
-FragIndex {unFragIndex = 1} ,,, FragIndex {unFragIndex = 4}
-SetEnvF
-  SetEnvF
-    PairF
-      DeferF FragIndex {unFragIndex = 4}
-      PairF
-        LeftF
-          EnvF
-FragIndex {unFragIndex = 5} ,,, FragIndex {unFragIndex = 5}
-FragIndex {unFragIndex = 5} ,,, FragIndex {unFragIndex = 6}
-        SetEnvF
-          SetEnvF
-            PairF
-              DeferF FragIndex {unFragIndex = 6}
-              PairF
-                LeftF
-                  RightF
-                    EnvF
-FragIndex {unFragIndex = 7} ,,, FragIndex {unFragIndex = 7}
-                SetEnvF
-                  SetEnvF
-                    PairF
-                      DeferF FragIndex {unFragIndex = 7}
-                      PairF
-                        LeftF
-                          RightF
-                            RightF
-                              EnvF
-                        LeftF
-                          RightF
-                            RightF
-                              RightF
-                                EnvF
-```
-
--}
+-- foo =
+--   (FragIndex {unFragIndex = 7},SetEnvFrag
+--   PairFrag
+--     GateFrag
+--       SetEnvFrag
+--         SetEnvFrag
+--           PairFrag
+--             DeferFrag FragIndex {unFragIndex = 3}
+--             PairFrag
+--               LeftFrag
+--                 EnvFrag
+--               LeftFrag
+--                 RightFrag
+--                   RightFrag
+--                     RightFrag
+--                       RightFrag
+--                         EnvFrag
+--       SetEnvFrag
+--         SetEnvFrag
+--           PairFrag
+--             DeferFrag FragIndex {unFragIndex = 4}
+--             PairFrag
+--               LeftFrag
+--                 EnvFrag
+--               SetEnvFrag
+--                 SetEnvFrag
+--                   PairFrag
+--                     DeferFrag FragIndex {unFragIndex = 5}
+--                     PairFrag
+--                       LeftFrag
+--                         RightFrag
+--                           EnvFrag
+--                       LeftFrag
+--                         RightFrag
+--                           RightFrag
+--                             RightFrag
+--                               EnvFrag
+--     SetEnvFrag
+--       SetEnvFrag
+--         PairFrag
+--           DeferFrag FragIndex {unFragIndex = 6}
+--           PairFrag
+--             LeftFrag
+--               EnvFrag
+--             LeftFrag
+--               RightFrag
+--                 RightFrag
+--                   EnvFrag)
