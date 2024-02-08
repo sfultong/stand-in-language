@@ -9,9 +9,9 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Semigroup (Max (..))
 import Telomare (FragExpr (..), FragExprF (..), FragIndex (FragIndex),
-                 IExpr (..), LamType (..), ParserTerm (..), ParserTermF (..),
-                 Term1, Term2, Term3 (Term3), Term4 (Term4), buildFragMap,
-                 deferF, rootFrag, tag, unFragExprUR)
+                 IExpr (..), LamType (..), LocTag (..), ParserTerm (..),
+                 ParserTermF (..), Term1, Term2, Term3 (Term3), Term4 (Term4),
+                 buildFragMap, deferF, rootFrag, tag, unFragExprUR)
 import Telomare.Parser (UnprocessedParsedTerm (..))
 
 decompileUPT :: UnprocessedParsedTerm -> String
@@ -136,9 +136,9 @@ decompileTerm2 =
         anno :< TLimitedRecursionF t r b -> (\x y z -> anno :< TLimitedRecursionF x y z) <$> go t <*> go r <*> go b
   in snd . go
 
-decompileFragMap :: Map.Map FragIndex (Cofree (FragExprF a) (Int, Int)) -> Term2
+decompileFragMap :: Map.Map FragIndex (Cofree (FragExprF a) LocTag) -> Term2
 decompileFragMap tm =
-  let decomp :: Cofree (FragExprF a) (Int, Int)
+  let decomp :: Cofree (FragExprF a) LocTag
              -> Term2
       decomp = let recur = decomp in \case
         anno :< ZeroFragF -> anno :< TZeroF
@@ -166,13 +166,13 @@ decompileTerm3 (Term3 tm) = decompileFragMap $ Map.map unFragExprUR tm
 
 decompileIExpr :: IExpr -> Term4
 decompileIExpr x = let build = \case
-                         Zero     -> pure . tag (0,0) $ ZeroFrag
-                         Pair a b -> (\x y -> (0,0) :< PairFragF x y) <$> build a <*> build b
-                         Env      -> pure . tag (0,0) $ EnvFrag
-                         SetEnv x -> ((0,0) :<) . SetEnvFragF <$> build x
-                         Gate l r -> (\x y -> (0,0) :< GateFragF x y) <$> build l <*> build r
-                         PLeft x  -> ((0,0) :<) . LeftFragF <$> build x
-                         PRight x -> ((0,0) :<) . RightFragF <$> build x
-                         Trace    -> pure . tag (0,0) $ TraceFrag
+                         Zero     -> pure . tag DummyLoc $ ZeroFrag
+                         Pair a b -> (\x y -> DummyLoc :< PairFragF x y) <$> build a <*> build b
+                         Env      -> pure . tag DummyLoc $ EnvFrag
+                         SetEnv x -> (DummyLoc :<) . SetEnvFragF <$> build x
+                         Gate l r -> (\x y -> DummyLoc :< GateFragF x y) <$> build l <*> build r
+                         PLeft x  -> (DummyLoc :<) . LeftFragF <$> build x
+                         PRight x -> (DummyLoc :<) . RightFragF <$> build x
+                         Trace    -> pure . tag DummyLoc $ TraceFrag
                          Defer x  -> deferF $ build x
                    in Term4 . buildFragMap $ build x

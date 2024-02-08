@@ -7,6 +7,7 @@
 
 module Main where
 
+import Control.Comonad.Cofree (Cofree (..))
 import qualified Control.Exception as Exception
 import Control.Monad.IO.Class
 import qualified Control.Monad.State as State
@@ -18,17 +19,18 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Debug.Trace (trace)
 import Naturals
-import Options.Applicative hiding (ParseError, (<|>))
+import Options.Applicative hiding ((<|>))
 import qualified Options.Applicative as O
 import PrettyPrint
 import System.Console.Haskeline
 import System.Exit (exitSuccess)
 import qualified System.IO.Strict as Strict
-import Telomare (IExpr (..), PrettyIExpr (PrettyIExpr),
+import Telomare (IExpr (..), LocTag (..), PrettyIExpr (PrettyIExpr),
                  PrettyPartialType (PrettyPartialType),
-                 TelomareLike (fromTelomare, toTelomare), Term3)
+                 TelomareLike (fromTelomare, toTelomare), Term3, forget, tag)
 import Telomare.Eval (EvalError (..), compileUnitTest)
-import Telomare.Parser (TelomareParser, UnprocessedParsedTerm (..),
+import Telomare.Parser (Annotation (DummyAnnotation), TelomareParser,
+                        UnprocessedParsedTerm (..), UnprocessedParsedTermF (..),
                         parseAssignment, parseLongExpr, parsePrelude)
 import Telomare.Resolver (process)
 import Telomare.RunTime (fastInterpretEval, simpleEval)
@@ -45,13 +47,13 @@ import Text.Megaparsec.Char
 
 -- | Assignment parsing from the repl.
 parseReplAssignment :: TelomareParser [(String, UnprocessedParsedTerm)]
-parseReplAssignment = singleton <$> (parseAssignment <* eof)
+parseReplAssignment = singleton . fmap forget <$> (parseAssignment <* eof)
 
 -- | Parse only an expression
 parseReplExpr :: TelomareParser [(String, UnprocessedParsedTerm)]
 parseReplExpr = do
   expr <- parseLongExpr <* eof
-  pure [("_tmp_", expr)]
+  pure [("_tmp_", forget expr)]
 
 -- | Information about what has the REPL parsed.
 data ReplStep a = ReplAssignment a
@@ -86,7 +88,9 @@ maybeToRight Nothing  = Left CompileConversionError
 resolveBinding' :: String
                 -> [(String, UnprocessedParsedTerm)]
                 -> Maybe Term3
-resolveBinding' name bindings = lookup name bindings >>= rightToMaybe . process bindings
+resolveBinding' name bindings = lookup name taggedBindings >>= (rightToMaybe . process taggedBindings)
+  where
+    taggedBindings = (fmap . fmap) (tag DummyLoc) bindings
 
 -- |Obtain expression from the bindings and transform them maybe into a IExpr.
 resolveBinding :: String -> [(String, UnprocessedParsedTerm)] -> Maybe IExpr
@@ -98,14 +102,15 @@ printLastExpr :: (IExpr -> IO IExpr) -- ^Telomare backend
               -> [(String, UnprocessedParsedTerm)]
               -> IO ()
 printLastExpr eval bindings = do
+  let bindings' = (fmap . fmap) (tag DummyLoc) bindings
   res :: Either Exception.SomeException () <- Exception.try $
-    case lookup "_tmp_" bindings of
+    case lookup "_tmp_" bindings' of
       Nothing -> putStrLn "Could not find _tmp_ in bindings"
       Just upt -> do
         let compile' x = case compileUnitTest x of
                            Left err -> Left . show $ err
                            Right r  -> Right r
-        case compile' =<< process bindings (LetUP bindings upt) of
+        case compile' =<< process bindings' (DummyLoc :< LetUPF bindings' upt) of
           Left err -> putStrLn err
           Right iexpr' -> do
             iexpr <- eval (SetEnv (Pair (Defer iexpr') Zero))
@@ -201,7 +206,7 @@ replLoop (ReplState bs eval sf) = do
                 pure []
               Right fileBindings -> do
                 liftIO . putStrLn $ "File " <> fileName <> " successfully loaded."
-                pure fileBindings
+                pure . (fmap . fmap) forget $ fileBindings
       bs' <- concat <$> mapM loadFile (Set.toList sf)
       replLoop $ ReplState bs' eval sf
     Just fileName | ":l " `isPrefixOf` fileName -> do
@@ -213,7 +218,7 @@ replLoop (ReplState bs eval sf) = do
           replLoop $ ReplState bs eval sf
         Right fileBindings -> do
                 liftIO . putStrLn $ "File " <> fileName' <> " successfully loaded."
-                replLoop $ ReplState (bs <> fileBindings) eval (Set.insert fileName' sf)
+                replLoop $ ReplState (bs <> (fmap . fmap) forget fileBindings) eval (Set.insert fileName' sf)
     Just s -> do
       new_bs <- replStep eval bs s
       replLoop $ ReplState new_bs eval sf
@@ -233,9 +238,9 @@ data ReplSettings = ReplSettings
 -- | Choose a backend option between Haskell, Naturals.
 -- Haskell is default.
 backendOpts :: Parser ReplBackend
-backendOpts = flag'       SimpleBackend   (long "haskell"  <> help "Haskell Backend (default)")
-              O.<|> flag' NaturalsBackend (long "naturals" <> help "Naturals Interpretation Backend")
-              O.<|> pure SimpleBackend
+backendOpts = flag' SimpleBackend   (long "haskell"  <> help "Haskell Backend (default)")
+              <|> flag' NaturalsBackend (long "naturals" <> help "Naturals Interpretation Backend")
+              <|> pure SimpleBackend
 
 -- | Process a given expression instead of entering the repl.
 exprOpts :: Parser (Maybe String)
@@ -271,9 +276,10 @@ main = do
   let eval = case _backend settings of
                SimpleBackend   -> simpleEval
                NaturalsBackend -> fastInterpretEval
-      bindings = case e_prelude of
-                   Left  _   ->  []
-                   Right bds -> bds
+      bindings = (fmap . fmap) forget $
+        case e_prelude of
+          Left  _   ->  []
+          Right bds -> bds
   case _expr settings of
     Just  s -> startExpr eval bindings s
     Nothing -> startLoop (ReplState bindings eval Set.empty)

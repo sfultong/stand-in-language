@@ -23,7 +23,7 @@ import Debug.Trace
 import System.IO
 import System.Process
 import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
-                 FragExprF (..), FragIndex (FragIndex), IExpr (..),
+                 FragExprF (..), FragIndex (FragIndex), IExpr (..), LocTag (..),
                  PartialType (..), RecursionPieceFrag,
                  RecursionSimulationPieces (..), RunTimeError (..),
                  TelomareLike (..), Term3 (Term3), Term4 (Term4),
@@ -116,33 +116,21 @@ convertPT :: (UnsizedRecursionToken -> Int) -> Term3 -> Term4
 convertPT ll (Term3 termMap) =
   let unURedMap = Map.map unFragExprUR termMap
       startKey = succ . fst $ Map.findMax termMap
-      changeFrag :: Cofree (FragExprF RecursionPieceFrag) (Int, Int)
+      changeFrag :: Cofree (FragExprF RecursionPieceFrag) LocTag
                  -> State.State
                       ((), FragIndex,
                        Map
                          FragIndex
-                         (Cofree (FragExprF RecursionPieceFrag) (Int, Int)))
-                      (Cofree (FragExprF RecursionPieceFrag) (Int, Int))
+                         (Cofree (FragExprF RecursionPieceFrag) LocTag))
+                      (Cofree (FragExprF RecursionPieceFrag) LocTag)
       changeFrag = \case
-        -- -- trace for term2 -> term3 error from annotations
-        -- anno :< AuxFragF (NestedSetEnvs n) -> traceShow n (innerChurchF anno $ ll n)
         anno :< AuxFragF (NestedSetEnvs n) -> innerChurchF anno $ ll n
         _ :< AuxFragF (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
         x -> pure x
-      -- insertChanged :: FragIndex -> FragExpr RecursionPieceFrag -> BreakState RecursionPieceFrag () ()
       insertChanged :: FragIndex
-                    -> Cofree (FragExprF RecursionPieceFrag) (Int, Int)
+                    -> Cofree (FragExprF RecursionPieceFrag) LocTag
                     -> BreakState RecursionPieceFrag () ()
       insertChanged nk nv = State.modify (\(_, k, m) -> ((), k, Map.insert nk nv m))
-      -- builder :: State.State ( ()
-      --                        , FragIndex
-      --                        , Map
-      --                            FragIndex
-      --                            (Cofree
-      --                               (FragExprF (RecursionSimulationPieces Telomare.FragExprUR))
-      --                               (Int, Int))
-      --                        )
-      --                        a1
       builder = sequence $ Map.mapWithKey (\k v -> transformM changeFrag v >>= insertChanged k) unURedMap
       (_,_,newMap) = State.execState builder ((), startKey, unURedMap)
       changeType :: FragExprF a x -> FragExprF b x
@@ -157,21 +145,7 @@ convertPT ll (Term3 termMap) =
         LeftFragF x    -> LeftFragF x
         RightFragF x   -> RightFragF x
         TraceFragF     -> TraceFragF
-        AuxFragF z     -> error ("convertPT should be no AuxFrags here TODO" ) -- <> show z)
-
-      -- changeType :: FragExpr RecursionPieceFrag -> FragExpr Void
-      -- changeType = \case
-      --   ZeroFrag -> ZeroFrag
-      --   PairFrag a b -> PairFrag (changeType a) (changeType b)
-      --   EnvFrag -> EnvFrag
-      --   SetEnvFrag x -> SetEnvFrag (changeType x)
-      --   DeferFrag ind -> DeferFrag ind
-      --   AbortFrag -> AbortFrag
-      --   GateFrag l r -> GateFrag (changeType l) (changeType r)
-      --   LeftFrag x -> LeftFrag (changeType x)
-      --   RightFrag x -> RightFrag (changeType x)
-      --   TraceFrag -> TraceFrag
-      --   AuxFrag z -> error ("convertPT should be no AuxFrags here " <> show z)
+        AuxFragF z     -> error ("convertPT should be no AuxFrags here TODO" )
   in Term4 $ fmap (hoistCofree changeType) newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
@@ -186,8 +160,8 @@ removeChecks (Term4 m) =
         x                  -> x
       (ind, newM) = State.runState builder m
       builder = do
-        envDefer <- insertAndGetKey $ (0,0) :< EnvFragF
-        insertAndGetKey $ (0,0) :< DeferFragF envDefer
+        envDefer <- insertAndGetKey $ DummyLoc :< EnvFragF
+        insertAndGetKey $ DummyLoc :< DeferFragF envDefer
   in Term4 $ Map.map (transform f) newM
 
 convertAbortMessage :: IExpr -> String

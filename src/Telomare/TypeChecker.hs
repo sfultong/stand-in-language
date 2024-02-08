@@ -17,7 +17,8 @@ import qualified Data.Set as Set
 import Debug.Trace
 import PrettyPrint
 import Telomare (FragExpr (..), FragExprF (..), FragExprUR (..), FragIndex (..),
-                 PartialType (..), PrettyPartialType (PrettyPartialType),
+                 LocTag (..), PartialType (..),
+                 PrettyPartialType (PrettyPartialType),
                  RecursionSimulationPieces (..), Term3 (..), rootFrag)
 
 debug :: Bool
@@ -141,7 +142,7 @@ getFragType (FragIndex i) = ArrTypeP (TypeVariable $ i * 2) (TypeVariable $ i * 
 
 annotate :: Term3 -> AnnotateState PartialType
 annotate (Term3 termMap) =
-  let annotate' :: Cofree (FragExprF (RecursionSimulationPieces FragExprUR)) (Int, Int) -> AnnotateState PartialType
+  let annotate' :: Cofree (FragExprF (RecursionSimulationPieces FragExprUR)) LocTag -> AnnotateState PartialType
       annotate' = \case
         anno :< ZeroFragF -> pure ZeroTypeP
         anno :< PairFragF a b -> PairTypeP <$> annotate' a <*> annotate' b

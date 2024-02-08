@@ -19,10 +19,11 @@ import Data.Maybe (fromJust)
 import Data.Void (Void)
 import Data.Word (Word8)
 import qualified System.IO.Strict as Strict
-import Telomare (ParserTerm (..), ParserTermF (..), RecursionPieceFrag,
-                 RecursionSimulationPieces (..), Term1 (..), Term2 (..),
-                 Term3 (..), UnsizedRecursionToken, appF, clamF, deferF, forget,
-                 lamF, nextBreakToken, unsizedRecursionWrapper, varNF)
+import Telomare (LocTag (..), ParserTerm (..), ParserTermF (..),
+                 RecursionPieceFrag, RecursionSimulationPieces (..), Term1 (..),
+                 Term2 (..), Term3 (..), UnsizedRecursionToken, appF, clamF,
+                 deferF, forget, lamF, nextBreakToken, unsizedRecursionWrapper,
+                 varNF)
 import Telomare.TypeChecker (typeCheck)
 import Text.Megaparsec (MonadParsec (eof, notFollowedBy, try), Parsec, Pos,
                         PosState (pstateSourcePos),
@@ -72,7 +73,7 @@ makeBaseFunctor ''UnprocessedParsedTerm -- Functorial version UnprocessedParsedT
 makePrisms ''UnprocessedParsedTerm
 deriveShow1 ''UnprocessedParsedTermF
 
-type AnnotatedUPT = Cofree UnprocessedParsedTermF (Int, Int)
+type AnnotatedUPT = Cofree UnprocessedParsedTermF LocTag
 
 data Annotation = DummyAnnotation
                 | Pos Int Int
@@ -175,7 +176,7 @@ parseVariable = do
   s <- getParserState
   let line = unPos . sourceLine . pstateSourcePos . statePosState $ s
       column = unPos . sourceColumn . pstateSourcePos . statePosState $ s
-  (\str -> (line, column) :< VarUPF str) <$> identifier
+  (\str -> Loc line column :< VarUPF str) <$> identifier
 
 
 -- |Line comments start with "--".
@@ -250,7 +251,7 @@ getLineColumn = do
   s <- getParserState
   let line = unPos . sourceLine . pstateSourcePos . statePosState $ s
       column = unPos . sourceColumn . pstateSourcePos . statePosState $ s
-  pure (line,column)
+  pure $ Loc line column
 
   -- (\str -> (line, column) :< VarUPF str) <$> identifier
 
@@ -489,7 +490,3 @@ parseWithPrelude :: [(String, AnnotatedUPT)]   -- ^Prelude
                  -> String                              -- ^Raw string to be parsed
                  -> Either String AnnotatedUPT -- ^Error on Left
 parseWithPrelude prelude str = first errorBundlePretty $ runParser (parseTopLevelWithPrelude prelude) "" str
-
-
--- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
--- UnsizedRecursionUP (VarUP "id") (LamUP "recur" (LamUP "i" (LamUP "f" (LamUP "b" (AppUP (VarUP "f") (AppUP (AppUP (AppUP (VarUP "recur") (AppUP (VarUP "left") (VarUP "i"))) (VarUP "f")) (VarUP "b"))))))) (LamUP "i" (LamUP "f" (LamUP "b" (VarUP "b"))))
