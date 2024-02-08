@@ -1,10 +1,14 @@
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Telomare.Resolver where
 
 import Codec.Binary.UTF8.String (encode)
+import Control.Comonad
+import Control.Comonad.Cofree (Cofree (..))
+import Control.Comonad.Trans.Cofree (CofreeF)
+import qualified Control.Comonad.Trans.Cofree as C
 import Control.Lens.Combinators (transform)
 import Control.Monad ((<=<))
 import qualified Control.Monad.State as State
@@ -21,23 +25,22 @@ import qualified Data.Map as Map
 import Data.Map.Strict (Map, fromList, keys)
 import Data.Set (Set, (\\))
 import qualified Data.Set as Set
-import Telomare (BreakState', FragExpr (..), FragExprUR (..), FragIndex (..),
-                 IExpr (..), IExprF (..), LamType (..), ParserTerm (..), ParserTermF (..),
-                 RecursionPieceFrag, RecursionSimulationPieces (..), Term1 (..),
-                 Term2 (..), Term3 (..), UnsizedRecursionToken, appF, clamF,
-                 deferF, lamF, nextBreakToken, unsizedRecursionWrapper, varNF,
-                 FragExprF (..), pairF, tag, setEnvF, gateF, forget,
-                 DataType (..), PartialType (..), showRunBreakState', forgetAnnotationFragExprUR)
-import Telomare.Parser (Pattern (..), PatternF (..), TelomareParser (..),
-                        UnprocessedParsedTerm (..), UnprocessedParsedTermF (..),
-                        parseWithPrelude, AnnotatedUPT, PrettyUPT(..))
-import Text.Megaparsec (errorBundlePretty, runParser)
-import Control.Comonad.Cofree (Cofree (..))
-import Control.Comonad
-import Control.Comonad.Trans.Cofree (CofreeF)
-import qualified Control.Comonad.Trans.Cofree as C
 import Debug.Trace (trace, traceShow, traceShowId)
-import PrettyPrint (TypeDebugInfo(..), showTypeDebugInfo)
+import PrettyPrint (TypeDebugInfo (..), showTypeDebugInfo)
+import Telomare (BreakState', DataType (..), FragExpr (..), FragExprF (..),
+                 FragExprUR (..), FragIndex (..), IExpr (..), IExprF (..),
+                 LamType (..), ParserTerm (..), ParserTermF (..),
+                 PartialType (..), RecursionPieceFrag,
+                 RecursionSimulationPieces (..), Term1 (..), Term2 (..),
+                 Term3 (..), UnsizedRecursionToken, appF, clamF, deferF, forget,
+                 forgetAnnotationFragExprUR, gateF, lamF, nextBreakToken, pairF,
+                 setEnvF, showRunBreakState', tag, unsizedRecursionWrapper,
+                 varNF)
+import Telomare.Parser (AnnotatedUPT, Pattern (..), PatternF (..),
+                        PrettyUPT (..), TelomareParser (..),
+                        UnprocessedParsedTerm (..), UnprocessedParsedTermF (..),
+                        parseWithPrelude)
+import Text.Megaparsec (errorBundlePretty, runParser)
 
 type VarList = [String]
 
@@ -638,10 +641,10 @@ validateVariables prelude term =
 varsTerm1 :: Term1 -> Set String
 varsTerm1 = cata alg where
   alg :: CofreeF (ParserTermF String String) a (Set String) -> Set String
-  alg (_ C.:< (TVarF n))            = Set.singleton n
+  alg (_ C.:< (TVarF n))          = Set.singleton n
   alg (_ C.:< TLamF (Open n) x)   = del n x
   alg (_ C.:< TLamF (Closed n) x) = del n x
-  alg e                    = F.fold e
+  alg e                           = F.fold e
   del :: String -> Set String -> Set String
   del n x = if Set.member n x then Set.delete n x else x
 
@@ -680,7 +683,7 @@ generateAllHashes x@(anno :< _) = transform interm x where
   interm :: Term2 -> Term2
   interm = \case
     (anno :< THashF term1) -> bs2Term2 . term2Hash $ term1
-    x           -> x
+    x                      -> x
 
 -- data Annotation = Dummy
 --                 | Pos Int Int

@@ -14,25 +14,26 @@ module Telomare where --(IExpr(..), ParserTerm(..), LamType(..), Term1(..), Term
                --, FragExpr(..), FragIndex, TelomareLike, fromTelomare, toTelomare, rootFrag) where
 
 import Control.Applicative (Applicative (liftA2), liftA3)
+import Control.Comonad.Cofree (Cofree ((:<)))
+import qualified Control.Comonad.Trans.Cofree as CofreeT (CofreeF (..))
 import Control.DeepSeq (NFData (..))
 import Control.Lens.Combinators (Plated (..), transform)
 import Control.Monad.Except (ExceptT)
 import Control.Monad.State (State)
 import qualified Control.Monad.State as State
 import Data.Char (chr, ord)
-import Data.Functor.Foldable (Base, Recursive (cata, project), Corecursive (embed))
+import Data.Eq.Deriving (deriveEq1)
+import Data.Functor.Foldable (Base, Corecursive (embed),
+                              Recursive (cata, project))
 import Data.Functor.Foldable.TH (MakeBaseFunctor (makeBaseFunctor))
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Ord.Deriving (deriveOrd1)
 import qualified Data.Set as Set
 import Data.Void (Void)
+import Debug.Trace (trace, traceShow, traceShowId)
 import GHC.Generics (Generic)
-import Control.Comonad.Cofree (Cofree ((:<)))
 import Text.Show.Deriving (deriveShow1)
-import Data.Eq.Deriving (deriveEq1)
-import Data.Ord.Deriving (deriveOrd1)
-import qualified Control.Comonad.Trans.Cofree as CofreeT (CofreeF(..))
-import Debug.Trace (traceShowId, traceShow, trace)
 
 
 {- top level TODO list

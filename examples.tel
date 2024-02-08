@@ -3,14 +3,6 @@
 -- Hello World example.
 main = \input -> ("Hello, World!", 0)
 
--- main = \input -> (map succ [66], 0)
-
--- bar = \y -> dEqual ((\x -> x) y) ((\x -> x) y)
--- bar = \y -> dEqual y y
-
--- foo = \x -> if x then if x then if x then if x then if x then if bar x then "foo" else ": (" else ": (" else ": (" else ": (" else ": (" else ": ("
--- main = \input -> (foo 1, 0)
-
 -- -- refinement fail
 -- main : (\x -> if x then "fail" else 0) = 1
 

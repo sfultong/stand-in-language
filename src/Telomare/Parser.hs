@@ -6,6 +6,7 @@
 
 module Telomare.Parser where
 
+import Control.Comonad.Cofree (Cofree (..), unwrap)
 import Control.Lens.Combinators (Plated (..), makePrisms)
 import Control.Lens.Plated (Plated (..))
 import Control.Monad (void)
@@ -20,19 +21,20 @@ import Data.Word (Word8)
 import qualified System.IO.Strict as Strict
 import Telomare (ParserTerm (..), ParserTermF (..), RecursionPieceFrag,
                  RecursionSimulationPieces (..), Term1 (..), Term2 (..),
-                 Term3 (..), UnsizedRecursionToken, appF, clamF, deferF, lamF,
-                 nextBreakToken, unsizedRecursionWrapper, varNF, forget)
+                 Term3 (..), UnsizedRecursionToken, appF, clamF, deferF, forget,
+                 lamF, nextBreakToken, unsizedRecursionWrapper, varNF)
 import Telomare.TypeChecker (typeCheck)
 import Text.Megaparsec (MonadParsec (eof, notFollowedBy, try), Parsec, Pos,
-                        between, choice, errorBundlePretty, many, manyTill,
-                        optional, runParser, sepBy, some, (<?>), (<|>), getParserState, State (statePosState), PosState (pstateSourcePos), SourcePos (sourceLine, sourceColumn))
+                        PosState (pstateSourcePos),
+                        SourcePos (sourceColumn, sourceLine),
+                        State (statePosState), between, choice,
+                        errorBundlePretty, getParserState, many, manyTill,
+                        optional, runParser, sepBy, some, unPos, (<?>), (<|>))
 import Text.Megaparsec.Char (alphaNumChar, char, letterChar, space1, string)
 import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Debug (dbg)
 import Text.Megaparsec.Pos (Pos)
 import Text.Read (readMaybe)
-import Control.Comonad.Cofree (Cofree (..), unwrap)
-import Text.Megaparsec (unPos)
 import Text.Show.Deriving (deriveShow1)
 -- import Data.Fix hiding (cata)
 -- import Control.Comonad (Comonad(..))

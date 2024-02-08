@@ -3,6 +3,7 @@
 module CaseTests (unitTestsCase, qcPropsCase) where
 
 import Common
+import Control.Comonad.Cofree (Cofree ((:<)))
 import qualified Control.Monad.State as State
 import Data.Functor.Foldable (Base, Recursive (cata))
 import Telomare (forget)
@@ -11,7 +12,6 @@ import Telomare.Resolver (pattern2UPT)
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck as QC
-import Control.Comonad.Cofree (Cofree ((:<)))
 
 caseTests :: IO ()
 caseTests = defaultMain tests

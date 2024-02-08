@@ -1,9 +1,10 @@
-{-# LANGUAGE LambdaCase      #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Telomare.Eval where
 
+import Control.Comonad.Cofree (Cofree ((:<)), hoistCofree)
 import Control.Lens.Plated
 import Control.Monad.Except
 import Control.Monad.Reader (Reader, runReader)
@@ -22,20 +23,19 @@ import Debug.Trace
 import System.IO
 import System.Process
 import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
-                 FragIndex (FragIndex), IExpr (..), PartialType (..),
-                 RecursionPieceFrag, RecursionSimulationPieces (..),
-                 RunTimeError (..), TelomareLike (..), Term3 (Term3),
-                 Term4 (Term4), UnsizedRecursionToken (..), app, g2s,
-                 innerChurchF, insertAndGetKey, pattern AbortAny,
-                 pattern AbortRecursion, pattern AbortUser, rootFrag, s2g,
-                 unFragExprUR, FragExprF (..), forget)
+                 FragExprF (..), FragIndex (FragIndex), IExpr (..),
+                 PartialType (..), RecursionPieceFrag,
+                 RecursionSimulationPieces (..), RunTimeError (..),
+                 TelomareLike (..), Term3 (Term3), Term4 (Term4),
+                 UnsizedRecursionToken (..), app, forget, g2s, innerChurchF,
+                 insertAndGetKey, pattern AbortAny, pattern AbortRecursion,
+                 pattern AbortUser, rootFrag, s2g, unFragExprUR)
 import Telomare.Optimizer (optimize)
-import Telomare.Parser (UnprocessedParsedTerm (..), parsePrelude, AnnotatedUPT)
+import Telomare.Parser (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
 import Telomare.Possible (evalA)
 import Telomare.Resolver (parseMain)
 import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
 import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
-import Control.Comonad.Cofree (Cofree((:<)), hoistCofree)
 
 data ExpP = ZeroP
     | PairP ExpP ExpP
@@ -147,17 +147,17 @@ convertPT ll (Term3 termMap) =
       (_,_,newMap) = State.execState builder ((), startKey, unURedMap)
       changeType :: FragExprF a x -> FragExprF b x
       changeType = \case
-        ZeroFragF -> ZeroFragF
-        PairFragF a b -> PairFragF a b
-        EnvFragF -> EnvFragF
-        SetEnvFragF x -> SetEnvFragF x
+        ZeroFragF      -> ZeroFragF
+        PairFragF a b  -> PairFragF a b
+        EnvFragF       -> EnvFragF
+        SetEnvFragF x  -> SetEnvFragF x
         DeferFragF ind -> DeferFragF ind
-        AbortFragF -> AbortFragF
-        GateFragF l r -> GateFragF l r
-        LeftFragF x -> LeftFragF x
-        RightFragF x -> RightFragF x
-        TraceFragF -> TraceFragF
-        AuxFragF z -> error ("convertPT should be no AuxFrags here TODO" ) -- <> show z)
+        AbortFragF     -> AbortFragF
+        GateFragF l r  -> GateFragF l r
+        LeftFragF x    -> LeftFragF x
+        RightFragF x   -> RightFragF x
+        TraceFragF     -> TraceFragF
+        AuxFragF z     -> error ("convertPT should be no AuxFrags here TODO" ) -- <> show z)
 
       -- changeType :: FragExpr RecursionPieceFrag -> FragExpr Void
       -- changeType = \case
@@ -183,7 +183,7 @@ removeChecks :: Term4 -> Term4
 removeChecks (Term4 m) =
   let f = \case
         anno :< AbortFragF -> anno :< DeferFragF ind
-        x         -> x
+        x                  -> x
       (ind, newM) = State.runState builder m
       builder = do
         envDefer <- insertAndGetKey $ (0,0) :< EnvFragF

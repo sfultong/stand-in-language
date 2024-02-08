@@ -1,11 +1,12 @@
-{-# LANGUAGE DeriveFunctor     #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase        #-}
-{-# LANGUAGE TupleSections     #-}
-{-# LANGUAGE ScopedTypeVariables     #-}
+{-# LANGUAGE DeriveFunctor       #-}
+{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections       #-}
 module Common where
 
 import Control.Applicative
+import Control.Comonad.Cofree (Cofree ((:<)))
 import Data.Bifunctor
 import qualified Data.Map as Map
 import System.IO
@@ -20,7 +21,6 @@ import Telomare.Resolver
 import Telomare.TypeChecker
 import Test.QuickCheck
 import Test.QuickCheck.Gen
-import Control.Comonad.Cofree (Cofree ((:<)))
 
 class TestableIExpr a where
   getIExpr :: a -> IExpr

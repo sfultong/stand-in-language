@@ -12,7 +12,7 @@ import Control.Monad.IO.Class
 import qualified Control.Monad.State as State
 import Data.Bifunctor (first)
 import Data.Functor ((<&>))
-import Data.List (singleton, isPrefixOf, stripPrefix, intercalate)
+import Data.List (intercalate, isPrefixOf, singleton, stripPrefix)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set

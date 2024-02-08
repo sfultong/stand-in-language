@@ -41,8 +41,6 @@
                 doRunTests
                 # hl.dontHaddock
               ];
-
-              # cabal2nixOptions = "--enable-profiling";
             };
 
       in {

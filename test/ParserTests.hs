@@ -7,6 +7,7 @@ import Control.Lens.Fold
 import Control.Lens.Plated
 import Control.Monad
 
+import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (fix)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.State as State
@@ -34,7 +35,6 @@ import Test.Tasty.QuickCheck as QC
 import Text.Megaparsec
 import Text.Megaparsec.Debug
 import Text.Megaparsec.Error
-import Control.Comonad.Cofree (Cofree ((:<)))
 
 main :: IO ()
 main = defaultMain tests

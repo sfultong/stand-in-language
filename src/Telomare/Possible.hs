@@ -24,8 +24,8 @@ import qualified Data.Set as Set
 import Data.Void (Void)
 import Debug.Trace
 import Telomare (FragExpr (..), FragIndex, IExpr (..),
-                 TelomareLike (fromTelomare, toTelomare), Term4 (..),
-                 pattern AbortAny, rootFrag, forget)
+                 TelomareLike (fromTelomare, toTelomare), Term4 (..), forget,
+                 pattern AbortAny, rootFrag)
 
 
 -- foldr :: Foldable t => (a -> b -> b) -> b -> t a -> b
