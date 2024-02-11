@@ -276,7 +276,7 @@ data RecursionSimulationPieces a
 data LocTag
   = DummyLoc
   | Loc Int Int
-  deriving (Eq, Show)
+  deriving (Eq, Show, Ord)
 
 newtype FragExprUR =
   FragExprUR { unFragExprUR :: Cofree (FragExprF (RecursionSimulationPieces FragExprUR))
@@ -446,7 +446,7 @@ pattern ToChurch <-
       (Lam (Lam (Lam FirstArg)))
     )
 
-deferF :: forall a b. Show a => BreakState' a b -> BreakState' a b
+deferF :: Show a => BreakState' a b -> BreakState' a b
 deferF x = do
   bx@(anno :< _) <- x
   (uri, fi@(FragIndex i), fragMap) <- State.get

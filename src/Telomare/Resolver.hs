@@ -5,7 +5,6 @@
 module Telomare.Resolver where
 
 import Codec.Binary.UTF8.String (encode)
-import Control.Comonad
 import Control.Comonad.Cofree (Cofree (..))
 import Control.Comonad.Trans.Cofree (CofreeF)
 import qualified Control.Comonad.Trans.Cofree as C
@@ -411,7 +410,7 @@ generateAllHashes x@(anno :< _) = transform interm x where
   hash' :: ByteString -> Digest SHA256
   hash' = hash
   term2Hash :: Term2 -> ByteString
-  term2Hash = BS.pack . BA.unpack . hash' . BS.pack . encode . show
+  term2Hash = BS.pack . BA.unpack . hash' . BS.pack . encode . show . (forget :: Cofree (ParserTermF () Int) LocTag -> ParserTerm () Int)
   bs2Term2 :: ByteString -> Term2
   bs2Term2 bs = ints2t anno . drop 24 $ fromInteger . toInteger <$> BS.unpack bs
   interm :: Term2 -> Term2

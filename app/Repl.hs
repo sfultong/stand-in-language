@@ -239,8 +239,8 @@ data ReplSettings = ReplSettings
 -- Haskell is default.
 backendOpts :: Parser ReplBackend
 backendOpts = flag' SimpleBackend   (long "haskell"  <> help "Haskell Backend (default)")
-              <|> flag' NaturalsBackend (long "naturals" <> help "Naturals Interpretation Backend")
-              <|> pure SimpleBackend
+          <|> flag' NaturalsBackend (long "naturals" <> help "Naturals Interpretation Backend")
+          <|> pure SimpleBackend
 
 -- | Process a given expression instead of entering the repl.
 exprOpts :: Parser (Maybe String)

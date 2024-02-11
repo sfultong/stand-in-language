@@ -107,17 +107,6 @@ showNExprs (NExprs m) = concatMap
 -- termMap, function->type lookup, root frag type
 data TypeDebugInfo = TypeDebugInfo Term3 (FragIndex -> PartialType) PartialType
 
-
--- newtype FragExprUR =
---   FragExprUR { unFragExprUR :: Cofree (FragExprF (RecursionSimulationPieces FragExprUR))
---                                       (Int,Int)
---              }
---   deriving (Eq, Show)
--- newtype Term3 = Term3 (Map FragIndex FragExprUR) deriving (Eq, Show)
-
-
--- Map FragIndex (FragExpr (RecursionSimulationPieces FragExprUR))
-
 showTypeDebugInfo :: TypeDebugInfo -> String
 showTypeDebugInfo (TypeDebugInfo (Term3 m) lookup rootType) =
   let termMap = forgetAnnotationFragExprUR <$> m

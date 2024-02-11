@@ -3,14 +3,17 @@
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+
 module Main where
 
 import CaseTests (qcPropsCase, unitTestsCase)
 import Common
+import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Except (ExceptT, MonadError, catchError, runExceptT,
                              throwError)
 import Data.Algorithm.Diff (getGroupedDiff)
 import Data.Algorithm.DiffOutput (ppDiff)
+import Debug.Trace (trace, traceShow, traceShowId)
 import System.IO
 import qualified System.IO.Strict as Strict
 import System.IO.Unsafe (unsafePerformIO)
@@ -54,6 +57,7 @@ qcProps = testGroup "Property tests (QuickCheck)"
 containsTHash :: Term2' -> Bool
 containsTHash = \case
   THash _    -> True
+  TLimitedRecursion a b c -> containsTHash a || containsTHash b || containsTHash c
   TITE a b c -> containsTHash a || containsTHash b || containsTHash c
   TPair a b  -> containsTHash a || containsTHash b
   TApp a b   -> containsTHash a || containsTHash b
@@ -66,9 +70,8 @@ containsTHash = \case
 
 onlyHashUPsChanged :: Term2' -> Bool
 onlyHashUPsChanged term2 = and $ fmap (isHash . fst) diffList where
-  -- term2 = forget term2'
   diffList :: [(Term2', Term2')]
-  diffList = diffTerm2 (term2, forget . generateAllHashes . tag (0,0) $ term2)
+  diffList = diffTerm2 (term2, forget . generateAllHashes . tag DummyLoc $ term2)
   isHash :: Term2' -> Bool
   isHash = \case
     THash _ -> True
@@ -84,11 +87,12 @@ noDups = not . f []
 
 allHashesToTerm2 :: Term2' -> [Term2']
 allHashesToTerm2 term2 =
-  let term2WithoutTHash = forget . generateAllHashes . tag (0,0) $ term2
+  let term2WithoutTHash = forget . generateAllHashes . tag DummyLoc $ term2
       interm :: (Term2', Term2') -> [Term2']
       interm = \case
         (THash _ , x) -> [x]
         (TITE a b c, TITE a' b' c') -> interm (a, a') <> interm (b, b') <> interm (c, c')
+        (TLimitedRecursion a b c, TLimitedRecursion a' b' c') -> interm (a, a') <> interm (b, b') <> interm (c, c')
         (TPair a b, TPair a' b') -> interm (a, a') <> interm (b, b')
         (TApp a b, TApp a' b') -> interm (a, a') <> interm (b, b')
         (TCheck a b, TCheck a' b') -> interm (a, a') <> interm (b, b')
@@ -103,6 +107,7 @@ allHashesToTerm2 term2 =
 diffTerm2 :: (Term2', Term2') -> [(Term2', Term2')]
 diffTerm2 = \case
   (TITE a b c, TITE a' b' c') -> diffTerm2 (a, a') <> diffTerm2 (b, b') <> diffTerm2 (c, c')
+  (TLimitedRecursion a b c, TLimitedRecursion a' b' c') -> diffTerm2 (a, a') <> diffTerm2 (b, b') <> diffTerm2 (c, c')
   (TPair a b, TPair a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
   (TApp a b, TApp a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
   (TCheck a b, TCheck a' b') -> diffTerm2 (a, a') <> diffTerm2 (b, b')
@@ -127,37 +132,37 @@ unitTests = testGroup "Unit tests"
   , testCase "same functions have the same hash even with different variable names" $ do
      let res1 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest2
          res2 = generateAllHashes <$> runTelomareParser2Term2 parseLet [] hashtest3
-     res1 `compare` res2  @?= EQ
-  -- , testCase "Ad hoc user defined types success" $ do
-  --     res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
-  --     res `compare` "\a\ndone\n" @?= EQ
-  -- , testCase "Ad hoc user defined types failure" $ do
-  --     res <- testUserDefAdHocTypes userDefAdHocTypesFailure
-  --     res `compare` "MyInt must not be 0\ndone\n" @?= EQ
+     res1 @?= res2
+  , testCase "Ad hoc user defined types success" $ do
+      res <- testUserDefAdHocTypes userDefAdHocTypesSuccess
+      res @?= "\a\ndone\n"
+  , testCase "Ad hoc user defined types failure" $ do
+      res <- testUserDefAdHocTypes userDefAdHocTypesFailure
+      res @?= "MyInt must not be 0\ndone\n"
   , testCase "test automatic open close lambda" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> (x, y)"
-      (forget <$> validateVariables [] res) `compare` Right closedLambdaPair @?= EQ
+      (forget <$> validateVariables [] res) @?= Right closedLambdaPair
   , testCase "test automatic open close lambda 2" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x y -> (x, y)"
-      (forget <$> validateVariables [] res) `compare` Right closedLambdaPair @?= EQ
+      (forget <$> validateVariables [] res) @?= Right closedLambdaPair
   , testCase "test automatic open close lambda 3" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> z"
-      (forget <$> validateVariables [] res) `compare` Right expr6 @?= EQ
+      (forget <$> validateVariables [] res) @?= Right expr6
   , testCase "test automatic open close lambda 4" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> (x, x)"
-      (forget <$> validateVariables [] res) `compare` Right expr5 @?= EQ
+      (forget <$> validateVariables [] res) @?= Right expr5
   , testCase "test automatic open close lambda 5" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\x -> \\x -> x"
-      (forget <$> validateVariables [] res) `compare` Right expr4 @?= EQ
+      (forget <$> validateVariables [] res) @?= Right expr4
   , testCase "test automatic open close lambda 6" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\x -> \\y -> \\z -> [x,y,z]"
-      (forget <$> validateVariables [] res) `compare` Right expr3 @?= EQ
+      (forget <$> validateVariables [] res) @?= Right expr3
   , testCase "test automatic open close lambda 7" $ do
       res <- runTelomareParser (parseLambda <* scn <* eof) "\\a -> (a, (\\a -> (a,0)))"
-      (forget <$> validateVariables [] res) `compare` Right expr2 @?= EQ
-  -- , testCase "test tictactoe.tel" $ do
-  --     res <- tictactoe
-  --     fullRunTicTacToeString `compare` res  @?= EQ
+      (forget <$> validateVariables [] res) @?= Right expr2
+  , testCase "test tictactoe.tel" $ do
+      res <- tictactoe
+      fullRunTicTacToeString @?= res
   ]
 
 tictactoe :: IO String
@@ -262,23 +267,6 @@ testUserDefAdHocTypes input = do
   preludeString <- Strict.readFile "Prelude.tel"
   (_, _, hOut, _) <- forkWithStandardFds $ runMain preludeString input
   hGetContents hOut
-
-helloWorld' = "main = \\i -> (dEqual 100 100, 0)"
-helloWorld = "main = \\i -> (dEqual (left (98,99)) 100, 0)"
-foo' = unlines
-  [ "foo = let bar = \\h -> (\\i -> i"
-  , "                       , \\i -> i"
-  , "                       )"
-  , "      in bar 100"
-  , "main = \\i -> ((left foo) 8, 0)"
-  ]
-foo = unlines
-  [ "foo = let bar = \\ h -> \\ i -> dEqual i h"
-  , "      in bar 10"
-  , "main = \\i -> (foo 8, 0)"
-  ]
-
-
 
 userDefAdHocTypesSuccess = unlines
   [ "MyInt = let wrapper = \\h -> ( \\i -> if not i"

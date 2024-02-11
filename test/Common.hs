@@ -153,17 +153,17 @@ genTypedTree' :: Maybe DataType -> DataType -> Int -> Gen (BreakState' Recursion
 genTypedTree' ti t i =
   let half = div i 2
       optionEnv = if ti == Just t
-                  then (pure (pure $ (0,0) :< EnvFragF) :)
+                  then (pure (pure $ DummyLoc :< EnvFragF) :)
                   else id
       optionGate ti' to = if ti' == ZeroType
-                          then ((liftA2 (\x y -> (0,0) :< GateFragF x y) <$> genTypedTree' ti to half <*> genTypedTree' ti to half) :)
+                          then ((liftA2 (\x y -> DummyLoc :< GateFragF x y) <$> genTypedTree' ti to half <*> genTypedTree' ti to half) :)
                           else id
       setEnvOption to = arbitrary >>= makeSetEnv where
-        makeSetEnv ti' = fmap (((0,0) :<) . SetEnvFragF) <$> genTypedTree' ti (PairType (ArrType ti' to) ti') (i - 1)
-      leftOption to = arbitrary >>= (\ti' -> fmap (((0,0) :<) . LeftFragF) <$> genTypedTree' ti (PairType to ti') (i - 1))
-      rightOption to = arbitrary >>= (\ti' -> fmap (((0,0) :<) . RightFragF) <$> genTypedTree' ti (PairType ti' to) (i - 1))
+        makeSetEnv ti' = fmap ((DummyLoc :<) . SetEnvFragF) <$> genTypedTree' ti (PairType (ArrType ti' to) ti') (i - 1)
+      leftOption to = arbitrary >>= (\ti' -> fmap ((DummyLoc :<) . LeftFragF) <$> genTypedTree' ti (PairType to ti') (i - 1))
+      rightOption to = arbitrary >>= (\ti' -> fmap ((DummyLoc :<) . RightFragF) <$> genTypedTree' ti (PairType ti' to) (i - 1))
   in oneof . optionEnv $ case t of
-    ZeroType -> pure (pure $ (0,0) :< ZeroFragF) :
+    ZeroType -> pure (pure $ DummyLoc :< ZeroFragF) :
      if i < 1
      then []
      else [ genTypedTree' ti (PairType ZeroType ZeroType) i
@@ -172,7 +172,7 @@ genTypedTree' ti t i =
           , rightOption ZeroType
           ]
     PairType ta tb ->
-      (liftA2 (\x y -> (0,0) :< PairFragF x y) <$> genTypedTree' ti ta half <*> genTypedTree' ti tb half) :
+      (liftA2 (\x y -> DummyLoc :< PairFragF x y) <$> genTypedTree' ti ta half <*> genTypedTree' ti tb half) :
       if i < 1
       then []
       else [ setEnvOption (PairType ta tb)
@@ -193,7 +193,6 @@ instance Arbitrary DataTypedIExpr where
   shrink (IExprWrapper x) = fmap (IExprWrapper . getIExpr) . filter zeroTyped . shrink $ TestIExpr x
 
 instance Arbitrary URTestExpr where -- TODO needs to be tested since refactor
-  -- arbitrary = URTestExpr . Term3 . fmap FragExprUR  . buildFragMap  . wrapWithUR <$>  mapM sized undefined
   arbitrary = URTestExpr . Term3 . fmap FragExprUR . buildFragMap . wrapWithUR <$> mapM sized
       [ genTypedTree' Nothing (PairType (ArrType ZeroType ZeroType) ZeroType)
       , genTypedTree' Nothing (PairType (ArrType (PairType (ArrType ZeroType ZeroType) ZeroType)
@@ -316,8 +315,8 @@ instance Arbitrary Term1 where
     leaves :: [String] -> Gen Term1
     leaves varList =
       oneof $
-          (if not (null varList) then ((((0,0) :<) . TVarF <$> elements varList) :) else id)
-          [ pure $ (0,0) :< TZeroF
+          (if not (null varList) then (((DummyLoc :<) . TVarF <$> elements varList) :) else id)
+          [ pure $ DummyLoc :< TZeroF
           ]
     lambdaTerms = ["w", "x", "y", "z"]
     letTerms = fmap (("l" <>) . show) [1..255]
@@ -339,15 +338,15 @@ instance Arbitrary Term1 where
                                  0 -> leaves varList
                                  x -> oneof
                                    [ leaves varList
-                                   , ((0,0) :<) . THashF <$> recur (i - 1)
-                                   , ((0,0) :<) . TLeftF <$> recur (i - 1)
-                                   , ((0,0) :<) . TRightF <$> recur (i - 1)
-                                   , ((0,0) :<) . TTraceF <$> recur (i - 1)
-                                   , elements lambdaTerms >>= \var -> ((0,0) :<) . TLamF (Open var) <$> genTree (var : varList) (i - 1)
-                                   , (\a b c -> (0,0) :< TITEF a b c) <$> recur third <*> recur third <*> recur third
-                                   , (\a b c -> (0,0) :< TLimitedRecursionF a b c) <$> recur third <*> recur third <*> recur third
-                                   , (\a b -> (0,0) :< TPairF a b) <$> recur half <*> recur half
-                                   , (\a b -> (0,0) :< TAppF a b) <$> recur half <*> recur half
+                                   , (DummyLoc :<) . THashF <$> recur (i - 1)
+                                   , (DummyLoc :<) . TLeftF <$> recur (i - 1)
+                                   , (DummyLoc :<) . TRightF <$> recur (i - 1)
+                                   , (DummyLoc :<) . TTraceF <$> recur (i - 1)
+                                   , elements lambdaTerms >>= \var -> (DummyLoc :<) . TLamF (Open var) <$> genTree (var : varList) (i - 1)
+                                   , (\a b c -> DummyLoc :< TITEF a b c) <$> recur third <*> recur third <*> recur third
+                                   , (\a b c -> DummyLoc :< TLimitedRecursionF a b c) <$> recur third <*> recur third <*> recur third
+                                   , (\a b -> DummyLoc :< TPairF a b) <$> recur half <*> recur half
+                                   , (\a b -> DummyLoc :< TAppF a b) <$> recur half <*> recur half
                                    ]
   shrink = \case
     _ :< TZeroF -> []
