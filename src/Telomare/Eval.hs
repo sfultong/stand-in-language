@@ -145,7 +145,7 @@ convertPT ll (Term3 termMap) =
         LeftFragF x    -> LeftFragF x
         RightFragF x   -> RightFragF x
         TraceFragF     -> TraceFragF
-        AuxFragF z     -> error ("convertPT should be no AuxFrags here TODO" )
+        AuxFragF z     -> error "convertPT should be no AuxFrags here TODO"
   in Term4 $ fmap (hoistCofree changeType) newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4

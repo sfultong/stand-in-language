@@ -148,9 +148,9 @@ decompileFragMap tm =
                                                                                          (anno :< TRightF (anno :< TVarF 0))))
                                                (recur x)
         anno :< DeferFragF ind -> anno :< (TLamF (Closed ()) . recur $ tm Map.! ind)
-        anno :< AbortFragF -> anno :< TLamF (Closed ()) (anno :< (TLamF (Open ()) $
+        anno :< AbortFragF -> anno :< TLamF (Closed ()) (anno :< TLamF (Open ())
                                             (anno :< TCheckF (anno :< TLamF (Closed ()) (anno :< TVarF 1))
-                                                             (anno :< TVarF 0))))
+                                                             (anno :< TVarF 0)))
         anno :< GateFragF l r -> anno :< TLamF (Closed ()) (anno :< TITEF (anno :< TVarF 0) (recur r) (recur l))
         anno :< LeftFragF x -> anno :< TLeftF (recur x)
         anno :< RightFragF x -> anno :< TRightF (recur x)
