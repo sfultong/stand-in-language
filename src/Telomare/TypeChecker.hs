@@ -76,9 +76,9 @@ buildTypeMap assocSet =
         $ Set.toList assocSet
       getKeys = \case
         TypeVariable _ i -> DList.singleton i
-        ArrTypeP a b   -> getKeys a <> getKeys b
-        PairTypeP a b  -> getKeys a <> getKeys b
-        _              -> mempty
+        ArrTypeP a b     -> getKeys a <> getKeys b
+        PairTypeP a b    -> getKeys a <> getKeys b
+        _                -> mempty
       isRecursiveType resolvedSet k = case (Set.member k resolvedSet, Map.lookup k multiMap) of
         (True, _) -> Just k
         (_, Nothing) -> Nothing

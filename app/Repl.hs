@@ -29,9 +29,9 @@ import Telomare (IExpr (..), LocTag (..), PrettyIExpr (PrettyIExpr),
                  PrettyPartialType (PrettyPartialType),
                  TelomareLike (fromTelomare, toTelomare), Term3, forget, tag)
 import Telomare.Eval (EvalError (..), compileUnitTest)
-import Telomare.Parser (Annotation (DummyAnnotation), TelomareParser,
-                        UnprocessedParsedTerm (..), UnprocessedParsedTermF (..),
-                        parseAssignment, parseLongExpr, parsePrelude)
+import Telomare.Parser (TelomareParser, UnprocessedParsedTerm (..),
+                        UnprocessedParsedTermF (..), parseAssignment,
+                        parseLongExpr, parsePrelude)
 import Telomare.Resolver (process)
 import Telomare.RunTime (fastInterpretEval, simpleEval)
 import Telomare.TypeChecker (inferType)
