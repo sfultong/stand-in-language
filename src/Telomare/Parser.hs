@@ -118,6 +118,7 @@ instance Show PrettyUPT where
             assignList :: (String, String) -> String
             assignList (str, upt) = str <> " = " <> indentSansFirstLine (3 + length str) upt
       (ListUPF []) -> "[]"
+      (ListUPF [x]) -> "[" <> x <> "]"
       (ListUPF ls) ->
         "[" <> removeFirstComma (unlines (indentSansFirstLine 2 . (", " <>) <$> ls)) <>
         "]"
@@ -125,7 +126,8 @@ instance Show PrettyUPT where
             removeFirstComma = \case
               (',':str) -> str
               _         -> error "removeFirstComma: input does not start with a comma"
-      (AppUPF x y) -> "(" <> x <> " " <> "(" <> y <> ")" <>")"
+      (AppUPF x y) -> (if (length . words $ x) == 1 then x else "(" <> x <> ")") <> " " <>
+                      if (length . words $ y) == 1 then y else "(" <> y <> ")"
       (LamUPF str y) -> "\\ " <> str <> " -> " <> indentSansFirstLine (6 + length str) y
       (ChurchUPF x) -> "$" <> show x
       (LeftUPF x) -> "left (" <> indentSansFirstLine 6 x <> ")"
