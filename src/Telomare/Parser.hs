@@ -75,10 +75,6 @@ deriveShow1 ''UnprocessedParsedTermF
 
 type AnnotatedUPT = Cofree UnprocessedParsedTermF LocTag
 
-data Annotation = DummyAnnotation
-                | Pos Int Int
-                deriving (Eq, Show)
-
 newtype PrettyPattern = PrettyPattern Pattern
 
 instance Show PrettyPattern where
