@@ -43,13 +43,13 @@ data TypeCheckError
 --type AnnotateState a = State (PartialType, Map Int PartialType, Int, Maybe TypeCheckError) a
 type AnnotateState = ExceptT TypeCheckError (State (PartialType, Set TypeAssociation, Int))
 
-withNewEnv :: AnnotateState a -> AnnotateState (PartialType, a)
-withNewEnv action = do
+withNewEnv :: LocTag -> AnnotateState a -> AnnotateState (PartialType, a)
+withNewEnv anno action = do
   (env, typeMap, v) <- State.get
-  State.put (TypeVariable v, typeMap, v + 1)
+  State.put (TypeVariable anno v, typeMap, v + 1)
   result <- action
   State.modify $ \(_, typeMap, v) -> (env, typeMap, v)
-  pure (TypeVariable v, result)
+  pure (TypeVariable anno v, result)
 
 setEnv :: PartialType -> AnnotateState ()
 setEnv env = State.modify $ \(_, typeMap, v) -> (env, typeMap, v)
@@ -62,8 +62,8 @@ makeAssociations ta tb = case (ta, tb) of
   (x, y) | x == y -> pure mempty
   (AnyType, _) -> pure mempty
   (_, AnyType) -> pure mempty
-  (TypeVariable i, _) -> pure . Set.singleton $ TypeAssociation i tb
-  (_, TypeVariable i) -> pure . Set.singleton $ TypeAssociation i ta
+  (TypeVariable _ i, _) -> pure . Set.singleton $ TypeAssociation i tb
+  (_, TypeVariable _ i) -> pure . Set.singleton $ TypeAssociation i ta
   (ArrTypeP a b, ArrTypeP c d) -> Set.union <$> makeAssociations a c <*> makeAssociations b d
   (PairTypeP a b, PairTypeP c d) -> Set.union <$> makeAssociations a c <*> makeAssociations b d
   (PairTypeP a b, ZeroTypeP) -> Set.union <$> makeAssociations a ZeroTypeP <*> makeAssociations b ZeroTypeP
@@ -75,7 +75,7 @@ buildTypeMap assocSet =
   let multiMap = Map.fromListWith DList.append . fmap (\(TypeAssociation i t) -> (i, DList.singleton t))
         $ Set.toList assocSet
       getKeys = \case
-        TypeVariable i -> DList.singleton i
+        TypeVariable _ i -> DList.singleton i
         ArrTypeP a b   -> getKeys a <> getKeys b
         PairTypeP a b  -> getKeys a <> getKeys b
         _              -> mempty
@@ -99,8 +99,8 @@ fullyResolve :: (Int -> Maybe PartialType) -> PartialType -> PartialType
 fullyResolve resolve = convert where
     convert = transform endo
     endo = \case
-      TypeVariable i -> case resolve i of
-        Nothing -> TypeVariable i
+      TypeVariable anno i -> case resolve i of
+        Nothing -> TypeVariable anno i
         Just t  -> convert t -- debugTrace (show t) $ convert t
       x -> x
 
@@ -135,10 +135,10 @@ initState (Term3 termMap) =
   let startVariable = case Set.maxView (Map.keysSet termMap) of
         Nothing               -> 0
         Just (FragIndex i, _) -> (i + 1) * 2
-  in (TypeVariable 0, Set.empty, startVariable)
+  in (TypeVariable DummyLoc 0, Set.empty, startVariable)
 
-getFragType :: FragIndex -> PartialType
-getFragType (FragIndex i) = ArrTypeP (TypeVariable $ i * 2) (TypeVariable $ i * 2 + 1)
+getFragType :: LocTag -> FragIndex -> PartialType
+getFragType anno (FragIndex i) = ArrTypeP (TypeVariable anno $ i * 2) (TypeVariable anno $ i * 2 + 1)
 
 annotate :: Term3 -> AnnotateState PartialType
 annotate (Term3 termMap) =
@@ -149,12 +149,12 @@ annotate (Term3 termMap) =
         anno :< EnvFragF -> (State.gets (\(t, _, _) -> t))
         anno :< SetEnvFragF x -> do
           xt <- annotate' x
-          (it, (ot, _)) <- withNewEnv . withNewEnv $ pure ()
+          (it, (ot, _)) <- withNewEnv anno . withNewEnv anno $ pure ()
           associateVar (PairTypeP (ArrTypeP it ot) it) xt
           pure ot
-        anno :< DeferFragF ind -> pure $ getFragType ind
+        anno :< DeferFragF ind -> pure $ getFragType anno ind
         anno :< AbortFragF -> do
-          (it, _) <- withNewEnv $ pure ()
+          (it, _) <- withNewEnv anno $ pure ()
           pure (ArrTypeP ZeroTypeP (ArrTypeP it it))
         anno :< GateFragF l r -> do
           lt <- annotate' l
@@ -163,22 +163,23 @@ annotate (Term3 termMap) =
           pure $ ArrTypeP ZeroTypeP lt
         anno :< LeftFragF x -> do
           xt <- annotate' x
-          (la, _) <- withNewEnv $ pure ()
+          (la, _) <- withNewEnv anno $ pure ()
           associateVar (PairTypeP la AnyType) xt
           pure la
         anno :< RightFragF x -> do
           xt <- annotate' x
-          (ra, _) <- withNewEnv $ pure ()
+          (ra, _) <- withNewEnv anno $ pure ()
           associateVar (PairTypeP AnyType ra) xt
           pure ra
         anno :< TraceFragF -> (State.gets (\(t, _, _) -> t))
         anno :< AuxFragF (NestedSetEnvs _) -> (State.gets (\(t, _, _) -> t))
         anno :< AuxFragF (RecursionTest (FragExprUR x)) -> annotate' x
-      initInputType :: FragIndex -> AnnotateState ()
-      initInputType fi = let (ArrTypeP it _) = getFragType fi in State.modify (\(_, s, i) -> (it, s, i))
-      associateOutType fi ot = let (ArrTypeP _ ot2) = getFragType fi in associateVar ot ot2
-      rootType = initInputType (FragIndex 0) >> annotate' (unFragExprUR $ rootFrag termMap)
-  in sequence_ (Map.mapWithKey (\k v -> initInputType k >> annotate' (unFragExprUR v) >>= associateOutType k) termMap) >> rootType
+      initInputType :: LocTag -> FragIndex -> AnnotateState ()
+      initInputType anno fi = let (ArrTypeP it _) = getFragType anno fi in State.modify (\(_, s, i) -> (it, s, i))
+      associateOutType :: LocTag -> FragIndex -> PartialType -> AnnotateState ()
+      associateOutType anno fi ot = let (ArrTypeP _ ot2) = getFragType anno fi in associateVar ot ot2
+      rootType anno = initInputType anno (FragIndex 0) >> annotate' (unFragExprUR $ rootFrag termMap)
+  in sequence_ (Map.mapWithKey (\k v -> initInputType DummyLoc k >> annotate' (unFragExprUR v) >>= associateOutType DummyLoc k) termMap) >> rootType DummyLoc
 
 partiallyAnnotate :: Term3 -> Either TypeCheckError (PartialType, Int -> Maybe PartialType)
 partiallyAnnotate term =
@@ -195,7 +196,7 @@ typeCheck :: PartialType -> Term3 -> Maybe TypeCheckError
 typeCheck t tm@(Term3 typeMap) = convert (partiallyAnnotate tm >>= associate) where
   associate (ty, resolver) = debugTrace ("COMPARING TYPES " <> show (t, fullyResolve resolver ty) <> "\n" <> debugMap ty resolver)
     . traceAgain $ makeAssociations (fullyResolve resolver ty) t
-  debugMap ty resolver = showTypeDebugInfo (TypeDebugInfo tm (fullyResolve resolver . getFragType)
+  debugMap ty resolver = showTypeDebugInfo (TypeDebugInfo tm (fullyResolve resolver . getFragType DummyLoc)
                                             (fullyResolve resolver ty))
   traceAgain s = debugTrace ("Resulting thing " <> show s) s
   convert = \case

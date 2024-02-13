@@ -613,7 +613,7 @@ instance Show PrettyDataType where
 data PartialType
   = ZeroTypeP
   | AnyType
-  | TypeVariable Int
+  | TypeVariable LocTag Int
   | ArrTypeP PartialType PartialType
   | PairTypeP PartialType PartialType
   deriving (Show, Eq, Ord)
@@ -637,8 +637,8 @@ instance Show PrettyPartialType where
     (ArrTypeP a b) -> concat [showInternalP a, " -> ", showInternalP b]
     (PairTypeP a b) ->
       concat ["(", show $ PrettyPartialType a, ",", show $ PrettyPartialType b, ")"]
-    (TypeVariable (-1)) -> "badType"
-    (TypeVariable x) -> 'v' : show x
+    (TypeVariable _ (-1)) -> "badType"
+    (TypeVariable _ x) -> 'v' : show x
 
 mergePairType :: DataType -> DataType
 mergePairType = transform f where
