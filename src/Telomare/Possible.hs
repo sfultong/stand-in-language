@@ -24,7 +24,7 @@ import qualified Data.Set as Set
 import Data.Void (Void)
 import Debug.Trace
 import Telomare (FragExpr (..), FragIndex, IExpr (..),
-                 TelomareLike (fromTelomare, toTelomare), Term4 (..),
+                 TelomareLike (fromTelomare, toTelomare), Term4 (..), forget,
                  pattern AbortAny, rootFrag)
 
 
@@ -377,8 +377,9 @@ evalS = f . toTelomare . evalEnhanced handleOther (BasicExpr ZeroSF). fromTeloma
   handleOther = error "TODO evalS handleOther"
 
 term4ToAbortExpr :: Term4 -> AbortExpr VoidF
-term4ToAbortExpr (Term4 termMap) =
+term4ToAbortExpr (Term4 termMap') =
   let fragLookup = (termMap Map.!)
+      termMap = forget <$> termMap'
   in term4ToAbortExpr' fragLookup (rootFrag termMap)
 
 term4ToAbortExpr' :: (FragIndex -> FragExpr Void) -> FragExpr Void -> AbortExpr VoidF

@@ -4,9 +4,11 @@ module PrettyPrint where
 
 import Data.Map (Map)
 import Naturals (NExpr (..), NExprs (..), NResult)
-import Telomare (FragExpr (..), FragExprUR (..), FragIndex (..), IExpr (..),
-                 PartialType (..), PrettyPartialType (..),
-                 RecursionSimulationPieces (..), Term3 (..), rootFrag)
+import Telomare (FragExpr (..), FragExprUR (..),
+                 FragExprURSansAnnotation (FragExprURSA, unFragExprURSA),
+                 FragIndex (..), IExpr (..), PartialType (..),
+                 PrettyPartialType (..), RecursionSimulationPieces (..),
+                 Term3 (..), forget, forgetAnnotationFragExprUR, rootFrag)
 
 import qualified Data.Map as Map
 
@@ -106,8 +108,9 @@ showNExprs (NExprs m) = concatMap
 data TypeDebugInfo = TypeDebugInfo Term3 (FragIndex -> PartialType) PartialType
 
 showTypeDebugInfo :: TypeDebugInfo -> String
-showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
-  let showFrag (FragIndex i) ty frag = show i <> ": " <> show (PrettyPartialType ty) <> "\n" <> showExpr 80 2 frag
+showTypeDebugInfo (TypeDebugInfo (Term3 m) lookup rootType) =
+  let termMap = forgetAnnotationFragExprUR <$> m
+      showFrag (FragIndex i) ty frag = show i <> ": " <> show (PrettyPartialType ty) <> "\n" <> showExpr 80 2 frag
       showExpr l i =
         let recur = showExpr l i
             showTwo c a b =
@@ -115,17 +118,18 @@ showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
             showThree x a b c =
               concat [x, "\n", indent i, showExpr l (i + 1) a, "\n", indent i, showExpr l (i + 1) b, "\n", indent i, showExpr l (i + 1) c]
         in \case
-          ZeroFrag                               -> "Z"
-          PairFrag a b                           -> showTwo "P" a b
-          EnvFrag                                -> "E"
-          SetEnvFrag x                           -> "S " <> recur x
-          DeferFrag (FragIndex ind)              -> "[" <> show ind <> "]"
-          AbortFrag                              -> "A"
-          GateFrag l r                           -> showTwo "G" l r
-          LeftFrag x                             -> "L " <> recur x
-          RightFrag x                            -> "R " <> recur x
-          TraceFrag                              -> "T"
-          AuxFrag (RecursionTest (FragExprUR x)) -> "?" <> recur x
-          AuxFrag (NestedSetEnvs _)              -> "%"
-  in showFrag (FragIndex 0) rootType (unFragExprUR $ rootFrag termMap) <> "\n"
-     <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail . Map.toAscList . Map.map unFragExprUR $ termMap)
+          ZeroFrag                                 -> "Z"
+          PairFrag a b                             -> showTwo "P" a b
+          EnvFrag                                  -> "E"
+          SetEnvFrag x                             -> "S " <> recur x
+          DeferFrag (FragIndex ind)                -> "[" <> show ind <> "]"
+          AbortFrag                                -> "A"
+          GateFrag l r                             -> showTwo "G" l r
+          LeftFrag x                               -> "L " <> recur x
+          RightFrag x                              -> "R " <> recur x
+          TraceFrag                                -> "T"
+          AuxFrag (RecursionTest (FragExprURSA x)) -> "?" <> recur x
+          AuxFrag (NestedSetEnvs _)                -> "%"
+  in showFrag (FragIndex 0) rootType (unFragExprURSA $ rootFrag termMap) <> "\n"
+     <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n")
+                  (tail . Map.toAscList . Map.map unFragExprURSA $ termMap)

@@ -3,8 +3,10 @@
 module CaseTests (unitTestsCase, qcPropsCase) where
 
 import Common
+import Control.Comonad.Cofree (Cofree ((:<)))
 import qualified Control.Monad.State as State
 import Data.Functor.Foldable (Base, Recursive (cata))
+import Telomare (LocTag (..), forget)
 import Telomare.Parser
 import Telomare.Resolver (pattern2UPT)
 import Test.Tasty
@@ -24,7 +26,7 @@ tests = testGroup "Tests" [unitTestsCase, qcPropsCase]
 caseExprStrWithPattern :: Pattern -> String
 caseExprStrWithPattern p = unlines
   [ "main ="
-  , "  let toCase = " <> (show . PrettyUPT . pattern2UPT $ p)
+  , "  let toCase = " <> (show . PrettyUPT . forget . pattern2UPT DummyLoc $ p)
   , "      caseTest ="
   , "        case toCase of"
   , "          " <> (show . PrettyPattern $ p) <> " -> \"True\""
@@ -35,7 +37,7 @@ caseExprStrWithPattern p = unlines
 caseExprStrWithPatternIgnore :: Pattern -> String
 caseExprStrWithPatternIgnore p = unlines
   [ "main ="
-  , "  let toCase = " <> (show . PrettyUPT . pattern2UPT $ p)
+  , "  let toCase = " <> (show . PrettyUPT . forget . pattern2UPT DummyLoc $ p)
   , "      caseTest ="
   , "        case toCase of"
   , "          _ -> \"True\""

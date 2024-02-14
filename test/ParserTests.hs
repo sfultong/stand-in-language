@@ -7,6 +7,7 @@ import Control.Lens.Fold
 import Control.Lens.Plated
 import Control.Monad
 
+import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad.Fix (fix)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.State as State
@@ -182,7 +183,8 @@ unitTests = testGroup "Unit tests"
       res <- parseSuccessful (parseLet <* scn <* eof) testLetIncorrectIndentation2
       res `compare` False @?= EQ
   , testCase "Case within top level definitions" $ do
-      res <- runTelomareParser parseTopLevel caseExpr0
+      res' <- runTelomareParser parseTopLevel caseExpr0
+      let res = forget res'
       res @?= caseExpr0UPT
   ]
 

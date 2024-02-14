@@ -1,8 +1,10 @@
-{-# LANGUAGE LambdaCase      #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE PatternSynonyms     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Telomare.Eval where
 
+import Control.Comonad.Cofree (Cofree ((:<)), hoistCofree)
 import Control.Lens.Plated
 import Control.Monad.Except
 import Control.Monad.Reader (Reader, runReader)
@@ -21,15 +23,15 @@ import Debug.Trace
 import System.IO
 import System.Process
 import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
-                 FragIndex (FragIndex), IExpr (..), PartialType (..),
-                 RecursionPieceFrag, RecursionSimulationPieces (..),
-                 RunTimeError (..), TelomareLike (..), Term3 (Term3),
-                 Term4 (Term4), UnsizedRecursionToken (..), app, g2s,
-                 innerChurchF, insertAndGetKey, pattern AbortAny,
-                 pattern AbortRecursion, pattern AbortUser, rootFrag, s2g,
-                 unFragExprUR)
+                 FragExprF (..), FragIndex (FragIndex), IExpr (..), LocTag (..),
+                 PartialType (..), RecursionPieceFrag,
+                 RecursionSimulationPieces (..), RunTimeError (..),
+                 TelomareLike (..), Term3 (Term3), Term4 (Term4),
+                 UnsizedRecursionToken (..), app, forget, g2s, innerChurchF,
+                 insertAndGetKey, pattern AbortAny, pattern AbortRecursion,
+                 pattern AbortUser, rootFrag, s2g, unFragExprUR)
 import Telomare.Optimizer (optimize)
-import Telomare.Parser (UnprocessedParsedTerm (..), parsePrelude)
+import Telomare.Parser (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
 import Telomare.Possible (evalA)
 import Telomare.Resolver (parseMain)
 import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
@@ -111,30 +113,40 @@ partiallyEvaluate se@(SetEnvP _ True) = Defer <$> (fix fromFullEnv se >>= pureEv
 partiallyEvaluate x = fromFullEnv partiallyEvaluate x
 
 convertPT :: (UnsizedRecursionToken -> Int) -> Term3 -> Term4
-convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
-                                   startKey = succ . fst $ Map.findMax termMap
-                                   changeFrag = \case
-                                     AuxFrag (NestedSetEnvs n) -> innerChurchF $ ll n
-                                     AuxFrag (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
-                                     x -> pure x
-                                   insertChanged :: FragIndex -> FragExpr RecursionPieceFrag -> BreakState RecursionPieceFrag () ()
-                                   insertChanged nk nv = State.modify (\(_, k, m) -> ((), k, Map.insert nk nv m))
-                                   builder = sequence $ Map.mapWithKey (\k v -> transformM changeFrag v >>= insertChanged k) unURedMap
-                                   (_,_,newMap) = State.execState builder ((), startKey, unURedMap)
-                                   changeType :: FragExpr RecursionPieceFrag -> FragExpr Void
-                                   changeType = \case
-                                     ZeroFrag -> ZeroFrag
-                                     PairFrag a b -> PairFrag (changeType a) (changeType b)
-                                     EnvFrag -> EnvFrag
-                                     SetEnvFrag x -> SetEnvFrag (changeType x)
-                                     DeferFrag ind -> DeferFrag ind
-                                     AbortFrag -> AbortFrag
-                                     GateFrag l r -> GateFrag (changeType l) (changeType r)
-                                     LeftFrag x -> LeftFrag (changeType x)
-                                     RightFrag x -> RightFrag (changeType x)
-                                     TraceFrag -> TraceFrag
-                                     AuxFrag z -> error ("convertPT should be no AuxFrags here " <> show z)
-                               in Term4 $ fmap changeType newMap
+convertPT ll (Term3 termMap) =
+  let unURedMap = Map.map unFragExprUR termMap
+      startKey = succ . fst $ Map.findMax termMap
+      changeFrag :: Cofree (FragExprF RecursionPieceFrag) LocTag
+                 -> State.State
+                      ((), FragIndex,
+                       Map
+                         FragIndex
+                         (Cofree (FragExprF RecursionPieceFrag) LocTag))
+                      (Cofree (FragExprF RecursionPieceFrag) LocTag)
+      changeFrag = \case
+        anno :< AuxFragF (NestedSetEnvs n) -> innerChurchF anno $ ll n
+        _ :< AuxFragF (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
+        x -> pure x
+      insertChanged :: FragIndex
+                    -> Cofree (FragExprF RecursionPieceFrag) LocTag
+                    -> BreakState RecursionPieceFrag () ()
+      insertChanged nk nv = State.modify (\(_, k, m) -> ((), k, Map.insert nk nv m))
+      builder = sequence $ Map.mapWithKey (\k v -> transformM changeFrag v >>= insertChanged k) unURedMap
+      (_,_,newMap) = State.execState builder ((), startKey, unURedMap)
+      changeType :: FragExprF a x -> FragExprF b x
+      changeType = \case
+        ZeroFragF      -> ZeroFragF
+        PairFragF a b  -> PairFragF a b
+        EnvFragF       -> EnvFragF
+        SetEnvFragF x  -> SetEnvFragF x
+        DeferFragF ind -> DeferFragF ind
+        AbortFragF     -> AbortFragF
+        GateFragF l r  -> GateFragF l r
+        LeftFragF x    -> LeftFragF x
+        RightFragF x   -> RightFragF x
+        TraceFragF     -> TraceFragF
+        AuxFragF z     -> error "convertPT should be no AuxFrags here TODO"
+  in Term4 $ fmap (hoistCofree changeType) newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
 findChurchSize = pure . convertPT (const 255)
@@ -144,12 +156,12 @@ findChurchSize = pure . convertPT (const 255)
 removeChecks :: Term4 -> Term4
 removeChecks (Term4 m) =
   let f = \case
-        AbortFrag -> DeferFrag ind
-        x         -> x
+        anno :< AbortFragF -> anno :< DeferFragF ind
+        x                  -> x
       (ind, newM) = State.runState builder m
       builder = do
-        envDefer <- insertAndGetKey EnvFrag
-        insertAndGetKey $ DeferFrag envDefer
+        envDefer <- insertAndGetKey $ DummyLoc :< EnvFragF
+        insertAndGetKey $ DummyLoc :< DeferFragF envDefer
   in Term4 $ Map.map (transform f) newM
 
 convertAbortMessage :: IExpr -> String
@@ -189,7 +201,7 @@ compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>=
 
 runMain :: String -> String -> IO ()
 runMain preludeString s =
-  let prelude :: [(String, UnprocessedParsedTerm)]
+  let prelude :: [(String, AnnotatedUPT)]
       prelude =
         case parsePrelude preludeString of
           Right p -> p

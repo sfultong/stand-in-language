@@ -55,7 +55,7 @@ zipWith = \f a b -> let fixed = { \ab -> and (left ab) (right ab)
                                 }
                     in fixed (a,b)
 
-filter = \f -> foldr (\a b -> if f a then (a, b) else b) 0 
+filter = \f -> foldr (\a b -> if f a then (a, b) else b) 0
 
 dEqual = \a b -> let equalsOne = \x -> if x then (not (left x)) else 0
                  in if a then equalsOne (d2c (left a) (\x -> left x) b)
