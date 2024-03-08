@@ -22,18 +22,35 @@ import Debug.Trace
 import System.IO
 import System.Process
 
-import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
-                 FragIndex (FragIndex), IExpr (..), PartialType (..),
-                 RecursionPieceFrag, RecursionSimulationPieces (..),
-                 RunTimeError (..), TelomareLike (..), Term3 (Term3),
-                 Term4 (Term4), UnsizedRecursionToken (..), app, g2s,
-                 innerChurchF, insertAndGetKey, pattern AbortAny,
-                 pattern AbortRecursion, pattern AbortUser, rootFrag, s2g,
-                 unFragExprUR)
-import Telomare.Optimizer (optimize)
-import Telomare.Possible (evalA)
-import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
-import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
+import           PrettyPrint
+import           Telomare                  (BreakState, BreakState', ExprA (..),
+                                            FragExpr (..),
+                                            FragIndex (FragIndex), IExpr (..),
+                                            PartialType (..),
+                                            RecursionPieceFrag,
+                                            RecursionSimulationPieces (..),
+                                            RunTimeError (..),
+                                            TelomareLike (..), Term3 (Term3),
+                                            Term4 (Term4),
+                                            UnsizedRecursionToken (..), app,
+                                            g2s, innerChurchF, insertAndGetKey,
+                                            pattern AbortAny,
+                                            pattern AbortRecursion,
+                                            pattern AbortUser, rootFrag, s2g,
+                                            unFragExprUR)
+import           Telomare.Optimizer        (optimize)
+import           Telomare.Possible         (AbortExpr, VoidF,
+                                            abortExprToTerm4, evalA, sizeTerm,
+                                            term3ToUnsizedExpr)
+import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
+                                            simpleEval)
+import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
+
+debug :: Bool
+debug = False
+
+debugTrace :: String -> a -> a
+debugTrace s x = if debug then trace s x else x
 
 data ExpP = ZeroP
     | PairP ExpP ExpP
@@ -115,7 +132,7 @@ convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
                                    startKey = succ . fst $ Map.findMax termMap
                                    changeFrag = \case
                                      AuxFrag (NestedSetEnvs n) -> innerChurchF $ ll n
-                                     AuxFrag (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
+                                     AuxFrag (SizingWrapper _ x) -> transformM changeFrag $ unFragExprUR x
                                      x -> pure x
                                    insertChanged :: FragIndex -> FragExpr RecursionPieceFrag -> BreakState RecursionPieceFrag () ()
                                    insertChanged nk nv = State.modify (\(_, k, m) -> ((), k, Map.insert nk nv m))
@@ -138,7 +155,7 @@ convertPT ll (Term3 termMap) = let unURedMap = Map.map unFragExprUR termMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
 findChurchSize = pure . convertPT (const 255)
---findChurchSize = calculateRecursionLimits
+-- findChurchSize = calculateRecursionLimits
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -179,10 +196,11 @@ compileUnitTest :: Term3 -> Either EvalError IExpr
 compileUnitTest = compile runStaticChecks
 
 compile :: (Term4 -> Either EvalError Term4) -> Term3 -> Either EvalError IExpr
-compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
-  Right (Just i) -> pure i
-  Right Nothing  -> Left CompileConversionError
-  Left e         -> Left e
+compile staticCheck t = debugTrace ("compiling term3:\n" <> prettyPrint t)
+  $ case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
+      Right (Just i) -> pure i
+      Right Nothing  -> Left CompileConversionError
+      Left e         -> Left e
 
 eval' :: IExpr -> Either String IExpr
 eval' = pure
@@ -240,13 +258,11 @@ evalLoop_ iexpr = case eval' iexpr of
     in mainLoop "" Zero
 
 calculateRecursionLimits :: Term3 -> Either EvalError Term4
-calculateRecursionLimits t3@(Term3 termMap) =
-  let abortsAt n = not . null . evalA combine Nothing $ convertPT (const n) t3
-      combine a b = case (a,b) of
-        (Just AbortRecursion, _) -> Just AbortRecursion
-        (_, Just AbortRecursion) -> Just AbortRecursion
-        _                        -> Nothing
-      iterations = take 10 $ iterate (\(_,n) -> (abortsAt (n * 2), n * 2)) (True, 1)
-  in case lookup False iterations of
-    Just n -> trace ("crl found limit at " <> show n) pure $ convertPT (const n) t3
-    _ -> Left . RecursionLimitError $ toEnum 0
+calculateRecursionLimits t3 =
+  let abortExprToTerm4' :: AbortExpr -> Either IExpr Term4
+      abortExprToTerm4' = abortExprToTerm4
+  in case fmap abortExprToTerm4' . sizeTerm 256 $ term3ToUnsizedExpr 256 t3 of
+    Left urt -> Left $ RecursionLimitError urt
+    Right t  -> case t of
+      Left a -> Left . StaticCheckError . convertAbortMessage $ a
+      Right t -> pure t

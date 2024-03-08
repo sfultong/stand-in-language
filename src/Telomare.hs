@@ -183,6 +183,29 @@ indentWithOneChild str sx = do
   x <- sx
   pure $ indent i (str <> "\n") <> x
 
+indentWithOneChild' :: String -> State Int String -> State Int String
+indentWithOneChild' str sx = do
+  i <- State.get
+  State.put $ i + 2
+  x <- sx
+  pure $ str <> " " <> x
+
+indentWithTwoChildren' :: String -> State Int String -> State Int String -> State Int String
+indentWithTwoChildren' str sl sr = do
+  i <- State.get
+  State.put $ i + 2
+  l <- sl
+  State.put $ i + 2
+  r <- sr
+  -- pure $ indent i (str <> "\n") <> l <> "\n" <> r
+  pure $ str <> " " <> l <> "\n" <> indent (i + 2) r
+
+indentWithChildren' :: String -> [State Int String] -> State Int String
+indentWithChildren' str l = do
+  i <- State.get
+  let doLine = (liftA (<> "\n" <> indent (i + 2) "")) . (State.put (i + 2) >>)
+  foldl (\s c -> (<>) <$> s <*> c) (pure $ str <> " ") $ map doLine l
+
 -- |Two children indentation.
 indentWithTwoChildren :: String -> State Int String -> State Int String -> State Int String
 indentWithTwoChildren str sl sr = do
@@ -224,7 +247,7 @@ data FragExpr a
   | RightFrag (FragExpr a)
   | TraceFrag
   | AuxFrag a
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Generic, NFData)
 makeBaseFunctor ''FragExpr -- Functorial version FragExprF.
 
 instance Plated (FragExpr a) where
@@ -255,15 +278,15 @@ instance Show a => Show (FragExpr a) where
 
 newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
-newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken :: Int } deriving (Eq, Ord, Show, Enum)
+newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken :: Int } deriving (Eq, Ord, Show, Enum, NFData, Generic)
 
 data RecursionSimulationPieces a
   = NestedSetEnvs UnsizedRecursionToken
-  | RecursionTest a
-  deriving (Eq, Ord, Show)
+  | SizingWrapper UnsizedRecursionToken a
+  deriving (Eq, Ord, Show, NFData, Generic)
 
 newtype FragExprUR = FragExprUR { unFragExprUR :: FragExpr (RecursionSimulationPieces FragExprUR) }
-  deriving (Eq, Show)
+  deriving (Eq, Show, NFData, Generic)
 
 type RecursionPieceFrag = RecursionSimulationPieces FragExprUR
 
@@ -271,7 +294,7 @@ type Term1 = ParserTerm String String
 type Term2 = ParserTerm () Int
 
 -- |Term3 :: Map FragIndex (FragExpr BreakExtras) -> Term3
-newtype Term3 = Term3 (Map FragIndex FragExprUR) deriving (Eq, Show)
+newtype Term3 = Term3 (Map FragIndex FragExprUR) deriving (Eq, Show, Generic, NFData)
 newtype Term4 = Term4 (Map FragIndex (FragExpr Void)) deriving (Eq, Show)
 
 type BreakState a b = State (b, FragIndex, Map FragIndex (FragExpr a))
@@ -472,27 +495,29 @@ unsizedRecursionWrapper urToken t r b =
       fourthArgF = pure . LeftFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
       fifthArgF = pure . LeftFrag . RightFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
       abortToken = PairFrag ZeroFrag ZeroFrag
+      -- b is on the stack when this is called, so args are (i, (b, 0))
       abrt = lamF (SetEnvFrag <$> (PairFrag (SetEnvFrag (PairFrag AbortFrag abortToken)) <$> appF secondArgF firstArgF))
       applyF = SetEnvFrag $ RightFrag EnvFrag
       env' = RightFrag (RightFrag (RightFrag EnvFrag))
+      -- takes (rf, (f', (x, env'))), executes f' with (x, env') and creates a new frame
       rf = deferF . pure $ PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag EnvFrag) (PairFrag (LeftFrag (RightFrag EnvFrag))
                                                                                                 (PairFrag applyF env')))
-      -- construct the initial frame from f and x
+      -- construct the initial frame from f and x ((b, (rWrap, 0)) -> (rf, (rf, (f', (x, env')))))
       frameSetup = (\ff a -> PairFrag ff (PairFrag ff (PairFrag (LeftFrag (LeftFrag (RightFrag EnvFrag)))
                                                      (PairFrag a (RightFrag (LeftFrag (RightFrag EnvFrag)))))))
                    <$> rf <*> abrt
       -- run the iterations x' number of times, then unwrap the result from the final frame
       unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
-      wrapTest = \case
-        (PairFrag d@(DeferFrag _) e) -> PairFrag (AuxFrag . RecursionTest . FragExprUR $ d) e
-        _ -> error "unsizedRecursionWrapper unexpected recursion test section"
+      wrapU = fmap (AuxFrag . SizingWrapper urToken . FragExprUR)
       -- \t r b r' i -> if t i then r r' i else b i -- t r b are already on the stack when this is evaluated
       rWrap = lamF . lamF $ iteF (appF fifthArgF firstArgF)
                                  (appF (appF fourthArgF secondArgF) firstArgF)
                                  (appF thirdArgF firstArgF)
       churchNum = clamF (lamF (SetEnvFrag <$> (PairFrag <$> deferF (pure unwrapFrame) <*> frameSetup)))
-      trb = pairF b (pairF r (pairF (wrapTest <$> t) (pure ZeroFrag)))
-  in SetEnvFrag <$> pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb
+      -- hack to make sure recursion test wrapper can be put in a definite place when sizing
+      tWrap = pairF (deferF $ appF secondArgF firstArgF) (pairF t $ pure ZeroFrag)
+      trb = pairF b (pairF r (pairF tWrap (pure ZeroFrag)))
+  in SetEnvFrag <$> wrapU (pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb)
 
 nextBreakToken :: Enum b => BreakState a b b
 nextBreakToken = do
@@ -599,6 +624,18 @@ mergePairTypeP :: PartialType -> PartialType
 mergePairTypeP = transform f where
   f (PairTypeP ZeroTypeP ZeroTypeP) = ZeroTypeP
   f x                               = x
+
+containsFunction :: PartialType -> Bool
+containsFunction = \case
+  ArrTypeP _ _ -> True
+  PairTypeP a b -> containsFunction a || containsFunction b
+  _ -> False
+
+cleanType :: PartialType -> Bool
+cleanType = \case
+  ZeroTypeP -> True
+  PairTypeP a b -> cleanType a && cleanType b
+  _ -> False
 
 newtype PrettyIExpr = PrettyIExpr IExpr
 
@@ -749,9 +786,23 @@ insertAndGetKey v = do
   pure nextKey
 
 -- abort codes
+-- t x = if x <= 1
+-- fact1 r x = if x <= 1
+--    then 1
+--    else x * (r (x - 1))
+-- fix fact1
+-- (\f x -> f x) fact1 (\_ -> error!) 3 -- error!
+-- (\f x -> f (f x)) fact1 (\_ -> error!) 3 -- error!
+-- (\f x -> f (f (f x))) fact1 (\_ -> error!) 3 -- 3, happy!
+-- setenv env -- church numeral 1
+-- setenv (setenv env) -- church numeral 2
+
+
 pattern AbortRecursion :: IExpr
 pattern AbortRecursion = Pair Zero Zero
 pattern AbortUser :: IExpr -> IExpr
 pattern AbortUser m = Pair (Pair Zero Zero) m
 pattern AbortAny :: IExpr
 pattern AbortAny = Pair (Pair (Pair Zero Zero) Zero) Zero
+pattern AbortUnsizeable :: IExpr -> IExpr
+pattern AbortUnsizeable t = Pair (Pair (Pair (Pair Zero Zero) Zero) Zero) t

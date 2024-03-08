@@ -22,15 +22,20 @@ import qualified System.IO.Strict as Strict
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
-import Telomare (IExpr (..), PrettyIExpr (PrettyIExpr),
-                 PrettyPartialType (PrettyPartialType),
-                 TelomareLike (fromTelomare, toTelomare), Term3)
-import Telomare.Eval (EvalError (..), compileUnitTest)
-import Telomare.Parser (TelomareParser, UnprocessedParsedTerm (..),
-                        parseAssignment, parseLongExpr, parsePrelude, process,
-                        runTelomareParser)
-import Telomare.RunTime (fastInterpretEval, simpleEval)
-import Telomare.TypeChecker (inferType)
+import           Telomare                 (IExpr (..),
+                                           PrettyIExpr (PrettyIExpr),
+                                           PrettyPartialType (PrettyPartialType),
+                                           TelomareLike (fromTelomare, toTelomare),
+                                           Term3)
+import           Telomare.Eval            (EvalError (..), compileUnitTest)
+import           Telomare.Parser          (TelomareParser,
+                                           UnprocessedParsedTerm (..),
+                                           parseAssignment, parseLongExpr,
+                                           parsePrelude, process,
+                                           runTelomareParser)
+import           Telomare.Possible        (UnsizedExpr, VoidF)
+import           Telomare.RunTime         (fastInterpretEval, simpleEval)
+import           Telomare.TypeChecker     (inferType)
 
 -- Parsers for assignments/expressions within REPL
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -169,6 +174,16 @@ replLoop (ReplState bs eval) = do
                        Just iexpr -> do
                          putStrLn . showNExprs $ fromTelomare iexpr
                          putStrLn . showNIE $ fromTelomare iexpr
+                       _ -> putStrLn "some sort of error?"
+                     _ -> putStrLn "parse error"
+                   replLoop $ ReplState bs eval
+        Just s | ":ds" `isPrefixOf` s -> do
+                   liftIO $ case (runReplParser bs . dropWhile (== ' ')) <$> stripPrefix ":ds" s of
+                     Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
+                       Just iexpr -> do
+                         let showExpr :: UnsizedExpr
+                             showExpr = fromTelomare iexpr
+                         putStrLn $ prettyPrint showExpr
                        _ -> putStrLn "some sort of error?"
                      _ -> putStrLn "parse error"
                    replLoop $ ReplState bs eval

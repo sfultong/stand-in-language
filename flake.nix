@@ -14,7 +14,7 @@
       let pkgs = import nixpkgs { inherit system; };
           t = pkgs.lib.trivial;
           hl = pkgs.haskell.lib;
-          compiler = pkgs.haskell.packages."ghc924";
+          compiler = pkgs.haskell.packages."ghc92";
           project = executable-name: devTools: # [1]
             let addBuildTools = (t.flip hl.addBuildTools) devTools;
                 addBuildDepends = (t.flip hl.addBuildDepends)
@@ -35,6 +35,13 @@
                 addBuildTools
                 # hl.dontHaddock
               ];
+
+              overrides = self: super: {
+                  sbv = pkgs.haskell.lib.compose.markUnbroken (pkgs.haskell.lib.dontCheck super.sbv);
+              };
+
+              # uncomment for profiling:
+              # cabal2nixOptions = "--enable-profiling --benchmark";
             };
 
       in {
@@ -51,7 +58,7 @@
           stylish-haskell
           hvm.defaultPackage.${system}
         ]);
-	
+
         checks = {
           build = self.packages.${system}.default;
           test-suit = project "telomare-test" [ ];

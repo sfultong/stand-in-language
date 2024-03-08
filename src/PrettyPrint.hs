@@ -1,14 +1,31 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module PrettyPrint where
 
-import Data.Map (Map)
-import Naturals (NExpr (..), NExprs (..), NResult)
-import Telomare (FragExpr (..), FragExprUR (..), FragIndex (..), IExpr (..),
-                 PartialType (..), PrettyPartialType (..),
-                 RecursionSimulationPieces (..), Term3 (..), rootFrag)
+import           Control.Monad.State (State)
+import           Data.Map (Map)
+import           Naturals (NExpr (..), NExprs (..), NResult)
+import           Telomare (FragExpr (..), FragExprUR (..), FragIndex (..),
+                           IExpr (..), PartialType (..), PrettyPartialType (..),
+                           RecursionSimulationPieces (..), Term3 (..), rootFrag, indentWithTwoChildren', indentWithOneChild')
 
+import qualified Control.Monad.State as State
 import qualified Data.Map as Map
+
+class PrettyPrintable p where
+  showP :: p -> State Int String
+
+class PrettyPrintable1 p where
+  showP1 :: PrettyPrintable a => p a -> State Int String
+
+instance (PrettyPrintable1 f, PrettyPrintable x) => PrettyPrintable (f x) where
+  showP = showP1
+
+-- instance (Base r ~ PrettyPrintable1 f, Recursive r) => PrettyPrintable r where
+
+prettyPrint :: PrettyPrintable p => p -> String
+prettyPrint x = State.evalState (showP x) 0
 
 indent :: Int -> String
 indent 0 = []
@@ -105,6 +122,25 @@ showNExprs (NExprs m) = concatMap
 -- termMap, function->type lookup, root frag type
 data TypeDebugInfo = TypeDebugInfo Term3 (FragIndex -> PartialType) PartialType
 
+instance PrettyPrintable Term3 where
+  showP (Term3 termMap) = showFrag (unFragExprUR $ rootFrag termMap) where
+    showFrag = \case
+      ZeroFrag -> pure "Z"
+      PairFrag a b -> indentWithTwoChildren' "P" (showFrag a) (showFrag b)
+      EnvFrag -> pure "E"
+      SetEnvFrag x -> indentWithOneChild' "S" $ showFrag x
+      DeferFrag fi -> case Map.lookup fi termMap of
+        Just frag -> indentWithOneChild' "D" . showFrag $ unFragExprUR frag
+        z -> error $ "PrettyPrint Term3 bad index found: " <> show z
+      AbortFrag -> pure "A"
+      GateFrag l r -> indentWithTwoChildren' "G" (showFrag l) (showFrag r)
+      LeftFrag x -> indentWithOneChild' "L" $ showFrag x
+      RightFrag x -> indentWithOneChild' "R" $ showFrag x
+      TraceFrag -> pure "T"
+      AuxFrag x -> case x of
+        SizingWrapper _ x' -> indentWithOneChild' "?" . showFrag $ unFragExprUR x'
+        NestedSetEnvs _ -> pure "%"
+
 showTypeDebugInfo :: TypeDebugInfo -> String
 showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
   let showFrag (FragIndex i) ty frag = show i <> ": " <> show (PrettyPartialType ty) <> "\n" <> showExpr 80 2 frag
@@ -125,7 +161,7 @@ showTypeDebugInfo (TypeDebugInfo (Term3 termMap) lookup rootType) =
           LeftFrag x                             -> "L " <> recur x
           RightFrag x                            -> "R " <> recur x
           TraceFrag                              -> "T"
-          AuxFrag (RecursionTest (FragExprUR x)) -> "?" <> recur x
+          AuxFrag (SizingWrapper _ (FragExprUR x)) -> "?" <> recur x
           AuxFrag (NestedSetEnvs _)              -> "%"
   in showFrag (FragIndex 0) rootType (unFragExprUR $ rootFrag termMap) <> "\n"
      <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n") (tail . Map.toAscList . Map.map unFragExprUR $ termMap)
