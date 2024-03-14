@@ -298,6 +298,9 @@ superStep mergeSuper step handleOther = \case
     BasicFW (RightSF (SuperEE (EitherPF a b))) -> mergeSuper (step . embedB . RightSF $ a) (step . embedB . RightSF $ b)
     BasicFW (SetEnvSF (SuperEE (EitherPF a b))) -> mergeSuper (step . embedB . SetEnvSF $ a) (step . embedB . SetEnvSF $ b)
     (GateSwitch l r (SuperEE AnyPF)) -> mergeSuper l r
+    (GateSwitch l r (SuperEE (EitherPF (BasicEE ZeroSF) _))) -> mergeSuper l r
+    (GateSwitch l r (SuperEE (EitherPF _ (BasicEE ZeroSF)))) -> mergeSuper l r
+    (GateSwitch l r (SuperEE (EitherPF a b))) -> superEE (EitherPF l r)
     (FillFunction (SuperEE (EitherPF sca scb)) e) -> mergeSuper
       (step . embedB . SetEnvSF . basicEE $ PairSF sca e)
       (step . embedB . SetEnvSF . basicEE $ PairSF scb e)
