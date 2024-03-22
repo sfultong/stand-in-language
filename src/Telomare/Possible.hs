@@ -36,6 +36,7 @@ import           Data.List                 (sortBy, partition)
 import           Data.Map                  (Map)
 import qualified Data.Map                  as Map
 import           Data.Monoid
+import           Data.Semigroup (Max(..))
 import           Data.SBV ((.<), (.>))
 import qualified Data.SBV as SBV
 import qualified Data.SBV.Control as SBVC
@@ -285,9 +286,6 @@ stuckStepM handleOther x = sequence x >>= f where
     -- stuck value
     x@(StuckFW _) -> pure $ embed x
     _ -> handleOther x
-
-evalBottomUp :: (Base t ~ f, BasicBase f, StuckBase f, Corecursive t, Recursive t, Recursive t) => (Base t t -> t) -> t -> t
-evalBottomUp handleOther = transformNoDefer (basicStep handleOther)
 
 superStep :: (Base a ~ f, BasicBase f, SuperBase f, Recursive a, Corecursive a, PrettyPrintable a)
   => (a -> a -> a) -> (f a -> a) -> (f a -> a) -> f a -> a
@@ -908,11 +906,15 @@ instance TelomareLike UnsizedExpr where
   fromTelomare = convertToF
   toTelomare = convertFromF
 
+instance TelomareLike AbortExpr where
+  fromTelomare = convertToF
+  toTelomare = convertFromF
+
 evalBU :: IExpr -> Maybe IExpr
 evalBU = toIExpr . ebu . fromTelomare where
   toIExpr = toTelomare
   ebu :: StuckExpr -> StuckExpr
-  ebu = evalBottomUp (stuckStep undefined) . (\x -> debugTrace ("evalBU starting expr:\n" <> prettyPrint x) x)
+  ebu = transformNoDefer (basicStep (stuckStep undefined) . (\x -> debugTrace ("evalBU starting expr:\n" <> prettyPrint x) x))
 
 evalBU' :: IExpr -> IO IExpr
 evalBU' = f . evalBU where
@@ -962,13 +964,252 @@ evalA :: (Maybe IExpr -> Maybe IExpr -> Maybe IExpr) -> Maybe IExpr -> Term4 -> 
 evalA combine base t =
   let unhandledError x = error ("evalA unhandled case " <> prettyPrint x)
       runResult = let aStep :: SuperExprF SuperExpr -> SuperExpr
-                      aStep = stuckStep (superStep aMerge aStep (abortStep unhandledError))
-                      aMerge = mergeSuper aMerge (mergeAbort mergeUnknown)
+                      aStep = basicStep (stuckStep (superStep aMerge aStep (abortStep unhandledError)))
+                      aMerge = mergeBasic (mergeStuck (mergeSuper aMerge (mergeAbort mergeUnknown)))
                       eval' :: SuperExpr -> SuperExpr
-                      eval' = evalBottomUp aStep
+                      eval' = transformNoDefer aStep
                   in eval' . capMain $ term4toAbortExpr t
       getAborted = \case
         AbortFW (AbortedF e) -> Just e
         SuperFW (EitherPF a b) -> combine a b
         x                    -> foldr (<|>) Nothing x
   in flip combine base . cata getAborted $ runResult
+
+newtype VarIndex = VarIndex { unVarIndex :: Int } deriving (Eq, Ord, Enum, Show)
+
+data BitsExprF f
+  = ZeroB
+  | PairB f f
+  | FunctionB VarIndex f
+  | SetEnvB f
+  | GateB f f
+  | VarB VarIndex
+  | AbortB
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+type BitsExpr = Fix BitsExprF
+
+data BitsExprWMap = BitsExprWMap BitsExpr (Map VarIndex BitsExpr)
+
+data EnvAnnotation a f
+  = EnvAnnotation a f
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+data NumberedEnvsF f
+  = NDeferF VarIndex f
+  | NEnv VarIndex
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+
+data NumberedEnvsBase f
+  = NumberedEnvsB (PartExprF f)
+  | NumberedEnvsS (StuckF f)
+  | NumberedEnvsA (AbortableF f)
+  | NumberedEnvsN (NumberedEnvsF f)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+instance BasicBase NumberedEnvsBase where
+  embedB = NumberedEnvsB
+  extractB = \case
+    NumberedEnvsB x -> Just x
+    _ -> Nothing
+instance StuckBase NumberedEnvsBase where
+  embedS = NumberedEnvsS
+  extractS = \case
+    NumberedEnvsS x -> Just x
+    _ -> Nothing
+instance AbortBase NumberedEnvsBase where
+  embedA = NumberedEnvsA
+  extractA = \case
+    NumberedEnvsA x -> Just x
+    _ -> Nothing
+
+type NumberedEnvsExpr = Fix NumberedEnvsBase
+
+-- | takes abortexpr and converts it to an expression where defer indexes are converted to variable indexes, and all envs underneath are given the same ids
+convertEnvs :: AbortExpr -> NumberedEnvsExpr
+convertEnvs = ($ toEnum 0) . cata f where
+  f :: AbortExprF (VarIndex -> NumberedEnvsExpr) -> VarIndex -> NumberedEnvsExpr
+  f x n = case x of
+    StuckFW (DeferSF ni dx) -> let nen = toEnum $ fromEnum ni in embed . NumberedEnvsN . NDeferF nen $ dx nen
+    BasicFW EnvSF -> embed . NumberedEnvsN $ NEnv n
+    BasicFW x -> basicEE . ($ n) $ sequence x
+    StuckFW x -> stuckEE . ($ n) $ sequence x
+    AbortFW x -> abortEE . ($ n) $ sequence x
+
+convertToBits :: VarIndex -> NumberedEnvsExpr -> (BitsExpr, (VarIndex, Map VarIndex BitsExpr))
+convertToBits startVar = flip State.runState (startVar, Map.empty) . cata f where
+  f = fmap embed . g
+  g = \case
+    BasicFW x -> case x of
+      ZeroSF -> pure ZeroB
+      PairSF a b -> PairB <$> a <*> b
+      SetEnvSF x -> SetEnvB <$> x
+      GateSF l r -> GateB <$> l <*> r
+      LeftSF x' -> fmap project x' >>= \case
+        VarB i -> do
+          eVar <- lookupM i
+          case eVar of
+            Nothing -> do
+              ln <- nextVar
+              rn <- nextVar
+              addKey i . embed $ PairB (embed $ VarB ln) (embed $ VarB rn)
+              pure $ VarB ln
+            Just (Fix (PairB l r)) -> case project l of
+              el -> pure el
+        s@(SetEnvB _) -> do
+          ln <- nextVar
+          rn <- nextVar
+          fin <- nextVar
+          addKey fin . embed $ PairB (embed $ VarB ln) (embed $ VarB rn)
+          pure . SetEnvB . embed $ PairB (embed . FunctionB fin . embed $ VarB ln) (embed s)
+      RightSF x' -> fmap project x' >>= \case
+        VarB i -> do
+          eVar <- lookupM i
+          case eVar of
+            Nothing -> do
+              ln <- nextVar
+              rn <- nextVar
+              addKey i . embed $ PairB (embed $ VarB ln) (embed $ VarB rn)
+              pure $ VarB rn
+            Just (Fix (PairB l r)) -> case project r of
+              er -> pure er
+        s@(SetEnvB _) -> do
+          ln <- nextVar
+          rn <- nextVar
+          fin <- nextVar
+          addKey fin . embed $ PairB (embed $ VarB ln) (embed $ VarB rn)
+          pure . SetEnvB . embed $ PairB (embed . FunctionB fin . embed $ VarB rn) (embed s)
+    NumberedEnvsN x -> case x of
+      NDeferF ni x' -> FunctionB ni <$> x'
+      NEnv vi -> pure $ VarB vi
+    AbortFW AbortF -> trace "convertToBits doing abort now" pure AbortB
+  nextVar = do
+    (i, m) <- State.get
+    State.put (succ i, m)
+    pure i
+  lookupM :: VarIndex -> State (VarIndex, Map VarIndex BitsExpr) (Maybe BitsExpr)
+  lookupM k = do
+    (_, m) <- State.get
+    pure $ Map.lookup k m
+  addKey k v = State.modify (second (Map.insert k v))
+
+-- selective transform, stops at function boundaries
+transformS :: (BitsExprF BitsExpr -> BitsExpr) -> BitsExpr -> BitsExpr
+transformS f =
+  let s = \case
+        fu@(FunctionB _ _) -> fu
+        x -> fmap c x
+      c = f . s . project
+  in c
+
+evalB :: BitsExprWMap -> BitsExprWMap
+evalB (BitsExprWMap x varMap) = showExpr BitsExprWMap (transformS (f varMap) x) varMap where
+  showExpr = debugTrace ("evalB BitsExprWMap\n" <> prettyPrint (BitsExprWMap x varMap))
+  f vm = \case
+    SetEnvB (Fix (PairB df e)) -> case project df of
+      GateB l r -> case project e of
+        ZeroB -> l
+        PairB _ _ -> r
+      AbortB -> trace "doing abort here" $ case project e of
+        ZeroB -> embed . FunctionB tempIndex . embed $ VarB tempIndex
+        _ -> embed AbortB
+      FunctionB vi dx -> showAssign $ transformS (f boundMap) dx where
+        boundMap = assignInputVars vi e varMap
+        showAssign x = if vi == toEnum 8
+          then debugTrace ("assigning inputs for 8:\n" <> prettyPrint e) x
+          else x
+      z -> error ("evalB setenv pair f _, found unexpected f of " <> show z <> "\nalso, e is " <> prettyPrint e)
+    VarB v -> deepLookup vm v
+    x -> embed x
+  assignInputVars :: VarIndex -> BitsExpr -> Map VarIndex BitsExpr -> Map VarIndex BitsExpr
+  assignInputVars vin vars = case (vin, Map.lookup vin varMap, project vars) of
+    (_, Just (Fix (PairB (Fix (VarB a)) (Fix (VarB b)))), PairB c d) -> assignInputVars a c . assignInputVars b d
+    (k, _, v) -> Map.insert k $ embed v
+    (_, Just za, zb) -> error $ "evalB assignInputVars got " <> prettyPrint za <> "\nand:\n" <> prettyPrint zb
+  tempIndex = toEnum (-1)
+  deepLookup vm vi = case Map.lookup vi vm of
+    Nothing -> embed $ VarB vi
+    (Just (Fix p@(PairB _ _))) -> embed $ fmap lookupIV p where
+      lookupIV = \case
+        Fix (VarB vi') -> deepLookup vm vi'
+        x -> x
+    Just x -> x
+
+instance PrettyPrintable1 BitsExprF where
+  showP1 = \case
+    ZeroB -> pure "Z"
+    PairB a b -> indentWithTwoChildren' "P" (showP a) (showP b)
+    FunctionB vi x -> indentWithOneChild' ("F" <> show (fromEnum vi)) (showP x)
+    SetEnvB x -> indentWithOneChild' "S" $ showP x
+    GateB l r -> indentWithTwoChildren' "G" (showP l) (showP r)
+    VarB vi -> pure $ "V" <> (show $ fromEnum vi)
+    AbortB -> pure "A"
+
+instance PrettyPrintable BitsExpr where
+  showP = showP . project
+
+instance PrettyPrintable BitsExprWMap where
+  showP (BitsExprWMap expr m) = pure x where
+    x = prettyPrint expr <> vs
+    showV = show . fromEnum
+    vs = cata getF expr where
+      getF = \case
+        FunctionB v ix -> (("\n" <>) . flip State.evalState 0 . indentWithOneChild' (showV v <> " -") $ lf (embed $ VarB v)) <> ix where
+          lf x = case project x of
+            VarB vi -> case Map.lookup vi m of
+              Nothing -> pure $ "V" <> showV vi
+              Just (Fix (PairB a b)) -> indentWithTwoChildren' "P" (lf a) (lf b)
+            x' -> showP x'
+        x -> Data.Foldable.fold x
+
+instance Show1 BitsExprF where
+  liftShowsPrec showsPrec showList prec = \case
+    ZeroB -> shows "ZeroB"
+    PairB a b -> shows "PairB (" . showsPrec 0 a . shows ", " . showsPrec 0 b . shows ")"
+    FunctionB vi x -> shows "FunctionB " . shows vi . shows " (" . showsPrec 0 x  . shows ")"
+    SetEnvB x -> shows "SetEnvB (" . showsPrec 0 x . shows ")"
+    GateB l r -> shows "GateB (" . showsPrec 0 l . shows ", " . showsPrec 0 r . shows ")"
+    VarB vi -> shows "VarB " . shows vi
+    AbortB -> shows "AbortB"
+
+instance TelomareLike BitsExprWMap where
+  fromTelomare = wrapUp . convertToBits' . convertEnvs . fromTelomare where
+    convertToBits' nee = let vi = toEnum . getMax $ cata f nee
+                             f = \case
+                               NumberedEnvsN (NEnv n) -> Max $ fromEnum n
+                               x -> Data.Foldable.fold x
+                         in convertToBits vi nee
+    wrapUp (expr, (_, m)) = BitsExprWMap expr m
+  toTelomare (BitsExprWMap x varMap) = cata (f iVarMap) x where
+    iVarMap = cata doFuns x
+    doFuns :: BitsExprF (Map VarIndex IExpr) -> Map VarIndex IExpr
+    doFuns = \case
+      FunctionB vi m -> addPaths id (deepLookup . embed $ VarB vi) m where
+        deepLookup vin = case vin of
+          vo@(Fix (VarB v)) -> case Map.lookup v varMap of
+            Nothing -> vo
+            (Just (Fix p@(PairB _ _))) -> embed $ fmap deepLookup p
+        addPaths prefix = \case
+          Fix (PairB a b) -> addPaths (PLeft . prefix) a . addPaths (PRight . prefix) b
+          Fix (VarB v) -> Map.insert v (prefix Env)
+          _ -> id
+      x -> Data.Foldable.fold x
+    f iVarMap = \case
+      ZeroB -> pure Zero
+      PairB a b -> Pair <$> a <*> b
+      VarB v -> Map.lookup v iVarMap
+      SetEnvB x -> SetEnv <$> x
+      FunctionB _ x -> Defer <$> x
+      GateB l r -> Gate <$> l <*> r
+      -- _ -> Nothing
+      z -> trace ("bitsexprwmap totelomare found unexpected " <> show z) Nothing
+
+debugEvalB x@(BitsExprWMap _ m) = debugTrace ("evalB evaluated to " <> prettyPrint x <> "\nand map is " <> show m) x
+
+evalB' :: IExpr -> Maybe IExpr
+evalB' = toTelomare . debugEvalB . evalB . fromTelomare
+
+evalB'' :: IExpr -> IO IExpr
+evalB'' = f . evalB' where
+  f = \case
+    Nothing -> error "evalB' evaluated to Nothing"
+    Just x -> pure x
