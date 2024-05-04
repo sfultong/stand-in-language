@@ -23,31 +23,22 @@ import Debug.Trace
 import System.IO
 import System.Process
 
-import           PrettyPrint
-import           Telomare                  (BreakState, BreakState', ExprA (..),
-                                            FragExpr (..), FragExprF (..),
-                                            FragIndex (FragIndex), IExpr (..),
-                                            PartialType (..), LocTag (..),
-                                            RecursionPieceFrag,
-                                            RecursionSimulationPieces (..),
-                                            RunTimeError (..),
-                                            TelomareLike (..), Term3 (Term3),
-                                            Term4 (Term4), forget,
-                                            UnsizedRecursionToken (..), app,
-                                            g2s, innerChurchF, insertAndGetKey,
-                                            pattern AbortAny,
-                                            pattern AbortRecursion,
-                                            pattern AbortUser, rootFrag, s2g,
-                                            unFragExprUR)
-import           Telomare.Optimizer        (optimize)
-import           Telomare.Parser           (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
-import           Telomare.Possible         (AbortExpr, VoidF,
-                                            abortExprToTerm4, evalA, sizeTerm,
-                                            term3ToUnsizedExpr)
-import           Telomare.Resolver         (parseMain)
-import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
-                                            simpleEval)
-import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
+import PrettyPrint
+import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
+                 FragExprF (..), FragIndex (FragIndex), IExpr (..), LocTag (..),
+                 PartialType (..), RecursionPieceFrag,
+                 RecursionSimulationPieces (..), RunTimeError (..),
+                 TelomareLike (..), Term3 (Term3), Term4 (Term4),
+                 UnsizedRecursionToken (..), app, forget, g2s, innerChurchF,
+                 insertAndGetKey, pattern AbortAny, pattern AbortRecursion,
+                 pattern AbortUser, rootFrag, s2g, unFragExprUR)
+import Telomare.Optimizer (optimize)
+import Telomare.Parser (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
+import Telomare.Possible (AbortExpr, VoidF, abortExprToTerm4, evalA, sizeTerm,
+                          term3ToUnsizedExpr)
+import Telomare.Resolver (parseMain)
+import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
+import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
 
 debug :: Bool
 debug = False
@@ -280,5 +271,5 @@ calculateRecursionLimits t3 =
   in case fmap abortExprToTerm4' . sizeTerm limitSize $ term3ToUnsizedExpr limitSize t3 of
     Left urt -> Left $ RecursionLimitError urt
     Right t  -> case t of
-      Left a -> Left . StaticCheckError . convertAbortMessage $ a
+      Left a  -> Left . StaticCheckError . convertAbortMessage $ a
       Right t -> pure t

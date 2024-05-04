@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main where
@@ -20,9 +19,9 @@ import Telomare.Parser
 import Telomare.RunTime
 import Telomare.TypeChecker (TypeCheckError (..), inferType, typeCheck)
 
-import           MemoryBench.Cases
+import MemoryBench.Cases
 -- import           MemoryBench.LLVM
-import           Paths_telomare
+import Paths_telomare
 
 import Text.Parsec.Error (ParseError)
 import qualified Weigh
@@ -46,7 +45,7 @@ type Bindings = [(String, UnprocessedParsedTerm)]
 
 processCase :: Bindings -> Case -> Weigh ()
 processCase bindings (Case label code) = do
-    let e_parsed       = fmap toTelomare $ parseMain bindings code
+    let e_parsed = toTelomare <$> parseMain bindings code
         (Right (Just parsed)) = e_parsed --Taking advantage of lazy evalutation here
     let parsing = func "parsing" (parseMain bindings) code -- Parsing
         evals   = [ io "simpleEval" benchEvalSimple parsed

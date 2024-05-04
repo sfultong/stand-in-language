@@ -1,22 +1,21 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase        #-}
 
 module PrettyPrint where
 
-import           Control.Monad.State (State)
-import           Data.Map (Map)
-import           Naturals (NExpr (..), NExprs (..), NResult)
-import           Telomare (FragExpr (..), FragExprUR (..), FragIndex (..),
-                           FragExprURSansAnnotation (FragExprURSA, unFragExprURSA),
-                           IExpr (..), PartialType (..), PrettyPartialType (..),
-                           RecursionSimulationPieces (..), Term3 (..), rootFrag, forget,
-                           forgetAnnotationFragExprUR, indentWithTwoChildren', indentWithOneChild',
-                           FragExprF (..), LocTag,
-                          )
+import Control.Monad.State (State)
+import Data.Map (Map)
+import Naturals (NExpr (..), NExprs (..), NResult)
+import Telomare (FragExpr (..), FragExprF (..), FragExprUR (..),
+                 FragExprURSansAnnotation (FragExprURSA, unFragExprURSA),
+                 FragIndex (..), IExpr (..), LocTag, PartialType (..),
+                 PrettyPartialType (..), RecursionSimulationPieces (..),
+                 Term3 (..), forget, forgetAnnotationFragExprUR,
+                 indentWithOneChild', indentWithTwoChildren', rootFrag)
 
+import qualified Control.Comonad.Trans.Cofree as CofreeT (CofreeF (..))
 import qualified Control.Monad.State as State
 import qualified Data.Map as Map
-import qualified Control.Comonad.Trans.Cofree as CofreeT (CofreeF (..))
 
 import Control.Comonad.Cofree
 import Data.Functor.Foldable
@@ -166,18 +165,18 @@ showTypeDebugInfo (TypeDebugInfo (Term3 m) lookup rootType) =
             showThree x a b c =
               concat [x, "\n", indent i, showExpr l (i + 1) a, "\n", indent i, showExpr l (i + 1) b, "\n", indent i, showExpr l (i + 1) c]
         in \case
-          ZeroFrag                                 -> "Z"
-          PairFrag a b                             -> showTwo "P" a b
-          EnvFrag                                  -> "E"
-          SetEnvFrag x                             -> "S " <> recur x
-          DeferFrag (FragIndex ind)                -> "[" <> show ind <> "]"
-          AbortFrag                                -> "A"
-          GateFrag l r                             -> showTwo "G" l r
-          LeftFrag x                               -> "L " <> recur x
-          RightFrag x                              -> "R " <> recur x
-          TraceFrag                                -> "T"
+          ZeroFrag                                   -> "Z"
+          PairFrag a b                               -> showTwo "P" a b
+          EnvFrag                                    -> "E"
+          SetEnvFrag x                               -> "S " <> recur x
+          DeferFrag (FragIndex ind)                  -> "[" <> show ind <> "]"
+          AbortFrag                                  -> "A"
+          GateFrag l r                               -> showTwo "G" l r
+          LeftFrag x                                 -> "L " <> recur x
+          RightFrag x                                -> "R " <> recur x
+          TraceFrag                                  -> "T"
           AuxFrag (SizingWrapper _ (FragExprURSA x)) -> "?" <> recur x
-          AuxFrag (NestedSetEnvs _)                -> "%"
+          AuxFrag (NestedSetEnvs _)                  -> "%"
   in showFrag (FragIndex 0) rootType (unFragExprURSA $ rootFrag termMap) <> "\n"
      <> concatMap (\(k, v) -> showFrag k (lookup k) v <> "\n")
                   (tail . Map.toAscList . Map.map unFragExprURSA $ termMap)
