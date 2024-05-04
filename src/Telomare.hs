@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE DeriveAnyClass             #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveTraversable          #-}
@@ -14,7 +14,7 @@
 module Telomare where --(IExpr(..), ParserTerm(..), LamType(..), Term1(..), Term2(..), Term3(..), Term4(..)
                --, FragExpr(..), FragIndex, TelomareLike, fromTelomare, toTelomare, rootFrag) where
 
-import Control.Applicative (liftA, Applicative (liftA2), liftA3)
+import Control.Applicative (Applicative (liftA2), liftA, liftA3)
 import Control.Comonad.Cofree (Cofree ((:<)))
 import qualified Control.Comonad.Trans.Cofree as CofreeT (CofreeF (..))
 import Control.DeepSeq (NFData (..))
@@ -213,8 +213,8 @@ indentWithTwoChildren' str sl sr = do
 indentWithChildren' :: String -> [State Int String] -> State Int String
 indentWithChildren' str l = do
   i <- State.get
-  let doLine = (liftA (<> "\n" <> indent (i + 2) "")) . (State.put (i + 2) >>)
-  foldl (\s c -> (<>) <$> s <*> c) (pure $ str <> " ") $ map doLine l
+  let doLine = fmap (<> "\n" <> indent (i + 2) "") . (State.put (i + 2) >>)
+  foldl (\s c -> (<>) <$> s <*> c) (pure $ str <> " ") $ fmap doLine l
 
 -- |Two children indentation.
 indentWithTwoChildren :: String -> State Int String -> State Int String -> State Int String
@@ -682,15 +682,15 @@ mergePairTypeP = transform f where
 
 containsFunction :: PartialType -> Bool
 containsFunction = \case
-  ArrTypeP _ _ -> True
+  ArrTypeP _ _  -> True
   PairTypeP a b -> containsFunction a || containsFunction b
-  _ -> False
+  _             -> False
 
 cleanType :: PartialType -> Bool
 cleanType = \case
-  ZeroTypeP -> True
+  ZeroTypeP     -> True
   PairTypeP a b -> cleanType a && cleanType b
-  _ -> False
+  _             -> False
 
 newtype PrettyIExpr = PrettyIExpr IExpr
 

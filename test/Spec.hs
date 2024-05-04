@@ -427,6 +427,7 @@ qcTestBottomUp x =
 
 testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
+  , "\n"
   , "       in $3 layer (\\x -> x) 0"
   ]
 
