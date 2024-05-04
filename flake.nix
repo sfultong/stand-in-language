@@ -41,6 +41,13 @@
                 doRunTests
                 # hl.dontHaddock
               ];
+
+              overrides = self: super: {
+                  sbv = pkgs.haskell.lib.compose.markUnbroken (pkgs.haskell.lib.dontCheck super.sbv);
+              };
+
+              # uncomment for profiling:
+              # cabal2nixOptions = "--enable-profiling --benchmark";
             };
 
       in {

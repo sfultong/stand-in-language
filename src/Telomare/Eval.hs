@@ -22,20 +22,38 @@ import Data.Void
 import Debug.Trace
 import System.IO
 import System.Process
-import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
-                 FragExprF (..), FragIndex (FragIndex), IExpr (..), LocTag (..),
-                 PartialType (..), RecursionPieceFrag,
-                 RecursionSimulationPieces (..), RunTimeError (..),
-                 TelomareLike (..), Term3 (Term3), Term4 (Term4),
-                 UnsizedRecursionToken (..), app, forget, g2s, innerChurchF,
-                 insertAndGetKey, pattern AbortAny, pattern AbortRecursion,
-                 pattern AbortUser, rootFrag, s2g, unFragExprUR)
-import Telomare.Optimizer (optimize)
-import Telomare.Parser (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
-import Telomare.Possible (evalA)
-import Telomare.Resolver (parseMain)
-import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
-import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
+
+import           PrettyPrint
+import           Telomare                  (BreakState, BreakState', ExprA (..),
+                                            FragExpr (..), FragExprF (..),
+                                            FragIndex (FragIndex), IExpr (..),
+                                            PartialType (..), LocTag (..),
+                                            RecursionPieceFrag,
+                                            RecursionSimulationPieces (..),
+                                            RunTimeError (..),
+                                            TelomareLike (..), Term3 (Term3),
+                                            Term4 (Term4), forget,
+                                            UnsizedRecursionToken (..), app,
+                                            g2s, innerChurchF, insertAndGetKey,
+                                            pattern AbortAny,
+                                            pattern AbortRecursion,
+                                            pattern AbortUser, rootFrag, s2g,
+                                            unFragExprUR)
+import           Telomare.Optimizer        (optimize)
+import           Telomare.Parser           (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
+import           Telomare.Possible         (AbortExpr, VoidF,
+                                            abortExprToTerm4, evalA, sizeTerm,
+                                            term3ToUnsizedExpr)
+import           Telomare.Resolver         (parseMain)
+import           Telomare.RunTime          (hvmEval, optimizedEval, pureEval,
+                                            simpleEval)
+import           Telomare.TypeChecker      (TypeCheckError (..), typeCheck)
+
+debug :: Bool
+debug = False
+
+debugTrace :: String -> a -> a
+debugTrace s x = if debug then trace s x else x
 
 data ExpP = ZeroP
     | PairP ExpP ExpP
@@ -125,7 +143,7 @@ convertPT ll (Term3 termMap) =
                       (Cofree (FragExprF RecursionPieceFrag) LocTag)
       changeFrag = \case
         anno :< AuxFragF (NestedSetEnvs n) -> innerChurchF anno $ ll n
-        _ :< AuxFragF (RecursionTest x) -> transformM changeFrag $ unFragExprUR x
+        _ :< AuxFragF (SizingWrapper _ x) -> transformM changeFrag $ unFragExprUR x
         x -> pure x
       insertChanged :: FragIndex
                     -> Cofree (FragExprF RecursionPieceFrag) LocTag
@@ -150,7 +168,7 @@ convertPT ll (Term3 termMap) =
 
 findChurchSize :: Term3 -> Either EvalError Term4
 findChurchSize = pure . convertPT (const 255)
---findChurchSize = calculateRecursionLimits
+-- findChurchSize = calculateRecursionLimits -- works fine for unit tests, but uses too much memory for tictactoe
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -182,22 +200,20 @@ runStaticChecks t@(Term4 termMap) =
     Nothing -> pure t
     Just e  -> Left . StaticCheckError $ convertAbortMessage e
 
-runStaticChecksMain :: Term4 -> Either EvalError Term4
-runStaticChecksMain = pure -- TODO fix
-
 compileMain :: Term3 -> Either EvalError IExpr
 compileMain term = case typeCheck (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) AnyType) term of
   Just e -> Left $ TCE e
-  _      -> compile runStaticChecksMain term
+  _      -> compile pure term -- TODO add runStaticChecks back in
 
 compileUnitTest :: Term3 -> Either EvalError IExpr
 compileUnitTest = compile runStaticChecks
 
 compile :: (Term4 -> Either EvalError Term4) -> Term3 -> Either EvalError IExpr
-compile staticCheck t = case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
-  Right (Just i) -> pure i
-  Right Nothing  -> Left CompileConversionError
-  Left e         -> Left e
+compile staticCheck t = debugTrace ("compiling term3:\n" <> prettyPrint t)
+  $ case toTelomare . removeChecks <$> (findChurchSize t >>= staticCheck) of
+      Right (Just i) -> pure i
+      Right Nothing  -> Left CompileConversionError
+      Left e         -> Left e
 
 runMain :: String -> String -> IO ()
 runMain preludeString s =
@@ -257,13 +273,12 @@ evalLoop_ iexpr =
   in mainLoop "" Zero
 
 calculateRecursionLimits :: Term3 -> Either EvalError Term4
-calculateRecursionLimits t3@(Term3 termMap) =
-  let abortsAt n = not . null . evalA combine Nothing $ convertPT (const n) t3
-      combine a b = case (a,b) of
-        (Just AbortRecursion, _) -> Just AbortRecursion
-        (_, Just AbortRecursion) -> Just AbortRecursion
-        _                        -> Nothing
-      iterations = take 10 $ iterate (\(_,n) -> (abortsAt (n * 2), n * 2)) (True, 1)
-  in case lookup False iterations of
-    Just n -> trace ("crl found limit at " <> show n) pure $ convertPT (const n) t3
-    _ -> Left . RecursionLimitError $ toEnum 0
+calculateRecursionLimits t3 =
+  let abortExprToTerm4' :: AbortExpr -> Either IExpr Term4
+      abortExprToTerm4' = abortExprToTerm4
+      limitSize = 256
+  in case fmap abortExprToTerm4' . sizeTerm limitSize $ term3ToUnsizedExpr limitSize t3 of
+    Left urt -> Left $ RecursionLimitError urt
+    Right t  -> case t of
+      Left a -> Left . StaticCheckError . convertAbortMessage $ a
+      Right t -> pure t

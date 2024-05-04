@@ -8,10 +8,10 @@ not = \x -> if x then 0 else 1
 
 succ = \x -> (x,0)
 
-d2c = { id
-      , \recur i f b -> f (recur (left i) f b)
-      , \i f b -> b
-      }
+d2c = \n f b -> { id
+                , \recur i  -> f (recur (left i))
+                , \i -> b
+                } n
 
 c2d = \c -> c succ 0
 
@@ -98,3 +98,8 @@ truncate = \n ->
                                 then (recur (left current), recur (right current))
                                 else 0
   in n layer (\x -> 0)
+
+max = \a b -> { \p -> or (left p) (right p)
+              , \recur p -> recur (left (left p), left (right p))
+              , \p -> if (left p) then b else a
+              } (a,b)

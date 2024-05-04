@@ -1,0 +1,15 @@
+isEven = \n -> { \i -> left i
+               , \recur i -> recur (left (left i), not (right i))
+               , \i -> right i
+               } (n, 1)
+
+main = \input -> let userInput = left input
+                     firstChar = left userInput
+                     limInput = max firstChar 128
+                     oldState = right input
+                     output = concat ["ascii value of first char is "
+                                     , if isEven limInput then "even" else "odd"
+                                     ]
+                 in if not input
+                    then ("please enter some string", 1)
+                    else (output, 0)

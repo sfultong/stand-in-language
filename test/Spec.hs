@@ -59,7 +59,6 @@ h2c i =
       stopf i churchf churchbase = churchbase
   in layer (layer (layer (layer stopf))) i
 
-
 {-
 h_zipWith a b f =
   let layer recurf zipf a b =
@@ -248,6 +247,23 @@ one_plus_one =
       plus = lam (lam (lam (lam plus_app)))
   in app c2d (app (app plus (toChurch 1)) (toChurch 1))
 
+times_two =
+  let times_app = lam (lam (app (toChurch 2) (app (varN 1) (varN 0))))
+  in app c2d (app times_app (toChurch 3))
+
+times_three =
+  let times_app = lam (lam (app (varN 1) (app (toChurch 3) (varN 0))))
+  in app c2d (app times_app (toChurch 2))
+
+times_wip =
+  let times_app = lam (lam (app (varN 1) (app (toChurch 3) (varN 0))))
+  -- in app c2d (app times_app (toChurch 2))
+-- c2d = lam (app (app (varN 0) (lam (pair (varN 0) zero))) zero)
+  in app c2d (toChurch 6)
+
+function_argument =
+  app (lam (app (varN 0) zero)) (lam (pair zero (varN 0)))
+
 -- m f (n f x)
 -- app (app m f) (app (app n f) x)
 -- app (app (varN 3) (varN 1)) (app (app (varN 2) (varN 1)) (varN 0))
@@ -288,8 +304,8 @@ allowedTypeCheck _                      = False
 testEval :: IExpr -> IO IExpr
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer iexpr) Zero))
 -- testEval iexpr = optimizedEval (SetEnv (Pair (Defer deserialized) Zero))
-testEval iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
-
+testEval iexpr = evalBU' (SetEnv (Pair (Defer iexpr) Zero))
+-- testEval iexpr = evalB'' (SetEnv (Pair (Defer iexpr) Zero))
 
 
 unitTest :: String -> String -> IExpr -> Spec
@@ -402,10 +418,24 @@ qcTestAbortExtract (URTestExpr (Term3 termMap), i) =
   extractedTestResult = or $ fmap runTest tests
 -}
 
-testRecur = unlines
+{-
+qcTestBottomUp :: DataTypedIExpr -> Bool
+qcTestBottomUp x =
+  let exp = getIExpr x
+  in evalS exp == evalBU exp
+-}
+
+testRecur = concat
   [ "main = let layer = \\recur x -> recur (x, 0)"
   , "       in $3 layer (\\x -> x) 0"
   ]
+
+testSBV'' = do
+  r <- runIO testSBV'
+  runIO $ if r == 4
+    then pure ()
+    else expectationFailure $ "testSBV failed, got result " <> show r
+  -- assertEqual "testing SBV" r 3
 
 -- unitTests_ :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
 unitTests_ parse = do
@@ -467,12 +497,44 @@ unitTests_ parse = do
   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
 -}
-  describe "refinement" $ unitTestStaticChecks "main : (\\x -> assert (not x) \"fail\") = 1" (== Left (StaticCheckError "user abort: fail"))
+  describe "bottom up eval" $ do
+    {-
+    it "test SBV" . liftIO $ do
+      testSBV' == pure 3
+-}
+    testSBV''
   {-
-    unitTestStaticChecks "main : (\\x -> assert (not (left x)) \"fail\") = 1" $ (not . null)
-    unitTestStaticChecks "main : (\\x -> assert 1 \"fail\") = 1" $ (not . null)
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left x" $ (== Left (StaticCheckError "user abort: boop"))
-    unitTestStaticChecks "main : (\\f -> assert (not (f 2)) \"boop\") = \\x -> left (left x)" $ (not . null)
+    unitTest2 "main = plus $3 $2 succ 0" "5"
+    unitTest2 "main = 0" "0"
+    unitTest2 fiveApp "5"
+    unitTest2 "main = plus $3 $2 succ 0" "5"
+    unitTest2 "main = times $3 $2 succ 0" "6"
+-}
+    unitTest2 "main = d2c 3 succ 0" "3"
+    -- unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
+    -- unitTest2 "main = listLength []" "0"
+    -- unitTest2 "main = listLength [1,2,3]" "3"
+    -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
+    -- unitTest2 "main = d2c 3 succ 0" "3"
+    -- unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
+  {-
+    unitTest2 "main = dEqual 0 0" "1"
+    unitTest2 "main = dEqual 1 0" "0"
+    unitTest2 "main = dEqual 0 1" "0"
+    unitTest2 "main = dEqual 1 1" "1"
+    unitTest2 "main = dEqual 2 1" "0"
+    unitTest2 "main = dEqual 1 2" "0"
+    unitTest2 "main = dEqual 2 2" "1"
+    unitTest2 "main = listLength []" "0"
+    unitTest2 "main = listLength [1,2,3]" "3"
+    unitTest2 "main = listEqual \"hey\" \"hey\"" "1"
+    unitTest2 "main = listEqual \"hey\" \"he\"" "0"
+    unitTest2 "main = listEqual \"hey\" \"hel\"" "0"
+    unitTest2 "main = listPlus [1,2] [3,4]" "(1,(2,(3,5)))"
+    unitTest2 "main = listPlus 0 [1]" "2"
+    unitTest2 "main = listPlus [1] 0" "2"
+    unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
+    unitTest2 "main = concat [\"a\",\"b\",\"c\"]" "(97,(98,100))"
 -}
 
 c2dApp = "main = (c2dG $4 3) $2 succ 0"

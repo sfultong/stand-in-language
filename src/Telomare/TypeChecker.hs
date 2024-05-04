@@ -40,7 +40,6 @@ data TypeCheckError
   deriving (Eq, Ord, Show)
 
 -- State is closure environment, set of associations between type variables and types, unresolved type id supply
---type AnnotateState a = State (PartialType, Map Int PartialType, Int, Maybe TypeCheckError) a
 type AnnotateState = ExceptT TypeCheckError (State (PartialType, Set TypeAssociation, Int))
 
 withNewEnv :: LocTag -> AnnotateState a -> AnnotateState (PartialType, a)
@@ -173,7 +172,7 @@ annotate (Term3 termMap) =
           pure ra
         anno :< TraceFragF -> (State.gets (\(t, _, _) -> t))
         anno :< AuxFragF (NestedSetEnvs _) -> (State.gets (\(t, _, _) -> t))
-        anno :< AuxFragF (RecursionTest (FragExprUR x)) -> annotate' x
+        anno :< AuxFragF (SizingWrapper _ (FragExprUR x)) -> annotate' x
       initInputType :: LocTag -> FragIndex -> AnnotateState ()
       initInputType anno fi = let (ArrTypeP it _) = getFragType anno fi in State.modify (\(_, s, i) -> (it, s, i))
       associateOutType :: LocTag -> FragIndex -> PartialType -> AnnotateState ()
