@@ -81,7 +81,7 @@ jobs:
               exit 1
           fi
   release:
-    if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
+    # if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
     needs: [tests, format]
     runs-on: ubuntu-latest
     steps:
