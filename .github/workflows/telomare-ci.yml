@@ -117,13 +117,13 @@ jobs:
           ls
           # Check if the file exists
           if [ ! -e haddock-output ]; then
-              echo "Error: File '$file_path' does not exist."
+              echo "Error: File 'haddock-output' does not exist."
               exit 1
           fi
 
           # Check if the file is empty
           if [ ! -s haddock-output ]; then
-              echo "Error: File '$file_path' is empty."
+              echo "Error: File 'haddock-output' is empty."
               exit 1
           fi
           current_dir=$(pwd)
