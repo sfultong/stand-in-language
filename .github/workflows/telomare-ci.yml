@@ -82,7 +82,7 @@ jobs:
           fi
   release:
     if: ${{ (github.ref == 'refs/heads/master') && (github.repository == 'Stand-In-Language/stand-in-language') }}
-    needs: [tests, format]
+    needs: [tests, format, lint]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout telomare repository
@@ -110,14 +110,31 @@ jobs:
         run: |
           ls
           cd telomare
-          nix develop -c cabal haddock --haddock-hyperlink-source
+          (nix develop -c cabal haddock --haddock-hyperlink-source) > ../haddock-output
           echo OK Haddock build
       - name: haddock copy
         run: |
           ls
+          # Check if the file exists
+          if [ ! -e haddock-output ]; then
+              echo "Error: File 'haddock-output' does not exist."
+              exit 1
+          fi
+
+          # Check if the file is empty
+          if [ ! -s haddock-output ]; then
+              echo "Error: File 'haddock-output' is empty."
+              exit 1
+          fi
+          current_dir=$(pwd)
+          # takes the last line of the haddock-output and removes overlapping paths with
+          # the current directory and also takes away the file name at the end of the path
+          # N.b. this command depends on `cabal haddock --haddock-hyperlink-source` displaying
+          # the location of the documentation as the last line of its output
+          doc_loc=$(tail -n 1 haddock-output | sed "s|^$current_dir/\(.*\)/.*|\1|")
           rm -rf stand-in-language.github.io/docs/haddock/
           mkdir stand-in-language.github.io/docs/haddock/
-          cp -r telomare/dist-newstyle/build/x86_64-linux/ghc-9.2.4/telomare-0.1.0.0/doc/html/telomare/. stand-in-language.github.io/docs/haddock
+          cp -r "$doc_loc"/. stand-in-language.github.io/docs/haddock
       - uses: EndBug/add-and-commit@v7
         with:
           message: 'haddock documentation automatically updated'
