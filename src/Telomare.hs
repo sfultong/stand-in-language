@@ -131,6 +131,7 @@ data ParserTerm l v
   | TRight (ParserTerm l v)
   | TTrace (ParserTerm l v)
   | THash (ParserTerm l v)
+  | TChurch Int
   | TLam (LamType l) (ParserTerm l v)
   | TLimitedRecursion (ParserTerm l v) (ParserTerm l v) (ParserTerm l v)
   deriving (Eq, Ord, Functor, Foldable, Traversable)
@@ -174,6 +175,7 @@ instance (Show l, Show v) => Show (ParserTerm l v) where
     alg (TRightF r) = indentWithOneChild "TRight" r
     alg (TTraceF x) = indentWithOneChild "TTrace" x
     alg (THashF x) = indentWithOneChild "THash" x
+    alg (TChurchF n) = sindent $ "TChurch " <> show n
     alg (TLamF l x) = indentWithOneChild ("TLam " <> show l) x
     alg (TLimitedRecursionF t r b) = indentWithThreeChildren "TLimitedRecursion" t  r  b
 
@@ -527,10 +529,34 @@ gateF x y = do
 iteF :: BreakState' a b -> BreakState' a b -> BreakState' a b -> BreakState' a b
 iteF x y z = setEnvF (pairF (gateF z y) x)
 
--- to construct a church numeral (\f x -> f ... (f x))
--- the new, optimized church numeral operation iterates on a function "frame" (rf, (rf, (f', (x, env'))))
+-- inside two lambdas, (\f x -> ...)
+-- creates and iterates on a function "frame" (rf, (rf, (f', (x, env'))))
 -- rf is the function to pull arguments out of the frame, run f', and construct the next frame
 -- (f',env') is f (since f may contain a saved environment/closure env we want to use for each iteration)
+repeatFunctionF :: (Show a, Enum b) => LocTag -> FragExpr a -> BreakState' a b
+repeatFunctionF l repeater =
+  let applyF = SetEnvFrag $ RightFrag EnvFrag
+      env' = RightFrag (RightFrag (RightFrag EnvFrag))
+      -- takes (rf, (f', (x, env'))), executes f' with (x, env') and creates a new frame
+      rf = deferF . pure . tag l $
+                 PairFrag (LeftFrag EnvFrag)
+                          (PairFrag (LeftFrag EnvFrag)
+                                    (PairFrag (LeftFrag (RightFrag EnvFrag))
+                                              (PairFrag applyF env')))
+      x = pure . tag l $ LeftFrag EnvFrag
+      f' = pure . tag l . LeftFrag . LeftFrag $ RightFrag EnvFrag
+      fenv = pure . tag l . RightFrag . LeftFrag $ RightFrag EnvFrag
+      -- (x, ((f', fenv), 0)) -> (rf, (rf, (f', (x, fenv))))
+      frameSetup = rf >>= (\rf' -> pairF (pure rf') (pairF (pure rf') (pairF f' (pairF x fenv))))
+      -- run the iterations x' number of times, then unwrap the result from the final frame
+      unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag $ repeater
+  in clamF (lamF (setEnvF (pairF (deferF (pure . tag l $ unwrapFrame)) frameSetup)))
+
+-- to construct a church numeral (\f x -> f ... (f x))
+-- the core is nested setenvs around an env, where the number of setenvs is magnitude of church numeral
+i2cF :: (Show a, Enum b) => LocTag -> Int -> BreakState' a b
+i2cF l n = repeatFunctionF l (iterate SetEnvFrag EnvFrag !! n)
+
 unsizedRecursionWrapper :: UnsizedRecursionToken
                         -> BreakState' RecursionPieceFrag UnsizedRecursionToken
                         -> BreakState' RecursionPieceFrag UnsizedRecursionToken
@@ -544,25 +570,9 @@ unsizedRecursionWrapper urToken t r b =
       fifthArgF = pure . tag DummyLoc . LeftFrag . RightFrag . RightFrag . RightFrag . RightFrag $ EnvFrag
       abortToken = pure . tag DummyLoc $ PairFrag ZeroFrag ZeroFrag
       abortFragF = pure $ DummyLoc :< AbortFragF
-      -- b is on the stack when this is called, so args are (i, (b, 0))
+      -- b is on the stack when this is called, so args are (i, (b, ...))
       abrt = lamF (setEnvF $ pairF (setEnvF (pairF abortFragF abortToken))
                                    (appF secondArgF firstArgF))
-      applyF = SetEnvFrag $ RightFrag EnvFrag
-      env' = RightFrag (RightFrag (RightFrag EnvFrag))
-      -- takes (rf, (f', (x, env'))), executes f' with (x, env') and creates a new frame
-      rf = deferF . pure . tag DummyLoc $
-        PairFrag (LeftFrag EnvFrag)
-                 (PairFrag (LeftFrag EnvFrag)
-                           (PairFrag (LeftFrag (RightFrag EnvFrag))
-                                     (PairFrag applyF env')))
-      -- construct the initial frame from f and x ((b, (rWrap, 0)) -> (rf, (rf, (f', (x, env')))))
-      frameSetup = do
-        rf' <- rf
-        pairF (pure rf') (pairF (pure rf') (pairF (pure . tag DummyLoc $ LeftFrag (LeftFrag (RightFrag EnvFrag)))
-                                  (pairF abrt (pure . tag DummyLoc $
-                                                RightFrag (LeftFrag (RightFrag EnvFrag))))))
-      -- run the iterations x' number of times, then unwrap the result from the final frame
-      unwrapFrame = LeftFrag . RightFrag . RightFrag . RightFrag . AuxFrag $ NestedSetEnvs urToken
       wrapU =  fmap ((DummyLoc :<) . AuxFragF . SizingWrapper urToken . FragExprUR)
       -- \t r b r' i -> if t i then r r' i else b i -- t r b are already on the stack when this is evaluated
       rWrap = lamF . lamF $ iteF (appF fifthArgF firstArgF)
@@ -570,9 +580,10 @@ unsizedRecursionWrapper urToken t r b =
                                  (appF thirdArgF firstArgF)
       -- hack to make sure recursion test wrapper can be put in a definite place when sizing
       tWrap = pairF (deferF $ appF secondArgF firstArgF) (pairF t . pure $ DummyLoc :< ZeroFragF)
-      churchNum = clamF (lamF (setEnvF (pairF (deferF (pure . tag DummyLoc $ unwrapFrame)) frameSetup)))
+      repeater = AuxFrag $ NestedSetEnvs urToken
+      churchNum = repeatFunctionF DummyLoc repeater
       trb = pairF b (pairF r (pairF tWrap (pure . tag DummyLoc $ ZeroFrag)))
-  in setEnvF . wrapU $ pairF (deferF $ appF (appF churchNum rWrap) firstArgF) trb
+  in setEnvF . wrapU $ pairF (deferF $ appF (appF churchNum rWrap) abrt) trb
 
 nextBreakToken :: (Enum b, Show b) => BreakState a b b
 nextBreakToken = do

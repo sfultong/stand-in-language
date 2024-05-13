@@ -25,14 +25,14 @@ import Data.Map.Strict (Map, fromList, keys)
 import Data.Set (Set, (\\))
 import qualified Data.Set as Set
 import Debug.Trace (trace, traceShow, traceShowId)
-import PrettyPrint (TypeDebugInfo (..), showTypeDebugInfo)
+import PrettyPrint (TypeDebugInfo (..), showTypeDebugInfo, prettyPrint)
 import Telomare (BreakState', DataType (..), FragExpr (..), FragExprF (..),
                  FragExprUR (..), FragIndex (..), IExpr (..), IExprF (..),
                  LamType (..), LocTag (..), ParserTerm (..), ParserTermF (..),
                  PartialType (..), RecursionPieceFrag,
                  RecursionSimulationPieces (..), Term1 (..), Term2 (..),
                  Term3 (..), UnsizedRecursionToken, appF, clamF, deferF, forget,
-                 forgetAnnotationFragExprUR, gateF, lamF, nextBreakToken, pairF,
+                 forgetAnnotationFragExprUR, gateF, i2cF, lamF, nextBreakToken, pairF,
                  setEnvF, showRunBreakState', tag, unsizedRecursionWrapper,
                  varNF)
 import Telomare.Parser (AnnotatedUPT, Pattern (..), PatternF (..),
@@ -40,6 +40,12 @@ import Telomare.Parser (AnnotatedUPT, Pattern (..), PatternF (..),
                         UnprocessedParsedTerm (..), UnprocessedParsedTermF (..),
                         parseWithPrelude)
 import Text.Megaparsec (errorBundlePretty, runParser)
+
+debug :: Bool
+debug = True
+
+debugTrace :: String -> a -> a
+debugTrace s x = if debug then trace s x else x
 
 type VarList = [String]
 
@@ -59,6 +65,7 @@ s2t :: LocTag -> String -> Cofree (ParserTermF l v) LocTag
 s2t anno = ints2t anno . fmap ord
 
 -- |Int to Church encoding
+{-
 i2c :: LocTag -> Int -> Term1
 i2c anno x = anno :< TLamF (Closed "f") (anno :< TLamF (Open "x") (inner x))
   where inner :: Int -> Term1
@@ -66,6 +73,7 @@ i2c anno x = anno :< TLamF (Closed "f") (anno :< TLamF (Open "x") (inner x))
         coalg :: Int -> Base Term1 (Either Term1 Int)
         coalg 0 = anno C.:< TVarF "x"
         coalg n = anno C.:< TAppF (Left . (anno :<) . TVarF $ "f") (Right $ n - 1)
+-}
 
 instance MonadFail (Either String) where
   fail = Left
@@ -271,6 +279,7 @@ debruijinize vl = \case
   (anno :< THashF x) -> (\y -> anno :< THashF y) <$> debruijinize vl x
   (anno :< TLamF (Open n) x) -> (\y -> anno :< TLamF (Open ()) y) <$> debruijinize (n : vl) x
   (anno :< TLamF (Closed n) x) -> (\y -> anno :< TLamF (Closed ()) y) <$> debruijinize (n : vl) x
+  (anno :< TChurchF n) -> pure $ anno :< TChurchF n
   (anno :< TLimitedRecursionF t r b) -> (\x y z -> anno :< TLimitedRecursionF x y z) <$> debruijinize vl t <*> debruijinize vl r <*> debruijinize vl b
 
 rewriteOuterTag :: anno -> Cofree a anno -> Cofree a anno
@@ -294,6 +303,7 @@ splitExpr' = \case
   (anno :< TTraceF x) -> rewriteOuterTag anno <$> setEnvF (pairF (deferF (pure . tag anno $ TraceFrag)) (splitExpr' x))
   (anno :< TLamF (Open ()) x) -> rewriteOuterTag anno <$> lamF (splitExpr' x)
   (anno :< TLamF (Closed ()) x) -> rewriteOuterTag anno <$> clamF (splitExpr' x)
+  (anno :< TChurchF n) -> i2cF anno n
   (anno :< TLimitedRecursionF t r b) ->
     rewriteOuterTag anno <$> (nextBreakToken >>=
       (\x -> unsizedRecursionWrapper x (splitExpr' t) (splitExpr' r) (splitExpr' b)))
@@ -364,7 +374,8 @@ validateVariables prelude term =
           (\x y z -> anno :< TLimitedRecursionF x y z) <$> validateWithEnvironment t
                                                        <*> validateWithEnvironment r
                                                        <*> validateWithEnvironment b
-        anno :< ChurchUPF n -> pure $ i2c anno n
+        -- anno :< ChurchUPF n -> pure $ i2c anno n
+        anno :< ChurchUPF n -> pure $ anno :< TChurchF n
         anno :< LeftUPF x -> (\y -> anno :< TLeftF y) <$> validateWithEnvironment x
         anno :< RightUPF x -> (\y -> anno :< TRightF y) <$> validateWithEnvironment x
         anno :< TraceUPF x -> (\y -> anno :< TTraceF y) <$> validateWithEnvironment x
@@ -433,7 +444,7 @@ addBuiltins aupt = DummyLoc :< LetUPF
 process :: [(String, AnnotatedUPT)] -- ^Prelude
         -> AnnotatedUPT
         -> Either String Term3
-process prelude upt = splitExpr <$> process2Term2 prelude upt
+process prelude upt = (\dt -> debugTrace ("Resolver process term:\n" <> prettyPrint dt) dt) . splitExpr <$> process2Term2 prelude upt
 
 process2Term2 :: [(String, AnnotatedUPT)] -- ^Prelude
               -> AnnotatedUPT
