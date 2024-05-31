@@ -173,6 +173,7 @@ annotate (Term3 termMap) =
         anno :< TraceFragF -> (State.gets (\(t, _, _) -> t))
         anno :< AuxFragF (NestedSetEnvs _) -> (State.gets (\(t, _, _) -> t))
         anno :< AuxFragF (SizingWrapper _ (FragExprUR x)) -> annotate' x
+        anno :< AuxFragF (CheckingWrapper _ _ (FragExprUR x)) -> annotate' x
       initInputType :: LocTag -> FragIndex -> AnnotateState ()
       initInputType anno fi = let (ArrTypeP it _) = getFragType anno fi in State.modify (\(_, s, i) -> (it, s, i))
       associateOutType :: LocTag -> FragIndex -> PartialType -> AnnotateState ()

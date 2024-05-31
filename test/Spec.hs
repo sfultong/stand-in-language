@@ -511,7 +511,9 @@ unitTests_ parse = do
     unitTest2 "main = plus $3 $2 succ 0" "5"
     unitTest2 "main = times $3 $2 succ 0" "6"
 -}
+    -- unitTest2 "main = d2c 3 succ 0" "3"
     unitTest2 "main = d2c 3 succ 0" "3"
+    -- unitTestStaticChecks "main : (\\x -> assert (not ($2 left x)) \"A\") = 3" (== Left (StaticCheckError "user abort: X"))
     -- unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
     -- unitTest2 "main = listLength []" "0"
     -- unitTest2 "main = listLength [1,2,3]" "3"

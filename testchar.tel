@@ -3,13 +3,22 @@ isEven = \n -> { \i -> left i
                , \i -> right i
                } (n, 1)
 
+validAscii = \x -> assert (not ($127 left x)) "invalid character"
+
 main = \input -> let userInput = left input
                      firstChar = left userInput
-                     limInput = max firstChar 128
+                     -- limInput = min 128 firstChar
+                     limInput : validAscii = firstChar
                      oldState = right input
+
                      output = concat ["ascii value of first char is "
                                      , if isEven limInput then "even" else "odd"
+                                     -- , " --"
+                                     -- , (limInput, 0)
+                                     -- , "--"
+                                     -- , if left limInput then "there's something there" else "oh no, nothing!"
                                      ]
+                     -- output = if isEven limInput then "A" else "B"
                  in if not input
-                    then ("please enter some string", 1)
+                    then ("enter a character", 1)
                     else (output, 0)

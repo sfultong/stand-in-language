@@ -10,7 +10,7 @@ import Telomare (FragExpr (..), FragExprF (..), FragExprUR (..),
                  FragExprURSansAnnotation (FragExprURSA, unFragExprURSA),
                  FragIndex (..), IExpr (..), LocTag, PartialType (..),
                  PrettyPartialType (..), RecursionSimulationPieces (..),
-                 Term3 (..), forget, forgetAnnotationFragExprUR,
+                 Term3 (..), Term4 (..), forget, forgetAnnotationFragExprUR,
                  indentWithOneChild', indentWithTwoChildren', rootFrag)
 
 import qualified Control.Comonad.Trans.Cofree as CofreeT (CofreeF (..))
@@ -151,8 +151,29 @@ instance PrettyPrintable Term3 where
       RightFragF x -> indentWithOneChild' "R" x
       TraceFragF -> pure "T"
       AuxFragF x -> case x of
-        SizingWrapper _ x' -> indentWithOneChild' "?" . showFrag $ unFragExprUR x'
+        SizingWrapper ind x' -> indentWithOneChild' ("?" <> show (fromEnum ind)) . showFrag $ unFragExprUR x'
+        CheckingWrapper l tc x' -> indentWithTwoChildren' (":" <> show l) (showFrag $ unFragExprUR tc) (showFrag $ unFragExprUR x')
         NestedSetEnvs _ -> pure "%"
+
+instance PrettyPrintable Term4 where
+  showP (Term4 termMap) = showFrag (rootFrag termMap) where
+    showFrag = cata showF
+    showF (_ CofreeT.:< x) = sf x
+    showL (a CofreeT.:< _) = show a
+    sf = \case
+      ZeroFragF -> pure "Z"
+      PairFragF a b -> indentWithTwoChildren' "P" a b
+      EnvFragF -> pure "E"
+      SetEnvFragF x -> indentWithOneChild' "S" x
+      DeferFragF fi -> case Map.lookup fi termMap of
+        Just frag -> indentWithOneChild' ("D" <> showL (project frag)) $ showFrag frag
+        z -> error $ "PrettyPrint Term3 bad index found: " <> show z
+      AbortFragF -> pure "A"
+      GateFragF l r -> indentWithTwoChildren' "G" l r
+      LeftFragF x -> indentWithOneChild' "L" x
+      RightFragF x -> indentWithOneChild' "R" x
+      TraceFragF -> pure "T"
+      AuxFragF _ -> error "prettyPrint term4 - should be no auxfrag here"
 
 showTypeDebugInfo :: TypeDebugInfo -> String
 showTypeDebugInfo (TypeDebugInfo (Term3 m) lookup rootType) =

@@ -292,11 +292,14 @@ splitExpr' = \case
   (anno :< TVarF n) -> pure . tag anno $ varNF n
   (anno :< TAppF c i) ->
     rewriteOuterTag anno <$> appF (splitExpr' c) (splitExpr' i)
+  {-
   (anno :< TCheckF tc c) ->
     let performTC = deferF ((\ia -> setEnvF (pairF (setEnvF (pairF (pure $ tag anno AbortFrag) ia))
                                                    (pure . tag anno $ RightFrag EnvFrag))) $ appF (pure . tag anno $ LeftFrag EnvFrag)
                                                                                                   (pure . tag anno $ RightFrag EnvFrag))
     in rewriteOuterTag anno <$> setEnvF (pairF performTC (pairF (splitExpr' tc) (splitExpr' c)))
+-}
+  (anno :< TCheckF tc c) -> (\tc' c' -> anno :< AuxFragF (CheckingWrapper anno (FragExprUR tc') (FragExprUR c'))) <$> splitExpr' tc <*> splitExpr' c
   (anno :< TITEF i t e) -> rewriteOuterTag anno <$> setEnvF (pairF (gateF (splitExpr' e) (splitExpr' t)) (splitExpr' i))
   (anno :< TLeftF x) -> (anno :<) . LeftFragF <$> splitExpr' x
   (anno :< TRightF x) -> (anno :<) . RightFragF <$> splitExpr' x

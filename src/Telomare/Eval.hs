@@ -158,8 +158,8 @@ convertPT ll (Term3 termMap) =
   in Term4 $ fmap (hoistCofree changeType) newMap
 
 findChurchSize :: Term3 -> Either EvalError Term4
-findChurchSize = pure . convertPT (const 255)
--- findChurchSize = calculateRecursionLimits -- works fine for unit tests, but uses too much memory for tictactoe
+-- findChurchSize = pure . convertPT (const 255)
+findChurchSize = calculateRecursionLimits -- works fine for unit tests, but uses too much memory for tictactoe
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -187,7 +187,7 @@ runStaticChecks t@(Term4 termMap) =
         (Nothing, _) -> Nothing
         (_, Nothing) -> Nothing
         (a, _)       -> a
-  in case result of
+  in case debugTrace ("running static checks for:\n" <> prettyPrint t) result of
     Nothing -> pure t
     Just e  -> Left . StaticCheckError $ convertAbortMessage e
 

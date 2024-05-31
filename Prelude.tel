@@ -1,6 +1,6 @@
 id = \x -> x
 
-and = \a b -> if a then b else 0
+and = \a b -> if a then (if b then 1 else 0) else 0
 
 or = \a b -> if a then 1 else b
 
@@ -99,7 +99,12 @@ truncate = \n ->
                                 else 0
   in n layer (\x -> 0)
 
-max = \a b -> { \p -> or (left p) (right p)
+min = \a b -> { \p -> and (left p) (right p)
               , \recur p -> recur (left (left p), left (right p))
               , \p -> if (left p) then b else a
+              } (a,b)
+
+max = \a b -> { \p -> and (left p) (right p)
+              , \recur p -> recur (left (left p), left (right p))
+              , \p -> if (left p) then a else b
               } (a,b)

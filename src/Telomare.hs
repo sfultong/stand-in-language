@@ -297,6 +297,7 @@ newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken 
 data RecursionSimulationPieces a
   = NestedSetEnvs UnsizedRecursionToken
   | SizingWrapper UnsizedRecursionToken a
+  | CheckingWrapper LocTag a a
   deriving (Eq, Ord, Show, NFData, Generic, Functor)
 
 data LocTag
