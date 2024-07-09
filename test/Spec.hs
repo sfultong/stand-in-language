@@ -307,6 +307,8 @@ testEval :: IExpr -> IO IExpr
 testEval iexpr = evalBU' (SetEnv (Pair (Defer iexpr) Zero))
 -- testEval iexpr = evalB'' (SetEnv (Pair (Defer iexpr) Zero))
 
+-- TODO get rid of testEval and just use this
+testEval' iexpr = evalBU (SetEnv (Pair (Defer iexpr) Zero))
 
 unitTest :: String -> String -> IExpr -> Spec
 unitTest name expected iexpr = it name $ if allowedTypeCheck (typeCheck ZeroTypeP (fromTelomare iexpr))
@@ -511,8 +513,19 @@ unitTests_ parse = do
     unitTest2 "main = plus $3 $2 succ 0" "5"
     unitTest2 "main = times $3 $2 succ 0" "6"
 -}
+    -- unitTest2 "main = d2c 2 succ 0" "2"
+    -- unitTestStaticChecks "main : (\\x -> assert 1 \"A\") = 1" (not . null)
+  describe "main function tests" $ do
+    testMain <- runIO $ Strict.readFile "testchar.tel"
+    case fmap compileMain (parse testMain) of
+      Right (Right g) ->
+        let eval = funWrap' evalBU g
+            unitTestMain s i e = it ("main input " <> i) $ eval (Just (i, s)) `shouldBe` e
+        in do
+        unitTestMain Zero "A" ("ascii value of first char is even", Just Zero)
+        -- unitTestMain Zero "B" ("ascii value of first char is odd", Just Zero)
+      z -> runIO . expectationFailure $ "failed to compile main: " <> show z
     -- unitTest2 "main = d2c 3 succ 0" "3"
-    unitTest2 "main = d2c 3 succ 0" "3"
     -- unitTestStaticChecks "main : (\\x -> assert (not ($2 left x)) \"A\") = 3" (== Left (StaticCheckError "user abort: X"))
     -- unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
     -- unitTest2 "main = listLength []" "0"
@@ -681,6 +694,26 @@ unitTests parse = do
     unitTest2 "main = c2d (factorial 0)" "1"
     unitTest2 "main = c2d (factorial 4)" "24"
 
+  describe "main function tests" $ do
+    testMain <- runIO $ Strict.readFile "testchar.tel"
+    case fmap compileMain (parse testMain) of
+      Right (Right g) ->
+        let eval = funWrap' evalBU g
+            unitTestMain s i e = it ("main input " <> i) $ eval (Just (i, s)) `shouldBe` e
+        in do
+        unitTestMain Zero "A" ("ascii value of first char is even", Just Zero)
+        unitTestMain Zero "B" ("ascii value of first char is odd", Just Zero)
+      z -> runIO . expectationFailure $ "failed to compile main: " <> show z
+  describe "unsizedEval tests" $ do
+    unitTestUnsized parse "main = d2c 3 succ 0"
+    unitTestUnsized parse
+      $  "main =\n"
+      <> "  let t = \\i -> i\n"
+      <> "      r = \\recur i -> recur (left i)\n"
+      <> "      b = \\i -> (i, 0)\n"
+      <> "  in {t,r,b} 3"
+
+
   {- TODO -- figure out why this broke
     unitTest2 "main = quicksort [4,3,7,1,2,4,6,9,8,5,7]"
       "(1,(2,(3,(4,(4,(5,(6,(7,(7,(8,10))))))))))"
@@ -749,6 +782,17 @@ unitTest2' parse s r = it s $ case fmap compileUnitTest (parse s) of
     else expectationFailure $ concat [s, " result ", r2]) . show . PrettyIExpr
   Right (Left e) -> expectationFailure $ "failed to compile: " <> show e
 
+unitTestUnsized parse s = it ("test unsized with " <> s) $ case fmap compileUnitTest (parse s) of
+  Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
+  Right (Right g) ->
+    let evalStep :: UnsizedExprF (StrictAccum SizedRecursion UnsizedExpr) -> StrictAccum SizedRecursion UnsizedExpr
+        evalStep = basicStepM (stuckStepM (abortStepM (unsizedStepM 255 evalStep unhandledError)))
+        evalU :: UnsizedExpr -> StrictAccum SizedRecursion UnsizedExpr
+        evalU = transformNoDeferM evalStep
+        unhandledError z = error $ ("test unsized " <> s <> " unhandled thing ") -- <> show (getX z))
+        evalUnsized = toTelomare . getX . evalU
+    in pure (testEval' g) `shouldBe` evalUnsized (fromTelomare g)
+
 {-
 runPossible iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
 
@@ -809,5 +853,5 @@ main = do
       Left pe -> error $ show pe
     parse = parseMain prelude
 
-  hspec $ unitTests parse
+  hspec $ unitTests_ parse
     --nexprTests

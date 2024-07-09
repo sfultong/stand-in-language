@@ -42,7 +42,7 @@ import Telomare.Parser (AnnotatedUPT, Pattern (..), PatternF (..),
 import Text.Megaparsec (errorBundlePretty, runParser)
 
 debug :: Bool
-debug = True
+debug = False
 
 debugTrace :: String -> a -> a
 debugTrace s x = if debug then trace s x else x

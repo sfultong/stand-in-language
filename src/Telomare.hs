@@ -367,6 +367,7 @@ instance Show RunTimeError where
   show (GenericRunTimeError s i) = "Generic Runtime Error: " <> s <> " -- " <> show i
   show (ResultConversionError s) = "Couldn't convert runtime result to IExpr: " <> s
 
+-- TODO ExceptT is slow, get rid of it
 type RunResult = ExceptT RunTimeError IO
 
 class TelomareLike a where

@@ -27,11 +27,11 @@ import PrettyPrint
 import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
                  FragExprF (..), FragIndex (FragIndex), IExpr (..), LocTag (..),
                  PartialType (..), RecursionPieceFrag,
-                 RecursionSimulationPieces (..), RunTimeError (..),
+                 RecursionSimulationPieces (..), RunResult, RunTimeError (..),
                  TelomareLike (..), Term3 (Term3), Term4 (Term4),
-                 UnsizedRecursionToken (..), app, forget, g2s, innerChurchF,
-                 insertAndGetKey, pattern AbortAny, pattern AbortRecursion,
-                 pattern AbortUser, rootFrag, s2g, unFragExprUR)
+                 UnsizedRecursionToken (..), app, appF, eval, deferF, forget, g2s, innerChurchF,
+                 insertAndGetKey, pairF, pattern AbortAny, pattern AbortRecursion,
+                 pattern AbortUser, rootFrag, s2g, setEnvF, tag, unFragExprUR)
 import Telomare.Optimizer (optimize)
 import Telomare.Parser (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
 import Telomare.Possible (AbortExpr, VoidF, abortExprToTerm4, evalA, sizeTerm,
@@ -135,6 +135,11 @@ convertPT ll (Term3 termMap) =
       changeFrag = \case
         anno :< AuxFragF (NestedSetEnvs n) -> innerChurchF anno $ ll n
         _ :< AuxFragF (SizingWrapper _ x) -> transformM changeFrag $ unFragExprUR x
+        _ :< AuxFragF (CheckingWrapper anno tc c) ->
+          let performTC = deferF ((\ia -> setEnvF (pairF (setEnvF (pairF (pure $ tag anno AbortFrag) ia))
+                                                        (pure . tag anno $ RightFrag EnvFrag))) $ appF (pure . tag anno $ LeftFrag EnvFrag)
+                                                                                                       (pure . tag anno $ RightFrag EnvFrag))
+          in setEnvF (pairF performTC (pairF (transformM changeFrag $ unFragExprUR tc) (transformM changeFrag $ unFragExprUR c)))
         x -> pure x
       insertChanged :: FragIndex
                     -> Cofree (FragExprF RecursionPieceFrag) LocTag
@@ -226,22 +231,39 @@ schemeEval iexpr = do
   scheme <- hGetContents mhout
   putStrLn scheme
 
+-- converts between easily understood Haskell types and untyped IExprs around an iteration of a Telomare expression
+funWrap' :: (IExpr -> IExpr) -> IExpr -> Maybe (String, IExpr) -> (String, Maybe IExpr)
+funWrap' eval fun inp =
+  let iexpInp = case inp of
+        Nothing -> Zero
+        Just (userInp, oldState) -> Pair (s2g userInp) oldState
+  in case eval (app fun iexpInp) of
+    Zero -> ("aborted", Nothing)
+    Pair disp newState -> (g2s disp, Just newState)
+    z -> ("runtime error, dumped:\n" <> show z, Nothing)
+
+funWrap :: (IExpr -> RunResult IExpr) -> IExpr -> Maybe (String, IExpr) -> IO (String, Maybe IExpr)
+funWrap eval fun inp =
+  let iexpInp = case inp of
+        Nothing -> Zero
+        Just (userInp, oldState) -> Pair (s2g userInp) oldState
+  in runExceptT (eval (app fun iexpInp)) >>= \case
+    Right Zero -> pure ("aborted", Nothing)
+    Right (Pair disp newState) -> pure (g2s disp, Just newState)
+    z -> pure ("runtime error, dumped:\n" <> show z, Nothing)
 
 evalLoop :: IExpr -> IO ()
 evalLoop iexpr =
-  let mainLoop s = do
-        result <- simpleEval $ app iexpr s
-        case result of
-          Zero -> putStrLn "aborted"
-          (Pair disp newState) -> do
-            putStrLn . g2s $ disp
-            case newState of
-              Zero -> putStrLn "done"
-              _ -> do
-                inp <- s2g <$> getLine
-                mainLoop $ Pair inp newState
-          r -> putStrLn ("runtime error, dumped " <> show r)
-  in mainLoop Zero
+  let wrappedEval = funWrap eval iexpr
+      mainLoop s = do
+        (out, nextState) <- wrappedEval s
+        putStrLn out
+        case nextState of
+          Nothing -> pure ()
+          Just ns -> do
+            inp <- getLine
+            mainLoop $ pure (inp, ns)
+  in mainLoop Nothing
 
 -- |Same as `evalLoop`, but keeping what was displayed.
 -- TODO: make evalLoop and evalLoop always share eval method (i.e. simpleEval, hvmEval)
