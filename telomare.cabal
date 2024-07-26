@@ -30,6 +30,7 @@ library
                      , RecursiveDo
                      , LambdaCase
   exposed-modules:     Naturals
+                     , Debug
                      , PrettyPrint
                      , Telomare
                      , Telomare.Eval
