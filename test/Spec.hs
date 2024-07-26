@@ -522,9 +522,21 @@ unitTests_ parse = do
         let eval = funWrap' evalBU g
             unitTestMain s i e = it ("main input " <> i) $ eval (Just (i, s)) `shouldBe` e
         in do
-        unitTestMain Zero "A" ("ascii value of first char is even", Just Zero)
+        unitTestMain Zero "A" ("ascii value of first char is odd", Just Zero)
+        unitTestMain Zero "B" ("ascii value of first char is even", Just Zero)
+      z -> runIO . expectationFailure $ "failed to compile main: " <> show z
+  {-
+  describe "main function tests" $ do
+    testMain <- runIO $ Strict.readFile "minimal.tel"
+    case fmap compileMain (parse testMain) of
+      Right (Right g) ->
+        let eval = funWrap' evalBU g
+            unitTestMain s i e = it ("main input " <> i) $ eval (Just (i, s)) `shouldBe` e
+        in do
+        unitTestMain Zero " " ("#", Just Zero)
         -- unitTestMain Zero "B" ("ascii value of first char is odd", Just Zero)
       z -> runIO . expectationFailure $ "failed to compile main: " <> show z
+-}
     -- unitTest2 "main = d2c 3 succ 0" "3"
     -- unitTestStaticChecks "main : (\\x -> assert (not ($2 left x)) \"A\") = 3" (== Left (StaticCheckError "user abort: X"))
     -- unitTest2 "main = map left [1,2]" "(0,2)" -- test "left" as a function rather than builtin requiring argument
@@ -701,9 +713,10 @@ unitTests parse = do
         let eval = funWrap' evalBU g
             unitTestMain s i e = it ("main input " <> i) $ eval (Just (i, s)) `shouldBe` e
         in do
-        unitTestMain Zero "A" ("ascii value of first char is even", Just Zero)
-        unitTestMain Zero "B" ("ascii value of first char is odd", Just Zero)
+        unitTestMain Zero "A" ("ascii value of first char is odd", Just Zero)
+        unitTestMain Zero "B" ("ascii value of first char is even", Just Zero)
       z -> runIO . expectationFailure $ "failed to compile main: " <> show z
+  {-
   describe "unsizedEval tests" $ do
     unitTestUnsized parse "main = d2c 3 succ 0"
     unitTestUnsized parse
@@ -712,6 +725,7 @@ unitTests parse = do
       <> "      r = \\recur i -> recur (left i)\n"
       <> "      b = \\i -> (i, 0)\n"
       <> "  in {t,r,b} 3"
+-}
 
 
   {- TODO -- figure out why this broke
@@ -782,6 +796,8 @@ unitTest2' parse s r = it s $ case fmap compileUnitTest (parse s) of
     else expectationFailure $ concat [s, " result ", r2]) . show . PrettyIExpr
   Right (Left e) -> expectationFailure $ "failed to compile: " <> show e
 
+-- TODO make this do something meaningful. Currently compiling will remove UnsizedF parts from grammar, so unsizedStepM never triggers
+{-
 unitTestUnsized parse s = it ("test unsized with " <> s) $ case fmap compileUnitTest (parse s) of
   Left e -> expectationFailure $ concat ["failed to parse ", s, " ", show e]
   Right (Right g) ->
@@ -792,6 +808,7 @@ unitTestUnsized parse s = it ("test unsized with " <> s) $ case fmap compileUnit
         unhandledError z = error $ ("test unsized " <> s <> " unhandled thing ") -- <> show (getX z))
         evalUnsized = toTelomare . getX . evalU
     in pure (testEval' g) `shouldBe` evalUnsized (fromTelomare g)
+-}
 
 {-
 runPossible iexpr = evalS (SetEnv (Pair (Defer iexpr) Zero))
