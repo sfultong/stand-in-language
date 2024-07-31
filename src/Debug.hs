@@ -4,7 +4,7 @@ import Data.IORef
 import System.IO.Unsafe
 
 outputLimit :: Int
-outputLimit = 100
+outputLimit = 10000
 {-
 useFile :: Bool
 useFile = True

@@ -10,12 +10,12 @@ drawBoard
                   alt = \n -> (n succ (left "1"), 0)
                   dp = \n -> drawPiece (getPiece n) (alt n)
                   blankRow = "-+-+-\n"
-                  row5 = concat [dp $6, "|", dp $7, "|", dp $8, "\n"]
-                  row4 = concat [blankRow, row5]
-                  row3 = concat [dp $3, "|", dp $4, "|", dp $5, "\n", row4]
-                  row2 = concat [blankRow, row3]
-                  row1 = concat [dp $0, "|", dp $1, "|", dp $2, "\n", row2]
-              in row1
+              in concat [ dp $0, "|", dp $1, "|", dp $2, "\n"
+                        , blankRow
+                        , dp $3, "|", dp $4, "|", dp $5, "\n"
+                        , blankRow
+                        , dp $6, "|", dp $7, "|", dp $8, "\n"
+                        ]
 
 setPiece
  = \player pos board -> let before = take pos board
@@ -31,12 +31,16 @@ fullBoard
 
 emptyBoard = [0,0,0,0,0,0,0,0,0]
 
+-- validInput = \x -> assert (and x (and (not (right x)) (not ($127 left x)))) "invalid input"
+-- validInput = \x -> assert (not ($127 left x)) "invalid input"
+validInput = \x -> assert (and (not ($127 left x)) (not (right x))) "invalid input"
+validPlayer = \x -> assert (not ($3 left x)) "invalid player state"
+validBoard = \x -> assert (not ($9 right x)) "invalid board state"
+
 processInput
- = \string -> if dEqual (listLength string) 1
-                 then let num = dMinus (left string) (left "0")
-                      in if and num (dMinus 10 num)
-                            then num
-                            else 0
+ = \string -> let num = dMinus (left string) (left "0")
+              in if and num (dMinus 10 num)
+                 then num
                  else 0
 
 whoWon
@@ -59,11 +63,10 @@ whoWon
              in foldr combineRow 0 rows
 
 main
- = \input -> let limitedInput = truncate $140 input
-                 placeString = left limitedInput
-                 oldState = right limitedInput
-                 boardIn = right oldState
-                 playerIn = left oldState
+ = \input -> let placeString : validInput = left input
+                 oldState = right input
+                 boardIn : validBoard = right oldState
+                 playerIn : validPlayer = left oldState
                  oldBoard = if boardIn then boardIn else emptyBoard
                  place = processInput placeString
                  placeOccupied = getSquare (d2c (left place)) oldBoard

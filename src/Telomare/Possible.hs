@@ -55,10 +55,11 @@ import Telomare (BreakState' (..), FragExpr (..), FragExprF (..),
 
 -- import           Telomare.TypeChecker
 debug :: Bool
-debug = False
+debug = True
 
 debugTrace :: String -> a -> a
-debugTrace s x = if debug then debugTrace' s x else x
+-- debugTrace s x = if debug then debugTrace' s x else x
+debugTrace s x = if debug then trace s x else x
 
 anaM' :: (Monad m, Corecursive t, x ~ Base t, Traversable x) => (a -> m (Base t a)) -> a -> m t
 anaM' f = c where c = (fmap embed . mapM c) <=< f
@@ -708,9 +709,9 @@ findInputLimitStepM handleOther x = f x where
             x -> error $ "findInputLimitStepM eval unexpected:\n" <> prettyPrint x
           evalStep = basicStep (stuckStep (abortStep (deferredEvalStep (abortDeferredStep (indexedInputStep wrapDefer)))))
           stripBarrier = \case
-            DeferredEE (BarrierF x) -> extractZeroes x
-            _ -> Set.empty
-          s = stripBarrier . transformNoDefer evalStep $ performTC
+            DeferredFW (BarrierF x) -> x
+            x -> embed x
+          s = extractZeroes . cata stripBarrier . (\x -> debugTrace ("findInputLimitStepM tc test is:\n" <> prettyPrint x) x) . transformNoDefer evalStep $ performTC
       in StrictAccum s c
     _ -> handleOther x
 

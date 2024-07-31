@@ -69,6 +69,11 @@ listEqual = \a b -> let pairsEqual = zipWith dEqual a b
 
 listPlus = \a b -> foldr (\x l -> (x,l)) b a
 
+flip = \f a b -> f b a
+
+-- functional concatenation
+con  = \f g x -> g (f x)
+
 concat = foldr listPlus 0
 
 drop = \n l -> n (\x -> right x) l
