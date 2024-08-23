@@ -32,6 +32,7 @@ import Telomare.Eval (EvalError (..), compileUnitTest)
 import Telomare.Parser (TelomareParser, UnprocessedParsedTerm (..),
                         UnprocessedParsedTermF (..), parseAssignment,
                         parseLongExpr, parsePrelude)
+import Telomare.Possible (evalPartial)
 import Telomare.Resolver (process)
 import Telomare.RunTime (fastInterpretEval, simpleEval)
 import Telomare.TypeChecker (inferType)
@@ -177,6 +178,13 @@ replLoop (ReplState bs eval sf) = do
       liftIO $ case runReplParser bs . dropWhile (== ' ') <$> stripPrefix ":d" s of
         Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
           Just iexpr -> putStrLn $ showPIE iexpr
+          _          -> putStrLn "some sort of error?"
+        _ -> putStrLn "parse error"
+      replLoop $ ReplState bs eval sf
+    Just s | ":p" `isPrefixOf` s -> do
+      liftIO $ case runReplParser bs . dropWhile (== ' ') <$> stripPrefix ":p" s of
+        Just (Right (ReplExpr new_bindings)) -> case resolveBinding "_tmp_" new_bindings of
+          Just iexpr -> putStrLn . showPIE $ evalPartial iexpr
           _          -> putStrLn "some sort of error?"
         _ -> putStrLn "parse error"
       replLoop $ ReplState bs eval sf
