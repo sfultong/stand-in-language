@@ -1,0 +1,16 @@
+thing = { \i -> i
+        , \recur i -> recur (left i)
+        , \i -> i
+        }
+
+valid = \x -> assert (not ($33 left x)) " "
+
+main = \input -> let userInput = left input
+                     firstChar = left userInput
+                     limInput : valid = firstChar
+                     oldState = right input
+
+                     output = if thing limInput then "!" else "#"
+                 in if not input
+                    then (" ", 1)
+                    else (output, 0)

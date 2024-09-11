@@ -908,3 +908,10 @@ pattern AbortAny :: IExpr
 pattern AbortAny = Pair (Pair (Pair Zero Zero) Zero) Zero
 pattern AbortUnsizeable :: IExpr -> IExpr
 pattern AbortUnsizeable t = Pair (Pair (Pair (Pair Zero Zero) Zero) Zero) t
+
+convertAbortMessage :: IExpr -> String
+convertAbortMessage = \case
+  AbortRecursion -> "recursion overflow (should be caught by other means)"
+  AbortUser s -> "user abort: " <> g2s s
+  AbortAny -> "user abort of all possible abort reasons (non-deterministic input)"
+  x -> "unexpected abort: " <> show x

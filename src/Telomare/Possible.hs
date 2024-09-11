@@ -51,7 +51,7 @@ import Telomare (BreakState' (..), FragExpr (..), FragExprF (..),
                  indentWithOneChild, indentWithOneChild', indentWithTwoChildren,
                  indentWithTwoChildren', pattern AbortAny,
                  pattern AbortRecursion, pattern AbortUnsizeable, rootFrag,
-                 sindent)
+                 sindent, convertAbortMessage)
 
 -- import           Telomare.TypeChecker
 debug :: Bool
@@ -283,8 +283,9 @@ stuckStep :: (Base a ~ f, StuckBase f, BasicBase f, Recursive a, Corecursive a, 
 stuckStep handleOther = \case
   ff@(FillFunction (StuckEE (DeferSF fid d)) e) -> db $ transformNoDefer (basicStep (stuckStep handleOther) . replaceEnv) d where
     e' = project e
-    db = if False -- fid == toEnum 5
+    db = if False --  fid == toEnum (-6)
       then debugTrace ("stuckstep dumping output:\n" <> prettyPrint (embed ff))
+      -- then debugTrace ("function " <> show fid)
       else id
     replaceEnv = \case
       BasicFW EnvSF -> e'
@@ -346,11 +347,14 @@ gateAbortResult handleOther = \case
   a@(AbortEE (AbortedF _)) -> GateResult False False $ Just a
   x -> handleOther x
 
-gateIndexedResult :: (Base g ~ f, IndexedInputBase f, Recursive g, Corecursive g) => Set Integer -> (g -> GateResult g) -> g -> GateResult g
-gateIndexedResult zeros handleOther = \case
-  IndexedEE (IVarF n) -> if Set.member n zeros
-    then GateResult True True Nothing
-    else GateResult True False Nothing
+gateIndexedResult :: (Base g ~ f, IndexedInputBase f, Recursive g, Corecursive g) => (g -> GateResult g) -> g -> GateResult g
+gateIndexedResult handleOther = \case
+  IndexedEE (IVarF n) -> GateResult True False Nothing
+  x -> handleOther x
+
+gateUnsizedResult :: (Base g ~ f, UnsizedBase f, Recursive g, Corecursive g) => (g -> GateResult g) -> (g -> GateResult g) -> g -> GateResult g
+gateUnsizedResult step handleOther = \case
+  UnsizedEE (SizeStageF _ x)-> step x
   x -> handleOther x
 
 mergeShallow :: (Base g ~ f, SuperBase f, ShallowEq1 f, Recursive g, Corecursive g) => g -> g -> g
@@ -377,6 +381,39 @@ superStep gateResult step handleOther =
         (Just _, Nothing) -> a
         (Nothing, Just _) -> b
         (Just a', Just b') -> pure . superEE $ EitherPF a' b'
+    (FillFunction (SuperEE (EitherPF sca scb)) e) -> mergeShallow
+      (step . embedB . SetEnvSF . basicEE $ PairSF sca e)
+      (step . embedB . SetEnvSF . basicEE $ PairSF scb e)
+    -- stuck values
+    x@(SuperFW (EitherPF _ _)) -> embed x
+    x -> handleOther x
+
+superUnsizedStep :: forall a f. (Base a ~ f, Foldable f, BasicBase f, SuperBase f, UnsizedBase f, ShallowEq1 f, Recursive a, Corecursive a, PrettyPrintable a)
+  => (a -> GateResult a) -> (f a -> a) -> (f a -> a) -> f a -> a
+superUnsizedStep gateResult step handleOther =
+  \case
+    BasicFW (LeftSF (SuperEE (EitherPF a b))) -> mergeShallow (step . embedB . LeftSF $ a) (step . embedB . LeftSF $ b)
+    BasicFW (RightSF (SuperEE (EitherPF a b))) -> mergeShallow (step . embedB . RightSF $ a) (step . embedB . RightSF $ b)
+    BasicFW (SetEnvSF (SuperEE (EitherPF a b))) -> mergeShallow (step . embedB . SetEnvSF $ a) (step . embedB . SetEnvSF $ b)
+    GateSwitch l r x@(SuperEE _) -> case foldr f Nothing [noBranch res, tm l $ leftBranch res, tm r $ rightBranch res] of
+      Nothing -> error "superStep gateswich should have at least one result"
+      Just res' -> if null (unSizedRecursion extracted)
+        then res'
+        else debugTrace ("superUnsizedStep gateswitch") unsizedEE $ SizeStageF extracted res'
+      where
+      res = gateResult x
+      extracted = extractSM x
+      tm b s = if s then Just b else Nothing
+      f :: Maybe a -> Maybe a -> Maybe a
+      f a b = case (a,b) of
+        (Nothing, Nothing) -> Nothing
+        (Just _, Nothing) -> a
+        (Nothing, Just _) -> b
+        (Just a', Just b') -> pure . superEE $ EitherPF a' b'
+      extractSM = cata f where
+        f = \case
+          UnsizedFW (SizeStageF sm x) -> sm <> x
+          x -> Data.Foldable.fold x
     (FillFunction (SuperEE (EitherPF sca scb)) e) -> mergeShallow
       (step . embedB . SetEnvSF . basicEE $ PairSF sca e)
       (step . embedB . SetEnvSF . basicEE $ PairSF scb e)
@@ -413,6 +450,15 @@ superStepM gateResult step handleOther x = f x where
 
     _ -> handleOther x
 
+superAbortStep :: (Base g ~ f, Traversable f, BasicBase f, SuperBase f, AbortBase f, ShallowEq1 f, Recursive g, Corecursive g)
+  => (f g -> g) -> (f g -> g) -> f g -> g
+superAbortStep step handleOther x = f x where
+  pbStep bf = step . project . bf
+  f = \case
+    FillFunction (AbortEE AbortF) (SuperEE (EitherPF a b)) ->
+      mergeShallow (pbStep (fillFunction (abortEE AbortF)) a) (pbStep (fillFunction (abortEE AbortF)) b)
+    _ -> handleOther x
+
 superAbortStepM :: (Base g ~ f, Traversable f, BasicBase f, SuperBase f, AbortBase f, ShallowEq1 f, Recursive g, Corecursive g, Monad m)
   => (f g -> m g) -> (f g -> m g) -> f g -> m g
 superAbortStepM step handleOther x = f x where
@@ -422,11 +468,22 @@ superAbortStepM step handleOther x = f x where
       liftM2 mergeShallow (pbStep (fillFunction (abortEE AbortF)) a) (pbStep (fillFunction (abortEE AbortF)) b)
     _ -> handleOther x
 
+indexedAbortStep :: (Base a ~ f, Traversable f, BasicBase f, AbortBase f, IndexedInputBase f, Recursive a, Corecursive a, PrettyPrintable a)
+  => (f a -> a) -> f a -> a
+indexedAbortStep handleOther = \case
+  FillFunction (AbortEE AbortF) (IndexedEE (IVarF n)) -> abortEE $ AbortedF AbortAny
+  x -> handleOther x
+
 indexedAbortStepM :: (Base a ~ f, Traversable f, BasicBase f, AbortBase f, IndexedInputBase f, Recursive a, Corecursive a, PrettyPrintable a, Monad m)
   => (f a -> m a) -> f a -> m a
 indexedAbortStepM handleOther = \case
   FillFunction (AbortEE AbortF) (IndexedEE (IVarF n)) -> pure . abortEE $ AbortedF AbortAny
+  x -> handleOther x
 
+indexedSuperStep :: (Base a ~ f, Traversable f, BasicBase f, SuperBase f, IndexedInputBase f, Recursive a, Corecursive a, PrettyPrintable a)
+  => (f a -> a) -> f a -> a
+indexedSuperStep handleOther = \case
+  GateSwitch l r (IndexedEE (IVarF _)) -> superEE $ EitherPF l r
   x -> handleOther x
 
 indexedSuperStepM :: (Base a ~ f, Traversable f, BasicBase f, SuperBase f, IndexedInputBase f, Recursive a, Corecursive a, PrettyPrintable a, Monad m)
@@ -464,7 +521,6 @@ abortStep handleOther =
     FillFunction a@(AbortEE (AbortedF _)) _ -> a
     GateSwitch _ _ a@(AbortEE (AbortedF _)) -> a
     FillFunction (AbortEE AbortF) (BasicEE ZeroSF) -> deferB abortInd . basicEE $ EnvSF
-    -- BasicFW (FillFunction (AbortEE AbortF) (TwoEE AnyPF)) -> embed . ThreeFW . AbortedF $ AbortAny
     FillFunction (AbortEE AbortF) e@(BasicEE (PairSF _ _)) -> abortEE $ AbortedF m where
       m = cata truncF e
       truncF = \case
@@ -497,10 +553,11 @@ abortStepM handleOther x = f x where
     x@(AbortFW AbortF) -> pure $ embed x
     _ -> handleOther x
 
-newtype SizedRecursion = SizedRecursion { unSizedRecursion :: Map UnsizedRecursionToken Int}
+newtype SizedRecursion = SizedRecursion { unSizedRecursion :: Map UnsizedRecursionToken (Maybe Int)}
+  deriving (Eq, Ord, Show)
 
 instance Semigroup SizedRecursion where
-  (<>) (SizedRecursion a) (SizedRecursion b) = SizedRecursion $ Map.unionWith max a b
+  (<>) (SizedRecursion a) (SizedRecursion b) = SizedRecursion $ Map.unionWith (liftM2 max) a b where
 
 instance Monoid SizedRecursion where
   mempty = SizedRecursion Map.empty
@@ -541,12 +598,36 @@ twiddleB = deferB twiddleInd $ pairB (leftB (rightB envB)) (pairB (leftB envB) (
 appB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g -> g -> g
 appB c i = setEnvB (setEnvB (pairB twiddleB (pairB i c)))
 
-unsizedStepM :: forall a f. (Base a ~ f, Traversable f, BasicBase f, StuckBase f, SuperBase f, AbortBase f, IndexedInputBase f, UnsizedBase f
-                            , Recursive a, Corecursive a, Eq a, PrettyPrintable a)
-  => Int -> Set Integer
-  -> (f a -> StrictAccum SizedRecursion a) -> (f a -> StrictAccum SizedRecursion a) -> f a -> StrictAccum SizedRecursion a
-unsizedStepM maxSize zeroes fullStep handleOther x = f x where
-  f = \case
+unsizedTestIndexed :: (Base g ~ f, BasicBase f, AbortBase f, IndexedInputBase f, Recursive g, Corecursive g)
+  => Set Integer -> (UnsizedRecursionToken -> g -> g) -> UnsizedRecursionToken -> g -> g
+unsizedTestIndexed zeroes handleOther ri = \case
+  iv@(IndexedEE (IVarF n)) -> debugTrace ("evalRecursionTest ivar " <> show n) $ if isUnbounded zeroes n
+    then debugTrace ("evalRecursion punted to abort on " <> show n) abortEE . AbortedF . AbortUnsizeable . i2g . fromEnum $ ri
+    else iv
+  x -> handleOther ri x
+
+unsizedTestSuper :: (Base g ~ f, SuperBase f, Recursive g, Corecursive g)
+  => (g -> g) -> (UnsizedRecursionToken -> g -> g) -> UnsizedRecursionToken -> g -> g
+unsizedTestSuper reTest handleOther ri = \case
+  SuperEE (EitherPF a b) -> superEE $ EitherPF (reTest a) (reTest b)
+  x -> handleOther ri x
+
+unsizedTestDeferred :: (Base g ~ f, DeferredEvalBase f, Recursive g, Corecursive g)
+  => (UnsizedRecursionToken -> g -> g) -> UnsizedRecursionToken -> g -> g
+unsizedTestDeferred handleOther ri = \case
+  x@(DeferredEE (BarrierF _)) -> x
+  x -> handleOther ri x
+
+unsizedStep :: forall a f. (Base a ~ f, Traversable f, BasicBase f, StuckBase f, AbortBase f, UnsizedBase f
+                           , Recursive a, Corecursive a, Eq a, PrettyPrintable a)
+  => Int -> (UnsizedRecursionToken -> (a -> a) -> a -> a)
+  -> (f a -> a) -> (f a -> a) -> f a -> a
+unsizedStep maxSize recursionTest fullStep handleOther =
+  let combineSizes :: SizedRecursion -> a -> a
+      combineSizes sm = \case
+        UnsizedEE (SizeStageF smb x) -> unsizedEE $ SizeStageF (smb <> sm) x
+        x -> unsizedEE $ SizeStageF sm x
+  in \case
     UnsizedFW (SizingWrapperF tok (BasicEE (PairSF d (BasicEE (PairSF b (BasicEE (PairSF r (BasicEE (PairSF tp (BasicEE ZeroSF))))))))))
       -> case tp of
             BasicEE (PairSF (StuckEE (DeferSF sid tf)) e) ->
@@ -559,7 +640,8 @@ unsizedStepM maxSize zeroes fullStep handleOther x = f x where
                   argFive = leftB (rightB (rightB (rightB (rightB envB))))
                   iteB i t e = fillFunction (fillFunction (gateB (deferB unsizedStepMEInd e) (deferB unsizedStepMTInd t)) i) envB -- TODO THIS IS HOW TO DO LAZY IF/ELSE, COPY!
                   abrt = lamB unsizedStepMa . abortEE . AbortedF $ AbortRecursion
-                  rf n = lamB unsizedStepMrfb (lamB unsizedStepMrfa (unsizedEE . SizeStageF tok n $ iteB (appB argFive argOne)
+                  rf n = lamB unsizedStepMrfb (lamB unsizedStepMrfa (unsizedEE . SizeStageF (SizedRecursion . Map.singleton tok $ pure n)
+                                                                     $ iteB (appB argFive argOne)
                                                                          (appB (appB argFour argTwo) argOne)
                                                                          (appB argThree argOne)))
                   -- rf' n = appB (rf n) (rf' (n + 1))
@@ -567,31 +649,34 @@ unsizedStepM maxSize zeroes fullStep handleOther x = f x where
                     -- then error "reached recursion limit"
                     then abrt
                     else appB (rf n) (rf' (n + 1))
-              in pure $ pairB (deferB unsizedStepMw $ rf' 1) trb
+              in pairB (deferB unsizedStepMw $ rf' 1) trb
     UnsizedFW (RecursionTestF ri x) ->
       let test = \case
             z@(BasicEE ZeroSF) -> z
             p@(BasicEE (PairSF _ _)) -> p
-            IndexedEE (IVarF n) -> debugTrace ("evalRecursionTest ivar " <> show n) $ if isUnbounded zeroes n
-              then debugTrace ("evalRecursion punted to abort on " <> show n) abortEE . AbortedF . AbortUnsizeable . i2g . fromEnum $ ri
-              else if Set.member n zeroes
-              then zeroB
-              else pairB zeroB zeroB
-            SuperEE (EitherPF a b) -> superEE $ EitherPF (test a) (test b)
             a@(AbortEE (AbortedF _)) -> a
-            z -> error ("evalRecursionTest checkTest unexpected\n" <> prettyPrint z)
-      in pure $ test x
-    UnsizedFW (SizeStageF urt n x) -> debugTrace ("unsizedStepM hit size of " <> show (urt, n)) StrictAccum (SizedRecursion $ Map.singleton urt n) x
+            s@(UnsizedEE (SizeStageF sm x)) -> unsizedEE . SizeStageF sm $ test x
+            x -> recursionTest ri test x
+      in test x
+    BasicFW (LeftSF (UnsizedEE (SizeStageF sm x))) -> combineSizes sm . fullStep . embedB $ LeftSF x
+    BasicFW (RightSF (UnsizedEE (SizeStageF sm x))) -> combineSizes sm . fullStep . embedB $ RightSF x
+    BasicFW (SetEnvSF (UnsizedEE (SizeStageF sm x))) -> combineSizes sm . fullStep . embedB $ SetEnvSF x
+    FillFunction (UnsizedEE (SizeStageF sm x)) e -> combineSizes sm . fullStep . project $ fillFunction x e
+    GateSwitch l r (UnsizedEE (SizeStageF sm x)) -> combineSizes sm . fullStep . project $ gateSwitch l r x
     -- stuck value
-    t@(UnsizedFW (RecursionTestF _ _)) -> pure $ embed t
-    _ -> handleOther x
+    ss@(UnsizedFW (SizeStageF _ _)) -> embed ss
+    t@(UnsizedFW (RecursionTestF _ _)) -> embed t
+    x -> handleOther x
 
-indexedInputStep :: (Base a ~ f, BasicBase f, IndexedInputBase f, Recursive a, Corecursive a) => (f a -> a) -> f a -> a
-indexedInputStep handleOther = \case
-  BasicFW (LeftSF (IndexedEE (IVarF n))) -> indexedEE . IVarF $ n * 2 + 1
-  BasicFW (RightSF (IndexedEE (IVarF n))) -> indexedEE . IVarF $ n * 2 + 2
+indexedInputStep :: (Base a ~ f, BasicBase f, IndexedInputBase f, Recursive a, Corecursive a) => Set Integer -> (f a -> a) -> f a -> a
+indexedInputStep zeroes handleOther =
+  let res n = if Set.member n zeroes then zeroB else indexedEE $ IVarF n
+  in \case
+  BasicFW (LeftSF (IndexedEE (IVarF n))) -> res $ n * 2 + 1
+  BasicFW (RightSF (IndexedEE (IVarF n))) -> res $ n * 2 + 2
   BasicFW (LeftSF (IndexedEE AnyF)) -> indexedEE AnyF
   BasicFW (RightSF (IndexedEE AnyF)) -> indexedEE AnyF
+  IndexedFW (IVarF n) -> res n
   -- stuck values
   i@(IndexedFW _) -> embed i
 
@@ -625,13 +710,6 @@ indexSwitchSuperSplitStep handleOther = \case
   GateSwitch l r (IndexedEE AnyF) -> superEE $ EitherPF l r
 
   x -> handleOther x
-
-
-zeroedInputStepM :: (Base a ~ g, Traversable f, IndexedInputBase f, BasicBase g, Corecursive a, Monad m) => Set Integer -> (f a -> m a) -> f a -> m a
-zeroedInputStepM zeros handleOther = f where
-  f = \case
-    IndexedFW (IVarF n) | Set.member n zeros -> pure $ basicEE ZeroSF
-    x -> handleOther x
 
 deferredEvalStep :: (Base a ~ f, Traversable f, BasicBase f, DeferredEvalBase f, Recursive a, Corecursive a, PrettyPrintable a)
   => (f a -> a) -> f a -> a
@@ -688,16 +766,23 @@ extractZeroes = cleanup . f Nothing where
     p@(BasicFW (PairSF _ _)) -> case expected of
       Just False -> Nothing
       _ -> pure . pure $ embed p
-    IndexedFW (IVarF n) | expected == Just False -> Just (StrictAccum (Set.singleton n) $ basicEE ZeroSF)
+    IndexedFW (IVarF n) -> case expected of
+      Just False -> Just (StrictAccum (Set.singleton n) $ basicEE ZeroSF)
+      Just True -> Just (StrictAccum Set.empty $ pairB zeroB zeroB)
+      _ -> Just (StrictAccum Set.empty zeroB)
     FillFunction (AbortEE AbortF) i -> f (Just False) i
     GateSwitch l r s ->
       let nl = f expected l
           nr = f expected r
+          pf = \case
+            Just (StrictAccum s _) -> s
+            _ -> Set.empty
+      -- in debugTrace ("extractZeroes gate switch " <> show expected <> " " <> show (pf nl, pf nr) <> "\n" <> prettyPrint s) $ case (nl, nr) of
       in case (nl, nr) of
         (Nothing, Nothing) -> Nothing
-        (Just (StrictAccum _ x), Just _) -> case f Nothing s of
+        (Just (StrictAccum sta x), Just (StrictAccum stb _)) -> case f Nothing s of
           Nothing -> Nothing
-          Just (StrictAccum st _) -> pure $ StrictAccum st x
+          Just (StrictAccum st _) -> pure $ StrictAccum (st <> Set.intersection sta stb) x
         (Just (StrictAccum sta x), _) -> case f (Just False) s of
           Nothing -> Nothing
           Just (StrictAccum stb _) -> pure $ StrictAccum (sta <> stb) x
@@ -718,7 +803,7 @@ findInputLimitStepM handleOther x = f x where
           wrapDefer = \case
             g@(GateSwitch _ _ (IndexedEE _)) -> deferredEE . BarrierF $ embed g
             x -> error $ "findInputLimitStepM eval unexpected:\n" <> prettyPrint x
-          evalStep = basicStep (stuckStep (abortStep (deferredEvalStep (abortDeferredStep (indexedInputStep wrapDefer)))))
+          evalStep = basicStep (stuckStep (abortStep (deferredEvalStep (abortDeferredStep (indexedInputStep Set.empty wrapDefer)))))
           stripBarrier = \case
             DeferredFW (BarrierF x) -> x
             x -> embed x
@@ -806,7 +891,7 @@ data UnsizedRecursionF f
   = RecursionTestF UnsizedRecursionToken f
   | UnsizedStubF UnsizedRecursionToken f
   | SizingWrapperF UnsizedRecursionToken f
-  | SizeStageF UnsizedRecursionToken Int f
+  | SizeStageF SizedRecursion f
   | RefinementWrapperF LocTag f f
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
@@ -818,7 +903,7 @@ instance Eq1 UnsizedRecursionF where
 instance Show1 UnsizedRecursionF where
   liftShowsPrec showsPrec showList prec x = case x of
     RecursionTestF be x -> shows "RecursionTestF (" . shows be . shows " " . showsPrec 0 x . shows ")"
-    SizeStageF urt n x -> shows "SizeStageF " . shows urt . shows "_" . shows n
+    SizeStageF sm x -> shows "SizeStageF " . shows sm
       . shows " (" . showsPrec 0 x . shows ")"
 
 instance PrettyPrintable1 PartExprF where
@@ -844,14 +929,14 @@ instance PrettyPrintable1 FuzzyInputF where
 instance PrettyPrintable1 AbortableF where
   showP1 = \case
     AbortF      -> pure "!"
-    AbortedF am -> pure $ "(aborted) " <> show am
+    AbortedF am -> pure $ "(aborted - " <> convertAbortMessage am <> ")"
 
 instance PrettyPrintable1 UnsizedRecursionF where
   showP1 = \case
     RecursionTestF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("T(" <> show ind <> ")") $ showP x
     SizingWrapperF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("&(" <> show ind <> ")") $ showP x
     UnsizedStubF (UnsizedRecursionToken ind) x -> indentWithOneChild' ("#" <> show ind) $ showP x
-    SizeStageF (UnsizedRecursionToken ind) n x -> indentWithOneChild' ("^" <> show ind <> "|" <> show n) $ showP x
+    SizeStageF _ x -> indentWithOneChild' "^" $ showP x
     RefinementWrapperF l tc x -> indentWithTwoChildren' (":" <> show l) (showP tc) (showP x)
 
 instance PrettyPrintable1 VoidF where
@@ -1206,6 +1291,15 @@ instance IndexedInputBase InputSizingExprF where
   extractI = \case
     InputSizingI x -> Just x
     _ -> Nothing
+instance Eq1 InputSizingExprF where
+  liftEq test a b = case (a,b) of
+    (InputSizingB x, InputSizingB y) -> liftEq test x y
+    (InputSizingS x, InputSizingS y) -> liftEq test x y
+    (InputSizingA x, InputSizingA y) -> liftEq test x y
+    (InputSizingU x, InputSizingU y) -> liftEq test x y
+    (InputSizingD x, InputSizingD y) -> liftEq test x y
+    (InputSizingI x, InputSizingI y) -> liftEq test x y
+    _ -> False
 instance Show1 InputSizingExprF where
   liftShowsPrec showsPrec showList prec = \case
     InputSizingB x -> liftShowsPrec showsPrec showList prec x
@@ -1326,45 +1420,66 @@ isClosure = \case
   _                                          -> False
 
 sizeTerm :: Int -> UnsizedExpr -> Either UnsizedRecursionToken AbortExpr
-sizeTerm maxSize x = tidyUp . transformNoDeferM evalStep $ cm where
+sizeTerm maxSize x = tidyUp . foldAborted . transformNoDefer evalStep $ peTerm where
   failConvert x = error $ "sizeTerm convert, unhandled:\n" <> prettyPrint x
   zeros = (\x -> debugTrace ("sizeTerm zeros are " <> show x) x) $ getInputLimits x
   convertForPartial :: UnsizedExpr -> InputSizingExpr
   convertForPartial = cata $ convertBasic (convertStuck (convertAbort (convertUnsized (convertIndexed failConvert))))
   convertFromPartial :: InputSizingExpr -> UnsizedExpr
   convertFromPartial = cata $ convertBasic (convertStuck (convertAbort (convertUnsized (convertIndexed failConvert))))
-  cm = convertFromPartial . evalPartial' . convertForPartial . removeRefinementWrappers $ capMain (indexedEE $ IVarF 0) x
-  tidyUp (StrictAccum (SizedRecursion sm) r) = debugTrace ("sizes are: " <> show sm <> "\nand result is:\n" <> prettyPrint r) $ case foldAborted r of
-    Just (UnsizableSR i) -> Left i
-    _ -> let sized = setSizes sm cm
-         in pure . clean $ if isClosure x
-            then uncap sized
-            else sized
+  cm = (\x -> debugTrace ("capped main term\n" <> prettyPrint x) x) . removeRefinementWrappers . capMain (indexedEE $ IVarF 0) $ convertForPartial x
+  tidyUp =  \case
+    (Just (UnsizableSR i), sm) -> Left i
+    (_, SizedRecursion sm) -> let sized = debugTrace ("sizes are: " <> show sm) setSizes sm peTerm
+                              in pure . clean $ if isClosure x
+                                                then uncap sized
+                                                else sized
       where uncap = \case
               BasicEE (SetEnvSF (BasicEE (PairSF d _))) -> basicEE $ PairSF d (basicEE ZeroSF)
               z -> error ("sizeTerm tidyUp trying to uncap something that isn't a main function: " <> show z)
   clean :: UnsizedExpr -> AbortExpr
   clean = cata (convertBasic (convertStuck (convertAbort failConvert)))
-  setSizes :: Map UnsizedRecursionToken Int -> UnsizedExpr -> UnsizedExpr
+  convertPartialError x = error ("convertPartialSizing unhandled " <> prettyPrint x)
+  tracePartialSizes = id
+  setSizes :: Map UnsizedRecursionToken (Maybe Int) -> UnsizedExpr -> UnsizedExpr
   setSizes sizeMap = cata $ \case
     UnsizedFW sw@(SizingWrapperF tok sx) -> sx
-    UnsizedFW us@(UnsizedStubF tok _) -> case Map.lookup tok sizeMap of
-      Just n -> debugTrace ("sizeTerm setting size: " <> show (tok, n)) iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
+    UnsizedFW us@(UnsizedStubF tok _) -> tracePartialSizes $ case Map.lookup tok sizeMap of
+      Just (Just n) -> debugTrace ("sizeTerm setting size: " <> show (tok, n)) iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
       _      ->  basicEE . SetEnvSF $ basicEE EnvSF
+    x -> embed x
+  setSomeSizes :: Map UnsizedRecursionToken (Maybe Int) -> InputSizingExpr -> InputSizingExpr
+  setSomeSizes sizeMap = cata $ \case
+    UnsizedFW sw@(SizingWrapperF tok sx) -> case Map.lookup tok sizeMap of
+      Just (Just _) -> sx
+      _ -> embed $ embedU sw
+    UnsizedFW us@(UnsizedStubF tok _) -> tracePartialSizes $ case Map.lookup tok sizeMap of
+      Just (Just n) -> iterate (basicEE . SetEnvSF) (basicEE EnvSF) !! n
+      _      -> embed $ embedU us
     x -> embed x
   foldAborted = cata f where
     f = \case
-      AbortFW (AbortedF AbortRecursion) -> Just . UnsizableSR $ toEnum (-2)
-      AbortFW (AbortedF AbortAny) -> Just . UnsizableSR $ toEnum (-1)
-      AbortFW (AbortedF (AbortUnsizeable t)) -> Just . UnsizableSR . toEnum . g2i $ t
+      AbortFW (AbortedF AbortRecursion) -> (Just . UnsizableSR $ toEnum (-2), mempty)
+      AbortFW (AbortedF AbortAny) -> (Just . UnsizableSR $ toEnum (-1), mempty)
+      AbortFW (AbortedF (AbortUnsizeable t)) -> (Just . UnsizableSR . toEnum . g2i $ t, mempty)
+      UnsizedFW (SizeStageF sm x) -> (Nothing, sm) <> x
       x                                 -> Data.Foldable.fold x
+  nextPartialSizing (SizedRecursion sm, expr) = debugTrace ("partialSizes setting " <> show sm) $
+    if not (null sm)
+    then let nexpr = setSomeSizes sm expr in (evalPartialUnsized zeros nexpr, nexpr)
+    else (evalPartialUnsized zeros expr, expr)
+  hasSizes (SizedRecursion sm, _) = not . null $ Map.filter (not . null) sm
+  peTerm = convertFromPartial . snd . head . dropWhile hasSizes . tail
+    $ iterate nextPartialSizing (SizedRecursion Map.empty, cm)
   unhandledMerge x y = error ("sizeTerm unhandledMerge: " <> show (x,y))
   unhandledGate x = error ("sizeTerm unhandled gate input: " <> show x)
-  gateResult = debugTrace "g" gateBasicResult (gateAbortResult (gateIndexedResult zeros (gateSuperResult gateResult unhandledGate)))
-  evalStep = debugTrace "s" basicStepM (stuckStepM (abortStepM (indexedAbortStepM (indexedInputStepM (indexedSuperStepM (zeroedInputStepM zeros (superStepM gateResult evalStep (superAbortStepM evalStep (unsizedStepM maxSize zeros evalStep unhandledError)))))))))
+  gateResult = debugTrace "gateResult" gateBasicResult (gateAbortResult (gateIndexedResult (gateSuperResult gateResult (gateUnsizedResult gateResult unhandledGate))))
+  unsizedTest :: UnsizedRecursionToken -> (UnsizedExpr -> UnsizedExpr) -> UnsizedExpr -> UnsizedExpr
+  unsizedTest ri reTest = debugTrace "unsizedTest" unsizedTestIndexed zeros (unsizedTestSuper reTest (\_ x -> error ("sizeTerm unsizedTest unhandled " <> prettyPrint x))) ri
+  evalStep = debugTrace "s" basicStep (stuckStep (abortStep (indexedAbortStep (indexedInputStep zeros (indexedSuperStep (superUnsizedStep gateResult evalStep (superAbortStep evalStep (unsizedStep maxSize unsizedTest evalStep unhandledError))))))))
   unhandledError x = error ("sizeTerm unhandled case\n" <> prettyPrint x)
 
-removeRefinementWrappers :: UnsizedExpr -> UnsizedExpr
+removeRefinementWrappers :: (Base g ~ f, BasicBase f, StuckBase f, AbortBase f, UnsizedBase f, Recursive g, Corecursive g) => g -> g
 removeRefinementWrappers = cata f where
   f = \case
     UnsizedFW (RefinementWrapperF lt tc c) ->
@@ -1473,7 +1588,7 @@ evalA :: (Maybe IExpr -> Maybe IExpr -> Maybe IExpr) -> Maybe IExpr -> Term4 -> 
 evalA combine base t =
   let unhandledError x = error ("evalA unhandled case " <> prettyPrint x)
       runResult = let aStep :: SuperExprF SuperExpr -> SuperExpr
-                      aStep = basicStep (stuckStep (indexedInputStep (indexSwitchSuperSplitStep (superStep aGate aStep (abortStep unhandledError)))))
+                      aStep = basicStep (stuckStep (indexedInputStep Set.empty (indexSwitchSuperSplitStep (superStep aGate aStep (abortStep unhandledError)))))
                       aGate = gateBasicResult (gateAbortResult (gateSuperResult aGate unhandledError))
                       eval' :: SuperExpr -> SuperExpr
                       eval' = transformNoDefer aStep
@@ -1484,28 +1599,9 @@ evalA combine base t =
         x                    -> foldr (<|>) Nothing x
   in flip combine base . cata getAborted $ runResult
 
-evalPartial :: IExpr -> IExpr
-evalPartial x = toI . transformNoDefer step $ fromI x where
-  fromI = fromTelomare
-  toI :: DeferredExpr -> IExpr
-  toI x = case toTelomare x of
-    Just x -> x
-    _ -> error "evalPartial could not convert back"
-  deferStep handleOther = \case
-    StuckFW (DeferSF id x) -> deferB (fromEnum id) . cata removeBarriers $ transformNoDefer (step . addBarrier) x
-    x -> handleOther x
-  step = deferStep (basicStep (stuckStep (deferredEvalStep' unhandled)))
-  unhandled x = error $ "evalPartial unhandled " <> prettyPrint x
-  addBarrier = \case
-    BasicFW EnvSF -> embedD $ BarrierF envB
-    x -> x
-  removeBarriers = \case
-    DeferredFW (BarrierF x) -> x
-    x -> embed x
-
-evalPartial' :: (Base g ~ f, Traversable f, BasicBase f, StuckBase f, DeferredEvalBase f, Recursive g, Corecursive g, PrettyPrintable g)
+evalPartial :: (Base g ~ f, Traversable f, BasicBase f, StuckBase f, DeferredEvalBase f, Recursive g, Corecursive g, PrettyPrintable g)
   => g -> g
-evalPartial' = cata removeBarriers . transformNoDefer step where
+evalPartial = cata removeBarriers . transformNoDefer step where
   step = deferStep (basicStep (stuckStep (deferredEvalStep' wrapUnknownStep)))
   deferStep handleOther = \case
     StuckFW (DeferSF id x) -> deferB (fromEnum id) . cata removeBarriers $ transformNoDefer (step . addBarrier) x
@@ -1517,4 +1613,26 @@ evalPartial' = cata removeBarriers . transformNoDefer step where
     DeferredFW (BarrierF x) -> x
     x -> seq x $ embed x -- does seq have any performance consequence here?
   wrapUnknownStep = deferredEE . BarrierF . embed
+
+evalPartialUnsized :: Set Integer -> InputSizingExpr -> SizedRecursion
+evalPartialUnsized zeroes = cata gatherLimits . transformNoDefer step where
+  unsizedTest ri reTest = unsizedTestIndexed zeroes (unsizedTestDeferred (\_ x -> error ("evalPartialUnsized unsizedTest unhandled:\n" <> prettyPrint x))) ri
+  step = deferStep (basicStep (stuckStep (deferredEvalStep' (indexedInputStep zeroes (abortStep (abortDeferredStep (unsizedStep 255 unsizedTest step wrapUnknownStep)))))))
+  -- dof id =  debugTrace ("doing function " <> show id)
+  dof _ =  id
+  deferStep handleOther = \case
+    StuckFW (DeferSF id x) -> dof id deferB (fromEnum id) . cata removeBarriers $ transformNoDefer (step . addBarrier) x
+    x -> handleOther x
+  addBarrier = \case
+    BasicFW EnvSF -> embedD $ BarrierF envB
+    x -> x
+  removeBarriers = \case
+    DeferredFW (BarrierF x) -> x
+    x -> embed x
+  -- wrapUnknownStep = deferredEE . BarrierF . embed . (\x -> debugTrace ("unknown dump:\n" <> prettyPrint x) x)
+  wrapUnknownStep = deferredEE . BarrierF . embed
+  gatherLimits = \case
+    UnsizedFW (RecursionTestF ri x) -> SizedRecursion $ Map.singleton ri Nothing
+    UnsizedFW (SizeStageF sm x) -> sm <> x
+    x -> Data.Foldable.fold x
 

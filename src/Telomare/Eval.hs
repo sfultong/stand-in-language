@@ -29,8 +29,8 @@ import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
                  PartialType (..), RecursionPieceFrag,
                  RecursionSimulationPieces (..), RunResult, RunTimeError (..),
                  TelomareLike (..), Term3 (Term3), Term4 (Term4),
-                 UnsizedRecursionToken (..), app, appF, eval, deferF, forget, g2s, innerChurchF,
-                 insertAndGetKey, pairF, pattern AbortAny, pattern AbortRecursion,
+                 UnsizedRecursionToken (..), app, appF, eval, convertAbortMessage, deferF, forget, g2s,
+                 innerChurchF, insertAndGetKey, pairF, pattern AbortAny, pattern AbortRecursion,
                  pattern AbortUser, rootFrag, s2g, setEnvF, tag, unFragExprUR)
 import Telomare.Optimizer (optimize)
 import Telomare.Parser (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
@@ -177,13 +177,6 @@ removeChecks (Term4 m) =
         envDefer <- insertAndGetKey $ DummyLoc :< EnvFragF
         insertAndGetKey $ DummyLoc :< DeferFragF envDefer
   in Term4 $ Map.map (transform f) newM
-
-convertAbortMessage :: IExpr -> String
-convertAbortMessage = \case
-  AbortRecursion -> "recursion overflow (should be caught by other means)"
-  AbortUser s -> "user abort: " <> g2s s
-  AbortAny -> "user abort of all possible abort reasons (non-deterministic input)"
-  x -> "unexpected abort: " <> show x
 
 runStaticChecks :: Term4 -> Either EvalError Term4
 runStaticChecks t@(Term4 termMap) =
