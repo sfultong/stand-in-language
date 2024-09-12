@@ -352,15 +352,32 @@ gateIndexedResult handleOther = \case
   IndexedEE (IVarF n) -> GateResult True False Nothing
   x -> handleOther x
 
-gateUnsizedResult :: (Base g ~ f, UnsizedBase f, Recursive g, Corecursive g) => (g -> GateResult g) -> (g -> GateResult g) -> g -> GateResult g
-gateUnsizedResult step handleOther = \case
-  UnsizedEE (SizeStageF _ x)-> step x
-  x -> handleOther x
+{-
+gateUnsizedResult :: (Base g ~ f, UnsizedBase f, SuperBase f, Recursive g, Corecursive g) => (g -> g -> g -> GateResult g) -> (g -> g -> g -> GateResult g)
+  -> g -> g -> g -> GateResult g
+gateUnsizedResult step handleOther l r = \case
+  -- UnsizedEE (SizeStageF _ x) -> step l r x
+  UnsizedEE (SizeStageF sr x) -> GateResult False False . pure . unsizedEE . SizeStageF sr . foldGateResult l r $ step l r x
+  x -> handleOther l r x
+-}
 
 mergeShallow :: (Base g ~ f, SuperBase f, ShallowEq1 f, Recursive g, Corecursive g) => g -> g -> g
 mergeShallow a b = if shallowEq1 (project a) (project b)
   then a
   else superEE $ EitherPF a b
+
+foldGateResult :: forall g f. (Base g ~ f, SuperBase f, Corecursive g) => g -> g -> GateResult g -> g
+foldGateResult l r (GateResult doL doR o) = fromJust $ foldr f Nothing [o, tm l doL, tm r doR] where
+  fromJust = \case
+    Nothing -> error "foldGateResult: no results"
+    Just x -> x
+  tm b s = if s then Just b else Nothing
+  f :: Maybe g -> Maybe g -> Maybe g
+  f a b = case (a,b) of
+    (Nothing, Nothing) -> Nothing
+    (Just _, Nothing) -> a
+    (Nothing, Just _) -> b
+    (Just a', Just b') -> pure . superEE $ EitherPF a' b'
 
 superStep :: forall a f. (Base a ~ f, BasicBase f, SuperBase f, ShallowEq1 f, Recursive a, Corecursive a, PrettyPrintable a)
   => (a -> GateResult a) -> (f a -> a) -> (f a -> a) -> f a -> a
@@ -369,11 +386,12 @@ superStep gateResult step handleOther =
     BasicFW (LeftSF (SuperEE (EitherPF a b))) -> mergeShallow (step . embedB . LeftSF $ a) (step . embedB . LeftSF $ b)
     BasicFW (RightSF (SuperEE (EitherPF a b))) -> mergeShallow (step . embedB . RightSF $ a) (step . embedB . RightSF $ b)
     BasicFW (SetEnvSF (SuperEE (EitherPF a b))) -> mergeShallow (step . embedB . SetEnvSF $ a) (step . embedB . SetEnvSF $ b)
+  {-
     GateSwitch l r x@(SuperEE _) -> case foldr f Nothing [noBranch res, tm l $ leftBranch res, tm r $ rightBranch res] of
       Nothing -> error "superStep gateswich should have at least one result"
       Just res' -> res'
       where
-      res = gateResult x
+      res = gateResult l r x
       tm b s = if s then Just b else Nothing
       f :: Maybe a -> Maybe a -> Maybe a
       f a b = case (a,b) of
@@ -381,6 +399,8 @@ superStep gateResult step handleOther =
         (Just _, Nothing) -> a
         (Nothing, Just _) -> b
         (Just a', Just b') -> pure . superEE $ EitherPF a' b'
+-}
+    GateSwitch l r x@(SuperEE _) -> (\dx -> debugTrace ("superStep gateSwitch\n" <> prettyPrint dx) dx) . foldGateResult l r $ gateResult x
     (FillFunction (SuperEE (EitherPF sca scb)) e) -> mergeShallow
       (step . embedB . SetEnvSF . basicEE $ PairSF sca e)
       (step . embedB . SetEnvSF . basicEE $ PairSF scb e)
@@ -388,7 +408,7 @@ superStep gateResult step handleOther =
     x@(SuperFW (EitherPF _ _)) -> embed x
     x -> handleOther x
 
-superUnsizedStep :: forall a f. (Base a ~ f, Foldable f, BasicBase f, SuperBase f, UnsizedBase f, ShallowEq1 f, Recursive a, Corecursive a, PrettyPrintable a)
+superUnsizedStep :: forall a f. (Base a ~ f, Traversable f, BasicBase f, SuperBase f, UnsizedBase f, ShallowEq1 f, Recursive a, Corecursive a, PrettyPrintable a)
   => (a -> GateResult a) -> (f a -> a) -> (f a -> a) -> f a -> a
 superUnsizedStep gateResult step handleOther =
   \case
@@ -397,12 +417,12 @@ superUnsizedStep gateResult step handleOther =
     BasicFW (SetEnvSF (SuperEE (EitherPF a b))) -> mergeShallow (step . embedB . SetEnvSF $ a) (step . embedB . SetEnvSF $ b)
     GateSwitch l r x@(SuperEE _) -> case foldr f Nothing [noBranch res, tm l $ leftBranch res, tm r $ rightBranch res] of
       Nothing -> error "superStep gateswich should have at least one result"
-      Just res' -> if null (unSizedRecursion extracted)
+      Just res' -> if null (unSizedRecursion srx)
         then res'
-        else debugTrace ("superUnsizedStep gateswitch") unsizedEE $ SizeStageF extracted res'
+        else unsizedEE $ SizeStageF srx res'
       where
-      res = gateResult x
-      extracted = extractSM x
+      (srx, nx) = extractSizeStages x
+      res = gateResult nx
       tm b s = if s then Just b else Nothing
       f :: Maybe a -> Maybe a -> Maybe a
       f a b = case (a,b) of
@@ -410,10 +430,9 @@ superUnsizedStep gateResult step handleOther =
         (Just _, Nothing) -> a
         (Nothing, Just _) -> b
         (Just a', Just b') -> pure . superEE $ EitherPF a' b'
-      extractSM = cata f where
-        f = \case
-          UnsizedFW (SizeStageF sm x) -> sm <> x
-          x -> Data.Foldable.fold x
+      extractSizeStages = cata $ \case
+        UnsizedFW (SizeStageF sr (srb, x)) -> (sr <> srb, x)
+        x -> embed <$> sequence x
     (FillFunction (SuperEE (EitherPF sca scb)) e) -> mergeShallow
       (step . embedB . SetEnvSF . basicEE $ PairSF sca e)
       (step . embedB . SetEnvSF . basicEE $ PairSF scb e)
@@ -1471,9 +1490,10 @@ sizeTerm maxSize x = tidyUp . foldAborted . transformNoDefer evalStep $ peTerm w
   hasSizes (SizedRecursion sm, _) = not . null $ Map.filter (not . null) sm
   peTerm = convertFromPartial . snd . head . dropWhile hasSizes . tail
     $ iterate nextPartialSizing (SizedRecursion Map.empty, cm)
+  -- peTerm = convertFromPartial cm -- in case debugging is needed
   unhandledMerge x y = error ("sizeTerm unhandledMerge: " <> show (x,y))
   unhandledGate x = error ("sizeTerm unhandled gate input: " <> show x)
-  gateResult = debugTrace "gateResult" gateBasicResult (gateAbortResult (gateIndexedResult (gateSuperResult gateResult (gateUnsizedResult gateResult unhandledGate))))
+  gateResult = debugTrace "gateResult" gateBasicResult (gateAbortResult (gateIndexedResult (gateSuperResult gateResult unhandledGate)))
   unsizedTest :: UnsizedRecursionToken -> (UnsizedExpr -> UnsizedExpr) -> UnsizedExpr -> UnsizedExpr
   unsizedTest ri reTest = debugTrace "unsizedTest" unsizedTestIndexed zeros (unsizedTestSuper reTest (\_ x -> error ("sizeTerm unsizedTest unhandled " <> prettyPrint x))) ri
   evalStep = debugTrace "s" basicStep (stuckStep (abortStep (indexedAbortStep (indexedInputStep zeros (indexedSuperStep (superUnsizedStep gateResult evalStep (superAbortStep evalStep (unsizedStep maxSize unsizedTest evalStep unhandledError))))))))
