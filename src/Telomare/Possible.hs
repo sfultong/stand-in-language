@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveTraversable          #-}
 {-# LANGUAGE DerivingVia                #-}
 {-# LANGUAGE FlexibleInstances          #-}
@@ -12,6 +13,8 @@ module Telomare.Possible where
 
 import Control.Applicative
 import Control.Comonad.Cofree (Cofree ((:<)))
+import qualified Control.Comonad.Trans.Cofree as CofreeT (CofreeF (..))
+import Control.Lens.Plated (transform)
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader (Reader, ReaderT, ask, local, runReaderT)
@@ -51,7 +54,15 @@ import Telomare (BreakState' (..), FragExpr (..), FragExprF (..),
                  indentWithOneChild, indentWithOneChild', indentWithTwoChildren,
                  indentWithTwoChildren', pattern AbortAny,
                  pattern AbortRecursion, pattern AbortUnsizeable, rootFrag,
-                 sindent, convertAbortMessage)
+                 sindent, convertAbortMessage, pattern AbortUser, s2g, toPartialType)
+import Data.Validity (Validity (..), trivialValidation, declare)
+import GHC.Generics (Generic)
+import Data.Semigroup (Max(..))
+import Data.GenValidity
+import Data.GenValidity.Map
+import Test.QuickCheck.Gen (sized)
+import Test.QuickCheck (Gen, oneof, Arbitrary (..))
+import Control.Comonad.Trans.Cofree (CofreeF, headF)
 
 -- import           Telomare.TypeChecker
 debug :: Bool
@@ -87,7 +98,7 @@ data PartExprF f
   | GateSF f f
   | LeftSF f
   | RightSF f
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 instance Eq1 PartExprF where
   liftEq test a b = case (a,b) of
@@ -110,14 +121,16 @@ instance Show1 PartExprF where
     LeftSF x -> shows "LeftSF (" . showsPrec 0 x . shows ")"
     RightSF x -> shows "RightSF (" . showsPrec 0 x . shows ")"
 
-newtype FunctionIndex = FunctionIndex { unFunctionIndex :: Int } deriving (Eq, Ord, Enum, Show)
+newtype FunctionIndex = FunctionIndex { unFunctionIndex :: Int } deriving (Eq, Ord, Enum, Show, Generic)
+
+instance Validity FunctionIndex
 
 instance PrettyPrintable FunctionIndex where
   showP = pure . ("F" <>) . show . fromEnum
 
 data StuckF f
   = DeferSF FunctionIndex f
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 instance Show1 StuckF where
   liftShowsPrec showsPrec showList prec = \case
@@ -573,7 +586,7 @@ abortStepM handleOther x = f x where
     _ -> handleOther x
 
 newtype SizedRecursion = SizedRecursion { unSizedRecursion :: Map UnsizedRecursionToken (Maybe Int)}
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
 
 instance Semigroup SizedRecursion where
   (<>) (SizedRecursion a) (SizedRecursion b) = SizedRecursion $ Map.unionWith (liftM2 max) a b where
@@ -583,6 +596,9 @@ instance Monoid SizedRecursion where
 
 instance PrettyPrintable1 ((,) SizedRecursion) where
   showP1 (_,x) = showP x
+
+instance Validity SizedRecursion where
+  validate = trivialValidation
 
 data StrictAccum a x = StrictAccum
   { getAccum :: !a
@@ -841,7 +857,7 @@ instance Show1 VoidF where
 
 data SuperPositionF f
   = EitherPF !f !f
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 instance Eq1 SuperPositionF where
   liftEq test a b = case (a,b) of
@@ -856,7 +872,7 @@ data FuzzyInputF f
   = MaybePairF f f
   | SomeInputF
   | FunctionListF [f]
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 instance Eq1 FuzzyInputF where
   liftEq test a b = case (a,b) of
@@ -875,7 +891,7 @@ instance Show1 FuzzyInputF where
 data AbortableF f
   = AbortF
   | AbortedF IExpr
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 instance Eq1 AbortableF  where
   liftEq test a b = case (a,b) of
@@ -912,7 +928,7 @@ data UnsizedRecursionF f
   | SizingWrapperF UnsizedRecursionToken f
   | SizeStageF SizedRecursion f
   | RefinementWrapperF LocTag f f
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 instance Eq1 UnsizedRecursionF where
   liftEq test a b = case (a, b) of
@@ -964,7 +980,7 @@ instance PrettyPrintable1 VoidF where
 data IndexedInputF f
   = IVarF Integer
   | AnyF
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 instance Eq1 IndexedInputF where
   liftEq test a b = case (a, b) of
@@ -986,7 +1002,7 @@ data DeferredEvalF f
   = BarrierF f
   | ManyLefts Integer f
   | ManyRights Integer f
-  deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
+  deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
 
 instance Eq1 DeferredEvalF where
   liftEq test a b = case (a, b) of
@@ -1097,7 +1113,7 @@ data UnsizedExprF f
   | UnsizedExprA (AbortableF f)
   | UnsizedExprU (UnsizedRecursionF f)
   | UnsizedExprI (IndexedInputF f)
-  deriving (Functor, Foldable, Traversable)
+  deriving (Functor, Foldable, Traversable, Generic)
 instance BasicBase UnsizedExprF where
   embedB = UnsizedExprB
   extractB = \case
@@ -1656,3 +1672,292 @@ evalPartialUnsized zeroes = cata gatherLimits . transformNoDefer step where
     UnsizedFW (SizeStageF sm x) -> sm <> x
     x -> Data.Foldable.fold x
 
+data TypeCheckError
+  = UnboundType Int
+  | InconsistentTypes PartialType PartialType
+  | RecursiveType Int
+  deriving (Eq, Ord, Show)
+
+data TypeAssociation = TypeAssociation Int PartialType
+  deriving (Eq, Ord, Show)
+
+type AnnotateState = ExceptT TypeCheckError (State (PartialType, Set TypeAssociation, Int))
+
+makeAssociations :: PartialType -> PartialType -> Either TypeCheckError (Set TypeAssociation)
+makeAssociations ta tb = case (ta, tb) of
+  (x, y) | x == y -> pure mempty
+  (AnyType, _) -> pure mempty
+  (_, AnyType) -> pure mempty
+  (TypeVariable _ i, _) -> pure . Set.singleton $ TypeAssociation i tb
+  (_, TypeVariable _ i) -> pure . Set.singleton $ TypeAssociation i ta
+  (ArrTypeP a b, ArrTypeP c d) -> Set.union <$> makeAssociations a c <*> makeAssociations b d
+  (PairTypeP a b, PairTypeP c d) -> Set.union <$> makeAssociations a c <*> makeAssociations b d
+  (PairTypeP a b, ZeroTypeP) -> Set.union <$> makeAssociations a ZeroTypeP <*> makeAssociations b ZeroTypeP
+  (ZeroTypeP, PairTypeP a b) -> Set.union <$> makeAssociations a ZeroTypeP <*> makeAssociations b ZeroTypeP
+  _ -> Left $ InconsistentTypes ta tb
+
+associateVar :: PartialType -> PartialType -> AnnotateState ()
+associateVar a b = liftEither (makeAssociations a b) >>= \set -> State.modify (changeState set) where
+  changeState set (curVar, oldSet, v) = (curVar, oldSet <> set, v)
+
+newPartialType :: AnnotateState PartialType
+newPartialType = do
+  (env, typeMap, v) <- State.get
+  State.put (TypeVariable DummyLoc v, typeMap, v + 1)
+  pure $ TypeVariable DummyLoc v
+
+withNewEnv :: AnnotateState a -> AnnotateState (PartialType, a)
+withNewEnv action = do
+  (env, typeMap, v) <- State.get
+  State.put (TypeVariable DummyLoc v, typeMap, v + 1)
+  result <- action
+  State.modify $ \(_, typeMap, v) -> (env, typeMap, v)
+  pure (TypeVariable DummyLoc v, result)
+
+class Annotatable a where
+  anno :: a -> AnnotateState PartialType
+
+class Annotatable1 f where
+  liftAnno :: (a -> AnnotateState PartialType) -> f a -> AnnotateState PartialType
+
+-- >>> 4 + 5
+-- 9
+
+instance Annotatable1 PartExprF where
+  liftAnno anno = \case
+     ZeroSF -> pure ZeroTypeP
+     PairSF a b -> PairTypeP <$> anno a <*> anno b
+     EnvSF -> State.gets (\(t, _, _) -> t)
+     SetEnvSF x -> do
+       xt <- anno x
+       it <- newPartialType
+       ot <- newPartialType
+       associateVar (PairTypeP (ArrTypeP it ot) it) xt
+       pure ot
+     GateSF l r -> do
+       lt <- anno l
+       rt <- anno l
+       associateVar lt rt
+       pure $ ArrTypeP ZeroTypeP lt
+     LeftSF x -> do
+       xt <- anno x
+       la <- newPartialType
+       associateVar (PairTypeP la AnyType) xt
+       pure la
+     RightSF x -> do
+       xt <- anno x
+       ra <- newPartialType
+       associateVar (PairTypeP AnyType ra) xt
+       pure ra
+
+instance Annotatable1 StuckF where
+  liftAnno anno = \case
+    DeferSF ind x -> do
+      (it, ot) <- withNewEnv $ anno x
+      pure $ ArrTypeP it ot
+
+instance Annotatable1 SuperPositionF where
+  liftAnno anno = \case
+    EitherPF a b -> do
+      at <- anno a
+      bt <- anno b
+      associateVar at bt
+      pure at
+
+instance Annotatable1 AbortableF where
+  liftAnno anno = \case
+    AbortF -> do
+      it <- newPartialType
+      pure $ ArrTypeP ZeroTypeP (ArrTypeP it it)
+    AbortedF _ -> newPartialType
+
+instance Annotatable1 UnsizedRecursionF where
+  liftAnno anno = \case
+    RecursionTestF _ x -> do
+      xt <- anno x
+      associateVar xt ZeroTypeP
+      pure xt
+    SizingWrapperF _ x -> anno x -- not bothering on checking for pair structure for now
+    SizeStageF _ x -> anno x
+    UnsizedStubF _ x -> anno x -- not bothering on checking internal structure (is it even possible?)
+    RefinementWrapperF _ c x -> anno x -- not bothering on checking c
+
+instance Annotatable1 IndexedInputF where
+  liftAnno anno = \case
+    AnyF -> pure ZeroTypeP
+    IVarF _ -> pure ZeroTypeP
+
+instance Annotatable1 UnsizedExprF where
+  liftAnno anno = \case
+    UnsizedExprB x -> liftAnno anno x
+    UnsizedExprS x -> liftAnno anno x
+    UnsizedExprP x -> liftAnno anno x
+    UnsizedExprA x -> liftAnno anno x
+    UnsizedExprU x -> liftAnno anno x
+    UnsizedExprI x -> liftAnno anno x
+
+instance (Functor f, Annotatable1 f) => Annotatable (Fix f) where
+  anno = liftAnno anno . project
+
+instance Annotatable (Cofree g PartialType) where
+  anno (a :< _) = pure a
+
+anno1 :: (Annotatable1 f, Annotatable g) => f g -> AnnotateState PartialType
+anno1 = liftAnno anno
+
+fullyResolve :: (Int -> Maybe PartialType) -> PartialType -> PartialType
+fullyResolve resolve = convert where
+    convert = transform endo
+    endo = \case
+      TypeVariable anno i -> case resolve i of
+        Nothing -> TypeVariable anno i
+        Just t  -> convert t
+      x -> x
+
+buildTypeMap :: Set TypeAssociation -> Either TypeCheckError (Map Int PartialType)
+buildTypeMap assocSet =
+  let multiMap = Map.fromListWith DList.append . fmap (\(TypeAssociation i t) -> (i, DList.singleton t))
+        $ Set.toList assocSet
+      getKeys = \case
+        TypeVariable _ i -> DList.singleton i
+        ArrTypeP a b     -> getKeys a <> getKeys b
+        PairTypeP a b    -> getKeys a <> getKeys b
+        _                -> mempty
+      isRecursiveType resolvedSet k = case (Set.member k resolvedSet, Map.lookup k multiMap) of
+        (True, _) -> Just k
+        (_, Nothing) -> Nothing
+        (_, Just t) -> foldr (\nk r -> isRecursiveType (Set.insert k resolvedSet) nk <|> r) Nothing
+          $ foldMap getKeys t
+      debugShowMap tm = debugTrace (concatMap (\(k, v) -> show k <> ": " <> show v <> "\n") $ Map.toAscList tm)
+      buildMap assoc typeMap = case Set.minView assoc of
+        Nothing -> debugShowMap typeMap $ pure typeMap
+        Just (TypeAssociation i t, newAssoc) -> case Map.lookup i typeMap of
+          Nothing -> buildMap newAssoc $ Map.insert i t typeMap
+          Just t2 -> makeAssociations t t2 >>= (\assoc2 -> buildMap (newAssoc <> assoc2) typeMap)
+  -- if any variables result in lookup cycles, fail with RecursiveType
+  in case foldr (\t r -> isRecursiveType Set.empty t <|> r) Nothing (Map.keys multiMap) of
+    Just k  -> Left $ RecursiveType k
+    Nothing -> debugTrace (show multiMap) $ buildMap assocSet mempty
+
+partiallyAnnotate :: (Base g ~ f, Annotatable1 f, Annotatable g)
+  => g -> Either TypeCheckError (PartialType, Int -> Maybe PartialType)
+partiallyAnnotate term =
+  let runner :: State (PartialType, Set TypeAssociation, Int) (Either TypeCheckError PartialType)
+      runner = runExceptT $ anno term
+      initState = (TypeVariable DummyLoc 0, Set.empty, 0)
+      (rt, (_, s, _)) = State.runState runner initState
+  in (,) <$> rt <*> (flip Map.lookup <$> buildTypeMap s)
+
+annotateTree :: forall g f. (Base g ~ f, Traversable f, Annotatable1 f, Recursive g, Annotatable g)
+  => g -> Either TypeCheckError (Cofree f PartialType)
+annotateTree term = do
+  (rt, resolver) <- partiallyAnnotate term
+  let fResolve = fullyResolve resolver
+      ca x = anno1 x >>= \a -> pure (fResolve a :< x)
+      f = ca <=< sequence
+      initState = (TypeVariable DummyLoc 0, Set.empty, 0)
+  flip State.evalState initState . runExceptT $ cata f term
+
+matchType :: PartialType -> PartialType -> Bool
+matchType a b = case (a,b) of
+  (ZeroTypeP, ZeroTypeP) -> True
+  (AnyType, _) -> True
+  (_, AnyType) -> True
+  (TypeVariable _ _, _) -> True
+  (_, TypeVariable _ _) -> True
+  (ArrTypeP a b, ArrTypeP c d) -> matchType a c && matchType b d
+  (PairTypeP a b, PairTypeP c d) -> matchType a c && matchType b d
+  _ -> False
+
+matchTypeHead :: (Annotatable1 f, Annotatable g) => PartialType -> f g -> Bool
+matchTypeHead t x =
+  let initState = (TypeVariable DummyLoc 0, Set.empty, 0)
+  in case State.evalState (runExceptT $ anno1 x) initState of
+    Left _ -> False
+    Right t' -> matchType t' t
+
+instance Validity a => Validity (PartExprF a)
+instance Validity a => Validity (StuckF a)
+instance Validity a => Validity (SuperPositionF a)
+instance Validity a => Validity (AbortableF a)
+instance Validity a => Validity (UnsizedRecursionF a)
+instance Validity a => Validity (IndexedInputF a)
+instance Validity a => Validity (UnsizedExprF a)
+instance Validity (Cofree UnsizedExprF PartialType) where
+  validate x = let startVar = succ . getMax $ cata mv x
+                   mv (a CofreeT.:< x) = mv' a <> Data.Foldable.fold x
+                   mv' = \case
+                     TypeVariable _ n -> Max n
+                     ArrTypeP a b -> mv' a <> mv' b
+                     PairTypeP a b -> mv' a <> mv' b
+                     _ -> Max 0
+                   initState = (TypeVariable DummyLoc startVar, Set.empty, startVar)
+                   etb = \case
+                     Right True -> True
+                     _ -> False
+                   getTypeLevel = flip State.evalState initState . runExceptT . liftAnno anno
+                   matchLevel (a CofreeT.:< fx) = All (etb $ matchType a <$> getTypeLevel (fst <$> fx))
+                     <> Data.Foldable.fold (snd <$> fx)
+               in declare "grammar matches type annotations" . getAll $ para matchLevel x
+
+instance GenValid a => GenValid (PartExprF a) where
+instance GenValid FunctionIndex
+instance GenValid a => GenValid (StuckF a) where
+instance GenValid a => GenValid (SuperPositionF a) where
+instance GenValid a => GenValid (AbortableF a) where
+instance GenValid UnsizedRecursionToken
+instance GenValid SizedRecursion where
+instance GenValid a => GenValid (UnsizedRecursionF a) where
+instance GenValid a => GenValid (IndexedInputF a) where
+instance GenValid a => GenValid (UnsizedExprF a) where
+
+instance GenValid (Cofree UnsizedExprF PartialType) where
+  genValid = genValid >>= (sized . genTypedTree Nothing . toPartialType)
+  shrinkValid (a :< x) = (a :<) <$> filter (matchTypeHead a) (shrinkValidStructurally x)
+
+genTypedTree :: Maybe PartialType -> PartialType -> Int -> Gen (Cofree UnsizedExprF PartialType)
+genTypedTree ti t i = -- TODO generate UnsizedF sections?
+  let optionEnv = if ti == Just t
+                  then (pure (t :< embedB EnvSF) :)
+                  else id
+      optionGate = case t of
+        ArrTypeP ZeroTypeP to -> ((ta . embedB <$> (GateSF <$> genTypedTree ti to half <*> genTypedTree ti to half)) : )
+        _ -> id
+      optionAbort = case t of
+        ArrTypeP ZeroTypeP (ArrTypeP _ _) -> ((pure . ta $ embedA AbortF) : )
+        _ -> id
+      ta = (t :<)
+      half = div i 2
+      setEnvOption = genValid >>= makeSetEnv where
+        makeSetEnv ti' = ta . embedB . SetEnvSF <$> genTypedTree ti (PairTypeP (ArrTypeP ti' t) ti') (i - 1)
+      leftOption = genValid >>= makeLeft where
+        makeLeft ti' = ta . embedB . LeftSF <$> genTypedTree ti (PairTypeP t ti') (i - 1)
+      rightOption = genValid >>= makeRight where
+        makeRight ti' = ta . embedB . RightSF <$> genTypedTree ti (PairTypeP ti' t) (i - 1)
+      eitherOption = ta . embedP <$> (EitherPF <$> genTypedTree ti t half <*> genTypedTree ti t half)
+      abortedOption = pure . ta . embedA . AbortedF . AbortUser $ s2g "Arbitrary Test Data"
+      addZeroPair = if t == ZeroTypeP
+        then ((ta . embedB <$> (PairSF <$> genTypedTree ti ZeroTypeP half <*> genTypedTree ti ZeroTypeP half)) :)
+        else id
+      addBranches l = if i < 2 then l else leftOption : rightOption : setEnvOption : eitherOption : addZeroPair l
+  in oneof . optionEnv . (abortedOption :) . addBranches $ case t of
+    PairTypeP tl tr ->
+      [ ta . embedB <$> (PairSF <$> genTypedTree ti tl half <*> genTypedTree ti tr half)
+      ]
+    ArrTypeP ti' to -> optionGate . optionAbort $
+      [ ta . embedS . DeferSF (toEnum 0) <$> genTypedTree ti to (i - 1)
+      ]
+    _ ->
+      [ pure . ta $ embedB ZeroSF
+      , ta . embedI . IVarF <$> arbitrary
+      , pure . ta $ embedI AnyF
+      ]
+
+tcAnnotatedProp :: Cofree UnsizedExprF PartialType -> Bool
+tcAnnotatedProp exp = validate . pa $ cata f exp where
+  pa :: UnsizedExpr -> Either TypeCheckError (PartialType, Int -> Maybe PartialType)
+  pa = partiallyAnnotate
+  f (_ CofreeT.:< x) = embed x
+  validate = \case
+    Right _ -> True
+    _ -> False

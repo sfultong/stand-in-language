@@ -70,6 +70,9 @@ library
                      , bytestring
                      , crypto-api
                      , utf8-string
+                     , validity
+                     , genvalidity
+                     , genvalidity-containers
                      , process
                      , free
   -- uncomment this line to get a cabal repl. Use appropiate complete path (will error with a relative path).
@@ -114,6 +117,7 @@ test-suite telomare-test
   build-depends:       base
                      , containers
                      , dlist
+                     , genvalidity-hspec
                      , hspec
                      , hspec-core
                      , mtl

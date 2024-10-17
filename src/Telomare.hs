@@ -35,6 +35,8 @@ import Data.Void (Void)
 import Debug.Trace (trace, traceShow, traceShowId)
 import GHC.Generics (Generic)
 import Text.Show.Deriving (deriveShow1)
+import Data.Validity (Validity)
+import Data.GenValidity (GenValid)
 
 
 {- top level TODO list
@@ -57,7 +59,7 @@ data IExpr
   | PLeft !IExpr             -- left
   | PRight !IExpr            -- right
   | Trace
-  deriving (Eq, Show, Ord, Read)
+  deriving (Eq, Show, Ord, Read, Generic)
 makeBaseFunctor ''IExpr -- Functorial version IExprF.
 
 instance Plated IExpr where
@@ -69,6 +71,9 @@ instance Plated IExpr where
     PLeft x  -> PLeft <$> f x
     PRight x -> PRight <$> f x
     x        -> pure x
+
+instance Validity IExpr
+instance GenValid IExpr
 
 -- probably should get rid of this in favor of ExprT
 data ExprA a
@@ -294,6 +299,8 @@ newtype EIndex = EIndex { unIndex :: Int } deriving (Eq, Show, Ord)
 
 newtype UnsizedRecursionToken = UnsizedRecursionToken { unUnsizedRecursionToken :: Int } deriving (Eq, Ord, Show, Enum, NFData, Generic)
 
+instance Validity UnsizedRecursionToken
+
 data RecursionSimulationPieces a
   = NestedSetEnvs UnsizedRecursionToken
   | SizingWrapper UnsizedRecursionToken a
@@ -304,6 +311,9 @@ data LocTag
   = DummyLoc
   | Loc Int Int
   deriving (Eq, Show, Ord, Generic, NFData)
+
+instance Validity LocTag
+instance GenValid LocTag
 
 newtype FragExprUR =
   FragExprUR { unFragExprUR :: Cofree (FragExprF (RecursionSimulationPieces FragExprUR))
@@ -632,7 +642,10 @@ data DataType
   = ZeroType
   | ArrType DataType DataType
   | PairType DataType DataType -- only used when at least one side of a pair is not ZeroType
-  deriving (Eq, Show, Ord)
+  deriving (Eq, Show, Ord, Generic)
+
+instance Validity DataType
+instance GenValid DataType
 
 instance Plated DataType where
   plate f = \case
@@ -659,13 +672,22 @@ data PartialType
   | TypeVariable LocTag Int
   | ArrTypeP PartialType PartialType
   | PairTypeP PartialType PartialType
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Ord, Generic)
 
 instance Plated PartialType where
   plate f = \case
     ArrTypeP i o  -> ArrTypeP <$> f i <*> f o
     PairTypeP a b -> PairTypeP <$> f a <*> f b
     x             -> pure x
+
+instance Validity PartialType
+instance GenValid PartialType
+
+toPartialType :: DataType -> PartialType
+toPartialType = \case
+  ZeroType -> ZeroTypeP
+  ArrType i o -> ArrTypeP (toPartialType i) (toPartialType o)
+  PairType a b -> PairTypeP (toPartialType a) (toPartialType b)
 
 newtype PrettyPartialType = PrettyPartialType PartialType
 
