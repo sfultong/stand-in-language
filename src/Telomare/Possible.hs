@@ -308,12 +308,12 @@ stuckStep handleOther = \case
   x -> handleOther x
 
 stuckStepDebug :: (Base a ~ f, Traversable f, StuckBase f, BasicBase f, AbortBase f, UnsizedBase f, IndexedInputBase f, SuperBase f
-                  , ShallowEq1 f, PrettyPrintable1 f, Show a, Eq a, Recursive a, Corecursive a, PrettyPrintable a)
+                  , ShallowEq1 f, Show a, Eq a, Recursive a, Corecursive a, PrettyPrintable a)
   => Set Integer -> (f a -> a) -> f a -> a
 stuckStepDebug zeros handleOther = \case
   ff@(FillFunction (StuckEE (DeferSF fid d)) e) -> db $ transformNoDefer (basicStep (stuckStep handleOther) . replaceEnv) d where
     unhandledGate x = error ("stuckStepDebug unhandled gate input: " <> show x)
-    unhandledError x = error ("stuckStepDebug unhandled case:\n" <> prettyPrint x)
+    unhandledError x = error ("stuckStepDebug unhandled case:\n" <> prettyPrint (embed x))
     gateResult = gateBasicResult (gateAbortResult (gateIndexedResult (gateSuperResult gateResult unhandledGate)))
     evalStep = basicStepM (stuckStepM (abortStepM (indexedAbortStepM (indexedInputStepM (indexedSuperStepM (zeroedInputStepM zeros (superStepM gateResult evalStep (superAbortStepM evalStep (unsizedStepM 256 zeros evalStep unhandledError)))))))))
     e' = project e
@@ -321,7 +321,7 @@ stuckStepDebug zeros handleOther = \case
       UnsizedFW (SizeStageF _ x) -> x
       x -> embed x
     otherResult = getX $ transformNoDeferM (evalStep . replaceEnv) d
-    ppff = prettyPrint ff
+    ppff = prettyPrint $ embed ff
     db x = if otherResult == removeStages x
       then x
       else if length ppff < 200
@@ -349,7 +349,7 @@ stuckStepM handleOther x = f x where
     _ -> handleOther x
 
 stuckStepDebugM :: forall a f m j. (Base a ~ f, Traversable f, StuckBase f, BasicBase f, AbortBase f, UnsizedBase f, IndexedInputBase f, SuperBase f
-                   , ShallowEq1 f, PrettyPrintable1 f, Show a, Eq a, Recursive a, Corecursive a, PrettyPrintable a, GenValidAdj a, Monad m
+                   , ShallowEq1 f, Show a, Eq a, Recursive a, Corecursive a, PrettyPrintable a, GenValidAdj a, Monad m
                    , Gennable a ~ j, GenValid j, Eq j)
   => Set Integer -> (f a -> m a) -> f a -> m a
 stuckStepDebugM zeros handleOther x = f x where
@@ -358,7 +358,7 @@ stuckStepDebugM zeros handleOther x = f x where
       runStuck = basicStepM (stuckStepM handleOther) . replaceEnv
       e' = project e
       unhandledGate x = error ("stuckStepDebug unhandled gate input: " <> show x)
-      unhandledError e x = error ("stuckStepDebug unhandled case:\n" <> prettyPrint x <> "\nfrom\n" <> prettyPrint ff <> "\nexpecting\n" <> prettyPrint e)
+      unhandledError e x = error ("stuckStepDebug unhandled case:\n" <> prettyPrint (embed x) <> "\nfrom\n" <> prettyPrint (embed ff) <> "\nexpecting\n" <> prettyPrint e)
       unsizedTest ri reTest = unsizedTestIndexed zeros (unsizedTestSuper reTest (\_ x -> error ("sizeTerm unsizedTest unhandled " <> prettyPrint x))) ri
       evalStep' e = let evalStep = evalStep' e
         in basicStep (stuckStep (abortStep (indexedAbortStep (indexedInputStep zeros (indexedSuperStep (superUnsizedStep gateResult evalStep (superAbortStep evalStep (unsizedStep 256 unsizedTest evalStep (unhandledError e)))))))))
@@ -367,13 +367,14 @@ stuckStepDebugM zeros handleOther x = f x where
         then (\x -> debugTrace ("120 step\n" <> prettyPrint x) x) . evalStep' e . replaceEnv
         else evalStep' e . replaceEnv
       otherResult = removeStages $ transformNoDefer otherStep d
-      ppff = prettyPrint ff
+      ppff = prettyPrint $ embed ff
       removeStages = cata $ \case
         UnsizedFW (SizeStageF _ x) -> x
         x -> embed x
       comp x = let x' = fromGennable x in transformNoDeferM (basicStepM (stuckStepM handleOther)) x' >>=
         (pure . (/= transformNoDefer (evalStep' e) x'))
-      shrinkIt = (>>= (filterM comp . nub . concatMap shrinkValid))
+      -- shrinkIt = (>>= (filterM comp . nub . concatMap shrinkValid . trace "shrinkIt"))
+      shrinkIt = (>>= (filterM comp . take 10 . nub . concatMap shrinkValid . trace "shrinkIt"))
       db x = do
         x' <- x
         if x' == otherResult
@@ -389,7 +390,8 @@ stuckStepDebugM zeros handleOther x = f x where
                  fg = fromGennable
              in do
                 debout <- prettyPrint . fg . head <$> getHead (zip shrinks (tail shrinks))
-                debugTrace ("stuckStepDebug shrunk bad\n" <> debout) x
+                -- debugTrace ("stuckStepDebug shrunk bad\n" <> debout) x
+                error ("stuckStepDebug shrunk bad\n" <> debout)
       replaceEnv = \case
         BasicFW EnvSF -> e'
         x             -> x
@@ -1183,8 +1185,30 @@ instance PrettyPrintable BitsExprWMap where
         x -> Data.Foldable.fold x
 -}
 
+instance PrettyPrintable PartialType where
+  showP x = pure $ f x where
+    f = \case
+      ZeroTypeP -> "Z"
+      AnyType -> "A"
+      TypeVariable _ n -> "V" <> show (fromEnum n)
+      ArrTypeP a b -> case a of
+        ArrTypeP _ _ -> "(" <> f a <> ") -> " <> f b
+        _ -> f a <> " -> " <> f b
+      PairTypeP a b -> "(" <> f a <> "," <> f b <> ")"
+
 instance (Functor f, PrettyPrintable1 f) => PrettyPrintable (Fix f) where
   showP = showP1 . project
+
+{-
+instance (PrettyPrintable a, PrettyPrintable1 f) => PrettyPrintable (Cofree f a) where
+  showP (a :< x) = (<>) <$> showP a <*> showP1 x
+-}
+{-
+instance PrettyPrintable (Cofree UnsizedExprF PartialType) where
+  showP (a  :< x) = (<>) <$> showP a <*> showP1 x
+-}
+instance {-# OVERLAPPING #-} (PrettyPrintable a, PrettyPrintable1 f) => PrettyPrintable (Cofree f a) where
+  showP (a :< x) = (<>) <$> showP a <*> showP1 x
 
 data StuckExprF f
   = StuckExprB (PartExprF f)
@@ -2075,7 +2099,21 @@ instance GenValid (Cofree UnsizedExprF PartialType) where
 instance GenValidAdj UnsizedExpr where
   type Gennable UnsizedExpr = Cofree UnsizedExprF PartialType
   toGennable x = case annotateTree x of
-    Left z -> error ("UnsizedExpr toGennable mistyped expression: " <> show z)
+    Left z -> error ("UnsizedExpr toGennable mistyped expression: " <> show z <> "\nfrom\n" <> ppax) where
+      annoTerm :: UnsizedExpr -> Either TypeCheckError (Gennable UnsizedExpr)
+      annoTerm term = do
+        (rt, resolver) <- partiallyAnnotate term
+        let ca x = anno1 x >>= \a -> pure (resolve a :< x)
+            resolve = \case
+              t@(TypeVariable _ i) -> case resolver i of
+                Nothing -> t
+                Just t' -> t'
+            f = ca <=< sequence
+            initState = (TypeVariable DummyLoc 0, Set.empty, 0)
+        flip State.evalState initState . runExceptT $ cata f term
+      ppax = case annoTerm x of
+        Left z -> "toGennable ppax bad: " <> show z
+        Right x' -> prettyPrint x
     Right x -> x
   fromGennable x = cata f x where
     f (_ CofreeT.:< x) = embed x
