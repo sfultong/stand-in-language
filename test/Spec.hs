@@ -22,16 +22,18 @@ import Telomare.Decompiler
 import Telomare.Eval
 import Telomare.Optimizer
 import Telomare.Parser
-import Telomare.Possible
+import Telomare.Possible (tcAnnotatedProp, evalBU, evalBU', testSBV')
 import Telomare.Resolver
 import Telomare.RunTime
 import Telomare.TypeChecker
 import Test.Hspec
 import Test.Hspec.Core.QuickCheck (modifyMaxSuccess)
 import Test.QuickCheck
+import qualified Test.Validity as TV
 
 -- Common datatypes for generating Telomare AST.
 import Common
+import Test.Validity (GenValid)
 
 -- recursively finds shrink matching invariant, ordered simplest to most complex
 shrinkComplexCase :: Arbitrary a => (a -> Bool) -> [a] -> [a]
@@ -328,6 +330,20 @@ unitTestRefinement name shouldSucceed iexpr = it name $ case inferType (fromTelo
 unitTestQC :: Testable p => String -> Int -> p -> Spec
 unitTestQC name times = modifyMaxSuccess (const times) . it name . property
 
+testProp :: (Testable p, GenValid a, Show a) => String -> Int -> (a -> p) -> Spec
+testProp name times test = it name . TV.forAllValid $ \a -> withMaxSuccess times (test a)
+
+tempTestValid = testProp "testing annotated unsized expr GenValid instance" 255 tcAnnotatedProp
+{-
+spec :: Spec
+spec = do
+  describe "Case expression tests" $ do
+    it "All case patterns are reachable" $
+      TV.forAllValid $ \p -> withMaxSuccess 16 . QC.idempotentIOProperty $ do
+        res <- runCaseExpWithPattern caseExprStrWithPattern p
+        return $ res == "True\ndone\n"
+-}
+
 churchType = ArrType (ArrType ZeroType ZeroType) (ArrType ZeroType ZeroType)
 
 -- quickcheckBuiltInOptimizedDoesNotChangeEval :: UnprocessedParsedTerm -> Bool
@@ -500,12 +516,16 @@ unitTests_ parse = do
   unitTest "map" "(2,(3,5))" $ app (app map_ (lam (pair (varN 0) zero)))
                                     (ints2g [1,2,3])
 -}
+  {-
   describe "bottom up eval" $ do
-    {-
-    it "test SBV" . liftIO $ do
-      testSBV' == pure 3
+    -- testSBV''
+    -- tempTestValid
+    unitTest2 "main = d2c 2 succ 0" "2"
+    unitTest2 "main = listLength [1,2,3]" "3"
+    unitTest2 "main = foldr (\\a b -> plus (d2c a) (d2c b) succ 0) 1 [2,4,6]" "13"
+    unitTest2 "main = range 2 5" "(2,(3,5))"
+    unitTest2 "main = c2d (factorial 4)" "24"
 -}
-    testSBV''
   {-
     unitTest2 "main = plus $3 $2 succ 0" "5"
     unitTest2 "main = 0" "0"
@@ -515,6 +535,7 @@ unitTests_ parse = do
 -}
     -- unitTest2 "main = d2c 2 succ 0" "2"
     -- unitTestStaticChecks "main : (\\x -> assert 1 \"A\") = 1" (not . null)
+  {-
   describe "main function tests" $ do
     testMain <- runIO $ Strict.readFile "testchar.tel"
     case fmap compileMain (parse testMain) of
@@ -524,6 +545,17 @@ unitTests_ parse = do
         in do
         unitTestMain Zero "A" ("ascii value of first char is odd", Just Zero)
         unitTestMain Zero "B" ("ascii value of first char is even", Just Zero)
+      z -> runIO . expectationFailure $ "failed to compile main: " <> show z
+-}
+  describe "main function tests" $ do
+    testMain <- runIO $ Strict.readFile "tc2.tel"
+    case fmap compileMain (parse testMain) of
+      Right (Right g) ->
+        let eval = funWrap' evalBU g
+            unitTestMain s i e = it ("main input " <> i) $ eval (Just (i, s)) `shouldBe` e
+        in do
+        unitTestMain Zero "A" (" 1", Just Zero)
+        unitTestMain Zero "B" (" 3", Just Zero)
       z -> runIO . expectationFailure $ "failed to compile main: " <> show z
   {-
   describe "main function tests" $ do

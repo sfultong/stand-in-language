@@ -35,7 +35,7 @@ import Telomare (BreakState, BreakState', ExprA (..), FragExpr (..),
 import Telomare.Optimizer (optimize)
 import Telomare.Parser (AnnotatedUPT, UnprocessedParsedTerm (..), parsePrelude)
 import Telomare.Possible (AbortExpr, VoidF, abortExprToTerm4, evalA, sizeTerm,
-                          term3ToUnsizedExpr)
+                          term3ToUnsizedExpr, getInputLimits, evalPartialRepeat, convertBasic, convertStuck, convertAbort, unsized2abortExpr, hardcodeSizes, removeRefinementWrappers, pattern BasicEE, PartExprF (..), pairB, zeroB, isClosure, sizeTermDebug)
 import Telomare.Resolver (parseMain)
 import Telomare.RunTime (hvmEval, optimizedEval, pureEval, simpleEval)
 import Telomare.TypeChecker (TypeCheckError (..), typeCheck)
@@ -165,6 +165,7 @@ convertPT ll (Term3 termMap) =
 findChurchSize :: Term3 -> Either EvalError Term4
 -- findChurchSize = pure . convertPT (const 255)
 findChurchSize = calculateRecursionLimits -- works fine for unit tests, but uses too much memory for tictactoe
+-- findChurchSize = calculatePartialRecursionLimits
 
 -- we should probably redo the types so that this is also a type conversion
 removeChecks :: Term4 -> Term4
@@ -283,8 +284,24 @@ calculateRecursionLimits t3 =
   let abortExprToTerm4' :: AbortExpr -> Either IExpr Term4
       abortExprToTerm4' = abortExprToTerm4
       limitSize = 256
-  in case fmap abortExprToTerm4' . sizeTerm limitSize $ term3ToUnsizedExpr limitSize t3 of
+  in case fmap abortExprToTerm4' . sizeTermDebug limitSize $ term3ToUnsizedExpr limitSize t3 of
     Left urt -> Left $ RecursionLimitError urt
     Right t  -> case t of
+      Left a  -> Left . StaticCheckError . convertAbortMessage $ a
+      Right t -> pure t
+
+-- findChurchSize = pure . convertPT (const 255)
+calculatePartialRecursionLimits :: Term3 -> Either EvalError Term4
+calculatePartialRecursionLimits t3 =
+  let abortExprToTerm4' :: AbortExpr -> Either IExpr Term4
+      abortExprToTerm4' = abortExprToTerm4
+      limitSize = 256
+      ut = term3ToUnsizedExpr limitSize t3
+      zeroes = getInputLimits ut
+      uncap = if isClosure ut
+        then \case
+        BasicEE (SetEnvSF (BasicEE (PairSF d _))) -> pairB d zeroB
+        else id
+  in case abortExprToTerm4' . unsized2abortExpr . uncap . hardcodeSizes . removeRefinementWrappers . evalPartialRepeat zeroes $ ut of
       Left a  -> Left . StaticCheckError . convertAbortMessage $ a
       Right t -> pure t
