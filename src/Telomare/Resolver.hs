@@ -10,6 +10,8 @@ import Control.Comonad.Trans.Cofree (CofreeF)
 import qualified Control.Comonad.Trans.Cofree as C
 import Control.Lens.Combinators (transform)
 import Control.Monad (forM, forM_, (<=<))
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Writer.Strict (WriterT (..), writer)
 import qualified Control.Monad.State as State
 import Crypto.Hash (Digest, SHA256, hash)
 import Data.Bifunctor (Bifunctor (first), bimap)
@@ -19,7 +21,7 @@ import qualified Data.ByteString as BS
 import Data.Char (ord)
 import qualified Data.Foldable as F
 import Data.Functor.Foldable (Base, Corecursive (ana, apo), Recursive (cata))
-import Data.List (delete, elem, elemIndex, find, intercalate, zip4)
+import Data.List (delete, elem, elemIndex, find, intercalate, zip4, nubBy, foldl')
 import qualified Data.Map as Map
 import Data.Map.Strict (Map, fromList, keys)
 import Data.Set (Set, (\\))
@@ -29,6 +31,7 @@ import PrettyPrint (TypeDebugInfo (..), prettyPrint, showTypeDebugInfo)
 import Telomare
 import Telomare.Parser (AnnotatedUPT, TelomareParser)
 import Text.Megaparsec (errorBundlePretty, runParser)
+import qualified Control.Comonad.Trans.Cofree as CofreeT
 
 debug :: Bool
 debug = False
@@ -308,7 +311,6 @@ splitExpr :: Term2 -> Term3
 splitExpr t = let (bf, (_,_,m)) = State.runState (splitExpr' t) (toEnum 0, FragIndex 1, Map.empty)
               in Term3 . Map.map FragExprUR $ Map.insert (FragIndex 0) bf m
 
-
 -- |`makeLambda ps vl t1` makes a `TLam` around `t1` with `vl` as arguments.
 -- Automatic recognition of Close or Open type of `TLam`.
 makeLambda :: String                            -- ^Variable name
@@ -318,7 +320,6 @@ makeLambda str term1@(anno :< _) =
   if unbound == Set.empty then anno :< TLamF (Closed str) term1 else anno :< TLamF (Open str) term1
   where v = varsTerm1 term1
         unbound = v \\ Set.singleton str
-
 
 -- |Transformation from `AnnotatedUPT` to `Term1` validating and inlining `VarUP`s
 validateVariables :: AnnotatedUPT
@@ -442,6 +443,239 @@ validateVariables term =
         anno :< HashUPF x -> (\y -> anno :< THashF y) <$> validateWithEnvironment x
   in State.evalStateT (validateWithEnvironment term) Map.empty
 
+{-
+newtype RefList v r = RefList {unRefList :: [FunRef v r]}
+
+instance Eq v => Semigroup (RefList v r) where
+  -- (<>) a b = case (a,b) of
+  (<>) (RefList a) (RefList b) = RefList . nubBy neq $ a <> b where
+    neq a b = case (a,b) of
+      (NamedRef na, NamedRef nb) -> na == nb
+      -- (ExplicitRef _, ExplicitRef _) -> False
+      _ -> False
+instance Eq v => Monoid (RefList v r) where
+  mempty = RefList []
+-}
+
+-- coalg :: Int -> CofreeF (ParserTermF l v) LocTag Int
+{-
+validateVariablesLambdaLift :: AnnotatedUPT -> Either String Term1
+validateVariablesLambdaLift term =
+  let buildRefs :: CofreeF UnprocessedParsedTermF LocTag (RefList String Term1, Term1)
+                   -> (RefList String Term1, Term1)
+      -- buildRefs = (>>=  brf) . sequence
+      buildRefs = brf . sequence
+      -- brf :: CofreeF UnprocessedParsedTermF LocTag Term1 -> (RefList String Term1, Term1)
+      brf (rl, anno CofreeT.:< upf) = case upf of
+        VarUPF n -> (rl <> RefList [NamedRef n], anno :< TVarF n)
+        -- LamUPF v x -> let nl = delete (NamedRef v) (unRefList rl) in (RefList nl, anno :< TLamF nl x)
+        LamUPF v x -> let nl = delete (NamedRef v) (unRefList rl) in case x of
+          -- il@(_ :< TLamF _ _) -> (RefList nl, anno :< TLamF [ExplicitRef il] (anno :< TLamF nl (anno :< )) )
+          il@(_ :< TLamF _ _) -> undefined
+          _ -> (RefList nl, anno :< TLamF v nl x)
+        ITEUPF i t e -> (rl, anno :< TITEF i t e)
+        IntUPF n -> (rl, i2t anno n)
+        StringUPF s -> (rl, s2t anno s)
+        PairUPF a b -> (rl, anno :< TPairF a b)
+        ListUPF l -> (rl, foldr (\x y -> anno :< TPairF x y) (anno :< TZeroF) l)
+        AppUPF f x -> (rl, anno :< TAppF f x)
+  in undefined
+-}
+
+
+-- convert let bindings to nested lambda/app brackets
+letsToApps' :: AnnotatedUPT -> Either String Term1
+letsToApps' term =
+  let buildRefs :: CofreeF UnprocessedParsedTermF LocTag (WriterT (Set String) (Either String) Term1)
+                   -> WriterT (Set String) (Either String) Term1
+      buildRefs =  WriterT . brt . runWriterT . sequence
+      brt (Right (anno CofreeT.:< upf, refs)) = case upf of
+        VarUPF n -> pure (anno :< TVarF n, Set.singleton n)
+        LamUPF v x -> pure (makeLambda v x, Set.delete v refs)
+        ITEUPF i t e -> pure (anno :< TITEF i t e, refs)
+        IntUPF n  -> pure (i2t anno n, refs)
+        StringUPF s -> pure (s2t anno s, refs)
+        PairUPF a b -> pure (anno :< TPairF a b, refs)
+        ListUPF l -> pure (foldr (\x y -> anno :< TPairF x y) (anno :< TZeroF) l, refs)
+        AppUPF f x -> pure (anno :< TAppF f x, refs)
+        UnsizedRecursionUPF t r b -> pure (anno :< TLimitedRecursionF t r b, refs)
+        ChurchUPF n -> pure (anno :< TChurchF n, refs)
+        LeftUPF x -> pure (anno :< TLeftF x, refs)
+        RightUPF x -> pure (anno :< TRightF x, refs)
+        TraceUPF x -> pure (anno :< TTraceF x, refs)
+        CheckUPF cf x -> pure (anno :< TCheckF cf x, refs)
+        HashUPF x -> pure (anno :< THashF x, refs)
+        LetUPF bindings inner ->
+          -- Build dependency graph
+          let dependencies :: Map String (Set String)
+              dependencies = Map.fromList
+                [(name, Set.fromList $ getDirectDeps def) | (name, def) <- bindings]
+
+              -- Get direct variable dependencies (only those defined in this let block)
+              -- TODO replace this with inner WriterT (Set String) results
+              getDirectDeps :: Term1 -> [String]
+              getDirectDeps = cata alg where
+                alg :: CofreeF (ParserTermF String String) LocTag [String] -> [String]
+                alg = \case
+                    (_ C.:< TVarF n) -> [n | any ((== n) . fst) bindings]
+                    (_ C.:< x) -> F.fold x
+  {-
+                    (_ C.:< LamUPF _ body) -> body
+                    (_ C.:< ITEUPF i t e) -> i <> t <> e
+                    (_ C.:< PairUPF a b) -> a <> b
+                    (_ C.:< ListUPF l) -> concat l
+                    (_ C.:< AppUPF f x) -> f <> x
+                    (_ C.:< UnsizedRecursionUPF t r b) -> t <> r <> b
+                    (_ C.:< LeftUPF x) -> x
+                    (_ C.:< RightUPF x) -> x
+                    (_ C.:< TraceUPF x) -> x
+                    (_ C.:< CheckUPF cf x) -> cf <> x
+                    (_ C.:< HashUPF x) -> x
+                    _ -> []
+-}
+
+              -- Check if original order works (no forward references)
+  {-
+              hasForwardRef = any (\(i, name) ->
+                let deps = Map.findWithDefault Set.empty name dependencies
+                    laterNames = Set.fromList $ drop (i + 1) originalOrder
+                in not . Set.null $ deps `Set.intersection` laterNames
+                ) (zip [0..] originalOrder)
+-}
+              originalOrder = fmap fst bindings
+
+              -- Topological sort with cycle detection
+              topologicalSort :: [String] -> Map String (Set String) -> Either [String] [String]
+              topologicalSort names deps = go [] Set.empty names
+                where
+                  go :: [String] -> Set String -> [String] -> Either [String] [String]
+                  go result _ [] = Right (reverse result)
+                  go result inProgress remaining =
+                    case find (canProcess remaining inProgress) remaining of
+                      Nothing ->
+                        -- Must be a cycle - find it for error message
+                        let findCycleFrom start = go' start Set.empty
+                              where go' curr visited
+                                      | curr `Set.member` visited = [curr]
+                                      | otherwise =
+                                          case find (`elem` remaining) (Set.toList $ Map.findWithDefault Set.empty curr deps) of
+                                            Nothing -> []
+                                            Just next -> curr : go' next (Set.insert curr visited)
+                        in Left (findCycleFrom (head remaining))
+                      Just name ->
+                        let inProgress' = inProgress `Set.union`
+                                         Map.findWithDefault Set.empty name deps
+                        in go (name : result) inProgress' (delete name remaining)
+
+                  canProcess rn inProgress name =
+                    all (`notElem` rn) (Set.toList $ Map.findWithDefault Set.empty name deps)
+
+                  delete x = filter (/= x)
+
+              sortedBindings = case topologicalSort originalOrder dependencies of
+                  Left cycle -> Left $ "Recursion not allowed: circular dependency " <> intercalate " -> " cycle
+                  Right sortedNames ->
+                    pure [(name, def) | name <- sortedNames,
+                          (name', def) <- bindings, name == name']
+              makeBinding inner (n,d) = anno :< TAppF (makeLambda n inner) d
+          in sortedBindings >>= \sb ->
+            pure (foldl' makeBinding inner sb, Set.difference refs (Map.keysSet dependencies))
+      brt (Left s) = Left s
+      cleanup = \case
+        Left s -> Left s
+        Right (t, refs) -> if null refs
+          then pure t
+          else Left $ "letsToApps missing definitions: " <> show refs
+  in cleanup . runWriterT $ cata buildRefs term
+
+-- convert let bindings to nested lambda/app brackets
+letsToApps :: AnnotatedUPT -> Either String Term1
+letsToApps term =
+  let buildRefs :: CofreeF UnprocessedParsedTermF LocTag (WriterT (Set String) (Either String) Term1)
+                   -> WriterT (Set String) (Either String) Term1
+      -- buildRefs =  WriterT . brt . runWriterT . sequence
+      buildRefs (anno CofreeT.:< upf) = case upf of
+        VarUPF n -> writer (anno :< TVarF n, Set.singleton n)
+        LamUPF v x -> f (runWriterT x) where
+          f (Right (nx, refs)) = writer (makeLambda v nx, Set.delete v refs)
+          f (Left s) = lift $ Left s
+
+{-
+      brt (Right (anno CofreeT.:< upf, refs)) = case upf of
+        VarUPF n -> pure (anno :< TVarF n, Set.singleton n)
+        LamUPF v x -> pure (makeLambda v x, Set.delete v refs)
+        ITEUPF i t e -> pure (anno :< TITEF i t e, refs)
+        IntUPF n  -> pure (i2t anno n, refs)
+        StringUPF s -> pure (s2t anno s, refs)
+        PairUPF a b -> pure (anno :< TPairF a b, refs)
+        ListUPF l -> pure (foldr (\x y -> anno :< TPairF x y) (anno :< TZeroF) l, refs)
+        AppUPF f x -> pure (anno :< TAppF f x, refs)
+        UnsizedRecursionUPF t r b -> pure (anno :< TLimitedRecursionF t r b, refs)
+        ChurchUPF n -> pure (anno :< TChurchF n, refs)
+        LeftUPF x -> pure (anno :< TLeftF x, refs)
+        RightUPF x -> pure (anno :< TRightF x, refs)
+        TraceUPF x -> pure (anno :< TTraceF x, refs)
+        CheckUPF cf x -> pure (anno :< TCheckF cf x, refs)
+        HashUPF x -> pure (anno :< THashF x, refs)
+-}
+        LetUPF bindings inner -> WriterT $ do
+          -- Build dependency graph
+              {-
+          let dependencies :: Map String (Set String)
+              dependencies = Map.fromList
+                [(name, Set.fromList $ getDirectDeps def) | (name, def) <- bindings]
+-}
+          dependencies <- Map.fromList <$> traverse makePair bindings where
+            makePair (name, def) = case runWriter def of
+              Left s -> Left s
+              Right (nx, refs) -> pure (name, refs)
+
+          let originalOrder = fmap fst bindings
+
+              -- Topological sort with cycle detection
+              topologicalSort :: [String] -> Map String (Set String) -> Either [String] [String]
+              topologicalSort names deps = go [] Set.empty names
+                where
+                  go :: [String] -> Set String -> [String] -> Either [String] [String]
+                  go result _ [] = Right (reverse result)
+                  go result inProgress remaining =
+                    case find (canProcess remaining inProgress) remaining of
+                      Nothing ->
+                        -- Must be a cycle - find it for error message
+                        let findCycleFrom start = go' start Set.empty
+                              where go' curr visited
+                                      | curr `Set.member` visited = [curr]
+                                      | otherwise =
+                                          case find (`elem` remaining) (Set.toList $ Map.findWithDefault Set.empty curr deps) of
+                                            Nothing -> []
+                                            Just next -> curr : go' next (Set.insert curr visited)
+                        in Left (findCycleFrom (head remaining))
+                      Just name ->
+                        let inProgress' = inProgress `Set.union`
+                                         Map.findWithDefault Set.empty name deps
+                        in go (name : result) inProgress' (delete name remaining)
+
+                  canProcess rn inProgress name =
+                    all (`notElem` rn) (Set.toList $ Map.findWithDefault Set.empty name deps)
+
+                  delete x = filter (/= x)
+
+              sortedBindings = case topologicalSort originalOrder dependencies of
+                  Left cycle -> Left $ "Recursion not allowed: circular dependency " <> intercalate " -> " cycle
+                  Right sortedNames ->
+                    pure [(name, def) | name <- sortedNames,
+                          (name', def) <- bindings, name == name']
+              makeBinding inner (n,d) = anno :< TAppF (makeLambda n inner) d
+          in sortedBindings >>= \sb ->
+            pure (foldl' makeBinding inner sb, Set.difference refs (Map.keysSet dependencies))
+      brt (Left s) = Left s
+      cleanup = \case
+        Left s -> Left s
+        Right (t, refs) -> if null refs
+          then pure t
+          else Left $ "letsToApps missing definitions: " <> show refs
+  in cleanup . runWriterT $ cata buildRefs term
+
 -- |Collect all free variable names in a `Term1` expresion
 varsTerm1 :: Term1 -> Set String
 varsTerm1 = cata alg where
@@ -504,6 +738,9 @@ process :: AnnotatedUPT
         -> Either String Term3
 process upt = (\dt -> debugTrace ("Resolver process term:\n" <> prettyPrint dt) dt) . splitExpr <$> process2Term2 upt
 
+processWlet :: AnnotatedUPT -> Either String Term3
+processWlet = fmap splitExpr . process2Term2let
+
 process2Term2 :: AnnotatedUPT
               -> Either String Term2
 process2Term2 = fmap generateAllHashes
@@ -511,6 +748,13 @@ process2Term2 = fmap generateAllHashes
               . removeCaseUPs
               . optimizeBuiltinFunctions
               . addBuiltins
+
+process2Term2let :: AnnotatedUPT -> Either String Term2
+process2Term2let = fmap generateAllHashes
+                 . debruijinize [] <=< letsToApps
+                 . removeCaseUPs
+                 . optimizeBuiltinFunctions
+                 . addBuiltins
 
 -- |Helper function to compile to Term2
 runTelomareParser2Term2 :: TelomareParser AnnotatedUPT -- ^Parser to run
@@ -586,3 +830,8 @@ main2Term3 :: [(String, [Either AnnotatedUPT (String, AnnotatedUPT)])] -- ^Modul
            -> String -- ^Module name with main
            -> Either String Term3 -- ^Error on Left
 main2Term3 moduleBindings s = resolveMain moduleBindings s >>= process
+
+main2Term3let :: [(String, [Either AnnotatedUPT (String, AnnotatedUPT)])] -- ^Modules: [(ModuleName, [Either Import (VariableName, BindedUPT)])]
+           -> String -- ^Module name with main
+           -> Either String Term3 -- ^Error on Left
+main2Term3let moduleBindings s = resolveMain moduleBindings s >>= processWlet

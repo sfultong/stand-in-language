@@ -121,12 +121,20 @@ data LamType l
   | Closed l
   deriving (Eq, Show, Ord)
 
+{-
+data FunRef v r
+  = NamedRef v
+  | ExplicitRef r
+  deriving (Eq, Show, Ord, Functor, Foldable, Traversable)
+-}
+
 -- | Parser AST
 data ParserTerm l v
   = TZero
   | TPair (ParserTerm l v) (ParserTerm l v)
   | TVar v
   | TApp (ParserTerm l v) (ParserTerm l v)
+--  | TPartApp (ParserTerm l v) (ParserTerm l v)
   | TCheck (ParserTerm l v) (ParserTerm l v)
   | TITE (ParserTerm l v) (ParserTerm l v) (ParserTerm l v)
   | TLeft (ParserTerm l v)
@@ -135,8 +143,11 @@ data ParserTerm l v
   | THash (ParserTerm l v)
   | TChurch Int
   | TLam (LamType l) (ParserTerm l v)
+  --  | TLam [ParserTerm l v] (ParserTerm l v)
+  --  | TLam l [FunRef v (ParserTerm l v)] (ParserTerm l v)
   | TLimitedRecursion (ParserTerm l v) (ParserTerm l v) (ParserTerm l v)
   deriving (Eq, Ord, Functor, Foldable, Traversable)
+--   deriving (Eq, Ord)
 makeBaseFunctor ''ParserTerm -- Functorial version ParserTermF
 deriving instance (Show l, Show v, Show a) => Show (ParserTermF l v a)
 deriving instance (Show l, Show v) => Show1 (ParserTermF l v)
@@ -147,6 +158,7 @@ instance Eq l => Eq2 (ParserTermF l) where
   liftEq2 eqv eqa (TPairF x1 y1) (TPairF x2 y2) = eqa x1 x2 && eqa y1 y2
   liftEq2 eqv eqa (TVarF v1) (TVarF v2) = eqv v1 v2
   liftEq2 eqv eqa (TAppF x1 y1) (TAppF x2 y2) = eqa x1 x2 && eqa y1 y2
+--  liftEq2 eqv eqa (TPartAppF x1 y1) (TPartAppF x2 y2) = eqa x1 x2 && eqa y1 y2
   liftEq2 eqv eqa (TCheckF x1 y1) (TCheckF x2 y2) = eqa x1 x2 && eqa y1 y2
   liftEq2 eqv eqa (TITEF c1 t1 e1) (TITEF c2 t2 e2) = eqa c1 c2 && eqa t1 t2 && eqa e1 e2
   liftEq2 eqv eqa (TLeftF x1) (TLeftF x2) = eqa x1 x2
@@ -155,6 +167,7 @@ instance Eq l => Eq2 (ParserTermF l) where
   liftEq2 eqv eqa (THashF x1) (THashF x2) = eqa x1 x2
   liftEq2 eqv eqa (TChurchF n1) (TChurchF n2) = n1 == n2
   liftEq2 eqv eqa (TLamF l1 x1) (TLamF l2 x2) = l1 == l2 && eqa x1 x2
+  -- liftEq2 eqv eqa (TLamF v1 x1) (TLamF v2 x2) = and (zipWith eqa v1 v2) && eqa x1 x2
   liftEq2 eqv eqa (TLimitedRecursionF a1 b1 c1) (TLimitedRecursionF a2 b2 c2) =
     eqa a1 a2 && eqa b1 b2 && eqa c1 c2
   liftEq2 _ _ _ _ = False

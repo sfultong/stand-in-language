@@ -559,9 +559,9 @@ debugMark s = hPutStrLn stderr s >> pure True
 
 --unitTests :: (String -> String -> Spec) -> (String -> PartialType -> (Maybe TypeCheckError -> Bool) -> Spec) -> Spec
 unitTests parse = do
-  let unitTestType = unitTestType' parse
-      unitTest2 = unitTest2' parse
-      unitTestStaticChecks = unitTestStaticChecks' parse
+  let unitTestType = unitTestType' (parse False)
+      unitTest2 = unitTest2' (parse True)
+      unitTestStaticChecks = unitTestStaticChecks' (parse True)
   describe "type checker" $ do
     unitTestType "main = \\x -> (x,0)" (PairTypeP (ArrTypeP ZeroTypeP ZeroTypeP) ZeroTypeP) (== Nothing)
     unitTestType "main = \\x -> (x,0)" ZeroTypeP isInconsistentType
@@ -812,8 +812,10 @@ main = do
       case sequence ("AuxModule", parseModule ("import Prelude\n" <> str)) of
         Left e    -> error $ show e
         Right pam -> pam
-    parse :: String -> Either String Term3
-    parse str = main2Term3 (parseAuxModule str:prelude) "AuxModule"
+    parse :: Bool -> String -> Either String Term3
+    parse appLet str = if appLet
+      then main2Term3let (parseAuxModule str:prelude) "AuxModule"
+      else main2Term3 (parseAuxModule str:prelude) "AuxModule"
 
   hspec $ unitTests parse
     --nexprTests
