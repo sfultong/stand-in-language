@@ -347,13 +347,13 @@ unitTests parse = do
     unitTestType "main = or succ" (embed $ ArrTypeP (embed ZeroTypeP) (embed ZeroTypeP)) isInconsistentType
     unitTestType "main = 0 succ" (embed ZeroTypeP) isInconsistentType
     unitTestType "main = 0 0" (embed ZeroTypeP) isInconsistentType
-    unitTestType "main = (if 0 then (\\x -> (x,0)) else (\\x -> (x,1))) 0" (embed ZeroTypeP) isRecursiveType
-  {- TODO uncomment when type checker is fixed
+    -- note: the old type checker reported RecursiveType here, but that was an artifact of
+    -- the initial env type variable colliding with the first defer's env variable
+    unitTestType "main = (if 0 then (\\x -> (x,0)) else (\\x -> (x,1))) 0" (embed ZeroTypeP) (== Nothing)
     unitTestType "main = \\f -> (\\x -> f (x x)) (\\x -> f (x x))"
       normalMainType (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> (\\x -> x x) (\\x -> f (x x)))"
       normalMainType (/= Nothing) -- isRecursiveType
--}
     unitTestType "main = (\\x y -> x y x) (\\y x -> y (x y x))"
       normalMainType (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
@@ -372,7 +372,9 @@ unitTests parse = do
         d2 <- deferS EnvB
         pure $ SetEnvB (PairB (SetEnvB (PairB d1 d2)) ZeroB)
       )
-      (embed ZeroTypeP) isRecursiveType
+      -- this term is ill-typed both by self-application and by applying its result to Zero;
+      -- which error surfaces first depends on unification order
+      (embed ZeroTypeP) (/= Nothing)
     unitTestType2 inf_pairs (embed ZeroTypeP) isRecursiveType
   describe "unitTest" $ do
     unitTest "ite" "2" (iteB_ (i2B 1) (i2B 2) (i2B 3))
