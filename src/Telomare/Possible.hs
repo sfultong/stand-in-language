@@ -69,7 +69,7 @@ import Telomare (AbortBase (..), AbortableF (..), AbstractRunTime (..),
                  pattern AbortUnsizeable, pattern AbortUser, pattern AppEE,
                  pattern BasicEE, pattern BasicFW, pattern EnvB,
                  pattern FillFunction, pattern FillFunctionEE, pattern GateB,
-                 pattern GateSwitch, pattern GateSwitchEE, pattern LeftB,
+                 pattern GateSwitch, pattern LeftB,
                  pattern PairB, pattern PairP, pattern RightB, pattern SetEnvB,
                  pattern StuckEE, pattern StuckFW, pattern ZeroB, s2b, sindent,
                  toPartialType)
@@ -140,7 +140,13 @@ doLeft :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => 
 doLeft = deferB leftGateInd $ LeftB EnvB
 
 doRight :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g
-doRight = deferB leftGateInd $ RightB EnvB
+doRight = deferB rightGateInd $ RightB EnvB
+
+-- | matches the branch-selector functions a gate evaluates to (doLeft/doRight)
+isGateSelector :: (Base g ~ f, StuckBase f, Recursive g) => g -> Bool
+isGateSelector x = case project x of
+  StuckFW (DeferSF fi _) -> fi == toEnum leftGateInd || fi == toEnum rightGateInd
+  _ -> False
 
 stuckStep :: (Base a ~ f, StuckBase f, BasicBase f, Recursive a, Corecursive a, PrettyPrintable a)
   => (f a -> a) -> f a -> a
@@ -314,6 +320,9 @@ superStep gateResult step handleOther =
     StuckFW (RightSF (SuperEE (EitherPF n a b))) -> mergeShallow n (step . embedS . RightSF $ a) (step . embedS . RightSF $ b)
     StuckFW (SetEnvSF (SuperEE (EitherPF n a b))) -> mergeShallow n (step . embedS . SetEnvSF $ a) (step . embedS . SetEnvSF $ b)
     FillFunction GateB x@(SuperEE (EitherPF n _ _)) -> foldGateResult n $ gateResult x
+    FillFunction (SuperEE (EitherPF n sca scb)) e | isGateSelector sca && isGateSelector scb -> mergeShallow n
+      (step . embedS . SetEnvSF . BasicEE $ PairSF sca e)
+      (step . embedS . SetEnvSF . BasicEE $ PairSF scb e)
     (FillFunction (SuperEE (EitherPF n sca scb)) e) -> mergeShallow n
       (step . embedS . SetEnvSF . BasicEE . PairSF sca $ if null n then e else cata (filterLeft n) e)
       (step . embedS . SetEnvSF . BasicEE . PairSF scb $ if null n then e else cata (filterRight n) e)
@@ -343,6 +352,9 @@ superUnsizedStep gateResult step handleOther =
       extractSizeStages = cata $ \case
         UnsizedFW (SizeStageF sr (srb, x)) -> (sr <> srb, x)
         x -> embed <$> sequence x
+    FillFunction (SuperEE (EitherPF n sca scb)) e | isGateSelector sca && isGateSelector scb -> mergeShallow n
+      (step . embedS . SetEnvSF . BasicEE $ PairSF sca e)
+      (step . embedS . SetEnvSF . BasicEE $ PairSF scb e)
     (FillFunction (SuperEE (EitherPF n sca scb)) e) -> mergeShallow n
       (step . embedS . SetEnvSF . BasicEE . PairSF sca $ if null n then e else cata (filterLeft n) e)
       (step . embedS . SetEnvSF . BasicEE . PairSF scb $ if null n then e else cata (filterRight n) e)
@@ -372,6 +384,12 @@ superStepM gateResult step handleOther x = f x where
     StuckFW (RightSF (SuperEE (EitherPF n a b))) ->  mergeShallow n <$> pbStep RightSF a <*> pbStep RightSF b
     StuckFW (SetEnvSF (SuperEE (EitherPF n a b))) -> mergeShallow n <$> pbStep SetEnvSF a <*> pbStep SetEnvSF b
     FillFunction GateB x@(SuperEE (EitherPF n _ _)) -> pure . foldGateResult n $ gateResult x
+    -- when applying gate selectors, e holds the gate branches; filtering them by the scrutinee's
+    -- tag collapses same-tagged input superpositions and under-approximates recursion sizes
+    FillFunction (SuperEE (EitherPF n sca scb)) e | isGateSelector sca && isGateSelector scb ->
+      mergeShallow n
+       <$> (pbStep SetEnvSF . BasicEE $ PairSF sca e)
+       <*> (pbStep SetEnvSF . BasicEE $ PairSF scb e)
     FillFunction (SuperEE (EitherPF n sca scb)) e ->
       let fl = if null n then id else cata (filterLeft n)
           fr = if null n then id else cata (filterRight n)

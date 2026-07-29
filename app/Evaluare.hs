@@ -153,12 +153,12 @@ nodify = removeExtraNumbers . fmap go . allNodes 0 where
   allNodes i = \case
     x@(_ :< CompiledExprB ZeroSF) -> [(i, x)]
     x@(_ :< CompiledExprS EnvSF) -> [(i, x)]
+    x@(_ :< CompiledExprS GateSF) -> [(i, x)]
     x@(_ :< CompiledExprS (SetEnvSF a)) -> (i, x) : allNodes (i + 1) a
     x@(_ :< CompiledExprS (DeferSF _ a)) -> (i, x) : allNodes (i + 1) a
     x@(_ :< CompiledExprS (LeftSF a)) -> (i, x) : allNodes (i + 1) a
     x@(_ :< CompiledExprS (RightSF a)) -> (i, x) : allNodes (i + 1) a
     x@(_ :< CompiledExprB (PairSF a b)) -> (i, x) : allNodes (i + 1) a <> allNodes (i + 1) b
-    x@(_ :< CompiledExprS (GateSF a b)) -> (i, x) : allNodes (i + 1) a <> allNodes (i + 1) b
     x -> [(i, x)]
 
 
