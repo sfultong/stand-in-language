@@ -136,6 +136,12 @@ transformNoDeferM f = c where
     s@(StuckFW (DeferSF _ _)) -> pure s
     x                         -> mapM c x
 
+doLeft :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g
+doLeft = deferB leftGateInd $ LeftB EnvB
+
+doRight :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g
+doRight = deferB leftGateInd $ RightB EnvB
+
 stuckStep :: (Base a ~ f, StuckBase f, BasicBase f, Recursive a, Corecursive a, PrettyPrintable a)
   => (f a -> a) -> f a -> a
 stuckStep handleOther = \case
@@ -152,11 +158,11 @@ stuckStep handleOther = \case
   StuckFW (LeftSF (BasicEE (PairSF l _)))  -> l
   StuckFW (RightSF z@(BasicEE ZeroSF))     -> z
   StuckFW (RightSF (BasicEE (PairSF _ r))) -> r
-  GateSwitch l _ (BasicEE ZeroSF)          -> l
-  GateSwitch _ r (BasicEE (PairSF _ _))    -> r
+  FillFunction GateB ZeroB                 -> doLeft
+  FillFunction GateB (PairB _ _)           -> doRight
   -- stuck values
   x@(StuckFW (DeferSF _ _)) -> embed x
-  x@(StuckFW (GateSF _ _))                 -> embed x
+  x@(StuckFW GateSF )                 -> embed x
   x -> handleOther x
 
 {-
@@ -194,11 +200,11 @@ stuckStepM handleOther x = f x where
     StuckFW (LeftSF (BasicEE (PairSF l _)))  -> pure l
     StuckFW (RightSF z@(BasicEE ZeroSF))     -> pure z
     StuckFW (RightSF (BasicEE (PairSF _ r))) -> pure r
-    GateSwitch l _ (BasicEE ZeroSF)          -> pure l
-    GateSwitch _ r (BasicEE (PairSF _ _))    -> pure r
+    FillFunction GateB ZeroB                 -> pure doLeft
+    FillFunction GateB (PairB _ _)           -> pure doRight
     -- stuck value
     x@(StuckFW (DeferSF _ _)) -> pure $ embed x
-    x@(StuckFW (GateSF _ _))                 -> pure $ embed x
+    x@(StuckFW GateSF)                 -> pure $ embed x
     _ -> handleOther x
 
 {-
@@ -279,12 +285,12 @@ mergeShallow n a b = if shallowEq1 (project a) (project b)
   then debugTrace ("mergeShallow found same pair\n" <> prettyPrint a <> "\nand\n" <> prettyPrint b) a
   else superEE $ EitherPF n a b
 
-foldGateResult :: forall g f. (Base g ~ f, SuperBase f, Recursive g, Corecursive g) => Maybe Integer -> g -> g -> GateResult g -> g
-foldGateResult n l r (GateResult doL doR o) =
+foldGateResult :: forall g f. (Base g ~ f, SuperBase f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => Maybe Integer -> GateResult g -> g
+foldGateResult n (GateResult doL doR o) =
   let branchPart = case (doL, doR) of
-        (True, True) -> pure . superEE $ EitherPF n l r
-        (True, _)    -> pure l
-        (_, True)    -> pure r
+        (True, True) -> pure . superEE $ EitherPF n doLeft doRight
+        (True, _)    -> pure doLeft
+        (_, True)    -> pure doRight
         _            -> Nothing
   in case (o, branchPart) of
     (Just o', Just bp) -> superEE $ EitherPF Nothing o' bp
@@ -307,7 +313,7 @@ superStep gateResult step handleOther =
     StuckFW (LeftSF (SuperEE (EitherPF n a b))) -> mergeShallow n (step . embedS . LeftSF $ a) (step . embedS . LeftSF $ b)
     StuckFW (RightSF (SuperEE (EitherPF n a b))) -> mergeShallow n (step . embedS . RightSF $ a) (step . embedS . RightSF $ b)
     StuckFW (SetEnvSF (SuperEE (EitherPF n a b))) -> mergeShallow n (step . embedS . SetEnvSF $ a) (step . embedS . SetEnvSF $ b)
-    GateSwitch l r x@(SuperEE (EitherPF n _ _)) -> foldGateResult n l r $ gateResult x
+    FillFunction GateB x@(SuperEE (EitherPF n _ _)) -> foldGateResult n $ gateResult x
     (FillFunction (SuperEE (EitherPF n sca scb)) e) -> mergeShallow n
       (step . embedS . SetEnvSF . BasicEE . PairSF sca $ if null n then e else cata (filterLeft n) e)
       (step . embedS . SetEnvSF . BasicEE . PairSF scb $ if null n then e else cata (filterRight n) e)
@@ -330,7 +336,7 @@ superUnsizedStep gateResult step handleOther =
     StuckFW (LeftSF (SuperEE (EitherPF n a b))) -> mergeShallow n (step . embedS . LeftSF $ a) (step . embedS . LeftSF $ b)
     StuckFW (RightSF (SuperEE (EitherPF n a b))) -> mergeShallow n (step . embedS . RightSF $ a) (step . embedS . RightSF $ b)
     StuckFW (SetEnvSF (SuperEE (EitherPF n a b))) -> mergeShallow n (step . embedS . SetEnvSF $ a) (step . embedS . SetEnvSF $ b)
-    GateSwitch l r x@(SuperEE (EitherPF n _ _)) -> wrapSS $ foldGateResult n l r res where
+    FillFunction GateB x@(SuperEE (EitherPF n _ _)) -> wrapSS $ foldGateResult n res where
       wrapSS = if null (unSizedRecursion srx) then id else unsizedEE . SizeStageF srx
       (srx, nx) = extractSizeStages x
       res = gateResult nx
@@ -365,7 +371,7 @@ superStepM gateResult step handleOther x = f x where
     StuckFW (LeftSF (SuperEE (EitherPF n a b))) ->  mergeShallow n <$> pbStep LeftSF a <*> pbStep LeftSF b
     StuckFW (RightSF (SuperEE (EitherPF n a b))) ->  mergeShallow n <$> pbStep RightSF a <*> pbStep RightSF b
     StuckFW (SetEnvSF (SuperEE (EitherPF n a b))) -> mergeShallow n <$> pbStep SetEnvSF a <*> pbStep SetEnvSF b
-    GateSwitch l r x@(SuperEE (EitherPF n _ _)) -> pure . foldGateResult n l r $ gateResult x
+    FillFunction GateB x@(SuperEE (EitherPF n _ _)) -> pure . foldGateResult n $ gateResult x
     FillFunction (SuperEE (EitherPF n sca scb)) e ->
       let fl = if null n then id else cata (filterLeft n)
           fr = if null n then id else cata (filterRight n)
@@ -410,13 +416,13 @@ indexedAbortStepM handleOther = \case
 indexedSuperStep :: (Base a ~ f, Traversable f, BasicBase f, StuckBase f, SuperBase f, IndexedInputBase f, Recursive a, Corecursive a, PrettyPrintable a)
   => (f a -> a) -> f a -> a
 indexedSuperStep handleOther = \case
-  GateSwitch l r (IndexedEE (IVarF n)) -> superEE $ EitherPF (pure n) l r
+  FillFunction GateB (IndexedEE (IVarF n)) -> superEE $ EitherPF (pure n) doLeft doRight
   x -> handleOther x
 
 indexedSuperStepM :: (Base a ~ f, Traversable f, BasicBase f, StuckBase f, SuperBase f, IndexedInputBase f, Recursive a, Corecursive a, PrettyPrintable a, Monad m)
   => (f a -> m a) -> f a -> m a
 indexedSuperStepM handleOther = \case
-  GateSwitch l r (IndexedEE (IVarF n)) -> pure . superEE $ EitherPF (pure n) l r
+  FillFunction GateB (IndexedEE (IVarF n)) -> pure . superEE $ EitherPF (pure n) doLeft doRight
 
   x -> handleOther x
 
@@ -427,7 +433,7 @@ abortStep handleOther =
     StuckFW (RightSF a@(AbortEE (AbortedF _))) -> a
     StuckFW (SetEnvSF a@(AbortEE (AbortedF _))) -> a
     FillFunction a@(AbortEE (AbortedF _)) _ -> a
-    GateSwitch _ _ a@(AbortEE (AbortedF _)) -> a
+    FillFunction GateB a@(AbortEE (AbortedF _)) -> a
     FillFunction (AbortEE AbortF) a@(AbortEE (AbortedF _)) -> a
     FillFunction (AbortEE AbortF) (BasicEE ZeroSF) -> deferB abortInd . StuckEE $ EnvSF
     FillFunction (AbortEE AbortF) e@(BasicEE (PairSF _ _)) -> (\x -> debugTrace ("aborted with value: " <> prettyPrint x) x) . AbortEE $ AbortedF m where
@@ -449,7 +455,7 @@ abortStepM handleOther x = f x where
     StuckFW (RightSF a@(AbortEE (AbortedF _))) -> pure a
     StuckFW (SetEnvSF a@(AbortEE (AbortedF _))) -> pure a
     FillFunction a@(AbortEE (AbortedF _)) _ -> pure a
-    GateSwitch _ _ a@(AbortEE (AbortedF _)) -> pure a
+    FillFunction GateB a@(AbortEE (AbortedF _)) -> pure a
     FillFunction (AbortEE AbortF) a@(AbortEE (AbortedF _)) -> pure a
     FillFunction (AbortEE AbortF) (BasicEE ZeroSF) -> pure . deferB abortInd . StuckEE $ EnvSF
     FillFunction (AbortEE AbortF) e@(BasicEE (PairSF _ _)) -> pure . AbortEE $ AbortedF m where
@@ -464,8 +470,8 @@ abortStepM handleOther x = f x where
     _ -> handleOther x
 
 -- list of defer indexes for functions generated during eval. Need to be unique (grammar under defer n should always be the same)
-[twiddleInd, unsizedStepMEInd, unsizedStepMTInd, unsizedStepMa, unsizedStepMrfa, unsizedStepMrfb, unsizedStepMw, removeRefinementWrappersTC, abortInd]
-  = take 9 [-1, -2 ..]
+[twiddleInd, leftGateInd, rightGateInd, unsizedStepMEInd, unsizedStepMTInd, unsizedStepMa, unsizedStepMrfa, unsizedStepMrfb, unsizedStepMw, removeRefinementWrappersTC, abortInd]
+  = take 11 [-1, -2 ..]
 
 deferB :: (Base g ~ f, StuckBase f, Recursive g, Corecursive g) => Int -> g -> g
 deferB n = StuckEE . DeferSF (toEnum n)
@@ -481,7 +487,7 @@ appB c i = SetEnvB (SetEnvB (PairB twiddleB (PairB i c)))
 
 -- only intended for use inside of unsizedStep
 iteB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g -> g -> g -> g
-iteB i t e = FillFunctionEE (FillFunctionEE (GateB (deferB unsizedStepMEInd e) (deferB unsizedStepMTInd t)) i) EnvB -- TODO THIS IS HOW TO DO LAZY IF/ELSE, COPY!
+iteB i t e = FillFunctionEE (FillFunctionEE (FillFunctionEE GateB i) (PairB (deferB unsizedStepMEInd e) (deferB unsizedStepMTInd t))) EnvB -- TODO THIS IS HOW TO DO LAZY IF/ELSE, COPY!
 
 argOneB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g
 argOneB = LeftB EnvB
@@ -550,36 +556,11 @@ unsizedStep maxSize recursionTest fullStep handleOther =
     StuckFW (RightSF (UnsizedEE (SizeStageF sm x))) -> combineSizes sm . fullStep . embedS $ RightSF x
     StuckFW (SetEnvSF (UnsizedEE (SizeStageF sm x))) -> combineSizes sm . fullStep . embedS $ SetEnvSF x
     FillFunction (UnsizedEE (SizeStageF sm x)) e -> combineSizes sm . fullStep $ FillFunction x e
-    GateSwitch l r (UnsizedEE (SizeStageF sm x)) -> combineSizes sm . fullStep $ GateSwitch l r x
+    FillFunction GateB (UnsizedEE (SizeStageF sm x)) -> combineSizes sm . fullStep $ FillFunction GateB x
     -- stuck value
     ss@(UnsizedFW (SizeStageF _ _)) -> embed ss
     t@(UnsizedFW (RecursionTestF _ _)) -> embed t
     x -> handleOther x
-
-{-
-unsizedStepM :: forall a f t m. (Base a ~ f, Traversable f, BasicBase f, StuckBase f, AbortBase f, UnsizedBase f
-                            , Recursive a, Corecursive a, Eq a, PrettyPrintable a, m ~ StrictAccum SizedRecursion, MonadTrans t, Applicative (t m))
-  => Int -> (UnsizedRecursionToken -> a -> a)
-  -> (f a -> t m a) -> f a -> t m a
-unsizedStepM maxSize recursionTest handleOther x = f x where
-  f = \case
-    UnsizedFW (RecursionTestF ri x) -> pure $ recursionTest ri x
-    UnsizedFW (SizeStageF sr x) -> lift $ StrictAccum sr x
-    -- stuck value
-    t@(UnsizedFW (RecursionTestF _ _)) -> pure $ embed t
-    _ -> handleOther x
-
-unsizedStepM' :: forall a f t m. (Base a ~ f, Traversable f, BasicBase f, StuckBase f, AbortBase f, UnsizedBase f, Recursive a, Corecursive a
-                                   , Eq a, PrettyPrintable a, m ~ StrictAccum SizedRecursion, MonadTrans t, Applicative (t m))
-  => Int -> Set Integer -> (UnsizedRecursionToken -> a -> a) -> (f a -> t m a) -> f a -> t m a
-unsizedStepM' maxSize zeros recursionTest handleOther x = f x where
-  f = \case
-    UnsizedFW (RecursionTestF ri x) -> pure $ recursionTest ri x
-    UnsizedFW (SizeStageF sr x) -> lift $ StrictAccum sr x
-    -- stuck value
-    t@(UnsizedFW (RecursionTestF _ _)) -> pure $ embed t
-    _ -> handleOther x
--}
 
 unsizedStepM''' :: forall a f t m. (Base a ~ f, Traversable f, BasicBase f, StuckBase f, AbortBase f, UnsizedBase f, Recursive a, Corecursive a
                                    , Eq a, PrettyPrintable a, m ~ StrictAccum SizedRecursion, MonadTrans t, Applicative (t m))
@@ -589,7 +570,6 @@ unsizedStepM''' maxSize zeros recursionTest handleOther x = f x where
   argTwo = LeftB (RightB EnvB)
   argThree = LeftB (RightB (RightB EnvB))
   argFour = LeftB (RightB (RightB (RightB EnvB)))
-  -- iteB i t e = fillFunction (fillFunction (gateB (deferB unsizedStepMEInd e) (deferB unsizedStepMTInd t)) i) envB -- TODO THIS IS HOW TO DO LAZY IF/ELSE, COPY!
   f = \case
     UnsizedFW (UnsizedStubF tok (BasicEE (PairSF _ (BasicEE (PairSF _ (BasicEE (PairSF _ (BasicEE (PairSF _ env))))))))) -> case env of
       BasicEE (PairSF b (BasicEE (PairSF r (BasicEE (PairSF tp (BasicEE ZeroSF)))))) -> case tp of
@@ -699,7 +679,7 @@ indexedInputStepM zeroes handleOther x = f x where
     StuckFW (RightSF (IndexedEE AnyF)) -> pure $ indexedEE AnyF
     StuckFW (SetEnvSF (IndexedEE AnyF)) -> pure $ indexedEE AnyF
     FillFunction (IndexedEE AnyF) _ -> pure $ indexedEE AnyF
-    GateSwitch _ _ (IndexedEE AnyF) -> pure $ indexedEE AnyF
+    FillFunction GateB (IndexedEE AnyF) -> pure $ indexedEE AnyF
     IndexedFW (IVarF n) -> pure $ res n
     -- stuck values
     i@(IndexedFW _) -> pure $ embed i
@@ -717,7 +697,7 @@ indexedInputStepM' zeroes handleOther x = f x where
     StuckFW (RightSF (IndexedEE AnyF)) -> pure $ indexedEE AnyF
     StuckFW (SetEnvSF (IndexedEE AnyF)) -> pure $ indexedEE AnyF
     FillFunction (IndexedEE AnyF) _ -> pure $ indexedEE AnyF
-    GateSwitch _ _ (IndexedEE AnyF) -> pure $ indexedEE AnyF
+    FillFunction GateB (IndexedEE AnyF) -> pure $ indexedEE AnyF
     IndexedFW (IVarF n) -> pure $ res n
     -- stuck values
     i@(IndexedFW _) -> pure $ embed i
@@ -728,12 +708,12 @@ indexedInputIgnoreSwitchStepM :: (Base a ~ f, Traversable f, BasicBase f, StuckB
   => (f a -> m a) -> f a -> m a
 indexedInputIgnoreSwitchStepM handleOther x = f x where
   f = \case
-    GateSwitch _ _ (IndexedEE (IVarF _)) -> pure $ indexedEE AnyF
+    FillFunction GateB (IndexedEE (IVarF _)) -> pure $ indexedEE AnyF
     _ -> handleOther x
 
 indexSwitchSuperSplitStep :: (Base a ~ f, BasicBase f, StuckBase f, IndexedInputBase f, SuperBase f, Recursive a, Corecursive a) => (f a -> a) -> f a -> a
 indexSwitchSuperSplitStep handleOther = \case
-  GateSwitch l r (IndexedEE AnyF) -> superEE $ EitherPF Nothing l r
+  FillFunction GateB (IndexedEE AnyF) -> superEE $ EitherPF Nothing doLeft doRight
 
   x -> handleOther x
 
@@ -747,7 +727,7 @@ deferredEvalStep handleOther = \case
     StuckFW (RightSF (DeferredEE (BarrierF x))) -> deferredEE . BarrierF . deferredEE $ ManyRights 1 x
     StuckFW (SetEnvSF (DeferredEE (BarrierF x))) -> deferredEE . BarrierF . StuckEE $ SetEnvSF x
     FillFunction (DeferredEE (BarrierF c)) e -> deferredEE . BarrierF $ FillFunctionEE c e
-    GateSwitch l r (DeferredEE (BarrierF s)) -> deferredEE . BarrierF $ GateSwitchEE l r s
+    FillFunction GateB (DeferredEE (BarrierF s)) -> deferredEE . BarrierF . embed $ FillFunction GateB s
     -- stuck values
     d@(DeferredFW _) -> embed d
 
@@ -760,7 +740,7 @@ deferredEvalStep' handleOther = \case
     StuckFW (RightSF (DeferredEE (BarrierF x))) -> deferredEE . BarrierF . StuckEE $ RightSF x
     StuckFW (SetEnvSF (DeferredEE (BarrierF x))) -> deferredEE . BarrierF . StuckEE $ SetEnvSF x
     FillFunction (DeferredEE (BarrierF c)) e -> deferredEE . BarrierF $ FillFunctionEE c e
-    GateSwitch l r (DeferredEE (BarrierF s)) -> deferredEE . BarrierF $ GateSwitchEE l r s
+    FillFunction GateB (DeferredEE (BarrierF s)) -> deferredEE . BarrierF . embed $ FillFunction GateB s
     -- stuck values
     d@(DeferredFW _) -> embed d
 
@@ -873,7 +853,7 @@ findInputLimitStepM handleOther x = f x where
       let
           performTC = SetEnvB $ PairB (AbortEE AbortF) (appB tc c)
           wrapDefer = \case
-            GateSwitch l r i@(IndexedEE _) -> deferredEE . BarrierF $ GateSwitchEE (ev l) (ev r) i
+            FillFunction GateB i@(IndexedEE _) -> deferredEE . BarrierF . embed $ FillFunction GateB i
             x -> error $ "findInputLimitStepM eval unexpected:\n" <> prettyPrint x
           evalStep = basicStep (stuckStep (abortStep (deferredEvalStep (abortDeferredStep (indexedInputStep' Set.empty wrapDefer)))))
           convertIL :: InputSizingExpr -> UnsizedExpr

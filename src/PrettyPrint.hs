@@ -255,7 +255,7 @@ instance PrettyPrintable1 StuckF where
     DeferSF ind x -> indentWithOneChild' (showFI ind) $ showP x
     EnvSF      -> pure "E"
     SetEnvSF x -> indentWithOneChild' "S" $ showP x
-    GateSF l r -> indentWithTwoChildren' "G" (showP l) (showP r)
+    GateSF     -> pure "G"
     LeftSF x   -> indentWithOneChild' "L" $ showP x
     RightSF x  -> indentWithOneChild' "R" $ showP x
 

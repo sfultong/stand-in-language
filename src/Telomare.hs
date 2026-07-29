@@ -86,9 +86,10 @@ pattern FillFunction c e = StuckFW (SetEnvSF (BasicEE (PairSF c e)))
 pattern FillFunctionEE :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g -> g -> g
 pattern FillFunctionEE c i = GFix (FillFunction c i)
 pattern GateSwitch :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g -> g -> g -> f g
-pattern GateSwitch l r s = FillFunction (GateB l r) s
+pattern GateSwitch l r s <- (embed -> (GateSwitchEE l r s)) where
+  GateSwitch l r s = project (GateSwitchEE l r s)
 pattern GateSwitchEE :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g -> g -> g -> g
-pattern GateSwitchEE l r s = GFix (GateSwitch l r s)
+pattern GateSwitchEE l r s = GFix (FillFunction (GFix (FillFunction GateB s)) (PairB l r))
 pattern AppEE :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g -> g -> g
 pattern AppEE c i <- StuckEE (SetEnvSF (StuckEE (SetEnvSF (BasicEE (PairSF (StuckEE (DeferSF _ (BasicEE (PairSF (StuckEE (LeftSF (StuckEE (RightSF (StuckEE EnvSF))))) (BasicEE (PairSF (StuckEE (LeftSF (StuckEE EnvSF))) (StuckEE (RightSF (StuckEE (RightSF (StuckEE EnvSF))))))))))) (BasicEE (PairSF i c)))))))
 
@@ -96,8 +97,8 @@ pattern EnvB :: (Recursive g, Corecursive g, Base g ~ f, StuckBase f) => g
 pattern EnvB = StuckEE EnvSF
 pattern SetEnvB :: (Recursive g, Corecursive g, Base g ~ f, StuckBase f) => g -> g
 pattern SetEnvB x = StuckEE (SetEnvSF x)
-pattern GateB :: (Recursive g, Corecursive g, Base g ~ f, StuckBase f) => g -> g -> g
-pattern GateB l r = StuckEE (GateSF l r)
+pattern GateB :: (Recursive g, Corecursive g, Base g ~ f, StuckBase f) => g
+pattern GateB  = StuckEE GateSF
 pattern LeftB :: (Recursive g, Corecursive g, Base g ~ f, StuckBase f) => g -> g
 pattern LeftB x = StuckEE (LeftSF x)
 pattern RightB :: (Recursive g, Corecursive g, Base g ~ f, StuckBase f) => g -> g
@@ -139,7 +140,7 @@ s2b = foldr (PairP . i2B . ord) ZeroB
 
 -- note that this doesn't incorporate laziness necessary for things like sizing recursion
 iteB_ :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g, CarryAnno g, CarryWrap g ~ w, BasicBase w) => g -> g -> g -> g
-iteB_ i t e = SetEnvB $ PairP (GateB e t) i
+iteB_ i t e = SetEnvB $ PairP (SetEnvB $ PairP GateB i) (PairP e t)
 
 data BasicExprF f
   = ZeroSF
@@ -167,7 +168,7 @@ data StuckF f
   = DeferSF FunctionIndex f
   | EnvSF
   | SetEnvSF f
-  | GateSF f f
+  | GateSF
   | LeftSF f
   | RightSF f
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Generic)
@@ -177,15 +178,15 @@ instance Show1 StuckF where
     DeferSF fi x -> shows "DeferSF " . shows fi . shows " (" . showsPrec' 0 x . shows ")"
     EnvSF -> shows "EnvSF"
     SetEnvSF x -> shows "SetEnvSF (" . showsPrec' 0 x . shows ")"
-    GateSF l r -> shows "GateSF (" . showsPrec' 0 l . shows ", " . showsPrec' 0 r . shows ")"
+    GateSF -> shows "GateSF"
     LeftSF x -> shows "LeftSF (" . showsPrec' 0 x . shows ")"
     RightSF x -> shows "RightSF (" . showsPrec' 0 x . shows ")"
 instance Eq1 StuckF where
   liftEq test a b = case (a,b) of
     (DeferSF ix _, DeferSF iy _) | ix == iy -> True -- test a b
     (EnvSF, EnvSF)                          -> True
+    (GateSF, GateSF)                        -> True
     (SetEnvSF x, SetEnvSF y)                -> test x y
-    (GateSF a b, GateSF c d)                -> test a c && test b d
     (LeftSF x, LeftSF y)                    -> test x y
     (RightSF x, RightSF y)                  -> test x y
     _                                       -> False

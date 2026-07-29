@@ -141,11 +141,9 @@ annotate term =
           AbortFW AbortF -> do
             (it, _) <- withNewEnv anno $ pure ()
             pure $ embed (ArrTypeP (embed ZeroTypeP) (embed $ ArrTypeP it it))
-          StuckFW (GateSF l r) -> do
-            lt <- annotate' l
-            rt <- annotate' r
-            associateVar lt rt
-            pure . embed $ ArrTypeP (embed ZeroTypeP) lt
+          StuckFW GateSF -> do
+            (bt, _) <- withNewEnv anno $ pure ()
+            pure . embed $ ArrTypeP (embed ZeroTypeP) (embed $ ArrTypeP (embed $ PairTypeP bt bt) bt)
           StuckFW (LeftSF x) -> do
             xt <- annotate' x
             (la, _) <- withNewEnv anno $ pure ()

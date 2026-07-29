@@ -74,22 +74,21 @@ instance Arbitrary TestIExpr where
     tree i = let half = div i 2
                  pure2 = pure . TestIExpr
              in case i of
-                  0 -> oneof $ fmap pure2 [ZeroB, EnvB]
+                  0 -> oneof $ fmap pure2 [ZeroB, EnvB, GateB]
                   x -> oneof
                     [ pure2 ZeroB
                     , pure2 EnvB
+                    , pure2 GateB
                     , lift2Texpr PairB <$> tree half <*> tree half
                     , lift1Texpr SetEnvB <$> tree (i - 1)
                     , lift1Texpr (StuckEE  . DeferSF (toEnum (-1))) <$> tree (i - 1)
-                    , lift2Texpr GateB <$> tree half <*> tree half
                     , lift1Texpr LeftB <$> tree (i - 1)
                     , lift1Texpr RightB <$> tree (i - 1)
                     ]
   shrink (TestIExpr x) = case x of
     ZeroB -> []
     StuckEE EnvSF -> []
-    StuckEE (GateSF a b) -> TestIExpr a : TestIExpr b :
-      [lift2Texpr GateB a' b' | (a', b') <- shrink (TestIExpr a, TestIExpr b)]
+    StuckEE GateSF -> []
     StuckEE (LeftSF x) -> TestIExpr x : (fmap (lift1Texpr LeftB) . shrink $ TestIExpr x)
     StuckEE (RightSF x) -> TestIExpr x : (fmap (lift1Texpr RightB) . shrink $ TestIExpr x)
     StuckEE (SetEnvSF x) -> TestIExpr x : (fmap (lift1Texpr SetEnvB) . shrink $ TestIExpr x)
@@ -114,8 +113,12 @@ genTypedTree ti t i =
       optionEnv = if ti == Just t
                   then (pure EnvB :)
                   else id
-      optionGate ti' to = if ti' == ZeroType
-                          then ((GateB <$> genTypedTree ti to half <*> genTypedTree ti to half) :)
+      gateMatch = \case
+        ArrType (PairType a b) c | a == b && b == c -> True
+        _ -> False
+      optionGate :: DataType -> DataType -> [Gen StuckExpr] -> [Gen StuckExpr]
+      optionGate ti' to = if ti' == ZeroType && gateMatch to
+                          then (pure GateB :)
                           else id
       setEnvOption to = arbitrary >>= makeSetEnv where
         makeSetEnv ti' = SetEnvB <$> genTypedTree ti (PairType (ArrType ti' to) ti') (i - 1)

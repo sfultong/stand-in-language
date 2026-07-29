@@ -356,9 +356,7 @@ tagIExprWithEval iexpr = evalState (para alg iexpr) 0 where
       x' <- x
       y' <- y
       pure $ (i, basicEval $ PairB iexpr0 iexpr1) :< embedB (PairSF x' y')
-    StuckFW (GateSF (iexpr0, x) (iexpr1, y)) -> do
+    StuckFW GateSF -> do
       i <- statePlus1
-      x' <- x
-      y' <- y
-      pure $ (i, basicEval . StuckEE $ GateSF iexpr0 iexpr1) :< embedS (GateSF x' y')
+      pure $ (i, basicEval $ StuckEE GateSF) :< embedS GateSF
 
