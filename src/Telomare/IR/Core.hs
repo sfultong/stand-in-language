@@ -25,7 +25,7 @@ import Telomare.IR.Base (AbortBase (..), AbortableF (..), BasicBase (..),
                          StuckF (..), UnsizedRecursionToken,
                          convertAbortMessage, convertBasic, convertStuck,
                          forget)
-import Telomare.IR.Loc (LocTag)
+import Telomare.IR.Loc (LocTag (GeneratedLoc))
 
 data StuckExprF f
   = StuckExprB (BasicExprF f)
@@ -161,6 +161,18 @@ instance (Eq l, Eq v) => Eq1 (ParserTermF l v) where
 type Term1 = Cofree (ParserTermF (LamType String) String) LocTag
 type Term2 = Cofree (ParserTermF (LamType ()) Int) LocTag
 type Term3 = Cofree Term3F LocTag
+
+-- | Inject a sized, runnable term back into Term3 ('CompiledExprF' is a
+-- strict subset of 'Term3F'), so Term3-based analyses — EAL tagging in
+-- particular — can run on the post-sizing form. Source locations are gone
+-- by this point, so every node carries a generated tag.
+compiled2Term3 :: CompiledExpr -> Term3
+compiled2Term3 = cata f where
+  anno = GeneratedLoc "compiled2Term3" Nothing
+  f = \case
+    CompiledExprB x -> anno :< Term3B x
+    CompiledExprS x -> anno :< Term3S x
+    CompiledExprA x -> anno :< Term3A x
 
 data RunTimeError
   = AbortRunTime BasicExpr

@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DeriveTraversable   #-}
+{-# LANGUAGE DerivingVia         #-}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -54,7 +57,9 @@ import Data.Map.Strict (Map)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (absurd)
+import Data.Functor.Classes (Eq1 (..), Show1 (liftShowsPrec))
 import Debug.Trace (trace)
+import GHC.Generics (Generic1, Generically1 (..))
 import Telomare.Desugar (desugarTerm, rewriteOuterTag)
 import Telomare.Error
 import Telomare.IR.Base
@@ -186,31 +191,77 @@ debruijinizeApp = fmap closeLams . flip (runReaderT . cata f) [] where
     (_, LetBinding _ n') | n' == n -> True
     _ -> False
 
+-- | Compile Term2 to Term3 with trimmed lambda captures — lambda lifting
+-- in Telomare's env-machine sense. A lambda's closure used to capture the
+-- entire ambient env (@Pair (Defer body) Env@); it now captures a fresh
+-- tuple of exactly the outer variables the body uses, and the body's
+-- variable references are reindexed against that layout. Free-variable
+-- abstraction is already done by the language design (defer bodies are
+-- Env-closed), so this one representation change is the whole
+-- transformation: dead environment stops flowing through closures, a
+-- closure with no free variables becomes fully closed (freely copyable
+-- code under the IC runtime's table), and — the EAL payoff — closure
+-- creation is disjoint path projections instead of a whole-env use, so
+-- contraction is charged per genuinely-duplicated variable rather than
+-- forcing a box on the entire environment.
+--
+-- The cata carrier pairs each subterm's free de Bruijn indices with a
+-- builder parameterized by the enclosing frame's renaming.
 splitExpr :: Term2 -> Term3
-splitExpr = flip State.evalState (toEnum 0, toEnum 0) . cata f where
-  f = \case
-    (anno C.:< g) -> rewriteOuterTag anno <$> case g of
-      ParserTermB ZeroSF -> pure ZeroB
-      ParserTermB (PairSF a b) -> pairS a b
+splitExpr t2 = flip State.evalState (toEnum 0, toEnum 0) $
+  snd (cata f t2) unboundVar where
+  unboundVar :: Int -> Int
+  unboundVar n = error $ "splitExpr: unbound variable index " <> show n
+  f :: C.CofreeF (ParserTermF (LamType ()) Int) LocTag
+       (Set Int, (Int -> Int) -> Term3Builder Term3)
+    -> (Set Int, (Int -> Int) -> Term3Builder Term3)
+  f (anno C.:< g) =
+    let tagged (frees, mk) = (frees, fmap (rewriteOuterTag anno) . mk)
+        closed mk = (Set.empty, const mk)
+        one (frees, mk) wrap = (frees, fmap wrap . mk)
+        combine2 (fa, ma) (fb, mb) wrap =
+          (fa <> fb, \ren -> wrap (ma ren) (mb ren))
+        combine3 (fa, ma) (fb, mb) (fc, mc) wrap =
+          (fa <> fb <> fc, \ren -> wrap (ma ren) (mb ren) (mc ren))
+    in tagged $ case g of
+      ParserTermB ZeroSF -> closed $ pure ZeroB
+      ParserTermB (PairSF a b) -> combine2 a b pairS
       ParserTermL x -> case x of
-        VarF n                  -> pure $ varB n
-        AppF c i                -> appS c i
-        LamF (Open ()) body     -> lamS body
-        LamF (Closed ()) body   -> clamS body
+        VarF n -> (Set.singleton n, \ren -> pure . varB $ ren n)
+        AppF c i -> combine2 c i appS
+        LamF (Open ()) (bodyFrees, mkBody) ->
+          -- outer variables the body needs, in ascending order; inside the
+          -- new closure the env is (arg, (v_1, (v_2, ... (v_k, 0)))), so
+          -- outer variable o at tuple position j is reached as varB j
+          let outer = Set.toAscList . Set.map (subtract 1)
+                    $ Set.filter (>= 1) bodyFrees
+              positions = Map.fromList $ zip outer [1 ..]
+              bodyRen n
+                | n == 0 = 0
+                | otherwise = Map.findWithDefault
+                    (error $ "splitExpr: lambda body lost variable " <> show n)
+                    (n - 1) positions
+              capture :: (Int -> Int) -> Term3Builder Term3
+              capture ren = foldr (pairS . pure . varB . ren)
+                                  (pure ZeroB) outer
+          in ( Set.fromList outer
+             , pairS (mkBody bodyRen >>= deferS) . capture )
+        LamF (Closed ()) (_, mkBody) -> closed $ clamS (mkBody id)
         LamF (LetBinding _ _) _ -> error "Telomare.Resolve.splitExpr: unexpected LetBinding"
       ParserTermH h -> case h of
-        CheckF tc c -> (\tc' c' -> anno :< Term3CheckingWrapper anno tc' c') <$> tc <*> c
-        ITEF i t e -> iteB_ <$> i <*> t <*> e
-        HLeftF x -> LeftB <$> x
-        HRightF x -> RightB <$> x
-        HTraceF x -> x -- TODO add trace back in, or rethink
-        ChurchF n -> i2CB anno n
-        RecursionF t r b -> unsizedRecursionWrapper anno t r b
+        CheckF tc c -> combine2 tc c $ \tc' c' ->
+          (\tc'' c'' -> anno :< Term3CheckingWrapper anno tc'' c'') <$> tc' <*> c'
+        ITEF i t e -> combine3 i t e $ \i' t' e' -> iteB_ <$> i' <*> t' <*> e'
+        HLeftF x -> one x LeftB
+        HRightF x -> one x RightB
+        HTraceF x -> one x id -- TODO add trace back in, or rethink
+        ChurchF n -> closed $ i2CB anno n
+        RecursionF t r b -> combine3 t r b (unsizedRecursionWrapper anno)
         HashF _ -> error "Telomare.Resolve.splitExpr: unexpected HashF"
-      TUnsizedRepeaterF -> do
+      TUnsizedRepeaterF -> closed $ do
         urt <- State.gets snd
         State.modify (\(fi, _) -> (fi, succ urt))
-        repeaterAndAbort anno urt
+        unsizedRecursionOracle anno urt
 
 openLambda :: String -> Term1 -> Term1
 openLambda name body@(_anno :< _) = LamP (Open name) body
@@ -542,3 +593,79 @@ main2Term3let :: ExpandedModules
             -> String -- ^Module name with main
             -> Either ResolverError Term3 -- ^Error on Left
 main2Term3let moduleBindings s = resolveMain moduleBindings s >>= processWlet . desugarTerm
+
+data Term3LiftingF f
+  = Term3LB (BasicExprF f)
+  | Term3LS (StuckF f)
+  | Term3LA (AbortableF f)
+  | Term3LUnsized UnsizedRecursionToken
+  | Term3LCheckingWrapper LocTag f f
+  | Term3LDeferRef (Digest SHA256)
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic1)
+  deriving Eq1 via (Generically1 Term3LiftingF)
+instance BasicBase Term3LiftingF where
+  embedB = Term3LB
+  extractB = \case
+    Term3LB x -> pure x
+    _         -> Nothing
+instance StuckBase Term3LiftingF where
+  embedS = Term3LS
+  extractS = \case
+    Term3LS x -> pure x
+    _         -> Nothing
+instance AbortBase Term3LiftingF where
+  embedA = Term3LA
+  extractA = \case
+    Term3LA x -> pure x
+    _         -> Nothing
+instance Show1 Term3LiftingF where
+  liftShowsPrec shwPrec shwList prec = \case
+    Term3LB x -> liftShowsPrec shwPrec shwList prec x
+    Term3LS x -> liftShowsPrec shwPrec shwList prec x
+    Term3LA x -> liftShowsPrec shwPrec shwList prec x
+    Term3LUnsized urt -> shows $ "Term3LUnsized" <> show urt
+    Term3LCheckingWrapper loc cf c -> shows "Term3LCheckingWrapper(" . shows loc . shows ", " . shwPrec 0 cf . shows ", " . shwPrec 0 c . shows ")"
+    Term3LDeferRef h -> shows "Term3LDeferRef " . shows h
+
+type Term3Lifting = Cofree Term3LiftingF LocTag
+
+-- | Lifted Defer bodies, keyed by a hash of the (annotation-stripped) body.
+-- Each entry keeps the first-seen FunctionIndex for reporting and inlining.
+newtype DeferMap = DeferMap (Map (Digest SHA256) (FunctionIndex, Term3Lifting))
+
+instance Semigroup DeferMap where
+  (<>) (DeferMap a) (DeferMap b) = DeferMap $ Map.unionWithKey f a b where
+    f _k x@(_, xb) (_, yb) = if forgetL xb /= forgetL yb
+      then error "defer lifting encountered what must be an adversarial grammar, colliding defer subterms"
+      else x
+    forgetL :: Term3Lifting -> Fix Term3LiftingF
+    forgetL = forget
+instance Monoid DeferMap where
+  mempty = DeferMap Map.empty
+
+makeDM :: Digest SHA256 -> FunctionIndex -> Term3Lifting -> DeferMap
+makeDM k fi e = DeferMap $ Map.singleton k (fi, e)
+
+-- | Like lambda lifting: replace every Defer body with a hash reference and
+-- collect the bodies in a DeferMap. Sound without free-variable abstraction
+-- because Defer bodies are closed (their only free variable is their own
+-- Env). Nested defers are lifted first, so bodies in the map contain only
+-- references and the map is a DAG. Identical bodies (up to annotations)
+-- dedupe to one entry. Hashing mirrors 'generateAllHashes': the hash is
+-- taken over the annotation-stripped body.
+deferLift :: Term3 -> (DeferMap, Term3Lifting)
+deferLift = cata hF where
+  hF :: C.CofreeF Term3F LocTag (DeferMap, Term3Lifting) -> (DeferMap, Term3Lifting)
+  hF (anno C.:< x) = case x of
+    StuckFW (DeferSF ind (dm, body)) ->
+      let hash' :: ByteString -> Digest SHA256
+          hash' = hash
+          forgetL :: Term3Lifting -> Fix Term3LiftingF
+          forgetL = forget
+          h = hash' . BS.pack . encode . show $ forgetL body
+      in (dm <> makeDM h ind body, anno :< Term3LDeferRef h)
+    Term3B b -> (anno :<) . Term3LB <$> sequence b
+    Term3S s -> (anno :<) . Term3LS <$> sequence s
+    Term3A a -> (anno :<) . Term3LA <$> sequence a
+    Term3Unsized urt -> pure $ anno :< Term3LUnsized urt
+    Term3CheckingWrapper loc cf f -> (anno :<) <$> (Term3LCheckingWrapper loc <$> cf <*> f)

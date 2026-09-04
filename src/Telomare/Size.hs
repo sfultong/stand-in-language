@@ -197,8 +197,11 @@ sizeTermM sizingSettings x = tidyUp . transformNoDeferM evalStep $ mx where
   setSizes :: Map UnsizedRecursionToken (Maybe Int) -> UnsizedExpr -> UnsizedExpr
   setSizes sizeMap = cata $ \case
     UnsizedFW _us@(UnsizedStubF tok _) -> case Map.lookup tok sizeMap of
-      Just (Just n) -> debugTrace ("sizeTermM setting size: " <> show (tok, n)) iterate (StuckEE . SetEnvSF) EnvB !! (n + 1)
-      _      -> debugTrace ("no size found for " <> show tok) SetEnvB EnvB
+      -- one link of slack over the abstractly-observed depth, matching the
+      -- old tower's n+1 convention: the abstract run can undercount the
+      -- final test round by one
+      Just (Just n) -> debugTrace ("sizeTermM setting size: " <> show (tok, n)) sizedRecursionChain tok (n + 1)
+      _      -> debugTrace ("no size found for " <> show tok) sizedRecursionChain tok 1
     UnsizedFW (TraceF _ inner) -> inner
     other -> embed other
   foldAborted = cata f where
