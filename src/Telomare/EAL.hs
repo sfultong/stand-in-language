@@ -56,8 +56,11 @@
 --     both branches consume their Env occurrences).
 --   * Term3Unsized is treated exactly like an Env occurrence, mirroring the
 --     type checker.
---   * The check function of Term3CheckingWrapper is ignored, mirroring the
---     type checker.
+--   * Term3CheckingWrapper is analyzed as the application
+--     'removeRefinementWrappers' converts it to: the check function is
+--     applied to the wrapped value (a virtual app site whose result is
+--     discarded, matching the abort-on-check), and the wrapped value
+--     passes through as the wrapper's result.
 --
 -- Inference is monomorphic: a Defer applied from several sites unifies its
 -- entry level across all of them. The constraint solver is a
@@ -429,7 +432,9 @@ envUsageL = go [] where
     Term3LUnsized _ -> Just $ occurrence proj anno
     Term3LDeferRef _ -> Nothing
     StuckFW (DeferSF _ _) -> Nothing
-    Term3LCheckingWrapper _ _ c -> go proj c
+    -- the check function sees the whole env; the wrapped value keeps the
+    -- projection chain (the wrapper is transparent to its result)
+    Term3LCheckingWrapper _ tc c -> merge (go [] tc) (go proj c)
     BasicFW (PairSF a b) -> merge (go [] a) (go [] b)
     StuckFW (SetEnvSF x) -> go [] x
     -- gate is a value; branch and scrutinee usage flows through the
@@ -595,8 +600,20 @@ tagsIn fg n = Map.findWithDefault Set.empty n (fgTags fg)
 -- 'envUsageL'), so an env occurrence knows which path's boxes it sits
 -- under.
 walkNode :: WalkCtx -> BVar -> [Step] -> Term3Lifting -> WalkM NodeId
-walkNode ctx parentL proj (_ :< Term3LCheckingWrapper _ _ c) =
-  walkNode ctx parentL proj c
+walkNode ctx parentL proj (_ :< Term3LCheckingWrapper loc tc c) = do
+  -- mirror 'removeRefinementWrappers': the wrapper becomes an application
+  -- of the check function to the wrapped value whose result is aborted on
+  -- and discarded, with the wrapped value passing through as the result —
+  -- a virtual (function, operand) pair fed to a virtual app site
+  ntc <- walkNode ctx parentL [] tc
+  nc <- walkNode ctx parentL proj c
+  p <- freshNode
+  s <- freshNode
+  fresh >>= tellLevel p
+  fresh >>= tellLevel s
+  tellTag p (FPair p ntc nc)
+  tellApp (AppSite s p loc)
+  pure nc
 walkNode ctx parentL proj (anno :< tt) = do
   n <- freshNode
   w <- fresh
