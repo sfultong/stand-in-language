@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DeriveTraversable   #-}
+{-# LANGUAGE DerivingVia         #-}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -47,6 +50,7 @@ import qualified Data.ByteString as BS
 import Data.Char (ord)
 import Data.Fix (Fix (..))
 import qualified Data.Foldable as F
+import Data.Functor.Classes (Eq1, Show1 (liftShowsPrec))
 import Data.Functor.Foldable (Corecursive (ana, embed), Recursive (..))
 import Data.List (find)
 import qualified Data.Map as Map
@@ -55,6 +59,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (absurd)
 import Debug.Trace (trace)
+import GHC.Generics (Generic1, Generically1 (..))
 import Telomare.Desugar (desugarTerm, rewriteOuterTag)
 import Telomare.Error
 import Telomare.IR.Base
@@ -588,3 +593,79 @@ main2Term3let :: ExpandedModules
             -> String -- ^Module name with main
             -> Either ResolverError Term3 -- ^Error on Left
 main2Term3let moduleBindings s = resolveMain moduleBindings s >>= processWlet . desugarTerm
+
+data Term3LiftingF f
+  = Term3LB (BasicExprF f)
+  | Term3LS (StuckF f)
+  | Term3LA (AbortableF f)
+  | Term3LUnsized UnsizedRecursionToken
+  | Term3LCheckingWrapper LocTag f f
+  | Term3LDeferRef (Digest SHA256)
+  deriving (Eq, Show, Functor, Foldable, Traversable, Generic1)
+  deriving Eq1 via (Generically1 Term3LiftingF)
+instance BasicBase Term3LiftingF where
+  embedB = Term3LB
+  extractB = \case
+    Term3LB x -> pure x
+    _         -> Nothing
+instance StuckBase Term3LiftingF where
+  embedS = Term3LS
+  extractS = \case
+    Term3LS x -> pure x
+    _         -> Nothing
+instance AbortBase Term3LiftingF where
+  embedA = Term3LA
+  extractA = \case
+    Term3LA x -> pure x
+    _         -> Nothing
+instance Show1 Term3LiftingF where
+  liftShowsPrec shwPrec shwList prec = \case
+    Term3LB x -> liftShowsPrec shwPrec shwList prec x
+    Term3LS x -> liftShowsPrec shwPrec shwList prec x
+    Term3LA x -> liftShowsPrec shwPrec shwList prec x
+    Term3LUnsized urt -> shows $ "Term3LUnsized" <> show urt
+    Term3LCheckingWrapper loc cf c -> shows "Term3LCheckingWrapper(" . shows loc . shows ", " . shwPrec 0 cf . shows ", " . shwPrec 0 c . shows ")"
+    Term3LDeferRef h -> shows "Term3LDeferRef " . shows h
+
+type Term3Lifting = Cofree Term3LiftingF LocTag
+
+-- | Lifted Defer bodies, keyed by a hash of the (annotation-stripped) body.
+-- Each entry keeps the first-seen FunctionIndex for reporting and inlining.
+newtype DeferMap = DeferMap (Map (Digest SHA256) (FunctionIndex, Term3Lifting))
+
+instance Semigroup DeferMap where
+  (<>) (DeferMap a) (DeferMap b) = DeferMap $ Map.unionWithKey f a b where
+    f _k x@(_, xb) (_, yb) = if forgetL xb /= forgetL yb
+      then error "defer lifting encountered what must be an adversarial grammar, colliding defer subterms"
+      else x
+    forgetL :: Term3Lifting -> Fix Term3LiftingF
+    forgetL = forget
+instance Monoid DeferMap where
+  mempty = DeferMap Map.empty
+
+makeDM :: Digest SHA256 -> FunctionIndex -> Term3Lifting -> DeferMap
+makeDM k fi e = DeferMap $ Map.singleton k (fi, e)
+
+-- | Like lambda lifting: replace every Defer body with a hash reference and
+-- collect the bodies in a DeferMap. Sound without free-variable abstraction
+-- because Defer bodies are closed (their only free variable is their own
+-- Env). Nested defers are lifted first, so bodies in the map contain only
+-- references and the map is a DAG. Identical bodies (up to annotations)
+-- dedupe to one entry. Hashing mirrors 'generateAllHashes': the hash is
+-- taken over the annotation-stripped body.
+deferLift :: Term3 -> (DeferMap, Term3Lifting)
+deferLift = cata hF where
+  hF :: C.CofreeF Term3F LocTag (DeferMap, Term3Lifting) -> (DeferMap, Term3Lifting)
+  hF (anno C.:< x) = case x of
+    StuckFW (DeferSF ind (dm, body)) ->
+      let hash' :: ByteString -> Digest SHA256
+          hash' = hash
+          forgetL :: Term3Lifting -> Fix Term3LiftingF
+          forgetL = forget
+          h = hash' . BS.pack . encode . show $ forgetL body
+      in (dm <> makeDM h ind body, anno :< Term3LDeferRef h)
+    Term3B b -> (anno :<) . Term3LB <$> sequence b
+    Term3S s -> (anno :<) . Term3LS <$> sequence s
+    Term3A a -> (anno :<) . Term3LA <$> sequence a
+    Term3Unsized urt -> pure $ anno :< Term3LUnsized urt
+    Term3CheckingWrapper loc cf f -> (anno :<) <$> (Term3LCheckingWrapper loc <$> cf <*> f)
