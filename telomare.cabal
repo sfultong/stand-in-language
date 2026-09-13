@@ -27,6 +27,7 @@ library
                      , Telomare.EAL
                      , Telomare.Error
                      , Telomare.Driver
+                     , Telomare.IC
                      , Telomare.Eval.Reference
                      , Telomare.Fast
                      , Telomare.IR.Base
@@ -203,6 +204,19 @@ test-suite telomare-eal-test
   build-depends:       base
                      , containers
                      , free
+                     , strict
+                     , tasty
+                     , tasty-hunit
+                     , telomare
+  ghc-options:         -Wall -Wunused-packages -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
+
+test-suite telomare-ic-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             ICTests.hs
+  build-depends:       base
+                     , containers
                      , strict
                      , tasty
                      , tasty-hunit
