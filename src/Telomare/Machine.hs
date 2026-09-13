@@ -347,9 +347,12 @@ twiddleB = deferB twiddleInd $ PairB (LeftB (RightB EnvB)) (PairB (LeftB EnvB) (
 appB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g -> g -> g
 appB c i = SetEnvB (SetEnvB (PairB twiddleB (PairB i c)))
 
--- only intended for use inside of unsizedStep
+-- | Lazy if-then-else, the default conditional encoding: each branch is
+-- wrapped in a defer, the gate selects one closure, and the selection is
+-- applied to the current env — so the unselected branch is never evaluated
+-- (in the IC runtime it is erased without ever being instantiated).
 iteB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g -> g -> g -> g
-iteB i t e = FillFunctionEE (FillFunctionEE (FillFunctionEE GateB i) (PairB (deferB unsizedStepMEInd e) (deferB unsizedStepMTInd t))) EnvB -- TODO THIS IS HOW TO DO LAZY IF/ELSE, COPY!
+iteB i t e = FillFunctionEE (FillFunctionEE (FillFunctionEE GateB i) (PairB (deferB unsizedStepMEInd e) (deferB unsizedStepMTInd t))) EnvB
 
 argOneB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g
 argOneB = LeftB EnvB
@@ -359,6 +362,56 @@ argThreeB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) 
 argThreeB = LeftB (RightB (RightB EnvB))
 argFourB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g
 argFourB = LeftB (RightB (RightB (RightB EnvB)))
+argFiveB :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g) => g
+argFiveB = LeftB (RightB (RightB (RightB (RightB EnvB))))
+
+-- | A number as bare pair data (no annotation constraints, unlike 'i2B').
+intB :: (Base g ~ f, BasicBase f, Recursive g, Corecursive g) => Int -> g
+intB 0 = ZeroB
+intB n = PairB (intB (n - 1)) ZeroB
+
+-- | One unfolding of a sized recursion during abstract evaluation. The env
+-- at execution is @(i, (tWrap, (r, (b, 0))))@; the recur position holds the
+-- stub that expands into the next unfolding on demand (it sits inside the
+-- lazy ite's branch defer, so it only expands when the test passes), and
+-- the else branch records that the recursion terminated at depth @n@.
+unsizedStepBody :: (Base g ~ f, BasicBase f, StuckBase f, UnsizedBase f, Recursive g, Corecursive g)
+  => UnsizedRecursionToken -> Int -> g
+unsizedStepBody tok n = iteB (appB argTwoB argOneB)
+  (appB (appB argThreeB (unsizedEE $ SizeStepStubF tok n EnvB)) argOneB)
+  (unsizedEE . SizeStageF (SizedRecursion . Map.singleton tok $ pure n) $
+    appB argFourB argOneB)
+
+-- | The n-fold approximant chain a solved recursion hole becomes: the
+-- textbook elementary-affine treatment of bounded recursion, replacing the
+-- old self-applying repeat frame (which was outside the EAL fragment).
+-- Sits where @Env = (trb, _)@ with @trb = (tWrap, (r, (b, 0)))@; each link
+-- is a closure @(step, (previous approximant, trb))@ executing with env
+-- @(i, (recur, (tWrap, (r, (b, 0)))))@, and the innermost link aborts with
+-- the recursion token if the iteration budget is really exhausted at
+-- runtime.
+sizedRecursionChain :: (Base g ~ f, BasicBase f, StuckBase f, AbortBase f, Recursive g, Corecursive g)
+  => UnsizedRecursionToken -> Int -> g
+sizedRecursionChain tok n = iterate link base !! n where
+  trbE = LeftB EnvB
+  base = PairB (deferB unsizedStepMw abortBody)
+               (PairB ZeroB (intB $ fromEnum tok))
+  -- env: (i, (0, tok)); aborts with the AbortRecursion message (0, tok)
+  abortBody = SetEnvB (PairB (SetEnvB (PairB (AbortEE AbortF) (RightB EnvB)))
+                             (LeftB EnvB))
+  link prev = PairB (deferB unsizedStepMrfb approxBody) (PairB prev trbE)
+  -- env: (i, (recur, (tWrap, (r, (b, 0))))). The conditional is the STRICT
+  -- gate-switch shape, deliberately: lazy branches capture the whole env in
+  -- branch closures, whose whole-and-part contraction forces a box per
+  -- chain link (levels then grow with n, and curried recursion becomes
+  -- unsatisfiable). Strict branches keep every env path linear, so the
+  -- chain is level-flat; the speculation cost is bounded by the chain, and
+  -- both the lazy reference evaluator and the stuck/abort-tolerant IC
+  -- runtime discard the unselected branch's value harmlessly. This is the
+  -- planned post-sizing strictification applied by the compiler itself.
+  approxBody = SetEnvB (PairB (SetEnvB (PairB (StuckEE GateSF) (appB argThreeB argOneB)))
+    (PairB (appB argFiveB argOneB)
+           (appB (appB argFourB argTwoB) argOneB)))
 
 unsizedTestIndexed :: (Base g ~ f, BasicBase f, AbortBase f, IndexedInputBase f, Recursive g, Corecursive g)
   => Set Integer -> (UnsizedRecursionToken -> g -> g) -> UnsizedRecursionToken -> g -> g
@@ -406,10 +459,8 @@ unsizedStep _maxSize recursionTest fullStep handleOther =
         UnsizedEE (SizeStageF smb x) -> unsizedEE $ SizeStageF (smb <> sm) x
         x -> unsizedEE $ SizeStageF sm x
   in \case
-    UnsizedFW (SizeStepStubF tok n (BasicEE (PairSF _ e))) ->
-      PairB (deferB unsizedStepMrfa (unsizedEE . SizeStageF (SizedRecursion . Map.singleton tok $ pure (n + 1)) $ iteB (appB argFourB argOneB)
-                                                (appB (appB argThreeB (unsizedEE $ SizeStepStubF tok (n + 1) EnvB)) argOneB)
-                                                (appB argTwoB argOneB))) e
+    UnsizedFW (SizeStepStubF tok n (BasicEE (PairSF _ trb))) ->
+      PairB (deferB unsizedStepMrfa (unsizedStepBody tok (n + 1))) trb
     UnsizedFW (RecursionTestF ri x) -> recursionTest ri x
     StuckFW (LeftSF (UnsizedEE (SizeStageF sm x))) -> combineSizes sm . fullStep . embedS $ LeftSF x
     StuckFW (RightSF (UnsizedEE (SizeStageF sm x))) -> combineSizes sm . fullStep . embedS $ RightSF x
@@ -426,34 +477,24 @@ unsizedStepM''' :: forall a f m. (Base a ~ f, Traversable f, BasicBase f, StuckB
                                    , Eq a, PrettyPrintable a, m ~ StrictAccum SizedRecursion)
   => Int -> Set Integer -> (UnsizedRecursionToken -> a -> a) -> (f a -> m a) -> f a -> m a
 unsizedStepM''' maxSize _zeros recursionTest handleOther x = f x where
-  argOne = LeftB EnvB
-  argTwo = LeftB (RightB EnvB)
-  argThree = LeftB (RightB (RightB EnvB))
-  argFour = LeftB (RightB (RightB (RightB EnvB)))
   f = \case
-    UnsizedFW (UnsizedStubF tok (BasicEE (PairSF _ (BasicEE (PairSF _ (BasicEE (PairSF _ (BasicEE (PairSF _ env))))))))) -> case env of
-      BasicEE (PairSF b (BasicEE (PairSF r (BasicEE (PairSF tp (BasicEE ZeroSF)))))) -> case tp of
+    -- the oracle applied to trb = (tWrap, (r, (b, 0))): wrap the test thunk
+    -- so its applications reach the input-boundedness machinery, and emit
+    -- the first unfolding
+    UnsizedFW (UnsizedStubF tok (BasicEE (PairSF trb _))) -> case trb of
+      BasicEE (PairSF tw rest) -> case tw of
         BasicEE (PairSF (StuckEE (DeferSF sid tf)) e) ->
           let nt = PairB (StuckEE . DeferSF sid . unsizedEE $ RecursionTestF tok tf) e
-              trb = PairB b (PairB r (PairB nt ZeroB))
-              dbti = id
-              -- \t r b i ->
-              rf = deferB unsizedStepMrfa (iteB (dbti $ appB argFour argOne)
-                                          (appB (appB argThree (unsizedEE $ SizeStepStubF tok 1 EnvB)) argOne)
-                                          (unsizedEE . SizeStageF (SizedRecursion . Map.singleton tok $ pure 1) $ appB argTwo argOne))
-              result = PairB ZeroB (PairB ZeroB (PairB ZeroB (PairB (PairB rf trb) ZeroB)))
-          in pure result
-        _ -> error "Telomare.Machine.unsizedStepM''': unexpected test pair"
-      _ -> error "Telomare.Machine.unsizedStepM''': unexpected env"
-    -- The payload names the recursion that ran out of budget, matching the
-    -- runtime `AbortRecursion` built by `repeaterAndAbort`. The depth reached
-    -- is always `maxSize + 1`, so the caller reconstructs it from its settings.
+          in pure $ PairB (deferB unsizedStepMrfa (unsizedStepBody tok 1))
+                          (PairB nt rest)
+        z -> error $ "unsizedStepM''' unexpected test shape:\n" <> prettyPrint z
+      z -> error $ "unsizedStepM''' unexpected oracle operand:\n" <> prettyPrint z
+    -- The payload names the recursion that ran out of budget. The depth
+    -- reached is always `maxSize + 1`, so the caller reconstructs it from
+    -- its settings.
     UnsizedFW (SizeStepStubF tok n _) | n > maxSize -> pure . AbortEE . AbortedF . AbortRecursion . i2B $ fromEnum tok
-    UnsizedFW (SizeStepStubF tok n e@(BasicEE (PairSF _ es))) ->
-      let dbti = id
-      in pure $ PairB (deferB unsizedStepMrfa (iteB (dbti $ appB argFour argOne)
-                                                (appB (appB argThree (unsizedEE $ SizeStepStubF tok (n + 1) e)) argOne)
-                                                (unsizedEE . SizeStageF (SizedRecursion . Map.singleton tok $ pure (n + 1)) $ appB argTwo argOne))) es
+    UnsizedFW (SizeStepStubF tok n (BasicEE (PairSF _ trb))) ->
+      pure $ PairB (deferB unsizedStepMrfa (unsizedStepBody tok (n + 1))) trb
     UnsizedFW (RecursionTestF ri x') -> pure . recursionTest ri $ x'
     UnsizedFW (SizeStageF sr x') -> debugTrace ("Hit SizeStage: " <> show sr) $ StrictAccum sr x'
     UnsizedFW (TraceF s x') -> pure $ debugTrace ("Hit TraceF: " <> s <> "\n" <> prettyPrint x') x'

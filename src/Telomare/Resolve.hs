@@ -186,31 +186,77 @@ debruijinizeApp = fmap closeLams . flip (runReaderT . cata f) [] where
     (_, LetBinding _ n') | n' == n -> True
     _ -> False
 
+-- | Compile Term2 to Term3 with trimmed lambda captures — lambda lifting
+-- in Telomare's env-machine sense. A lambda's closure used to capture the
+-- entire ambient env (@Pair (Defer body) Env@); it now captures a fresh
+-- tuple of exactly the outer variables the body uses, and the body's
+-- variable references are reindexed against that layout. Free-variable
+-- abstraction is already done by the language design (defer bodies are
+-- Env-closed), so this one representation change is the whole
+-- transformation: dead environment stops flowing through closures, a
+-- closure with no free variables becomes fully closed (freely copyable
+-- code under the IC runtime's table), and — the EAL payoff — closure
+-- creation is disjoint path projections instead of a whole-env use, so
+-- contraction is charged per genuinely-duplicated variable rather than
+-- forcing a box on the entire environment.
+--
+-- The cata carrier pairs each subterm's free de Bruijn indices with a
+-- builder parameterized by the enclosing frame's renaming.
 splitExpr :: Term2 -> Term3
-splitExpr = flip State.evalState (toEnum 0, toEnum 0) . cata f where
-  f = \case
-    (anno C.:< g) -> rewriteOuterTag anno <$> case g of
-      ParserTermB ZeroSF -> pure ZeroB
-      ParserTermB (PairSF a b) -> pairS a b
+splitExpr t2 = flip State.evalState (toEnum 0, toEnum 0) $
+  snd (cata f t2) unboundVar where
+  unboundVar :: Int -> Int
+  unboundVar n = error $ "splitExpr: unbound variable index " <> show n
+  f :: C.CofreeF (ParserTermF (LamType ()) Int) LocTag
+       (Set Int, (Int -> Int) -> Term3Builder Term3)
+    -> (Set Int, (Int -> Int) -> Term3Builder Term3)
+  f (anno C.:< g) =
+    let tagged (frees, mk) = (frees, fmap (rewriteOuterTag anno) . mk)
+        closed mk = (Set.empty, const mk)
+        one (frees, mk) wrap = (frees, fmap wrap . mk)
+        combine2 (fa, ma) (fb, mb) wrap =
+          (fa <> fb, \ren -> wrap (ma ren) (mb ren))
+        combine3 (fa, ma) (fb, mb) (fc, mc) wrap =
+          (fa <> fb <> fc, \ren -> wrap (ma ren) (mb ren) (mc ren))
+    in tagged $ case g of
+      ParserTermB ZeroSF -> closed $ pure ZeroB
+      ParserTermB (PairSF a b) -> combine2 a b pairS
       ParserTermL x -> case x of
-        VarF n                  -> pure $ varB n
-        AppF c i                -> appS c i
-        LamF (Open ()) body     -> lamS body
-        LamF (Closed ()) body   -> clamS body
+        VarF n -> (Set.singleton n, \ren -> pure . varB $ ren n)
+        AppF c i -> combine2 c i appS
+        LamF (Open ()) (bodyFrees, mkBody) ->
+          -- outer variables the body needs, in ascending order; inside the
+          -- new closure the env is (arg, (v_1, (v_2, ... (v_k, 0)))), so
+          -- outer variable o at tuple position j is reached as varB j
+          let outer = Set.toAscList . Set.map (subtract 1)
+                    $ Set.filter (>= 1) bodyFrees
+              positions = Map.fromList $ zip outer [1 ..]
+              bodyRen n
+                | n == 0 = 0
+                | otherwise = Map.findWithDefault
+                    (error $ "splitExpr: lambda body lost variable " <> show n)
+                    (n - 1) positions
+              capture :: (Int -> Int) -> Term3Builder Term3
+              capture ren = foldr (pairS . pure . varB . ren)
+                                  (pure ZeroB) outer
+          in ( Set.fromList outer
+             , pairS (mkBody bodyRen >>= deferS) . capture )
+        LamF (Closed ()) (_, mkBody) -> closed $ clamS (mkBody id)
         LamF (LetBinding _ _) _ -> error "Telomare.Resolve.splitExpr: unexpected LetBinding"
       ParserTermH h -> case h of
-        CheckF tc c -> (\tc' c' -> anno :< Term3CheckingWrapper anno tc' c') <$> tc <*> c
-        ITEF i t e -> iteB_ <$> i <*> t <*> e
-        HLeftF x -> LeftB <$> x
-        HRightF x -> RightB <$> x
-        HTraceF x -> x -- TODO add trace back in, or rethink
-        ChurchF n -> i2CB anno n
-        RecursionF t r b -> unsizedRecursionWrapper anno t r b
+        CheckF tc c -> combine2 tc c $ \tc' c' ->
+          (\tc'' c'' -> anno :< Term3CheckingWrapper anno tc'' c'') <$> tc' <*> c'
+        ITEF i t e -> combine3 i t e $ \i' t' e' -> iteB_ <$> i' <*> t' <*> e'
+        HLeftF x -> one x LeftB
+        HRightF x -> one x RightB
+        HTraceF x -> one x id -- TODO add trace back in, or rethink
+        ChurchF n -> closed $ i2CB anno n
+        RecursionF t r b -> combine3 t r b (unsizedRecursionWrapper anno)
         HashF _ -> error "Telomare.Resolve.splitExpr: unexpected HashF"
-      TUnsizedRepeaterF -> do
+      TUnsizedRepeaterF -> closed $ do
         urt <- State.gets snd
         State.modify (\(fi, _) -> (fi, succ urt))
-        repeaterAndAbort anno urt
+        unsizedRecursionOracle anno urt
 
 openLambda :: String -> Term1 -> Term1
 openLambda name body@(_anno :< _) = LamP (Open name) body

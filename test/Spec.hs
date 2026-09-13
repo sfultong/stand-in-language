@@ -11,7 +11,7 @@ import Telomare.IR.Builder
 import Telomare.IR.Core
 import Telomare.IR.Surface
 import Telomare.IR.Types
-import Telomare.Machine (appB, deferB)
+import Telomare.Machine (appB, deferB, iteB)
 import Telomare.Parse
 import Telomare.PrettyPrint
 import Telomare.Resolve
@@ -42,7 +42,7 @@ map_ =
   let layer = (buildTerm . lamS . lamS . lamS $ (do
                 a <- appS (pure (varB 1)) (pure (LeftB $ varB 0))
                 b <- appS (appS (pure (varB 2)) (pure (varB 1))) (pure (RightB $ varB 0))
-                pure $ iteB_ (varB 0) (PairB a b) ZeroB))
+                pure $ iteB (varB 0) (PairB a b) ZeroB))
       base = (buildTerm . lamS . lamS . pure $ LeftB (PairB ZeroB EnvB))
   in buildTerm $ appS (appS (pure (toChurch 255)) (pure layer)) (pure base)
 
@@ -51,7 +51,7 @@ foldr_ =
   let layer = (buildTerm . lamS . lamS . lamS . lamS $ (do
                 a <- appS (appS (pure (varB 2)) (pure (LeftB $ varB 0))) (pure (varB 1))
                 b <- appS (appS (appS (pure (varB 3)) (pure (varB 2))) (pure a)) (pure (RightB $ varB 0))
-                pure $ iteB_ (varB 0) b (varB 1)))
+                pure $ iteB (varB 0) b (varB 1)))
       base = (buildTerm . lamS . lamS . lamS . pure $ ZeroB)
   in buildTerm $ appS (appS (pure (toChurch 255)) (pure layer)) (pure base)
 
@@ -60,7 +60,7 @@ zipWith_ =
   let layer = (buildTerm . lamS . lamS . lamS . lamS $ (do
                 a <- appS (appS (pure (varB 2)) (pure (LeftB $ varB 1))) (pure (LeftB $ varB 0))
                 b <- appS (appS (appS (pure (varB 3)) (pure (varB 2))) (pure (RightB $ varB 1))) (pure (RightB $ varB 0))
-                pure $ iteB_ (varB 1) (iteB_ (varB 0) (PairB a b) ZeroB) ZeroB))
+                pure $ iteB (varB 1) (iteB (varB 0) (PairB a b) ZeroB) ZeroB))
       base = (buildTerm . lamS . lamS . lamS . pure $ ZeroB)
   in buildTerm $ appS (appS (pure (toChurch 255)) (pure layer)) (pure base)
 
@@ -69,25 +69,25 @@ d2c recur =
   let layer = (buildTerm . lamS . lamS . lamS . lamS $ (do
                 a <- appS (appS (appS (pure (varB 3)) (pure (LeftB $ varB 2))) (pure (varB 1))) (pure (varB 0))
                 b <- appS (pure (varB 1)) (pure a)
-                pure $ iteB_ (varB 2) b (varB 0)))
+                pure $ iteB (varB 2) b (varB 0)))
       base = (buildTerm . lamS . lamS . lamS . pure $ varB 0)
   in buildTerm $ do
        wrapLam <- lamS $ appS (appS (pure (varB 0)) (pure layer)) (pure base)
        appS (pure wrapLam) (pure (toChurch recur))
 
 d_equals_one :: Term3
-d_equals_one = buildTerm . lamS . pure $ iteB_ (varB 0) (iteB_ (LeftB (varB 0)) ZeroB (i2B 1)) ZeroB
+d_equals_one = buildTerm . lamS . pure $ iteB (varB 0) (iteB (LeftB (varB 0)) ZeroB (i2B 1)) ZeroB
 
 d_to_equality :: Term3
 d_to_equality = buildTerm . lamS . lamS $ (do
   innerLam <- lamS . pure $ LeftB (varB 0)
   a <- appS (appS (appS (pure (d2c 255)) (pure (LeftB $ varB 1))) (pure innerLam)) (pure (varB 0))
   b <- appS (pure d_equals_one) (pure a)
-  pure $ iteB_ (varB 1) b (iteB_ (varB 0) ZeroB (i2B 1)))
+  pure $ iteB (varB 1) b (iteB (varB 0) ZeroB (i2B 1)))
 
 list_equality :: Term3
 list_equality = buildTerm $ do
-  and_ <- lamS . lamS . pure $ iteB_ (varB 1) (varB 0) ZeroB
+  and_ <- lamS . lamS . pure $ iteB (varB 1) (varB 0) ZeroB
   pairs_equal <- appS (appS (appS (pure zipWith_) (pure d_to_equality)) (pure (varB 0))) (pure (varB 1))
   ll1 <- appS (pure list_length) (pure (varB 1))
   ll0 <- appS (pure list_length) (pure (varB 0))
@@ -235,8 +235,12 @@ unitTests parse = do
       normalMainType (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
       normalMainType (/= Nothing) -- isRecursiveType
+    -- with trimmed lambda captures the env types stay finite, so the
+    -- occurs check no longer fires: this theta-shaped term is a value
+    -- (the self-application sits unapplied under a lambda) and now
+    -- typechecks; EAL agrees, accepting it as a value
     unitTestType "main = (\\x y -> y (\\z -> x x y z)) (\\x y -> y (\\z -> x x y z))"
-      normalMainType (/= Nothing) -- isRecursiveType
+      normalMainType (== Nothing)
     unitTestType "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
       normalMainType (/= Nothing) -- isRecursiveType
     unitTestType "main = (\\f -> f 0) (\\g -> (g,0))" (embed ZeroTypeP) (== Nothing)
@@ -252,7 +256,7 @@ unitTests parse = do
       (embed ZeroTypeP) isRecursiveType
     unitTestType2 inf_pairs (embed ZeroTypeP) isRecursiveType
   describe "unitTest" $ do
-    unitTest "ite" "2" (iteB_ (i2B 1) (i2B 2) (i2B 3))
+    unitTest "ite" "2" (iteB (i2B 1) (i2B 2) (i2B 3))
     unitTest "c2d" "2" c2d_test
     unitTest "c2d2" "2" c2d_test2
     unitTest "c2d3" "1" c2d_test3

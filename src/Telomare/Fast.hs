@@ -122,9 +122,11 @@ data Value
   | VAbort
   | VAborted BasicExpr
   -- ^An abort in flight: propagates, and may be discarded unused.
-  | VRec RecursionSite Value Value
-  -- ^@VRec site step env@ — the limit of @rWrap^n(abort)@. `forceValue`
-  -- unrolls one layer by applying @step@ to the ladder itself.
+  | VRec RecursionSite Value
+  -- ^@VRec site trb@ — the limit of the approximant chain @step^n(abort)@
+  -- over the recursion's captured @(tWrap, (r, (b, 0)))@ triple.
+  -- `forceValue` unrolls one layer into a step closure whose recur slot is
+  -- the ladder itself.
   deriving (Eq, Show)
 
 -- |What a fast run cost. Unlike the sized meter's step count, the unrolls here
@@ -276,12 +278,33 @@ tickUnroll site =
 -- |Unroll a recursion ladder one layer; the identity on everything else.
 forceValue :: Value -> EvalM Value
 forceValue = \case
-  VRec site step fenv -> do
+  VRec site trb -> do
     tickUnroll site
-    case step of
-      VDefer d -> evalFast d (VPair (VRec site step fenv) fenv) >>= forceValue
-      _        -> throwError $ FastStuck "recursion step is not deferred code"
+    pure $ VPair (VDefer approxBody) (VPair (VRec site trb) trb)
   v -> pure v
+
+-- |Application through the twiddle calling convention, as the compiler
+-- emits it.
+app :: FastExpr -> FastExpr -> FastExpr
+app c i = FSetEnv (FSetEnv (FPair twiddle (FPair i c)))
+  where twiddle = FDefer (FPair (FLeft (FRight FEnv))
+                                (FPair (FLeft FEnv) (FRight (FRight FEnv))))
+
+-- |One approximant step: @\\recur i -> if tWrap i then r recur i else b i@,
+-- executing with env @(i, (recur, (tWrap, (r, (b, 0)))))@. The conditional
+-- uses the gate-switch shape `evalFast` fast-paths lazily, so the recur
+-- ladder in the then branch only unrolls when the test passes.
+approxBody :: FastExpr
+approxBody = iteFast (app arg3 arg1)
+                     (app (app arg4 arg2) arg1)
+                     (app arg5 arg1)
+  where
+    arg1 = FLeft FEnv
+    arg2 = FLeft (FRight FEnv)
+    arg3 = FLeft (FRight (FRight FEnv))
+    arg4 = FLeft (FRight (FRight (FRight FEnv)))
+    arg5 = FLeft (FRight (FRight (FRight (FRight FEnv))))
+    iteFast s t e = FSetEnv (FPair (FSetEnv (FPair FGate s)) (FPair e t))
 
 -- |An abort's payload keeps its pair structure and nothing else.
 truncateV :: Value -> BasicExpr
@@ -332,13 +355,13 @@ evalFast expr env = case expr of
     VPair f e      -> applyRaw f e
     a@(VAborted _) -> pure a
     _              -> throwError $ FastStuck "setenv of something that is not a pair"
-  -- The frame the resolver builds around a recursion site. The ladder
-  -- replaces the seed the church tower would have counted down.
+  -- The sizing oracle's hole: its defer is applied to the recursion's
+  -- captured triple, and the unbounded approximant ladder stands in for
+  -- the sized chain.
   FUnbounded site -> case env of
-    VPair rf (VPair rf2 (VPair step (VPair _seed fenv))) ->
-      pure $ VPair rf (VPair rf2 (VPair step (VPair (VRec site step fenv) fenv)))
+    VPair trb _ -> pure $ VRec site trb
     _ -> throwError $ FastStuck
-      "unexpected iteration frame around a recursion site (encoding drift?)"
+      "unexpected environment at a recursion site (encoding drift?)"
   where
     project x why pick = evalFast x env >>= forceValue >>= \case
       a@(VAborted _) -> pure a
@@ -513,10 +536,6 @@ term3ToFast owners = cata go
         performTC = FDefer
           (FSetEnv (FPair (FSetEnv (FPair FAbort innerTC)) (FRight FEnv)))
         innerTC = app (FLeft FEnv) (FRight FEnv)
-
-    app c i = FSetEnv (FSetEnv (FPair twiddle (FPair i c)))
-    twiddle = FDefer (FPair (FLeft (FRight FEnv))
-                            (FPair (FLeft FEnv) (FRight (FRight FEnv))))
 
 -- |A source position, used to attribute a recursion site to the definition it
 -- was written in.

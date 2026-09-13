@@ -123,7 +123,15 @@ b2s = fmap (fmap chr) . f where
 s2b :: forall g f w. (Base g ~ f, BasicBase f, Recursive g, Corecursive g, CarryAnno g, CarryWrap g ~ w, BasicBase w) => String -> g
 s2b = foldr (PairP . i2B . ord) ZeroB
 
--- note that this doesn't incorporate laziness necessary for things like sizing recursion
+-- | Strict if-then-else: raw branches sit in the gate-switch pair, so both
+-- are evaluated (speculatively and in parallel, under the IC runtime) and
+-- the loser is discarded. The lazy forms ('Telomare.Machine.iteB'\/
+-- 'Telomare.IR.Builder.iteS') are the intended default; user-facing @if@
+-- (ITEF in the Resolver) still compiles to this because the sizing pass's
+-- input-boundedness analysis ('extractInputRestrictions') only sees
+-- through the strict shape — once sizing learns the lazy shape, ITEF
+-- switches and this is deliberately retained for the planned post-sizing
+-- optimizer to swap back in where branch speculation pays.
 iteB_ :: (Base g ~ f, BasicBase f, StuckBase f, Recursive g, Corecursive g, CarryAnno g, CarryWrap g ~ w, BasicBase w) => g -> g -> g -> g
 iteB_ i t e = SetEnvB $ PairP (SetEnvB $ PairP GateB i) (PairP e t)
 
@@ -290,6 +298,14 @@ instance Show1 HighTermF where
                     . showsPrecFunc 11 b
     HashF x -> showString "HashUPF " . showsPrecFunc 11 x
 
+-- NOTE placeholder design: these instances let the unannotated *B builder
+-- patterns construct annotated terms, but every node they build gets the
+-- same generic GeneratedLoc — so any term flowing through them (compiler
+-- machinery, iteB/iteS branches, anything appS-built) loses its source
+-- location, and downstream blame (EAL diagnostics in particular) points at
+-- "the Cofree instance" instead of user code. A cleaner design would
+-- thread the enclosing annotation (the way PairP/appS's CarryAnno path
+-- does) instead of inventing one here.
 instance BasicBase f => BasicBase (CofreeT.CofreeF f LocTag) where
   embedB = (GeneratedLoc "BasicBase Cofree instance" Nothing CofreeT.:<) . embedB
   extractB = extractB . (\(_ CofreeT.:< x) -> x)
