@@ -355,25 +355,57 @@ the program being EAL-typable, so `admitIC` re-certifies the compiled expression
 per program.
 - Serves: C2, C4.
 
-**[decision] Analysis caps produce rejections, never wrong certificates.** The
-constraint solver is a greedy propagate-then-repair heuristic with explicit budgets
-(level cap, dispatch depth cap, variable budget, polyvariance cap); incompleteness
-surfaces as `EALSolverGaveUp` naming a culprit, and a final exact verification pass
-backs the greedy assignment.
-- Serves: C2 (soundness is what totality rests on).
-- Rationale: soundness is non-negotiable; completeness is a quality knob that §11
-  tracks.
+**[decision] Every analysis phase terminates by construction, not by budget.** The
+walk instantiates each DeferRef occurrence once (finite because the DeferMap is a
+DAG); dispatch only unifies, so its fixpoint is bounded by sites times tags;
+unification merges a finite number of classes. No phase has a depth cap, variable
+budget or polyvariance cap, and a rejection is a fact about the program (a type
+cycle, a box conflict), never "the analysis got tired".
+- Serves: C2 (a certificate's negative side must mean something), C1.
+- Rationale: a cap conflates "the program is bad" with "the analysis is lost", which
+  is how a false rejection was pinned for a month without anyone being able to tell
+  which it was.
 
-**[decision] Appliable values have no arrow structure.** A defer body is an atomic
-code tag (its content hash); tag sets *union* at joins instead of unifying, captures
-ride per-tag, and every `SetEnv` registers an apply site dispatched per-tag by a
-fixpoint — polyvariance finer than per-hash (per-site-per-tag), memoized by body-walk
-templates so it stays affordable. There is no occurs check: cyclic type bindings
-collapse to data. Unbounded self-application is caught as unbounded dispatch nesting.
-- Serves: C1 (the analysis mirrors the binder-free core), C4.
-- Rationale: with no binders, a "function type" has nothing to be an arrow over; code
-  identity is the hash, and dispatch-per-tag is the analysis-side analogue of the IC
-  template table.
+**[open] The constraint solver is still a greedy propagate-then-repair heuristic**
+with a level cap and round budgets; incompleteness surfaces as `EALSolverGaveUp`, and
+a final exact verification pass backs the greedy assignment. The per-occurrence
+skeleton makes this visible: an identity-like instance used twice (`(\f -> f (f 1))
+(\x -> x)`) equates its result with its own argument across the sites, creating a
+zero-weight cycle in the sum equations (`v = v + w`, which forces `w = 0`) that the
+greedy repair pumps instead of solving. The constraints are homogeneous linear
+equations over naturals with lower bounds, so rational feasibility equals natural
+feasibility and an exact (LP-style) solver is the planned replacement, after which
+the remaining caps disappear.
+
+**[decision] Appliable values are code tags carrying an interface.** A defer body is
+a code tag (its content hash); tag sets *union* at joins instead of unifying, and
+captures ride per-tag. Each DeferRef *occurrence* instantiates its body once (a fresh
+copy of the body's constraints, served from a per-body template that includes the
+nested instances), and the occurrence's tag carries that instance's interface: the
+env it consumes and the value it yields. Every `SetEnv` registers an apply site, and
+the dispatch fixpoint unifies the site's operand and result with the interface of
+every tag that reaches it. This is let-polymorphism over the DeferMap. A code class
+reachable from the *argument half* of its own env, or from its result, is
+self-application and is rejected outright (the occurs check of arrow types, stated on
+interfaces); a cycle through the *capture half* is a regular closure shape (a partial
+whose captured function is another such partial, a sized recursion chain) and is
+allowed, just as captures never appear in a simple type. Cycles through pair structure
+alone collapse to data. The result of an abort that really aborts (a pair message) is
+bottom, a value that never exists and absorbs every unification, so the dead base of a
+recursion chain joins with its live links.
+- Serves: C1 (the analysis mirrors the binder-free core), C2, C4.
+- Rationale: per-site-per-tag re-derivation (the previous design) was an unboundedly
+  polyvariant flow analysis — it effectively unfolded the program's evaluation at the
+  type level, needed a depth cap to terminate on self-application, and could not
+  distinguish a Church tower from omega except by how long it ran. Interfaces give
+  the finite skeleton that standard EAL inference assumes, and rank-1 is enough for
+  the corpus: numeral-of-numeral composition and the curried recursion family certify
+  with per-occurrence instances. The price is HM's: a λ-bound function used at two
+  incompatible shapes is monomorphic.
+- Alternatives: operand-keyed memoization of derivations (does not terminate on
+  self-application through fresh capture classes, and any finite abstraction of
+  operands conflates some Church tower with omega); a full occurs check through
+  captures (rejects sized recursion chains).
 
 **[decision] Contraction is measured at projection-path granularity** — using `Left
 Env` and `Right Env` once each is linear destructuring, not duplication. Pairs are
@@ -604,17 +636,14 @@ Collected here so contributors see it in one place.
 
 1. **Getting all semantically sound surface code to EAL-certify.** This is the central
    difficulty of the §5 approach: known false rejections are terminating programs that
-   are merely unaffordable or fall outside the fragment (church-255 monsters,
-   gate+literal mixing, the numeral-of-numeral composition `$3 $2 succ 0` as the
-   standing polymorphism frontier). Levers identified: worklist propagation, projected
-   interface summaries, constant-scrutinee gate folding. Two mechanisms are known to
-   cause typed-gate failures — occurs-check constructor/destructor cycles, and capture
-   shape — and fixing them converges on a 0CFA-style analysis.
-2. **Gate joins in EAL** — two pinned tests: arms of disagreeing arity are rejected
+   fall outside the rank-1 fragment (a λ-bound function used at two incompatible
+   shapes; `(\f -> f f) id`, which HM also rejects) or that the greedy solver cannot
+   handle (zero-weight equation cycles, see §5). Numeral-of-numeral composition and
+   the same-arity gate join, the two former frontier programs, certify under the
+   per-occurrence skeleton.
+2. **Gate joins in EAL** — one pinned test: arms of disagreeing arity are rejected
    (would need a real data⊔code lattice join at result positions; also blame should
-   name the gate, not the deep build site), and a same-arity join with a `$n` literal
-   blows the dispatch depth cap (a genuine false rejection, mechanism suspected but
-   unfixed).
+   name the gate, not the deep build site).
 3. **Strict vs lazy `if`.** Two conditionals coexist: user-facing `if` lowers to the
    *strict* gate shape only because sizing's input-restriction extraction can currently
    only see through that shape; the lazy form exists and is what recursion unrolling

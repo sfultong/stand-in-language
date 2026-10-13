@@ -56,7 +56,7 @@ renderEALError = \case
       <> "  boxing required: " <> renderBlame need <> "\n"
       <> "  boxing forbidden: " <> renderBlame forbid
   EALSolverGaveUp msg ->
-    "certification gave up; this usually means unbounded self-application:\n  "
+    "certification gave up (the constraint solver ran out of budget):\n  "
       <> msg
   EALDependencyFailed h ->
     "a function body this program depends on failed certification: " <> show h

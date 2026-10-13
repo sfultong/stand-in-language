@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+* EAL certification now terminates by construction in every phase: each
+  DeferRef occurrence instantiates its body once (let-polymorphism over the
+  DeferMap DAG) and carries the instance's interface with its tag, so dispatch
+  only unifies and is bounded by sites times tags. The dispatch depth cap,
+  polyvariance cap and variable budget are gone. Self-application is rejected
+  as a cycle through an interface's argument half (the occurs check of arrow
+  types), with the cycle named in the error; cycles through captures remain
+  regular closure shapes. An abort that really aborts now has a bottom type
+  instead of being read as the identity, so sized recursion chains type
+  through their dead base. Numeral-of-numeral composition and the previously
+  pinned same-arity gate join certify; the greedy constraint solver is the
+  remaining source of budget-based rejections (see DESIGN.md §5).
 * Reorganized the library into compiler-stage modules: `Telomare.Parse`,
   `Telomare.Expand`, `Telomare.Desugar`, `Telomare.Resolve`,
   `Telomare.TypeCheck`, `Telomare.Size` (+ `.IR`) with the shared

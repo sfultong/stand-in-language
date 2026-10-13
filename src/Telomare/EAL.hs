@@ -12,29 +12,36 @@
 -- elementary-time certificate for the term; the maximum box nesting depth is
 -- the height of the elementary bound's tower.
 --
--- Appliable values have no arrow structure in the type language. A defer
--- reference is typed as an atomic code constant carrying its content hash
--- ('CodeT' over 'Tag' sets), gates and aborts are built-in tags, and
--- unification at code positions takes the UNION of tags rather than
--- equating anything — so a gate join of structurally different functions
--- is a set union, not a unification failure. Application is a deferred
+-- Appliable values are code tags with an interface. A defer reference is
+-- typed as a code constant carrying its content hash ('CodeT' over 'Tag'
+-- sets), gates and aborts are built-in tags, and unification at code
+-- positions takes the UNION of tags rather than equating anything — so a
+-- gate join of structurally different functions is a set union, not a
+-- unification failure. Every DeferRef OCCURRENCE instantiates the
+-- referenced body once (a fresh copy of its constraints, served from a
+-- per-body template), and the tag minted for the occurrence carries that
+-- instance's 'Iface': the env it consumes and the value it yields. This is
+-- let-polymorphism over the DeferMap: bodies are closed, the map is a DAG,
+-- so instances are finite by construction. Application is a deferred
 -- constraint: every SetEnv registers an apply site, and a post-walk
--- fixpoint ('resolveApplies') dispatches each tag that flows into the
--- site's function position, deriving the referenced body's constraints
--- fresh per site per tag. Types and bangs are therefore per-application
--- (finer than per-reference), and nothing is ever pinned against a use.
+-- fixpoint ('resolveApplies') unifies the site's operand and result with
+-- the interface of every tag that flows into its function position.
+-- Dispatch never derives anything — it only unifies — so the fixpoint is
+-- bounded by sites times tags and terminates without a budget.
 --
--- Two consequences replace the classic failure modes of an equational
--- skeleton:
+-- Two consequences of this skeleton:
 --
---   * There is no occurs check. Code types are atomic, so a type cycle can
---     only thread through pair structure, and an unboundedly nested pair
---     type is data of unknown shape — exactly what 'DataT' already means.
---     Cycles collapse to data; a function value hiding on a cycle then
+--   * A type cycle through pair structure alone is unboundedly nested pair
+--     data of unknown shape — exactly what 'DataT' already means — and
+--     collapses to data; a function value hiding on such a cycle then
 --     surfaces as a code-vs-data mismatch instead of escaping tracking.
---   * Unbounded self-application shows up as unbounded dispatch nesting
---     (each derivation of a body re-applies itself) and is rejected by a
---     dispatch depth cap, the analogue of a flow analyzer's level blowup.
+--   * A cycle through an INTERFACE — a code class reachable from its own
+--     env or result — is self-application: the function's argument would
+--     have to contain the function. It has no finite derivation and is
+--     rejected outright ('selfReferential'), the role the occurs check
+--     plays for arrow types. Cycles through captures are not cycles of
+--     this kind: a package capturing a package of its own shape is a
+--     regular tree (sized recursion chains build exactly these).
 --
 -- A function position nothing ever flows into (the program's unknown
 -- input) is tolerated without constraints, mirroring the runtime contract
@@ -67,6 +74,7 @@
 -- namespace that 'CodeGuidance' and the IC runtime's templates share.
 module Telomare.EAL where
 
+import Control.Applicative ((<|>))
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Control.Monad (foldM, forM, forM_, unless, void, when, (<=<))
 import Control.Monad.Except
@@ -94,13 +102,6 @@ import Telomare.Resolve (DeferMap (..), Term3Lifting, Term3LiftingF (..),
 levelCap :: Int
 levelCap = 4096
 
--- | Maximum dispatch nesting depth before the analyzer assumes unbounded
--- self-application: a body derived at depth d dispatches its own apply
--- sites at depth d+1, so legitimate programs bottom out at their static
--- reference-nesting depth while omega-style terms climb forever.
-dispatchDepthCap :: Int
-dispatchDepthCap = 1024
-
 -- | A bang-count variable (also used for per-edge box counts).
 newtype BVar = BVar { unBVar :: Int } deriving (Eq, Ord, Show)
 
@@ -117,6 +118,25 @@ data Tag
   | TAbortCont            -- ^ abort applied to a Zero message (identity)
   deriving (Eq, Ord, Show)
 
+-- | The interface of one instance of a lifted body: the env it consumes
+-- and the value it yields. Minted at the DeferRef occurrence that
+-- instantiates the body, carried with the body's tag through every join,
+-- and unified with every apply site the tag reaches. This is the arrow
+-- structure of a code value.
+data Iface = Iface
+  { ifEnv :: Sigma
+  , ifRes :: Sigma
+  } deriving Show
+
+-- | What a code class knows about one of its tags: the capture that rides
+-- with the tag's code (Just for closure packages, Nothing for bare code
+-- and built-ins) and the interface of the instance the tag came from
+-- (Nothing for built-ins, which dispatch by rule).
+data TagInfo = TagInfo
+  { tiCapture :: Maybe Sigma
+  , tiIface   :: Maybe Iface
+  } deriving Show
+
 data Tau
   = DataT              -- ^ Zero-typed data trees (pairs collapse into this)
   | VarT Int
@@ -127,6 +147,12 @@ data Tau
                        --   turns out to be: joins union the package, and
                        --   dispatch resolves it per tag, so captures of
                        --   different tags never unify structurally
+  | AbortedT           -- ^ a value that never exists: the result of an
+                       --   abort that really aborts (a pair message), or
+                       --   of applying such a result. Bottom of the type
+                       --   lattice — it absorbs every unification without
+                       --   binding anything, so the dead bottom of a sized
+                       --   recursion chain joins with the live links
   deriving Show
 
 -- | One step into the env pair structure.
@@ -163,8 +189,6 @@ data ApplySite = ApplySite
   , apEnv        :: Sigma   -- ^ operand env
   , apRes        :: Sigma   -- ^ site result
   , apGlobal     :: [BVar]  -- ^ global box path at the site
-  , apDepth      :: Int     -- ^ dispatch nesting depth (self-application
-                            --   guard)
   , apLoc        :: LocTag
   , apDispatched :: Set Tag -- ^ tags already dispatched at this site
   }
@@ -175,27 +199,25 @@ data EALState = EALState
   , esParents    :: Map Int Int       -- ^ union-find parent pointers (bangs)
   , esClasses    :: Map Int ClassInfo -- ^ info stored at roots
   , esTagParents :: Map Int Int       -- ^ union-find parent pointers (tags)
-  , esTagSets    :: Map Int (Map Tag (Maybe Sigma))
-    -- ^ per class root: its tags, each optionally carrying the capture
-    -- that rides with that tag's code (Just for closure packages,
-    -- Nothing for bare code and built-ins)
+  , esTagSets    :: Map Int (Map Tag TagInfo)
+    -- ^ per class root: its tags, each with the capture that rides with
+    -- that tag's code and the interface of the instance it came from
   , esSumEqs     :: [SumEq]
   , esSumEqCount :: !Int              -- ^ length of 'esSumEqs', so template
                                       -- capture can take a delta in O(delta)
   , esApplies    :: Map Int ApplySite
   , esNextApply  :: Int
-  , esDefers     :: Map FunctionIndex [BVar]
-    -- ^ per Defer: the env domain bang of each dispatch derivation
-    -- (reported as their max)
+  , esDefers     :: [(FunctionIndex, BVar)]
+    -- ^ per body instance: its env domain bang (reported per Defer as
+    -- their max); append-only, so template capture can take a delta
+  , esDeferCount :: !Int              -- ^ length of 'esDefers'
   , esLeafPaths  :: [[BVar]]          -- ^ root-to-leaf box paths, for max
                                       -- depth
   , esLeafCount  :: !Int              -- ^ length of 'esLeafPaths'
   , esBodies     :: Map (Digest SHA256) (FunctionIndex, Term3Lifting)
-    -- ^ the DeferMap: dispatching a code tag derives its body from here
+    -- ^ the DeferMap: a DeferRef occurrence instantiates its body from here
   , esTemplates  :: Map (Digest SHA256) BodyTemplate
     -- ^ per body: the reusable constraint delta of its walk
-  , esInstCounts :: Map (Digest SHA256) Int
-    -- ^ per body: how many derivations (capture + instantiations) exist
   }
 
 initEALState :: EALState
@@ -211,22 +233,24 @@ initEALState = EALState
   , esApplies = mempty
   , esNextApply = 0
   , esDefers = mempty
+  , esDeferCount = 0
   , esLeafPaths = mempty
   , esLeafCount = 0
   , esBodies = mempty
   , esTemplates = mempty
-  , esInstCounts = mempty
   }
 
 -- | One body's walk, captured as a reusable constraint template. The walk
--- of a lifted body is operand-independent — the operand meets the frame
--- only through the interface unification after the walk — and every
--- variable it mints is drawn from one contiguous block starting at
--- 'btBase', so a later dispatch of the same body can be served by an
--- offset copy of this delta instead of a monadic re-walk. The dispatch
--- site's contribution is factored out as parameters: its global box path
+-- of a lifted body is operand-independent — operands meet the instance
+-- only through interface unification at apply sites — and every variable
+-- it mints is drawn from one contiguous block starting at 'btBase', so a
+-- later occurrence of the same body is served by an offset copy of this
+-- delta instead of a monadic re-walk. The walk of a body instantiates the
+-- bodies it references, so the block holds those nested instances too and
+-- an offset copy carries its own copies of them. The occurrence's
+-- contribution is factored out as a parameter: its global box path
 -- (stored stripped from leaf paths and nested sites, re-appended at
--- instantiation) and its dispatch depth (re-stamped on nested sites).
+-- instantiation).
 data BodyTemplate = BodyTemplate
   { btIndex        :: FunctionIndex     -- ^ for error reporting
   , btBase         :: Int               -- ^ first variable of the block
@@ -235,13 +259,14 @@ data BodyTemplate = BodyTemplate
   , btClasses      :: [(Int, ClassInfo)]
   , btTVarBinds    :: [(Int, Tau)]
   , btTagParents   :: [(Int, Int)]
-  , btTagSets      :: [(Int, Map Tag (Maybe Sigma))]
+  , btTagSets      :: [(Int, Map Tag TagInfo)]
   , btSumEqs       :: [SumEq]
-  , btLeafPrefixes :: [[BVar]]        -- ^ block-local leaf paths, site path
-                                      -- appended at instantiation
+  , btLeafPrefixes :: [[BVar]]        -- ^ block-local leaf paths, occurrence
+                                      -- path appended at instantiation
   , btApplies      :: [ApplySite]       -- ^ nested sites; 'apGlobal' holds the
-                                      -- block-local prefix only, 'apDepth'
-                                      -- is re-stamped at instantiation
+                                      -- block-local prefix only
+  , btDefers       :: [(FunctionIndex, BVar)] -- ^ env bangs of the instances
+                                              -- inside the block
   , btEnvBang      :: BVar              -- ^ interface: frame env domain bang
   , btEnvTau       :: Tau               -- ^ interface: frame env type
   , btResult       :: Sigma             -- ^ interface: body result
@@ -340,20 +365,9 @@ ealCaptureLayouts lr = Map.fromList
 
 -- * Variable supply
 
--- | Maximum constraint variables minted in one derivation before the
--- analyzer assumes the dispatch structure is exploding rather than
--- converging — the memory-side companion of 'dispatchDepthCap', turning
--- a runaway derivation into a clean rejection instead of heap
--- exhaustion.
-varBudget :: Int
-varBudget = 2000000
-
 freshInt :: EALM Int
 freshInt = do
   st <- State.get
-  when (esNextVar st >= varBudget) . throwError . EALSolverGaveUp $
-    "constraint variable budget (" <> show varBudget
-      <> ") exceeded; the dispatch structure is likely exploding"
   State.put st { esNextVar = esNextVar st + 1 }
   pure (esNextVar st)
 
@@ -366,25 +380,28 @@ freshTau = VarT <$> freshInt
 freshSigma :: EALM Sigma
 freshSigma = Sigma <$> freshB <*> freshTau
 
--- | A fresh code type carrying exactly these tags (captureless).
-freshCode :: Set Tag -> EALM Tau
+-- | A fresh code class holding exactly these tags.
+freshCode :: Map Tag TagInfo -> EALM Tau
 freshCode tags = do
   i <- freshInt
-  State.modify $ \st -> st
-    { esTagSets = Map.insert i (Map.fromSet (const Nothing) tags)
-        (esTagSets st) }
+  State.modify $ \st -> st { esTagSets = Map.insert i tags (esTagSets st) }
   pure (CodeT i)
 
--- | Allocate a closure package: the tags of the code class @i@, each
--- carrying this pair's capture. A fresh class per construction, so the
--- head class and the package evolve in lockstep only through joins of
--- the pair itself.
+-- | A fresh code class holding one built-in tag (no capture, no interface:
+-- built-ins dispatch by rule).
+builtinCode :: Tag -> EALM Tau
+builtinCode tag = freshCode (Map.singleton tag (TagInfo Nothing Nothing))
+
+-- | Allocate a closure package: the tags of the code class @i@ (with their
+-- interfaces), each now carrying this pair's capture. A fresh class per
+-- construction, so the head class and the package evolve in lockstep only
+-- through joins of the pair itself.
 packageClass :: Int -> Sigma -> EALM Int
 packageClass i cap = do
-  tags <- tagSetOf i
+  infos <- capturesOf i
   p <- freshInt
   State.modify $ \st -> st
-    { esTagSets = Map.insert p (Map.fromSet (const (Just cap)) tags)
+    { esTagSets = Map.insert p (fmap (\ti -> ti { tiCapture = Just cap }) infos)
         (esTagSets st) }
   pure p
 
@@ -491,7 +508,7 @@ findTag i = State.gets (Map.lookup i . esTagParents) >>= \case
       st { esTagParents = Map.insert i r (esTagParents st) }
     pure r
 
-capturesOf :: Int -> EALM (Map Tag (Maybe Sigma))
+capturesOf :: Int -> EALM (Map Tag TagInfo)
 capturesOf i = do
   r <- findTag i
   State.gets (fromMaybe mempty . Map.lookup r . esTagSets)
@@ -499,13 +516,33 @@ capturesOf i = do
 tagSetOf :: Int -> EALM (Set Tag)
 tagSetOf = fmap Map.keysSet . capturesOf
 
--- | Join two code classes: their tag sets UNION, and captures meet only
--- where the SAME tag appears on both sides (same code, same layout) —
--- different tags' captures never unify. This is the one place the type
+-- | Two records of the same tag meeting: captures unify (same code, same
+-- layout) and so do interfaces (two instances of one body flowing to one
+-- position are used as one, the let-polymorphic reading of a join).
+unifyTagInfo :: LocTag -> TagInfo -> TagInfo -> EALM ()
+unifyTagInfo loc (TagInfo ca ia) (TagInfo cb ib) = do
+  case (ca, cb) of
+    (Just x, Just y) -> unifySigma loc x y
+    _oneSided        -> pure ()
+  case (ia, ib) of
+    (Just (Iface ea ra), Just (Iface eb rb)) ->
+      unifySigma loc ea eb >> unifySigma loc ra rb
+    _oneSided -> pure ()
+
+-- | Fill the gaps of one record from another.
+mergeTagInfo :: TagInfo -> TagInfo -> TagInfo
+mergeTagInfo (TagInfo ca ia) (TagInfo cb ib) =
+  TagInfo (ca <|> cb) (ia <|> ib)
+
+-- | Join two code classes: their tag sets UNION, and captures and
+-- interfaces meet only where the SAME tag appears on both sides —
+-- different tags' records never unify. This is the one place the type
 -- system is flow-like rather than equational. The classes are merged
--- BEFORE the same-tag captures are unified, so self-referential packages
+-- BEFORE the same-tag records are unified, so self-referential packages
 -- (a capture containing its own package, as sized recursion chains build)
--- unify as regular trees: revisiting the merged class no-ops.
+-- unify as regular trees: revisiting the merged class no-ops. A join that
+-- closes a cycle through an interface is self-application and is
+-- rejected ('selfReferential').
 unionTags :: LocTag -> Int -> Int -> EALM ()
 unionTags loc a b = do
   ra <- findTag a
@@ -513,17 +550,74 @@ unionTags loc a b = do
   unless (ra == rb) $ do
     ma <- capturesOf ra
     mb <- capturesOf rb
-    let pending = [ (t, ca, cb) | (t, Just ca) <- Map.toList ma
-                  , Just (Just cb) <- [Map.lookup t mb] ]
-        keep x y = case x of
-          Just _  -> x
-          Nothing -> y
+    let pending = [ (ia, ib) | (t, ia) <- Map.toList ma
+                  , Just ib <- [Map.lookup t mb] ]
     State.modify $ \st -> st
       { esTagParents = Map.insert ra rb (esTagParents st)
-      , esTagSets = Map.insert rb (Map.unionWith keep ma mb)
+      , esTagSets = Map.insert rb (Map.unionWith mergeTagInfo ma mb)
           (Map.delete ra (esTagSets st))
       }
-    mapM_ (\(_t, ca, cb) -> unifySigma loc ca cb) pending
+    mapM_ (uncurry (unifyTagInfo loc)) pending
+    rejectSelfReference loc rb
+
+-- | Is this code class reachable from its own interfaces, through pair
+-- structure and other classes' interfaces? Only the ARGUMENT half of an
+-- env (its Left, by the compiled convention a body's argument is @Left
+-- Env@ and its captures @Right Env@) and the result are followed. The
+-- capture half is deliberately not: a closure whose captures hold a
+-- closure of its own code is a regular shape — @\\x -> g (g x)@ with @g@
+-- another such partial, or a sized recursion chain — just as captures
+-- never appear in a simple type. A function whose argument contains the
+-- function is the one thing with no finite derivation.
+-- Returns the cycle as the tags whose interfaces it threads, in order.
+selfReferential :: Int -> EALM (Maybe [Tag])
+selfReferential r0 = classIfaces mempty r0 where
+  classIfaces vis r = do
+    infos <- capturesOf r
+    let vis' = Set.insert r vis
+    starts <- fmap concat . forM
+      [ (t, i) | (t, TagInfo _ (Just i)) <- Map.toList infos ] $
+        \(t, Iface e res) -> do
+          arg <- argumentOf e
+          pure [(t, arg), (t, res)]
+    firstJustM (\(t, Sigma _ ty) -> fmap (t :) <$> tau vis' ty) starts
+  -- an env's argument half only; an unresolved or data env has nothing
+  -- to follow
+  argumentOf (Sigma b t) = walkTau t >>= \case
+    PairT arg _caps -> pure arg
+    _notPair -> pure (Sigma b DataT)
+  tau vis t = walkTau t >>= \case
+    VarT _ -> pure Nothing
+    DataT -> pure Nothing
+    CapT _ -> pure Nothing
+    PairT (Sigma _ x) (Sigma _ y) ->
+      tau vis x >>= maybe (tau vis y) (pure . Just)
+    CodeT c -> do
+      r <- findTag c
+      if r == r0 then pure (Just [])
+        else if Set.member r vis then pure Nothing
+        else classIfaces vis r
+
+-- | Reject a code class that has just become self-referential: the
+-- function it names is applied to (or yields) a value containing itself,
+-- which has no finite derivation — this is the occurs check of arrow
+-- types, stated on interfaces.
+rejectSelfReference :: LocTag -> Int -> EALM ()
+rejectSelfReference loc c = selfReferential c >>= \case
+  Nothing -> pure ()
+  Just cycleTags -> do
+    bodies <- State.gets esBodies
+    let name = \case
+          TCode h -> maybe (take 8 (show h)) (show . fst) (Map.lookup h bodies)
+          builtin -> show builtin
+    throwError . EALTypeMismatch loc $
+      "self-application: a function is applied to a value that contains the"
+        <> " function itself, so its argument would have to contain its own"
+        <> " interface (cycle through " <> unwords (fmap name cycleTags) <> ")"
+
+firstJustM :: Monad m => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
+firstJustM _ [] = pure Nothing
+firstJustM f (x:xs) = f x >>= maybe (firstJustM f xs) (pure . Just)
 
 -- * Type unification
 
@@ -539,14 +633,18 @@ occurs i t = walkTau t >>= \case
   DataT -> pure False
   CodeT _ -> pure False
   CapT _ -> pure False
+  AbortedT -> pure False
   PairT (Sigma _ a) (Sigma _ b) -> (||) <$> occurs i a <*> occurs i b
 
--- | Bind a type variable. A cyclic binding is not an error: code types are
--- atomic, so a cycle can only thread through pair structure, and an
--- unboundedly nested pair type is data of unknown shape — exactly what
--- 'DataT' already means. The cycle collapses to data (forcing its bangs
--- unboxed); a function value hiding on the cycle then surfaces as a
--- code-vs-data mismatch instead of silently escaping level tracking.
+-- | Bind a type variable. A cyclic binding through pair structure is not
+-- an error: an unboundedly nested pair type is data of unknown shape —
+-- exactly what 'DataT' already means. The cycle collapses to data
+-- (forcing its bangs unboxed); a function value hiding on the cycle then
+-- surfaces as a code-vs-data mismatch instead of silently escaping level
+-- tracking. A binding that closes a cycle through a code class's
+-- interface is self-application and is rejected: the classes the bound
+-- structure exposes are checked, since any such cycle passes through
+-- the first class reached.
 bindTVar :: LocTag -> Int -> Tau -> EALM ()
 bindTVar loc i t = do
   cyclic <- occurs i t
@@ -555,8 +653,17 @@ bindTVar loc i t = do
       State.modify $ \st ->
         st { esTVarBinds = Map.insert i DataT (esTVarBinds st) }
       unifyTau loc t DataT
-    else State.modify $ \st ->
-      st { esTVarBinds = Map.insert i t (esTVarBinds st) }
+    else do
+      State.modify $ \st ->
+        st { esTVarBinds = Map.insert i t (esTVarBinds st) }
+      exposedClasses t >>= mapM_ (rejectSelfReference loc)
+
+-- | The code classes a type exposes through pair structure alone.
+exposedClasses :: Tau -> EALM [Int]
+exposedClasses t = walkTau t >>= \case
+  CodeT c -> pure [c]
+  PairT (Sigma _ a) (Sigma _ b) -> (<>) <$> exposedClasses a <*> exposedClasses b
+  _leaf -> pure []
 
 describeTau :: Tau -> String
 describeTau = \case
@@ -565,6 +672,7 @@ describeTau = \case
   PairT _ _ -> "pair"
   CodeT _ -> "code"
   CapT _ -> "capture"
+  AbortedT -> "aborted"
 
 -- | The dispatching tag, when unification runs on behalf of one tag's
 -- dispatch: a 'CapT' met under a mode resolves to exactly that tag's
@@ -595,6 +703,11 @@ unifyTauAt vis mode loc a b = do
           ForcedZero (Blame loc "component of a data pair is unboxed data")
         unifyTauAt vis mode loc t DataT
   case (a', b') of
+    -- bottom absorbs: a value that never exists fits every position, and
+    -- binds no variable (the position stays open for the values that do
+    -- exist)
+    (AbortedT, _) -> pure ()
+    (_, AbortedT) -> pure ()
     (VarT i, VarT j) | i == j -> pure ()
     (VarT i, t) -> bindTVar loc i t
     (t, VarT i) -> bindTVar loc i t
@@ -628,6 +741,7 @@ deepShowTau n t
       CapT i -> do
         r <- findTag i
         pure ("Cap#" <> show r)
+      AbortedT -> pure "_|_"
       PairT (Sigma _ a) (Sigma _ b) -> do
         sa <- deepShowTau (n - 1) a
         sb <- deepShowTau (n - 1) b
@@ -644,11 +758,11 @@ resolveCapT vis mode loc i t = do
     let vis' = Set.insert r vis
     caps <- capturesOf r
     case mode of
-      Just h | Just (Just (Sigma _ ct)) <- Map.lookup h caps ->
+      Just h | Just (TagInfo (Just (Sigma _ ct)) _) <- Map.lookup h caps ->
         unifyTauAt vis' mode loc ct t
       _fallback -> forM_ (Map.elems caps) $ \case
-        Just (Sigma _ ct) -> unifyTauAt vis' mode loc ct t
-        Nothing -> pure ()
+        TagInfo (Just (Sigma _ ct)) _ -> unifyTauAt vis' mode loc ct t
+        TagInfo Nothing _ -> pure ()
 
 -- * Env usage analysis (contraction detection)
 
@@ -693,7 +807,6 @@ contractionSite m =
 data DeferCtx = DeferCtx
   { dcBang  :: BVar -- ^ bang count on this frame's env domain
   , dcTau   :: Tau  -- ^ this frame's env type
-  , dcDepth :: Int  -- ^ dispatch nesting depth this frame derives at
   }
 
 -- | Box paths: per-frame (for occurrence depth equations) and global (for
@@ -741,11 +854,13 @@ intrinsic ctx paths (anno :< t) = case t of
   Term3LUnsized _ -> envOccurrence ctx paths anno
   StuckFW (DeferSF _ _) -> throwError $
     EALInternal "raw DeferSF in a lifted term"
-  -- a reference is an atomic code constant; its body's constraints are
-  -- derived only where it is applied ('dispatchTag'), fresh per site
+  -- a reference instantiates its body: a fresh copy of the body's
+  -- constraints, whose interface rides with the tag to every apply site
+  -- the reference reaches
   Term3LDeferRef h -> do
     recordLeaf paths
-    ct <- freshCode (Set.singleton (TCode h))
+    iface <- instantiateBody paths h
+    ct <- freshCode (Map.singleton (TCode h) (TagInfo Nothing (Just iface)))
     plainSigma anno "code constant is an unboxed value" ct
   StuckFW (SetEnvSF x) -> do
     sx <- viewNode ctx paths x
@@ -761,22 +876,21 @@ intrinsic ctx paths (anno :< t) = case t of
     unifySigma anno sx . Sigma pairB $ PairT (Sigma fnB fnT) si
     State.modify $ \st -> st
       { esApplies = Map.insert (esNextApply st)
-          (ApplySite fnT si so (pGlobal paths) (dcDepth ctx) anno mempty)
+          (ApplySite fnT si so (pGlobal paths) anno mempty)
           (esApplies st)
       , esNextApply = esNextApply st + 1 }
     pure so
   StuckFW GateSF -> do
     recordLeaf paths
-    ct <- freshCode (Set.singleton TGate)
+    ct <- builtinCode TGate
     plainSigma anno "gate is an unboxed value" ct
   StuckFW (LeftSF x) -> projection ctx paths anno x fst
   StuckFW (RightSF x) -> projection ctx paths anno x snd
   AbortFW AbortF -> do
     recordLeaf paths
-    ct <- freshCode (Set.singleton TAbort)
+    ct <- builtinCode TAbort
     plainSigma anno "abort is an unboxed value" ct
-  AbortFW (AbortedF _) -> recordLeaf paths >>
-    plainSigma anno "aborted value" DataT
+  AbortFW (AbortedF _) -> recordLeaf paths >> bottomSigma
   Term3LCheckingWrapper _ _ c -> intrinsic ctx paths c
 
 envOccurrence :: DeferCtx -> Paths -> LocTag -> EALM Sigma
@@ -809,114 +923,56 @@ projection ctx paths anno x pick = do
   unifySigma anno sx . Sigma pB $ PairT sl sr
   pure $ pick (sl, sr)
 
--- * Application dispatch
+-- * Body instantiation
 
--- | Dispatch every tag that has flowed into every apply site's function
--- position, to a fixpoint: dispatching a code tag derives its body, which
--- registers new sites and can grow other sites' tag sets. A function
--- position that never resolves (nothing flows there but the program's
--- unknown input) is tolerated without constraints — input is data by the
--- runtime contract, and applying data sticks only when demanded.
-resolveApplies :: EALM ()
-resolveApplies = loop (0 :: Int) where
-  loop n = do
-    when (n > 10000) . throwError $
-      EALSolverGaveUp "application dispatch did not converge"
-    keys <- State.gets (Map.keys . esApplies)
-    changed <- foldM (\acc k -> (acc ||) <$> resolveSite k) False keys
-    when changed $ loop (n + 1)
-  resolveSite k = State.gets (Map.lookup k . esApplies) >>= \case
-    Nothing -> pure False
-    Just site -> walkTau (apFn site) >>= \case
-      VarT _ -> pure False
-      CodeT i -> dispatchNew k site =<< tagSetOf i
-      -- a capture selection applied directly: any code its package's
-      -- captures can hold may run here
-      CapT i -> dispatchNew k site =<< fnTagsOfCaptures mempty i
-      -- applying data sticks immediately at runtime, and stuckness is a
-      -- value until demanded — bounded work, so nothing for the
-      -- certificate to reject. (Shape errors are the language checker's
-      -- job; sized recursion machinery really does leave data in dead
-      -- applied positions, e.g. the abort base's escape path.) Note this
-      -- is more tolerant than a flow analyzer's must-fail rule: with
-      -- unification a data binding can shadow code that flow would have
-      -- kept as a separate union member, so data-here must not be read
-      -- as data-only.
-      DataT -> pure False
-      other -> throwError . EALTypeMismatch (apLoc site) $
-        "applied value is " <> describeTau other <> ", not code"
-  dispatchNew k site tags = do
-    let new = Set.difference tags (apDispatched site)
-    if Set.null new
-      then pure False
-      else do
-        -- mark first: dispatch can grow this very set, and the next
-        -- round picks up only what is genuinely new
-        State.modify $ \st -> st
-          { esApplies = Map.insert k
-              site { apDispatched = Set.union (apDispatched site) tags }
-              (esApplies st) }
-        mapM_ (dispatchTag site) (Set.toList new)
-        pure True
+-- | Instantiate a lifted body at a DeferRef occurrence: a fresh copy of
+-- its constraints, served from the body's template (captured by walking
+-- the body on its first occurrence). The result is the instance's
+-- interface, which rides with the occurrence's tag.
+--
+-- Instances are finite by construction: one per occurrence per enclosing
+-- instance, and the DeferMap is a DAG, so the walk of a body — which
+-- instantiates the bodies it references — bottoms out. No budget is
+-- needed, and none exists.
+instantiateBody :: Paths -> Digest SHA256 -> EALM Iface
+instantiateBody paths h = do
+  (fi, body) <- State.gets (Map.lookup h . esBodies) >>= \case
+    Just fb -> pure fb
+    Nothing -> throwError . EALInternal $
+      "referenced code not in the DeferMap " <> show h
+  State.gets (Map.lookup h . esTemplates) >>= \case
+    Just t  -> instantiateTemplate paths t
+    Nothing -> captureTemplate paths h fi body
 
--- | The code tags a capture position can hold, for a capture applied as
--- a function: the union over the package's captures' own code, chasing
--- nested selections coinductively.
-fnTagsOfCaptures :: Set Int -> Int -> EALM (Set Tag)
-fnTagsOfCaptures vis i = do
-  r <- findTag i
-  if Set.member r vis
-    then pure mempty
-    else do
-      caps <- capturesOf r
-      fmap Set.unions . mapM (tagsIn (Set.insert r vis)) $ Map.elems caps
-  where
-    tagsIn vis' = \case
-      Just (Sigma _ t) -> walkTau t >>= \case
-        CodeT j -> tagSetOf j
-        CapT j  -> fnTagsOfCaptures vis' j
-        _       -> pure mempty
-      Nothing -> pure mempty
-
--- | How many derivations (one template capture plus instantiations) a
--- single body may receive before the analyzer concludes its dispatch
--- structure is exploding rather than converging. The per-body companion
--- of 'varBudget': it names the culprit and fires long before memory
--- pressure would.
-polyvarianceCap :: Int
-polyvarianceCap = 16384
-
--- | First dispatch of a body: walk it exactly as every dispatch used to,
--- and capture the walk's state delta as a 'BodyTemplate' for later
--- dispatches. The capture relies on the walk's writes staying inside the
--- fresh variable block — the operand is untouched until after the walk,
--- so unions, class constraints, type bindings and tag classes all live
--- on block variables — plus the append-only channels (sum equations,
--- leaf paths, apply sites, the per-Defer bang list) whose deltas are
--- taken by count.
-captureTemplate :: ApplySite -> Digest SHA256 -> FunctionIndex
-                -> Term3Lifting -> EALM (BVar, Tau, Sigma)
-captureTemplate site h fi body = do
+-- | First occurrence of a body: walk it, and capture the walk's state
+-- delta as a 'BodyTemplate' for later occurrences. The capture relies on
+-- the walk's writes staying inside the fresh variable block — the body
+-- is closed, so unions, class constraints, type bindings and tag classes
+-- all live on block variables (nested instances included) — plus the
+-- append-only channels (sum equations, leaf paths, apply sites, instance
+-- env bangs) whose deltas are taken by count.
+captureTemplate :: Paths -> Digest SHA256 -> FunctionIndex -> Term3Lifting
+                -> EALM Iface
+captureTemplate paths h fi body = do
   st0 <- State.get
   let v0 = esNextVar st0
       a0 = esNextApply st0
       eq0 = esSumEqCount st0
       leaf0 = esLeafCount st0
-      siteGLen = length (apGlobal site)
+      defer0 = esDeferCount st0
+      occGLen = length (pGlobal paths)
   bEnv <- freshB
   tEnv <- freshTau
   forM_ (contractionSite (envUsageL body)) $ \(path, uloc) ->
     void . constrainB bEnv . ForcedLevel 1 $
       Blame uloc ("env path " <> showSteps path <> " duplicated in "
         <> show fi)
-  State.modify $ \st ->
-    st { esDefers = Map.insertWith (<>) fi [bEnv] (esDefers st) }
-  sBody <- viewNode (DeferCtx bEnv tEnv (apDepth site + 1))
-    (Paths [] (apGlobal site)) body
+  recordDefer fi bEnv
+  sBody <- viewNode (DeferCtx bEnv tEnv) (Paths [] (pGlobal paths)) body
   st1 <- State.get
   let blockOf :: Map Int a -> [(Int, a)]
       blockOf = Map.toAscList . snd . Map.split (v0 - 1)
-      stripSite xs = take (length xs - siteGLen) xs
+      stripOcc xs = take (length xs - occGLen) xs
       template = BodyTemplate
         { btIndex = fi
         , btBase = v0
@@ -927,31 +983,34 @@ captureTemplate site h fi body = do
         , btTagParents = blockOf (esTagParents st1)
         , btTagSets = blockOf (esTagSets st1)
         , btSumEqs = take (esSumEqCount st1 - eq0) (esSumEqs st1)
-        , btLeafPrefixes = fmap stripSite
+        , btLeafPrefixes = fmap stripOcc
             (take (esLeafCount st1 - leaf0) (esLeafPaths st1))
         , btApplies =
-            [ s { apGlobal = stripSite (apGlobal s) }
+            [ s { apGlobal = stripOcc (apGlobal s) }
             | s <- Map.elems (snd (Map.split (a0 - 1) (esApplies st1))) ]
+        , btDefers = take (esDeferCount st1 - defer0) (esDefers st1)
         , btEnvBang = bEnv
         , btEnvTau = tEnv
         , btResult = sBody
         }
   State.modify $ \st ->
     st { esTemplates = Map.insert h template (esTemplates st) }
-  pure (bEnv, tEnv, sBody)
+  pure $ Iface (Sigma bEnv tEnv) sBody
 
--- | Serve a dispatch from the body's captured template: allocate a fresh
--- contiguous variable block, offset-copy every constraint of the walk
--- into it, splice this site's global path where the capture site's was
--- stripped, and re-stamp nested sites with this site's depth. Emits
--- exactly the constraints a fresh walk would, at the cost of copying the
--- delta instead of re-running the walk.
-instantiateTemplate :: ApplySite -> BodyTemplate -> EALM (BVar, Tau, Sigma)
-instantiateTemplate site t = do
+recordDefer :: FunctionIndex -> BVar -> EALM ()
+recordDefer fi b = State.modify $ \st ->
+  st { esDefers = (fi, b) : esDefers st
+     , esDeferCount = esDeferCount st + 1 }
+
+-- | Serve an occurrence from the body's captured template: allocate a
+-- fresh contiguous variable block, offset-copy every constraint of the
+-- walk into it, and splice this occurrence's global path where the
+-- capturing occurrence's was stripped. Emits exactly the constraints a
+-- fresh walk would, at the cost of copying the delta instead of
+-- re-running the walk.
+instantiateTemplate :: Paths -> BodyTemplate -> EALM Iface
+instantiateTemplate paths t = do
   base <- State.gets esNextVar
-  when (base + btSize t >= varBudget) . throwError . EALSolverGaveUp $
-    "constraint variable budget (" <> show varBudget
-      <> ") exceeded; the dispatch structure is likely exploding"
   let shift = base - btBase t
       sh i = if i >= btBase t then i + shift else i
       shB (BVar i) = BVar (sh i)
@@ -961,16 +1020,18 @@ instantiateTemplate site t = do
         CapT i -> CapT (sh i)
         PairT a b -> PairT (shSig a) (shSig b)
         DataT -> DataT
+        AbortedT -> AbortedT
       shSig (Sigma b tau) = Sigma (shB b) (shTau tau)
+      shIface (Iface e r) = Iface (shSig e) (shSig r)
+      shInfo (TagInfo c i) = TagInfo (fmap shSig c) (fmap shIface i)
       shEq (SumEq lhs rhs blame) = SumEq (fmap shB lhs) (shB rhs) blame
       shKV f (k, v) = (sh k, f v)
-      splice p = fmap shB p <> apGlobal site
+      splice p = fmap shB p <> pGlobal paths
       instApply s = s
         { apFn = shTau (apFn s)
         , apEnv = shSig (apEnv s)
         , apRes = shSig (apRes s)
         , apGlobal = splice (apGlobal s)
-        , apDepth = apDepth site + 1
         , apDispatched = mempty
         }
   State.modify $ \st -> st
@@ -984,7 +1045,7 @@ instantiateTemplate site t = do
     , esTagParents = Map.union
         (Map.fromAscList (fmap (shKV sh) (btTagParents t))) (esTagParents st)
     , esTagSets = Map.union
-        (Map.fromAscList (fmap (shKV (fmap (fmap shSig))) (btTagSets t)))
+        (Map.fromAscList (fmap (shKV (fmap shInfo)) (btTagSets t)))
         (esTagSets st)
     , esSumEqs = fmap shEq (btSumEqs t) <> esSumEqs st
     , esSumEqCount = esSumEqCount st + length (btSumEqs t)
@@ -995,43 +1056,127 @@ instantiateTemplate site t = do
           (zip [esNextApply st ..] (fmap instApply (btApplies t))))
         (esApplies st)
     , esNextApply = esNextApply st + length (btApplies t)
-    , esDefers = Map.insertWith (<>) (btIndex t) [shB (btEnvBang t)]
-        (esDefers st)
+    , esDefers = fmap (fmap shB) (btDefers t) <> esDefers st
+    , esDeferCount = esDeferCount st + length (btDefers t)
     }
-  pure (shB (btEnvBang t), shTau (btEnvTau t), shSig (btResult t))
+  pure $ Iface (Sigma (shB (btEnvBang t)) (shTau (btEnvTau t)))
+               (shSig (btResult t))
 
--- | Emit the constraints of applying one tag at one site.
-dispatchTag :: ApplySite -> Tag -> EALM ()
-dispatchTag site tag = case tag of
+-- * Application dispatch
+
+-- | Dispatch every tag that has flowed into every apply site's function
+-- position, to a fixpoint: dispatching unifies the site with the tag's
+-- interface, which can grow other sites' tag sets. Nothing is derived
+-- here — the set of sites is fixed once the walk is done and the tags
+-- are the finite DeferMap namespace plus the built-ins — so every round
+-- that changes anything dispatches at least one new (site, tag) pair and
+-- the loop terminates by construction. A function position that never
+-- resolves (nothing flows there but the program's unknown input) is
+-- tolerated without constraints — input is data by the runtime contract,
+-- and applying data sticks only when demanded.
+resolveApplies :: EALM ()
+resolveApplies = do
+  changed <- dispatchRound False
+  if changed
+    then resolveApplies
+    else do
+      -- at a fixpoint some abort sites may still be waiting to learn
+      -- their message's shape; read those conservatively and go on
+      committed <- dispatchRound True
+      when committed resolveApplies
+  where
+  dispatchRound force = do
+    keys <- State.gets (Map.keys . esApplies)
+    foldM (\acc k -> (acc ||) <$> resolveSite force k) False keys
+  resolveSite force k = State.gets (Map.lookup k . esApplies) >>= \case
+    Nothing -> pure False
+    Just site -> walkTau (apFn site) >>= \case
+      VarT _ -> pure False
+      CodeT i -> dispatchNew force k site =<< capturesOf i
+      -- a capture selection applied directly: any code its package's
+      -- captures can hold may run here
+      CapT i ->
+        dispatchNew force k site =<< codeInfosOfCaptures (apLoc site) i
+      -- applying data sticks immediately at runtime, and stuckness is a
+      -- value until demanded — bounded work, so nothing for the
+      -- certificate to reject. (Shape errors are the language checker's
+      -- job.) Note this is more tolerant than a flow analyzer's must-fail
+      -- rule: with unification a data binding can shadow code that flow
+      -- would have kept as a separate union member, so data-here must not
+      -- be read as data-only.
+      DataT -> pure False
+      -- applying a value that never exists yields a value that never
+      -- exists (the runtime propagates the aborted value)
+      AbortedT -> do
+        bottomSigma >>= unifySigma (apLoc site) (apRes site)
+        pure False
+      other -> throwError . EALTypeMismatch (apLoc site) $
+        "applied value is " <> describeTau other <> ", not code"
+  dispatchNew force k site infos = do
+    let new = Map.withoutKeys infos (apDispatched site)
+    if Map.null new
+      then pure False
+      else do
+        -- mark first: dispatch can grow this very set, and the next
+        -- round picks up only what is genuinely new
+        adjustDispatched k (Set.union (Map.keysSet new))
+        deferred <- fmap concat . forM (Map.toList new) $ \ti@(t, _) -> do
+          done <- dispatchTag force site ti
+          pure [t | not done]
+        unless (null deferred) $
+          adjustDispatched k (`Set.difference` Set.fromList deferred)
+        pure (length deferred < Map.size new)
+  adjustDispatched k f = State.modify $ \st -> st
+    { esApplies = Map.adjust
+        (\s -> s { apDispatched = f (apDispatched s) }) k (esApplies st) }
+
+-- | The code records a capture position can hold, for a capture applied
+-- as a function: the union over the package's captures' own code,
+-- chasing nested selections coinductively. Two records of one tag met
+-- this way are two instances flowing to one position and are unified.
+codeInfosOfCaptures :: LocTag -> Int -> EALM (Map Tag TagInfo)
+codeInfosOfCaptures loc = go mempty where
+  go vis i = do
+    r <- findTag i
+    if Set.member r vis
+      then pure mempty
+      else do
+        caps <- capturesOf r
+        foldM (\acc c -> infosIn (Set.insert r vis) c >>= merge acc)
+          mempty (Map.elems caps)
+  infosIn vis' = \case
+    TagInfo (Just (Sigma _ t)) _ -> walkTau t >>= \case
+      CodeT j -> capturesOf j
+      CapT j  -> go vis' j
+      _       -> pure mempty
+    TagInfo Nothing _ -> pure mempty
+  merge acc m = do
+    forM_ (Map.toList (Map.intersectionWith (,) acc m)) $ \(_t, (a, b)) ->
+      unifyTagInfo loc a b
+    pure (Map.unionWith mergeTagInfo acc m)
+
+-- | Emit the constraints of applying one tag at one site. False means
+-- the dispatch is deferred: an abort whose message shape is not known
+-- yet (unless forced, which reads it as the identity continuation).
+dispatchTag :: Bool -> ApplySite -> (Tag, TagInfo) -> EALM Bool
+dispatchTag force site (tag, info) = case tag of
   TCode h -> do
-    when (apDepth site >= dispatchDepthCap) . throwError . EALSolverGaveUp $
-      "code dispatch depth exceeded " <> show dispatchDepthCap
-        <> " (unbounded self-application?): " <> show (apLoc site)
-    (fi, body) <- State.gets (Map.lookup h . esBodies) >>= \case
-      Just fb -> pure fb
+    Iface envS resS <- case tiIface info of
+      Just i  -> pure i
       Nothing -> throwError . EALInternal $
-        "dispatched code not in the DeferMap " <> show h
-    count <- State.gets (Map.findWithDefault 0 h . esInstCounts)
-    when (count >= polyvarianceCap) . throwError . EALSolverGaveUp $
-      "polyvariance budget: body " <> show fi <> " needed more than "
-        <> show polyvarianceCap
-        <> " derivations (dispatch structure likely exploding)"
-    State.modify $ \st ->
-      st { esInstCounts = Map.insert h (count + 1) (esInstCounts st) }
-    (bEnv, tEnv, sBody) <- State.gets (Map.lookup h . esTemplates) >>= \case
-      Just t  -> instantiateTemplate site t
-      Nothing -> captureTemplate site h fi body
-    -- the operand meets the domain under this tag's mode: capture
-    -- selections inside it resolve to THIS tag's capture
-    unifySigmaAt mempty (Just tag) (apLoc site) (apEnv site)
-      (Sigma bEnv tEnv)
-    unifySigma (apLoc site) (apRes site) sBody
+        "code tag without an interface: " <> show h
+    -- the operand meets the instance's env under this tag's mode:
+    -- capture selections inside it resolve to THIS tag's capture
+    unifySigmaAt mempty (Just tag) (apLoc site) (apEnv site) envS
+    unifySigma (apLoc site) (apRes site) resS
+    pure True
   TGate -> do
     scrB <- forcedZeroB $ Blame loc "gate scrutinee must be unboxed data"
     unifySigma loc (apEnv site) (Sigma scrB DataT)
     gfn <- plainSigma loc "gate switch function is locally unboxed"
-      =<< freshCode (Set.singleton TGateFn)
+      =<< builtinCode TGateFn
     unifySigma loc (apRes site) gfn
+    pure True
   TGateFn -> do
     sbE <- freshSigma
     sbT <- freshSigma
@@ -1043,14 +1188,60 @@ dispatchTag site tag = case tag of
     -- with each other structurally
     unifySigma loc (apRes site) sbE
     unifySigma loc (apRes site) sbT
+    pure True
   -- abort messages need no shape or bang constraint: the runtime
-  -- truncates non-data message components to Zero
+  -- truncates non-data message components to Zero. A message that is
+  -- statically a pair really aborts, and the result never exists; a Zero
+  -- (or unresolved) message yields the identity continuation.
   TAbort -> do
-    cont <- plainSigma loc "abort continuation is locally unboxed"
-      =<< freshCode (Set.singleton TAbortCont)
-    unifySigma loc (apRes site) cont
-  TAbortCont -> unifySigma loc (apEnv site) (apRes site)
+    let Sigma _ msgT = apEnv site
+    messageAborts mempty msgT >>= \case
+      Just True -> do
+        bottomSigma >>= unifySigma loc (apRes site)
+        pure True
+      Nothing | not force -> pure False
+      _zeroOrUnknown -> do
+        cont <- plainSigma loc "abort continuation is locally unboxed"
+          =<< builtinCode TAbortCont
+        unifySigma loc (apRes site) cont
+        pure True
+  TAbortCont -> do
+    unifySigma loc (apEnv site) (apRes site)
+    pure True
   where loc = apLoc site
+
+-- | The sigma of a value that never exists; its bang is free, since no
+-- box discipline applies to a value nothing ever consumes.
+bottomSigma :: EALM Sigma
+bottomSigma = flip Sigma AbortedT <$> freshB
+
+-- | Does an abort message of this type really abort? A pair message
+-- does (Just True), Zero does not (Just False: the identity
+-- continuation), and a message whose shape is still unknown cannot be
+-- read yet (Nothing). A capture selection is read through its captures:
+-- it aborts if every capture it may stand for does. Non-data components
+-- are truncated to Zero by the runtime, so code and captureless tags
+-- read as Zero.
+messageAborts :: Set Int -> Tau -> EALM (Maybe Bool)
+messageAborts vis t = walkTau t >>= \case
+  PairT _ _ -> pure (Just True)
+  DataT -> pure (Just False)
+  CodeT _ -> pure (Just False)
+  AbortedT -> pure (Just True)
+  VarT _ -> pure Nothing
+  CapT i -> do
+    r <- findTag i
+    if Set.member r vis
+      then pure (Just True)
+      else do
+        caps <- capturesOf r
+        verdicts <- forM (Map.elems caps) $ \case
+          TagInfo (Just (Sigma _ ct)) _ -> messageAborts (Set.insert r vis) ct
+          TagInfo Nothing _ -> pure (Just False)
+        pure $ if null verdicts then Just False else foldr1 both verdicts
+  where
+    both (Just a) (Just b) = Just (a && b)
+    both _ _ = Nothing
 
 -- * Constraint solving
 
@@ -1165,7 +1356,7 @@ analyzeTopWith applyToInput what term = do
     Just (path, uloc) -> void . constrainB bEnv . ForcedLevel 1 $
       Blame uloc (what <> " path " <> showSteps path <> " duplicated")
     Nothing -> pure ()
-  sRes <- viewNode (DeferCtx bEnv tEnv 0) (Paths [] []) term
+  sRes <- viewNode (DeferCtx bEnv tEnv) (Paths [] []) term
   resolveApplies
   when applyToInput $ virtualMainApply sRes >> resolveApplies
   propagate
@@ -1209,7 +1400,7 @@ virtualMainApply (Sigma _ tRes) = walkTau tRes >>= \case
       so <- freshSigma
       State.modify $ \st -> st
         { esApplies = Map.insert (esNextApply st)
-            (ApplySite fnT env so [] 0 vAnno mempty)
+            (ApplySite fnT env so [] vAnno mempty)
             (esApplies st)
         , esNextApply = esNextApply st + 1 }
 
@@ -1268,7 +1459,7 @@ groundCaptureShapes = do
   fmap (Map.fromListWith meetShape . concat . concat) .
     forM classes $ \m ->
       forM (Map.toList m) $ \case
-        (TCode h, Just sig) -> do
+        (TCode h, TagInfo (Just sig) _) -> do
           s <- shapeOfSigma sig
           pure [(h, s)]
         _bare -> pure []
@@ -1326,8 +1517,8 @@ inferEALLifted (DeferMap dm) mainTerm =
       (bMain, _, sRes, vals) <- analyzeTopWith True "program input" mainTerm
       let value r = fromMaybe 0 $ Map.lookup r vals
       topBang <- value <$> findB bMain
-      defers <- State.gets esDefers >>=
-        traverse (fmap (maximum . (0 :)) . traverse (fmap value . findB))
+      defers <- State.gets esDefers >>= fmap (Map.fromListWith max) .
+        traverse (\(fi, b) -> (,) fi . value <$> findB b)
       depths <- leafDepths vals
       shapes <- groundCaptureShapes
       mainShape <- shapeOfSigma sRes

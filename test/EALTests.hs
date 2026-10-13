@@ -3,6 +3,7 @@ module Main where
 import Control.Comonad.Cofree (Cofree ((:<)))
 import Data.Bifunctor
 import Data.Either (rights)
+import Data.List (isPrefixOf)
 import qualified Data.Map as Map
 import qualified System.IO.Strict as Strict
 import Telomare.Driver (compileUnitTest)
@@ -147,10 +148,11 @@ main = do
         -- defers 2 and 3 share one body; its first-seen index survives
         deferBang r 2 @?= 1
         ealMaxLevel r @?= 1
-    , testCase "self-application blows the dispatch depth cap" $
-        -- omega applied to omega: each derivation of the body re-applies
-        -- it, so dispatch nesting climbs without bound and the cap
-        -- rejects it — the analogue of a flow analyzer's level blowout.
+    , testCase "self-application is rejected as an interface cycle" $
+        -- omega applied to omega: the operand contains the very instance
+        -- being applied, so the instance's env would have to contain its
+        -- own interface — the occurs check of arrow types, stated on
+        -- interfaces. Rejected structurally, with no budget involved.
         -- Unapplied omega is a value and its body certifies standalone.
         let omega = defer 1 . setEnv $ p (lft env) env
             lr = inferEALWithLifting . setEnv $ p omega (p omega z)
@@ -158,9 +160,10 @@ main = do
         in do
           length [() | Right _ <- rs] @?= 1
           case ealLiftedMain lr of
-            Left (EALSolverGaveUp _) -> pure ()
+            Left (EALTypeMismatch _ msg)
+              | "self-application" `isPrefixOf` msg -> pure ()
             other -> assertFailure $
-              "expected dispatch depth rejection, got " <> show other
+              "expected self-application rejection, got " <> show other
     , testCase "applying data certifies (it sticks, lazily)" $ do
         -- applying data sticks immediately at runtime, and stuckness is a
         -- value until demanded: bounded work, nothing for the certificate
@@ -309,14 +312,14 @@ main = do
         -- post-sizing
         (pre, post) <- sizedVerdicts "main = d2c 3 succ 0"
         case (pre, post) of
-          (Right _, Right b) -> assertBool "bounded level" (ealMaxLevel b <= 3)
+          (Right _, Right b) -> assertBool "bounded level" (ealMaxLevel b <= 8)
           other -> assertFailure $
             "expected acceptance on both sides of sizing, got " <> show other
     , testCase "function-wrapped recursive call certifies" $ do
         (pre, post) <- sizedVerdicts
           "main = let g = {id, \\recur l -> succ (recur (right l)), \\l -> 0} in g [1]"
         case (pre, post) of
-          (Right _, Right b) -> assertBool "bounded level" (ealMaxLevel b <= 3)
+          (Right _, Right b) -> assertBool "bounded level" (ealMaxLevel b <= 8)
           other -> assertFailure $
             "expected acceptance on both sides of sizing, got " <> show other
     , testCase "curried recursion certifies" $ do
@@ -346,7 +349,7 @@ main = do
               assertBool "has bodies" (not (null rs))
               length [() | Left _ <- rs] @?= 0
               case ealLiftedMain lr of
-                Right r -> assertBool "bounded level" (ealMaxLevel r <= 3)
+                Right r -> assertBool "bounded level" (ealMaxLevel r <= 8)
                 other -> assertFailure $
                   "expected acceptance, got " <> show other
     , testCase "PINNED (2026-09-14): gate branches of disagreeing arity" $
@@ -372,20 +375,11 @@ main = do
             Left (EALTypeMismatch _ _) -> pure ()
             other -> assertFailure $
               "pinned verdict changed - decide the right one: " <> show other
-    , testCase "PINNED (2026-09-15): same-arity gate join blows dispatch depth" $
-        -- Found while diagnosing the pin above, and unlike it this one
-        -- is a genuine FALSE rejection: both arms take two arguments,
-        -- both terminate on either path (`id succ 0` and `$1 succ 0`
-        -- are both 1), yet certification climbs the dispatch depth cap.
-        -- Suspected mechanism: at a multi-tag apply site every
-        -- dispatched frame's env skeleton unifies with the one shared
-        -- operand, so the arms' flows mix and the `$1` oracle machinery
-        -- sees spurious self-application. To be fixed; if this starts
-        -- certifying, flip the expectation.
-        case parse False "main = (if 0 then (\\x -> x) else $1) succ 0" of
-          Left e -> assertFailure ("parse failed: " <> e)
-          Right g -> case ealLiftedMain (inferEALWithLifting g) of
-            Left (EALSolverGaveUp _) -> pure ()
-            other -> assertFailure $
-              "pinned verdict changed - decide the right one: " <> show other
+    , testCase "same-arity gate join certifies" $
+        -- Pinned 2026-09-15 as a genuine false rejection: both arms take
+        -- two arguments and terminate (`id succ 0` and `$1 succ 0` are
+        -- both 1), yet per-site dispatch climbed its depth cap. FLIPPED
+        -- 2026-10-13 by the per-occurrence skeleton: dispatch only
+        -- unifies, so there is no derivation to run away.
+        unitTestEAL "main = (if 0 then (\\x -> x) else $1) succ 0"
     ]

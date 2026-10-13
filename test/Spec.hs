@@ -181,8 +181,8 @@ testEval expr = case eval (SetEnvB (PairB (deferB (toEnum 0) expr) ZeroB)) of
   Left z -> error $ "testEval unexpected: " <> show z
 
 -- |No certification gate here: these hand-built terms use church-255
--- encodings whose EAL analysis costs seconds to minutes (or exceeds the
--- analyzer's variable budget), and the production gate never sees them —
+-- encodings whose EAL analysis costs seconds to minutes, and the
+-- production gate never sees them —
 -- `compileMain` certifies parsed programs, which the EAL certification
 -- block above covers.
 unitTest :: String -> String -> Term3 -> Spec
@@ -226,8 +226,9 @@ unitTests parse = do
         pure $ SetEnvB (PairB (SetEnvB (PairB d1 d2)) ZeroB)
       )
     -- these two diverge at runtime on data input (verified against the
-    -- evaluator); the virtual application of main to its input lets the
-    -- dispatch depth cap catch the divergence hiding under main's lambda
+    -- evaluator); the virtual application of main to its input exposes
+    -- the self-application hiding under main's lambda as an interface
+    -- cycle
     unitTestRejected "main = (\\x y -> x y x) (\\y x -> y (x y x))"
     unitTestRejected "main = (\\x y -> y (x x y)) (\\x y -> y ( x x y))"
     -- the Y combinator family, applied and unapplied
