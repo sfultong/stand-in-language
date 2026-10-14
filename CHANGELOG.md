@@ -12,8 +12,23 @@
   regular closure shapes. An abort that really aborts now has a bottom type
   instead of being read as the identity, so sized recursion chains type
   through their dead base. Numeral-of-numeral composition and the previously
-  pinned same-arity gate join certify; the greedy constraint solver is the
-  remaining source of budget-based rejections (see DESIGN.md §5).
+  pinned same-arity gate join certify.
+* The box constraints are solved exactly (presolve, sparse Gaussian elimination,
+  exact dual simplex from the slack basis); the level cap, the round budgets and
+  `EALSolverGaveUp` are gone, and an unsatisfiable system names the rows that
+  cannot hold together. The objective is total leaf depth. Depths are cumulative
+  per node, so equations have at most three terms.
+* A closed data tree under a pair constructor is one data leaf in the analysis
+  (one level of pair structure kept), not a node per pair: data is level-free,
+  and the per-component view bangs were what every instance copied.
+* The box constraints are solved once, in the global pass; the standalone
+  per-body pass does only the structural work, and per-body levels and env
+  bangs come from the global solve (zero for a body main never applies).
+* The box discipline is faithful EAL: occurrences sit exactly as deep as the
+  bangs they open, boxes pass through applications, projections and gate
+  switches instead of vanishing, a duplicated capture is contracted outside
+  its closure's box (the reading that types Church numerals), and data stays
+  level-free. Reported levels are now proof-net depths.
 * Reorganized the library into compiler-stage modules: `Telomare.Parse`,
   `Telomare.Expand`, `Telomare.Desugar`, `Telomare.Resolve`,
   `Telomare.TypeCheck`, `Telomare.Size` (+ `.IR`) with the shared

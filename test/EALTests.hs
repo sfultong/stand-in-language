@@ -120,8 +120,11 @@ main = do
         deferBang r 1 @?= 0
         ealMaxLevel r @?= 0
     , testCase "duplicated env path needs one box" $ do
+        -- the box is charged to the duplicated COMPONENT (path L), not
+        -- the whole env, so the domain bang stays 0 while the
+        -- occurrences sit one level down
         r <- expectMain . defer 1 $ p (lft env) (lft env)
-        deferBang r 1 @?= 1
+        deferBang r 1 @?= 0
         ealMaxLevel r @?= 1
     , testCase "overlapping whole-and-part use is contraction" $ do
         r <- expectMain . defer 1 $ p env (lft env)
@@ -130,12 +133,12 @@ main = do
         -- \e -> e.L (e.L e.R), applications in Telomare SetEnv form
         r <- expectMain . defer 1 . setEnv $
           p (lft env) (setEnv (p (lft env) (rgt env)))
-        deferBang r 1 @?= 1
+        deferBang r 1 @?= 0
         ealMaxLevel r @?= 1
     , testCase "duplicated closure applied at both sites" $ do
         r <- expectMain . defer 1 $
           p (setEnv (p (lft env) z)) (setEnv (p (lft env) z))
-        deferBang r 1 @?= 1
+        deferBang r 1 @?= 0
         ealMaxLevel r @?= 1
     , testCase "gate branches count multiplicatively" $ do
         r <- expectMain . defer 1 $ gateSwitch env env z
@@ -144,10 +147,14 @@ main = do
         let dupBody = p (lft env) (lft env)
             apply i = setEnv (p (defer i dupBody) (lft env))
         r <- expectMain . defer 1 $ p (apply 2) (apply 3)
-        deferBang r 1 @?= 1
+        deferBang r 1 @?= 0
         -- defers 2 and 3 share one body; its first-seen index survives
-        deferBang r 2 @?= 1
-        ealMaxLevel r @?= 1
+        deferBang r 2 @?= 0
+        -- the duplicated outer component is used inside a box, and the
+        -- applied body contracts its own argument inside another, so the
+        -- deepest leaf sits two boxes down (the passive-pair rule used
+        -- to report 1 by opening the outer box at the application)
+        ealMaxLevel r @?= 2
     , testCase "self-application is rejected as an interface cycle" $
         -- omega applied to omega: the operand contains the very instance
         -- being applied, so the instance's env would have to contain its
@@ -176,9 +183,9 @@ main = do
         r <- expectMain $ p env env
         ealTopLevelBang r @?= 1
     , testCase "usage analysis reports contraction path" $
-        case contractionSite . envUsageL . snd . deferLift $
+        case contractionSites . envUsageL . snd . deferLift $
           p (lft env) (lft env) of
-          Just ([SL], _) -> pure ()
+          [([SL], _)] -> pure ()
           other -> assertFailure $ "expected contraction at path L, got "
             <> show (fmap fst other)
     , testCase "guidance carries path usage, bangs, and speculation" $ do

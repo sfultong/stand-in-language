@@ -218,8 +218,11 @@ unitTests parse = do
     -- against data input it terminates (f is data, so `f x y` sticks):
     -- certification's acceptance is the honest verdict
     unitTestCertifies "main = (\\f x -> f (\\v -> x x v) (\\x -> f (\\v -> x x v)))"
-    -- likewise: applying the identity-shaped defer to itself terminates
-    unitTestCertifiesTerm "identity self-application through SetEnv"
+    -- applying the identity-shaped defer to itself terminates, but the
+    -- one identity instance is then applied to code (itself) and to data
+    -- (the Zero), and the rank-1 skeleton is monomorphic per instance:
+    -- rejected as a code-vs-data mismatch, as HM rejects (\e -> e e) id
+    unitTestRejectedTerm "identity self-application through SetEnv"
       (buildTerm $ do
         d1 <- deferS (SetEnvB (PairB EnvB EnvB))
         d2 <- deferS EnvB

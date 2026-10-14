@@ -366,16 +366,30 @@ cycle, a box conflict), never "the analysis got tired".
   is how a false rejection was pinned for a month without anyone being able to tell
   which it was.
 
-**[open] The constraint solver is still a greedy propagate-then-repair heuristic**
-with a level cap and round budgets; incompleteness surfaces as `EALSolverGaveUp`, and
-a final exact verification pass backs the greedy assignment. The per-occurrence
-skeleton makes this visible: an identity-like instance used twice (`(\f -> f (f 1))
-(\x -> x)`) equates its result with its own argument across the sites, creating a
-zero-weight cycle in the sum equations (`v = v + w`, which forces `w = 0`) that the
-greedy repair pumps instead of solving. The constraints are homogeneous linear
-equations over naturals with lower bounds, so rational feasibility equals natural
-feasibility and an exact (LP-style) solver is the planned replacement, after which
-the remaining caps disappear.
+**[decision] The box constraints are solved exactly.** The system is homogeneous
+(sums of variables equal a variable, no constants) with zero-forcings and lower
+bounds, so a rational solution scales to a natural one and rational feasibility
+decides natural feasibility. Three stages, none with a budget: a presolve that draws
+the arithmetic-free consequences (zeros propagate both ways, a total equal to one
+summand merges the classes, a cycle of `summand <= total` edges makes its members
+equal and its other summands zero, lower bounds add up) and reports a boxed/unboxed
+clash as `EALBoxConflict` with both blames; sparse Gaussian elimination that keeps
+nonnegativity, leaving inequalities over the free variables only, with vacuous rows
+dropped; and an exact dual simplex. The slack basis is dual feasible from the start
+(every weight is positive) and primal infeasible only on the rows a lower bound made
+negative, so each pivot repairs one such row; Bland's rule makes it terminate, and a
+row with no negative entry names the origins that cannot hold together
+(`EALUnsatisfiable`). The objective is total leaf depth, so the reported levels are
+a shallowest decoration in aggregate, not a canonical least one. Depths are
+cumulative, one variable per node (`depth = parent + edge`), so every equation has
+at most three terms. The level cap, the round budgets and `EALSolverGaveUp` are
+gone. A residual with equality rows (which elimination never leaves) falls back to
+a two-phase primal simplex.
+- Serves: C2 (a rejection is a fact about the program), C3 (levels that mean
+  something).
+- Rationale: the greedy repair could not tell "no solution" from "stopped looking",
+  and the per-occurrence skeleton produces zero-weight equation cycles it pumped
+  forever.
 
 **[decision] Appliable values are code tags carrying an interface.** A defer body is
 a code tag (its content hash); tag sets *union* at joins instead of unifying, and
@@ -407,12 +421,40 @@ recursion chain joins with its live links.
   operands conflates some Church tower with omega); a full occurs check through
   captures (rejects sized recursion chains).
 
-**[decision] Contraction is measured at projection-path granularity** — using `Left
-Env` and `Right Env` once each is linear destructuring, not duplication. Pairs are
-passive conduits (projections impose no level constraints).
-- Serves: C4.
-- Rationale: the compiled env encoding shares and re-projects pairs pervasively;
-  charging each projection as a duplication would reject nearly everything.
+**[decision] The box discipline is faithful EAL, read onto the compiled form.**
+Levels are proof-net depths, and the certificate's negative side means "no EAL
+decoration exists under these readings":
+- An env occurrence at a projection path sits exactly as deep as the bangs it opens:
+  the env's top bang plus the bangs of every component along the path. No slack: an
+  unopened box above a variable is not weakening, it is a use at the wrong level.
+- Contraction is charged at the duplicated prefix, to that component's bang; using
+  `Left Env` and `Right Env` once each is linear destructuring.
+- Boxes pass through, they never vanish. An application whose function carries `k`
+  boxes (on the applied pair and on the function) runs inside them: the operand must
+  carry at least `k` and the result gains `k`. This is the implicit `let !g = f in
+  !^k(g a)` the compiler never writes; without it a boxed result applied directly
+  (`$3 $2 succ 0`) is a dereliction. A projection adds the pair's boxes to the
+  component (`!(A x B) |- !A`), and a gate switch adds the branch pair's boxes to the
+  taken branch.
+- A capture that a closure body duplicates is contracted *outside the closure's box*,
+  one copy per door, exactly as `\g. !(\x. g (g x))` types Church numerals as
+  `!(A -o A) -o !(A -o A)`. The component's bang splits into one door (bounded by the
+  analysis-wide unit, so "exactly one" survives the homogeneous scaling) and the part
+  the body still opens, and every package built with that code carries its own bang,
+  which bounds the doors: the closure is born in the box its copies enter. Argument
+  duplication is contracted inside the body as usual.
+- Data is level-free: a component of a data tree keeps a free bang and a gate
+  scrutinee may sit under any boxes. Copying data is bounded work.
+- An abort that really aborts yields bottom (see above).
+- Serves: C2, C3, C4.
+- Rationale: the previous "pairs are passive conduits" rule let projections and
+  applications open boxes silently, so the levels meant "some assignment" and the
+  verdict meant "EAL-like". Under the faithful rules every corpus program that
+  certified before still certifies, with levels that are now depths.
+- Runtime caveat: the door reading places the fan inside the body instance where the
+  runtime places it, while the EAL proof places it outside the box. Whether that is
+  the invariant the pointer/fresh-label net needs is the unwritten correctness
+  argument (§7, §11).
 
 **[decision] Applying data is tolerated** (stuckness is a value until demanded,
 matching the call-by-need reference evaluator and the IC runtime's stuck-value
@@ -637,10 +679,20 @@ Collected here so contributors see it in one place.
 1. **Getting all semantically sound surface code to EAL-certify.** This is the central
    difficulty of the §5 approach: known false rejections are terminating programs that
    fall outside the rank-1 fragment (a λ-bound function used at two incompatible
-   shapes; `(\f -> f f) id`, which HM also rejects) or that the greedy solver cannot
-   handle (zero-weight equation cycles, see §5). Numeral-of-numeral composition and
-   the same-arity gate join, the two former frontier programs, certify under the
-   per-occurrence skeleton.
+   shapes; `(\f -> f f) id`, which HM also rejects). Numeral-of-numeral composition
+   and the same-arity gate join, the two former frontier programs, certify under the
+   per-occurrence skeleton with the faithful box discipline and the exact solver.
+   Certification cost rose with exactness: a sized `listEqual` takes about 33
+   seconds end to end and `tictactoe.tel` about 11 minutes. The box constraints
+   are solved once, in the global pass; the standalone per-body passes do only the
+   structural work (walk, dispatch, presolve), which is where type cycles and
+   boxed/unboxed clashes are found and localized, and per-body levels are read off
+   the global solve. The remaining cost is the standalone walks themselves, which
+   instantiate each body's subtree once per ancestor (tictactoe has 3,054 bodies
+   and 30,123 instances in its main pass alone); an infeasibility only the solver
+   can see is reported on main rather than on the body. Interface
+   projection was tried and reverted: the type structure mirrors the term's pair
+   structure, so almost no bang variable is interior and nothing projects away.
 2. **Gate joins in EAL** — one pinned test: arms of disagreeing arity are rejected
    (would need a real data⊔code lattice join at result positions; also blame should
    name the gate, not the deep build site).

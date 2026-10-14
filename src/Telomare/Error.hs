@@ -37,6 +37,10 @@ data EALError
   -- boxing it.
   | EALBoxConflict Blame Blame
   | EALSolverGaveUp String
+  -- | The box constraints have no solution: no decoration makes these
+  -- equations hold together. Carries the blames of an inconsistent
+  -- subsystem.
+  | EALUnsatisfiable [Blame]
   -- | Lifted inference only: this body references a lifted body that itself
   -- failed inference, so it was not analyzed.
   | EALDependencyFailed (Digest SHA256)
@@ -58,6 +62,9 @@ renderEALError = \case
   EALSolverGaveUp msg ->
     "certification gave up (the constraint solver ran out of budget):\n  "
       <> msg
+  EALUnsatisfiable blames ->
+    "certification failed: no box decoration satisfies these constraints together:\n"
+      <> unlines (fmap (("  " <>) . renderBlame) blames)
   EALDependencyFailed h ->
     "a function body this program depends on failed certification: " <> show h
   EALInternal msg -> "certification internal error (analyzer bug): " <> msg

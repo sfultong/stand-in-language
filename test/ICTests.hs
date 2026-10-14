@@ -6,7 +6,6 @@ import Data.List (isInfixOf)
 import qualified Data.Map as Map
 import qualified System.IO.Strict as Strict
 import Telomare.Driver (compileUnitTest)
-import Telomare.Error (EALError (..))
 import Telomare.EAL (CodeGuidance (..), EALLiftedResult (..), ealCaptureLayouts,
                      inferEALCompiled, inferEALWithLifting)
 import Telomare.Eval.IC (ICMeter (..), ICPlan (..), admitIC, evalIC)
@@ -434,23 +433,20 @@ main = do
             (Right z)
         ]
     , testGroup "EAL boundary experiments"
-        [ testCase "numeral composition: runtime agrees (certificate PINNED)" $
-            -- numeral-of-numeral composition ($3 applied to $2) certifies
-            -- in the let-inlined resolution (EALTests). PINNED 2026-10-13:
-            -- in THIS let-form resolution the body binding `succ` makes
-            -- the greedy constraint solver give up ("assignment did not
-            -- converge"): the per-occurrence skeleton equates an
-            -- instance's result with its own argument across sites, a
-            -- zero-weight cycle in the sum equations that the greedy
-            -- repair pumps instead of solving. The exact solver is the
-            -- fix; if this starts certifying, flip the expectation.
+        [ testCase "EAL-certified numeral composition: runtime agrees" $
+            -- numeral-of-numeral composition ($3 applied to $2) in the
+            -- let-form resolution: the body binding `succ` used to make
+            -- the greedy constraint solver give up on a zero-weight
+            -- equation cycle; the exact solver (2026-10-13) certifies it,
+            -- with boxes passing through the applications of the boxed
+            -- numeral results
             case parse "main = $3 $2 succ 0" of
               Left e -> assertFailure $ "parse failed: " <> e
               Right t3 -> do
                 case ealLiftedMain (inferEALWithLifting t3) of
-                  Left (EALDependencyFailed _) -> pure ()
-                  other -> assertFailure $
-                    "pinned verdict changed - decide the right one: " <> show other
+                  Right _ -> pure ()
+                  Left e -> assertFailure $
+                    "expected EAL acceptance, got " <> show e
                 case compiled "main = $3 $2 succ 0" of
                   Left e  -> assertFailure $ "compilation failed: " <> e
                   Right t -> icEval t @?= eval t

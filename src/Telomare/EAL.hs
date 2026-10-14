@@ -76,17 +76,23 @@ module Telomare.EAL where
 
 import Control.Applicative ((<|>))
 import Control.Comonad.Cofree (Cofree ((:<)))
-import Control.Monad (foldM, forM, forM_, unless, void, when, (<=<))
+import Data.Bifunctor (first)
+import Control.Monad (filterM, foldM, forM, forM_, unless, void, when,
+                      zipWithM_)
 import Control.Monad.Except
 import Control.Monad.State (State)
 import qualified Control.Monad.State as State
 import Crypto.Hash (Digest, SHA256)
-import Data.Either (rights)
-import Data.List (find, isPrefixOf, minimumBy)
+import Data.Graph (SCC (..), stronglyConnComp)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
+import Data.List (isPrefixOf, minimumBy, partition, sortOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Ord (comparing)
+import Data.Ratio (denominator, numerator)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Telomare.Error (Blame (..), EALError (..), renderEALError)
@@ -97,10 +103,6 @@ import Telomare.IR.Core (CompiledExpr, Term3, compiled2Term3)
 import Telomare.IR.Loc (LocTag (..))
 import Telomare.Resolve (DeferMap (..), Term3Lifting, Term3LiftingF (..),
                          deferLift)
-
--- | Maximum bang/box level before the solver assumes divergence.
-levelCap :: Int
-levelCap = 4096
 
 -- | A bang-count variable (also used for per-edge box counts).
 newtype BVar = BVar { unBVar :: Int } deriving (Eq, Ord, Show)
@@ -124,8 +126,11 @@ data Tag
 -- and unified with every apply site the tag reaches. This is the arrow
 -- structure of a code value.
 data Iface = Iface
-  { ifEnv :: Sigma
-  , ifRes :: Sigma
+  { ifEnv   :: Sigma
+  , ifRes   :: Sigma
+  , ifDoors :: [BVar] -- ^ one per capture path the body duplicates: the
+                      --   bang consumed by contracting that capture
+                      --   outside the closure's box (see 'envOccurrence')
   } deriving Show
 
 -- | What a code class knows about one of its tags: the capture that rides
@@ -188,7 +193,6 @@ data ApplySite = ApplySite
   { apFn         :: Tau     -- ^ function position (usually still a variable)
   , apEnv        :: Sigma   -- ^ operand env
   , apRes        :: Sigma   -- ^ site result
-  , apGlobal     :: [BVar]  -- ^ global box path at the site
   , apLoc        :: LocTag
   , apDispatched :: Set Tag -- ^ tags already dispatched at this site
   }
@@ -211,7 +215,9 @@ data EALState = EALState
     -- ^ per body instance: its env domain bang (reported per Defer as
     -- their max); append-only, so template capture can take a delta
   , esDeferCount :: !Int              -- ^ length of 'esDefers'
-  , esLeafPaths  :: [[BVar]]          -- ^ root-to-leaf box paths, for max
+  , esLeafPaths  :: [(Maybe FunctionIndex, [BVar])]
+                                      -- ^ leaf depths as [base, depth],
+                                      -- tagged with the body they sit in
                                       -- depth
   , esLeafCount  :: !Int              -- ^ length of 'esLeafPaths'
   , esBodies     :: Map (Digest SHA256) (FunctionIndex, Term3Lifting)
@@ -261,15 +267,16 @@ data BodyTemplate = BodyTemplate
   , btTagParents   :: [(Int, Int)]
   , btTagSets      :: [(Int, Map Tag TagInfo)]
   , btSumEqs       :: [SumEq]
-  , btLeafPrefixes :: [[BVar]]        -- ^ block-local leaf paths, occurrence
-                                      -- path appended at instantiation
-  , btApplies      :: [ApplySite]       -- ^ nested sites; 'apGlobal' holds the
-                                      -- block-local prefix only
+  , btLeafPrefixes :: [(Maybe FunctionIndex, [BVar])] -- ^ block-local leaf depths; the
+                                      -- instance base is prepended at
+                                      -- instantiation
+  , btApplies      :: [ApplySite]       -- ^ nested sites
   , btDefers       :: [(FunctionIndex, BVar)] -- ^ env bangs of the instances
                                               -- inside the block
   , btEnvBang      :: BVar              -- ^ interface: frame env domain bang
   , btEnvTau       :: Tau               -- ^ interface: frame env type
   , btResult       :: Sigma             -- ^ interface: body result
+  , btDoors        :: [BVar]            -- ^ interface: the body's doors
   }
 
 type EALM = ExceptT EALError (State EALState)
@@ -436,11 +443,7 @@ classInfo r = State.gets (fromMaybe Unrestricted . Map.lookup r . esClasses)
 -- 'propagate' uses to detect its fixpoint). Throws on a level over the cap
 -- or a boxed/unboxed conflict.
 constrainB :: BVar -> ClassInfo -> EALM Bool
-constrainB b nc = case nc of
-  ForcedLevel n blame | n > levelCap ->
-    throwError . EALSolverGaveUp $
-      "bang level exceeded cap of " <> show levelCap <> ": " <> show blame
-  _notExcessLevel -> do
+constrainB b nc = do
     r <- findB b
     ci <- classInfo r
     rc <- mergeClasses ci nc
@@ -525,8 +528,10 @@ unifyTagInfo loc (TagInfo ca ia) (TagInfo cb ib) = do
     (Just x, Just y) -> unifySigma loc x y
     _oneSided        -> pure ()
   case (ia, ib) of
-    (Just (Iface ea ra), Just (Iface eb rb)) ->
-      unifySigma loc ea eb >> unifySigma loc ra rb
+    (Just (Iface ea ra da), Just (Iface eb rb db)) -> do
+      unifySigma loc ea eb
+      unifySigma loc ra rb
+      zipWithM_ unionB da db
     _oneSided -> pure ()
 
 -- | Fill the gaps of one record from another.
@@ -577,7 +582,7 @@ selfReferential r0 = classIfaces mempty r0 where
     let vis' = Set.insert r vis
     starts <- fmap concat . forM
       [ (t, i) | (t, TagInfo _ (Just i)) <- Map.toList infos ] $
-        \(t, Iface e res) -> do
+        \(t, Iface e res _) -> do
           arg <- argumentOf e
           pure [(t, arg), (t, res)]
     firstJustM (\(t, Sigma _ ty) -> fmap (t :) <$> tau vis' ty) starts
@@ -698,10 +703,10 @@ unifyTauAt :: Set Int -> CapMode -> LocTag -> Tau -> Tau -> EALM ()
 unifyTauAt vis mode loc a b = do
   a' <- walkTau a
   b' <- walkTau b
-  let collapse (Sigma bv t) = do
-        _ <- constrainB bv $
-          ForcedZero (Blame loc "component of a data pair is unboxed data")
-        unifyTauAt vis mode loc t DataT
+  -- data is level-free: a component of a data tree is data, and its bang
+  -- stays free (copying data is bounded work, so a box on it is never
+  -- needed and never forbidden)
+  let collapse (Sigma _ t) = unifyTauAt vis mode loc t DataT
   case (a', b') of
     -- bottom absorbs: a value that never exists fits every position, and
     -- binds no variable (the position stays open for the values that do
@@ -795,38 +800,110 @@ envUsageL = go [] where
 -- | Is some env path consumed more than once? A path is duplicated if it has
 -- two direct uses, or a direct use plus a use of one of its sub-paths.
 -- Disjoint sub-path uses (Left once, Right once) are linear destructuring.
-contractionSite :: Map [Step] (Int, LocTag) -> Maybe ([Step], LocTag)
-contractionSite m =
+contractionSites :: Map [Step] (Int, LocTag) -> [([Step], LocTag)]
+contractionSites m =
   let ks = Map.keys m
       subPathUsed p = any (\q -> p /= q && p `isPrefixOf` q) ks
       bad (p, (c, _)) = c >= 2 || (c >= 1 && subPathUsed p)
-  in (\(p, (_, l)) -> (p, l)) <$> find bad (Map.toList m)
+  in [ (p, l) | (p, (_, l)) <- Map.toList m, bad (p, (fst (m Map.! p), l)) ]
+
+-- | The projection path of an env occurrence:  (Right Env)@ is
+-- @[SR, SL]@, innermost projection first (the order they apply to the
+-- env value, matching 'envUsageL'). Nothing for any other term.
+envPath :: Term3Lifting -> Maybe [Step]
+envPath (_ :< t) = case t of
+  StuckFW EnvSF               -> Just []
+  Term3LUnsized _             -> Just []
+  StuckFW (LeftSF x)          -> (<> [SL]) <$> envPath x
+  StuckFW (RightSF x)         -> (<> [SR]) <$> envPath x
+  Term3LCheckingWrapper _ _ c -> envPath c
+  _notAnOccurrence            -> Nothing
 
 -- * Constraint generation
 
 data DeferCtx = DeferCtx
   { dcBang  :: BVar -- ^ bang count on this frame's env domain
   , dcTau   :: Tau  -- ^ this frame's env type
+  , dcUnit  :: BVar -- ^ the analysis-wide unit (a bang of exactly one, up
+                    --   to the homogeneous scaling of the whole system)
+  , dcDoorList :: [BVar] -- ^ the door variables themselves
+  , dcIndex :: Maybe FunctionIndex -- ^ the body this frame instantiates
+                                   --   (Nothing for the program itself)
+  , dcDoors :: Map [Step] BVar
+    -- ^ per capture path this body duplicates: the part of the
+    -- component's bang the body still has to open (the rest, one unit,
+    -- is consumed by the contraction outside the closure's box)
   }
+
+-- | Set up a frame: charge every duplicated env path to its component's
+-- bang, and for a duplicated CAPTURE path split that bang into the one
+-- door consumed outside the closure's box and the part the body opens
+-- (see 'envOccurrence').
+frameContext :: BVar -> Maybe FunctionIndex -> String -> BVar -> Tau
+             -> Term3Lifting -> EALM DeferCtx
+frameContext unit idx what bEnv tEnv body = do
+  let ctx0 = DeferCtx bEnv tEnv unit [] idx mempty
+  doors <- forM (contractionSites (envUsageL body)) $ \(path, uloc) -> do
+    (_, Sigma bq _) <- envComponent uloc ctx0 path
+    void . constrainB bq . ForcedLevel 1 $
+      Blame uloc (what <> " path " <> showSteps path <> " duplicated")
+    case path of
+      (SR : _) -> do
+        door <- freshB
+        inner <- freshB
+        rest <- freshB
+        addSumEq (Blame uloc "a duplicated capture's bang = door + what the body opens")
+          [door, inner] bq
+        addSumEq (Blame uloc "at most one door per duplicated capture")
+          [door, rest] unit
+        pure [(path, door, inner)]
+      _argumentOrWhole -> pure []
+  pure ctx0 { dcDoorList = [ d | (_, d, _) <- concat doors ]
+            , dcDoors = Map.fromList [ (p, i) | (p, _, i) <- concat doors ] }
 
 -- | Box paths: per-frame (for occurrence depth equations) and global (for
 -- computing overall nesting depth). Innermost variable first.
+-- | Where a node sits. Depths are cumulative: one variable per node holds
+-- the boxes on the edges from the frame root down to it, defined by the
+-- three-term equation  = parent's depth + this edge@, so every
+-- occurrence equation mentions one depth variable instead of the whole
+-- path. The base is the global depth of the occurrence that instantiated
+-- the frame; a leaf's global depth is base + its own depth.
 data Paths = Paths
-  { pLocal  :: [BVar]
-  , pGlobal :: [BVar]
+  { pParent :: Maybe BVar -- ^ the parent's cumulative depth (Nothing at
+                          --   the frame root); inside 'intrinsic' this is
+                          --   the node's own depth
+  , pBase   :: BVar       -- ^ the frame's global depth
   }
 
-recordLeaf :: Paths -> EALM ()
-recordLeaf paths = State.modify $ \st ->
-  st { esLeafPaths = pGlobal paths : esLeafPaths st
-     , esLeafCount = esLeafCount st + 1 }
+-- | The depth of the node being analyzed ('intrinsic' always runs under
+-- 'viewNode', which sets it).
+nodeDepth :: Paths -> EALM BVar
+nodeDepth paths = case pParent paths of
+  Just d  -> pure d
+  Nothing -> throwError (EALInternal "a node outside viewNode")
 
--- | Allocate this node's edge box variable and wrap its intrinsic type into
--- the type seen by the parent (view bang = edge boxes + intrinsic bang).
+recordLeaf :: DeferCtx -> Paths -> EALM ()
+recordLeaf ctx paths = do
+  d <- nodeDepth paths
+  State.modify $ \st ->
+    st { esLeafPaths = (dcIndex ctx, [pBase paths, d]) : esLeafPaths st
+       , esLeafCount = esLeafCount st + 1 }
+
+-- | Allocate this node's edge box variable, define its cumulative depth,
+-- and wrap its intrinsic type into the type seen by the parent (view
+-- bang = edge boxes + intrinsic bang).
 viewNode :: DeferCtx -> Paths -> Term3Lifting -> EALM Sigma
-viewNode ctx (Paths loc glob) term@(anno :< _) = do
+viewNode ctx paths term@(anno :< _) = do
   w <- freshB
-  Sigma bi ti <- intrinsic ctx (Paths (w : loc) (w : glob)) term
+  d <- case pParent paths of
+    Nothing -> pure w
+    Just p -> do
+      d <- freshB
+      addSumEq (Blame anno "box depth = the parent's depth + this edge's boxes")
+        [p, w] d
+      pure d
+  Sigma bi ti <- intrinsic ctx paths { pParent = Just d } term
   v <- freshB
   addSumEq (Blame anno "view bangs = edge boxes + intrinsic bangs") [w, bi] v
   pure $ Sigma v ti
@@ -834,11 +911,28 @@ viewNode ctx (Paths loc glob) term@(anno :< _) = do
 intrinsic :: DeferCtx -> Paths -> Term3Lifting -> EALM Sigma
 intrinsic ctx paths (anno :< t) = case t of
   BasicFW ZeroSF -> do
-    recordLeaf paths
+    recordLeaf ctx paths
     plainSigma anno "Zero is an unboxed value" DataT
   BasicFW (PairSF a b) -> do
-    sa@(Sigma _ ta) <- viewNode ctx paths a
-    sb@(Sigma bCap _) <- viewNode ctx paths b
+    -- a closed data tree under a pair is not walked node by node: its
+    -- internal edges would carry no constraint, and its type would carry
+    -- a view bang per component that every instance copies. It becomes
+    -- one leaf: data with a free bang (data is level-free), keeping one
+    -- level of pair structure so that an abort message @(0, token)@ still
+    -- reads as a pair and a capture layout still says pair-of-data
+    let dataLeaf = (`Sigma` DataT) <$> freshB
+        childView c
+          | dataLiteral c = do
+              recordLeaf ctx paths
+              case c of
+                _ :< BasicFW (PairSF _ _) -> do
+                  l <- dataLeaf
+                  r <- dataLeaf
+                  (`Sigma` PairT l r) <$> freshB
+                _zero -> dataLeaf
+          | otherwise = viewNode ctx paths c
+    sa@(Sigma _ ta) <- childView a
+    sb@(Sigma bCap _) <- childView b
     walkTau ta >>= \case
       -- a code-headed pair is a closure package: whatever rides in its
       -- Right belongs to its Left's tags, so record the capture per tag
@@ -846,71 +940,136 @@ intrinsic ctx paths (anno :< t) = case t of
       -- packages then union instead of unifying captures structurally
       CodeT i -> do
         p <- packageClass i sb
-        plainSigma anno "pair constructor is locally unboxed" $
-          PairT sa (Sigma bCap (CapT p))
+        -- a closure whose body contracts a capture outside its own box
+        -- (a door) is born inside that box: the package's own bang
+        -- bounds every door of its code
+        infos <- capturesOf i
+        bpkg <- freshB
+        forM_ [ d | TagInfo _ (Just (Iface _ _ ds)) <- Map.elems infos, d <- ds ] $
+          \d -> do
+            slack <- freshB
+            addSumEq (Blame anno "a door needs the closure's own box") [d, slack] bpkg
+        pure . Sigma bpkg $ PairT sa (Sigma bCap (CapT p))
       _notCode -> plainSigma anno "pair constructor is locally unboxed" $
         PairT sa sb
-  StuckFW EnvSF -> envOccurrence ctx paths anno
-  Term3LUnsized _ -> envOccurrence ctx paths anno
+  StuckFW EnvSF -> envOccurrence ctx paths anno []
+  Term3LUnsized _ -> envOccurrence ctx paths anno []
   StuckFW (DeferSF _ _) -> throwError $
     EALInternal "raw DeferSF in a lifted term"
   -- a reference instantiates its body: a fresh copy of the body's
   -- constraints, whose interface rides with the tag to every apply site
   -- the reference reaches
   Term3LDeferRef h -> do
-    recordLeaf paths
-    iface <- instantiateBody paths h
+    recordLeaf ctx paths
+    iface <- instantiateBody (dcUnit ctx) paths h
     ct <- freshCode (Map.singleton (TCode h) (TagInfo Nothing (Just iface)))
     plainSigma anno "code constant is an unboxed value" ct
   StuckFW (SetEnvSF x) -> do
     sx <- viewNode ctx paths x
-    si <- freshSigma
-    so <- freshSigma
+    si@(Sigma siB siT) <- freshSigma
     fnT <- freshTau
-    -- pairs are passive conduits: opening the (function, env) pair imposes
-    -- no level constraint (the compiled application plumbing re-projects
-    -- shared pairs at different depths); only the applied code must
-    -- level-match the site
-    fnB <- forcedZeroB $ Blame anno "applied function must be unboxed"
+    -- boxes pass through an application, they never vanish: a function
+    -- carrying k boxes (on the pair and on the function itself) is
+    -- applied INSIDE those k boxes, the implicit  !g = f in !^k(g a)@
+    -- the compiler never writes. So the operand must carry at least k
+    -- (it enters the box too; the callee sees the rest), and the result
+    -- comes out with k more.
+    fnB <- freshB
     pairB <- freshB
+    k <- freshB
+    addSumEq (Blame anno "boxes entered = boxes on the applied pair + on the function")
+      [pairB, fnB] k
     unifySigma anno sx . Sigma pairB $ PairT (Sigma fnB fnT) si
+    -- the operand is a component of the applied pair, so it sits under
+    -- the pair's boxes as well as its own
+    operandB <- freshB
+    addSumEq (Blame anno "operand boxes = applied pair boxes + its own")
+      [pairB, siB] operandB
+    calleeEnvB <- freshB
+    addSumEq (Blame anno "operand boxes = boxes entered + boxes the callee sees")
+      [k, calleeEnvB] operandB
+    so@(Sigma soB _) <- freshSigma
+    outB <- freshB
+    addSumEq (Blame anno "result boxes = boxes entered + the callee's result boxes")
+      [k, soB] outB
     State.modify $ \st -> st
       { esApplies = Map.insert (esNextApply st)
-          (ApplySite fnT si so (pGlobal paths) anno mempty)
+          (ApplySite fnT (Sigma calleeEnvB siT) so anno mempty)
           (esApplies st)
       , esNextApply = esNextApply st + 1 }
-    pure so
+    pure (Sigma outB (let Sigma _ t = so in t))
   StuckFW GateSF -> do
-    recordLeaf paths
+    recordLeaf ctx paths
     ct <- builtinCode TGate
     plainSigma anno "gate is an unboxed value" ct
-  StuckFW (LeftSF x) -> projection ctx paths anno x fst
-  StuckFW (RightSF x) -> projection ctx paths anno x snd
+  -- projections of the env are one occurrence at a path (no box can sit
+  -- between them); projections of anything else open an unboxed pair
+  StuckFW (LeftSF x) -> case envPath x of
+    Just steps -> envOccurrence ctx paths anno (steps <> [SL])
+    Nothing    -> projection ctx paths anno x fst
+  StuckFW (RightSF x) -> case envPath x of
+    Just steps -> envOccurrence ctx paths anno (steps <> [SR])
+    Nothing    -> projection ctx paths anno x snd
   AbortFW AbortF -> do
-    recordLeaf paths
+    recordLeaf ctx paths
     ct <- builtinCode TAbort
     plainSigma anno "abort is an unboxed value" ct
-  AbortFW (AbortedF _) -> recordLeaf paths >> bottomSigma
+  AbortFW (AbortedF _) -> recordLeaf ctx paths >> bottomSigma
   Term3LCheckingWrapper _ _ c -> intrinsic ctx paths c
 
-envOccurrence :: DeferCtx -> Paths -> LocTag -> EALM Sigma
-envOccurrence ctx paths anno = do
-  recordLeaf paths
-  -- the occurrence sits at its env bang's depth OR DEEPER: extra unopened
-  -- boxes above a variable are weakening (the flow analyzer's stance).
-  -- The slack is also what keeps the solver's repair local: occurrence
-  -- equations share their frame bang and their prefix edges, and without
-  -- a private absorber the greedy assignment pumps such families forever
-  -- (fixing one equation's deficit overshoots its siblings through the
-  -- shared edges, which raises the shared bang, which reopens the first).
-  d <- freshB
-  slack <- freshB
-  addSumEq (Blame anno "env occurrence depth = domain bang + slack")
-    [dcBang ctx, slack] d
-  addSumEq (Blame anno "env occurrence depth matches its path boxes")
-    (pLocal paths) d
+-- | An occurrence of the env at a projection path. In EAL a variable is
+-- used exactly as many box doors deep as its type has bangs, so the
+-- occurrence's depth (the boxes on the path from the frame root down
+-- to it) equals the bangs this body opens on the way to the component,
+-- and the value it yields is that component fully opened. No slack: an
+-- unopened box above a variable is not weakening, it is a use at the
+-- wrong level.
+--
+-- Which bangs the body opens depends on the half of the env (the
+-- compiled convention: argument on the Left, captures on the Right).
+-- The env's top bang and the bangs along an ARGUMENT path are opened
+-- here: a duplicated argument is used inside a box of this body. The
+-- bangs along a CAPTURE path were opened by the closure's own box: in
+-- EAL a closure duplicating a captured variable is
+-- @\\g. !(\\x. g (g x))@ — the contraction happens outside the box, at the
+-- construction site, and each copy enters through its own door to be
+-- used once at depth zero inside. So a duplicated capture is charged to
+-- the component's bang at construction (its occurrence there sits one
+-- level down) and costs nothing in the body. This is what types Church
+-- numerals as @!(A -o A) -o !(A -o A)@ instead of demanding a box
+-- around every application.
+envOccurrence :: DeferCtx -> Paths -> LocTag -> [Step] -> EALM Sigma
+envOccurrence ctx paths anno steps = do
+  recordLeaf ctx paths
+  (bangs, Sigma _ t) <- envComponent anno ctx steps
+  d <- nodeDepth paths
+  let opened = case steps of
+        -- argument side: every bang is opened here
+        (SL : _) -> dcBang ctx : bangs
+        -- capture side: every bang too, except that a duplicated
+        -- capture's own bang had one door consumed outside the box
+        (SR : _) | Just inner <- Map.lookup steps (dcDoors ctx) ->
+          dcBang ctx : init bangs <> [inner]
+        _captureOrWhole -> dcBang ctx : bangs
+  addSumEq (Blame anno "env occurrence depth = the bangs this body opens")
+    opened d
   b <- forcedZeroB $ Blame anno "variable occurrence is locally unboxed"
-  pure . Sigma b $ dcTau ctx
+  pure (Sigma b t)
+
+-- | The env component at a projection path, refining the env type into
+-- pair structure as needed: the bangs of the components stepped
+-- through (outermost first) and the component's sigma.
+envComponent :: LocTag -> DeferCtx -> [Step] -> EALM ([BVar], Sigma)
+envComponent loc ctx = go (Sigma (dcBang ctx) (dcTau ctx)) [] where
+  go sig acc [] = pure (reverse acc, sig)
+  go (Sigma _ t) acc (s : rest) = do
+    sl <- freshSigma
+    sr <- freshSigma
+    unifyTau loc t (PairT sl sr)
+    let next@(Sigma b _) = case s of
+          SL -> sl
+          SR -> sr
+    go next (b : acc) rest
 
 projection :: DeferCtx -> Paths -> LocTag -> Term3Lifting
   -> ((Sigma, Sigma) -> Sigma) -> EALM Sigma
@@ -918,10 +1077,15 @@ projection ctx paths anno x pick = do
   sx <- viewNode ctx paths x
   sl <- freshSigma
   sr <- freshSigma
-  -- pairs are passive conduits: projecting one imposes no level constraint
+  -- boxes pass through a projection: the component of a pair under k
+  -- boxes comes out under k boxes plus its own (@!(A x B) |- !A@)
   pB <- freshB
   unifySigma anno sx . Sigma pB $ PairT sl sr
-  pure $ pick (sl, sr)
+  let Sigma bc tc = pick (sl, sr)
+  out <- freshB
+  addSumEq (Blame anno "projected component boxes = pair boxes + its own")
+    [pB, bc] out
+  pure (Sigma out tc)
 
 -- * Body instantiation
 
@@ -934,15 +1098,22 @@ projection ctx paths anno x pick = do
 -- instance, and the DeferMap is a DAG, so the walk of a body — which
 -- instantiates the bodies it references — bottoms out. No budget is
 -- needed, and none exists.
-instantiateBody :: Paths -> Digest SHA256 -> EALM Iface
-instantiateBody paths h = do
+instantiateBody :: BVar -> Paths -> Digest SHA256 -> EALM Iface
+instantiateBody unit paths h = do
   (fi, body) <- State.gets (Map.lookup h . esBodies) >>= \case
     Just fb -> pure fb
     Nothing -> throwError . EALInternal $
       "referenced code not in the DeferMap " <> show h
+  -- the instance's base: this occurrence's global depth. Minted outside
+  -- the template block, so copies of the block refer to their own base
+  d <- nodeDepth paths
+  base <- freshB
+  addSumEq (Blame (GeneratedLoc "instance base" Nothing)
+              "an occurrence's global depth = its frame's base + its depth")
+    [pBase paths, d] base
   State.gets (Map.lookup h . esTemplates) >>= \case
-    Just t  -> instantiateTemplate paths t
-    Nothing -> captureTemplate paths h fi body
+    Just t  -> instantiateTemplate base t
+    Nothing -> captureTemplate unit base h fi body
 
 -- | First occurrence of a body: walk it, and capture the walk's state
 -- delta as a 'BodyTemplate' for later occurrences. The capture relies on
@@ -951,28 +1122,26 @@ instantiateBody paths h = do
 -- all live on block variables (nested instances included) — plus the
 -- append-only channels (sum equations, leaf paths, apply sites, instance
 -- env bangs) whose deltas are taken by count.
-captureTemplate :: Paths -> Digest SHA256 -> FunctionIndex -> Term3Lifting
-                -> EALM Iface
-captureTemplate paths h fi body = do
+captureTemplate :: BVar -> BVar -> Digest SHA256 -> FunctionIndex
+                -> Term3Lifting -> EALM Iface
+captureTemplate unit base h fi body = do
   st0 <- State.get
   let v0 = esNextVar st0
       a0 = esNextApply st0
       eq0 = esSumEqCount st0
       leaf0 = esLeafCount st0
       defer0 = esDeferCount st0
-      occGLen = length (pGlobal paths)
   bEnv <- freshB
   tEnv <- freshTau
-  forM_ (contractionSite (envUsageL body)) $ \(path, uloc) ->
-    void . constrainB bEnv . ForcedLevel 1 $
-      Blame uloc ("env path " <> showSteps path <> " duplicated in "
-        <> show fi)
+  ctx <- frameContext unit (Just fi) ("env of " <> show fi) bEnv tEnv body
   recordDefer fi bEnv
-  sBody <- viewNode (DeferCtx bEnv tEnv) (Paths [] (pGlobal paths)) body
+  sBody <- viewNode ctx (Paths Nothing base) body
   st1 <- State.get
   let blockOf :: Map Int a -> [(Int, a)]
       blockOf = Map.toAscList . snd . Map.split (v0 - 1)
-      stripOcc xs = take (length xs - occGLen) xs
+      -- leaves are [base, depth]; the base is the occurrence's and is
+      -- replaced at instantiation
+      stripBase = fmap (drop 1)
       template = BodyTemplate
         { btIndex = fi
         , btBase = v0
@@ -983,19 +1152,18 @@ captureTemplate paths h fi body = do
         , btTagParents = blockOf (esTagParents st1)
         , btTagSets = blockOf (esTagSets st1)
         , btSumEqs = take (esSumEqCount st1 - eq0) (esSumEqs st1)
-        , btLeafPrefixes = fmap stripOcc
+        , btLeafPrefixes = fmap stripBase
             (take (esLeafCount st1 - leaf0) (esLeafPaths st1))
-        , btApplies =
-            [ s { apGlobal = stripOcc (apGlobal s) }
-            | s <- Map.elems (snd (Map.split (a0 - 1) (esApplies st1))) ]
+        , btApplies = Map.elems (snd (Map.split (a0 - 1) (esApplies st1)))
         , btDefers = take (esDeferCount st1 - defer0) (esDefers st1)
         , btEnvBang = bEnv
         , btEnvTau = tEnv
         , btResult = sBody
+        , btDoors = dcDoorList ctx
         }
   State.modify $ \st ->
     st { esTemplates = Map.insert h template (esTemplates st) }
-  pure $ Iface (Sigma bEnv tEnv) sBody
+  pure $ Iface (Sigma bEnv tEnv) sBody (dcDoorList ctx)
 
 recordDefer :: FunctionIndex -> BVar -> EALM ()
 recordDefer fi b = State.modify $ \st ->
@@ -1008,8 +1176,8 @@ recordDefer fi b = State.modify $ \st ->
 -- capturing occurrence's was stripped. Emits exactly the constraints a
 -- fresh walk would, at the cost of copying the delta instead of
 -- re-running the walk.
-instantiateTemplate :: Paths -> BodyTemplate -> EALM Iface
-instantiateTemplate paths t = do
+instantiateTemplate :: BVar -> BodyTemplate -> EALM Iface
+instantiateTemplate newBase t = do
   base <- State.gets esNextVar
   let shift = base - btBase t
       sh i = if i >= btBase t then i + shift else i
@@ -1022,16 +1190,15 @@ instantiateTemplate paths t = do
         DataT -> DataT
         AbortedT -> AbortedT
       shSig (Sigma b tau) = Sigma (shB b) (shTau tau)
-      shIface (Iface e r) = Iface (shSig e) (shSig r)
+      shIface (Iface e r ds) = Iface (shSig e) (shSig r) (fmap shB ds)
       shInfo (TagInfo c i) = TagInfo (fmap shSig c) (fmap shIface i)
       shEq (SumEq lhs rhs blame) = SumEq (fmap shB lhs) (shB rhs) blame
       shKV f (k, v) = (sh k, f v)
-      splice p = fmap shB p <> pGlobal paths
+      splice (fi, p) = (fi, newBase : fmap shB p)
       instApply s = s
         { apFn = shTau (apFn s)
         , apEnv = shSig (apEnv s)
         , apRes = shSig (apRes s)
-        , apGlobal = splice (apGlobal s)
         , apDispatched = mempty
         }
   State.modify $ \st -> st
@@ -1060,7 +1227,7 @@ instantiateTemplate paths t = do
     , esDeferCount = esDeferCount st + length (btDefers t)
     }
   pure $ Iface (Sigma (shB (btEnvBang t)) (shTau (btEnvTau t)))
-               (shSig (btResult t))
+               (shSig (btResult t)) (fmap shB (btDoors t))
 
 -- * Application dispatch
 
@@ -1161,7 +1328,7 @@ codeInfosOfCaptures loc = go mempty where
 dispatchTag :: Bool -> ApplySite -> (Tag, TagInfo) -> EALM Bool
 dispatchTag force site (tag, info) = case tag of
   TCode h -> do
-    Iface envS resS <- case tiIface info of
+    Iface envS resS _ <- case tiIface info of
       Just i  -> pure i
       Nothing -> throwError . EALInternal $
         "code tag without an interface: " <> show h
@@ -1171,23 +1338,28 @@ dispatchTag force site (tag, info) = case tag of
     unifySigma (apLoc site) (apRes site) resS
     pure True
   TGate -> do
-    scrB <- forcedZeroB $ Blame loc "gate scrutinee must be unboxed data"
+    -- data is level-free, so the scrutinee may sit under any boxes
+    scrB <- freshB
     unifySigma loc (apEnv site) (Sigma scrB DataT)
     gfn <- plainSigma loc "gate switch function is locally unboxed"
       =<< builtinCode TGateFn
     unifySigma loc (apRes site) gfn
     pure True
   TGateFn -> do
-    sbE <- freshSigma
-    sbT <- freshSigma
-    -- the branch pair is a passive conduit like any other pair
+    sbE@(Sigma bE tE) <- freshSigma
+    sbT@(Sigma bT tT) <- freshSigma
+    -- boxes on the branch pair pass through to whichever branch is taken
     branchesB <- freshB
     unifySigma loc (apEnv site) (Sigma branchesB (PairT sbE sbT))
     -- the switch can yield either branch: both JOIN into the result (code
     -- positions union, data collapses) instead of the branches unifying
     -- with each other structurally
-    unifySigma loc (apRes site) sbE
-    unifySigma loc (apRes site) sbT
+    rE <- freshB
+    addSumEq (Blame loc "taken branch boxes = branch pair boxes + its own") [branchesB, bE] rE
+    unifySigma loc (apRes site) (Sigma rE tE)
+    rT <- freshB
+    addSumEq (Blame loc "taken branch boxes = branch pair boxes + its own") [branchesB, bT] rT
+    unifySigma loc (apRes site) (Sigma rT tT)
     pure True
   -- abort messages need no shape or bang constraint: the runtime
   -- truncates non-data message components to Zero. A message that is
@@ -1245,6 +1417,7 @@ messageAborts vis t = walkTau t >>= \case
 
 -- * Constraint solving
 
+-- | A sum equation over class roots.
 data EqR = EqR
   { eqLhs   :: [Int]
   , eqRhs   :: Int
@@ -1256,86 +1429,411 @@ resolveEqs = State.gets esSumEqs >>= mapM res where
   res (SumEq lhs rhs blame) =
     EqR <$> mapM findB lhs <*> findB rhs <*> pure blame
 
--- | Propagate zero-forcings and lower bounds through the sum equations to a
--- fixpoint.
-propagate :: EALM ()
-propagate = do
-  eqCount <- State.gets (length . esSumEqs)
-  loop (eqCount * 4 + 64)
-  where
-    loop n = do
-      when (n <= 0) . throwError $
-        EALSolverGaveUp "constraint propagation did not converge"
-      changed <- resolveEqs >>= foldM (\acc eq -> (acc ||) <$> step eq) False
-      when changed $ loop (n - 1)
-    step (EqR lhs rhs blame) = do
-      let derived what = let Blame l s = blame in Blame l (what <> ": " <> s)
-      ri <- classInfo rhs
-      c1 <- case ri of
-        ForcedZero _ -> foldM
-          (\acc l -> fmap (acc ||) . constrainB (BVar l) $
-            ForcedZero (derived "summand of an unboxed total"))
-          False lhs
-        _notZero -> pure False
-      lhsIs <- mapM (classInfo <=< findB . BVar) lhs
-      c2 <- if all isForcedZero lhsIs
-        then constrainB (BVar rhs) $ ForcedZero (derived "all summands unboxed")
-        else pure False
-      let sumLB = sum $ fmap getLowerBound lhsIs
-      c3 <- if sumLB > 0
-        then constrainB (BVar rhs) $
-          ForcedLevel sumLB (derived "sum of summand lower bounds")
-        else pure False
-      ri' <- classInfo =<< findB (BVar rhs)
-      c4 <- case ([l | (l, i) <- zip lhs lhsIs, not $ isForcedZero i], ri') of
-        ([lone], ForcedLevel lb _) -> constrainB (BVar lone) $
-          ForcedLevel lb (derived "only boxable summand")
-        _notSingularBoxable -> pure False
-      pure $ c1 || c2 || c3 || c4
-
--- | Find concrete values satisfying every sum equation, starting from the
--- propagated lower bounds and greedily raising free variables.
-assignValues :: EALM (Map Int Int)
-assignValues = do
+-- | Solve the box constraints exactly: every sum equation holds, every
+-- unboxed class is zero, every boxed class meets its lower bound, and all
+-- values are naturals. The system is homogeneous (sums of variables equal
+-- a variable, no constants), so a rational solution scales to a natural
+-- one, and feasibility over the rationals decides feasibility over the
+-- naturals. Three stages, each terminating by construction:
+--
+--   1. 'presolve' draws every consequence that needs no arithmetic —
+--      zeros propagate down and up, a total equal to a single summand
+--      merges the two classes, a cycle of @summand <= total@ edges makes
+--      its members equal and its other summands zero, lower bounds add up
+--      the chain — and reports a boxed/unboxed clash as 'EALBoxConflict'
+--      with both blames.
+--   2. 'solveLinear' eliminates every variable that occurs once (a fresh
+--      view or a slack), then runs an exact simplex over the residual.
+--      Infeasibility names the rows the simplex could not satisfy
+--      together ('EALUnsatisfiable').
+--   3. The assignment is verified against every equation exactly.
+--
+-- The solution is a vertex minimizing the sum of the box variables over
+-- the rationals, scaled to naturals; it is a small decoration, not a
+-- canonical least one.
+solveConstraints :: EALM (Map Int Int)
+solveConstraints = do
+  presolve
   eqs <- resolveEqs
   classes <- State.gets esClasses
-  let look vals r = fromMaybe 0 $ Map.lookup r vals
-      vals0 = fmap getLowerBound classes
-      isZeroForced r = maybe False isForcedZero $ Map.lookup r classes
-      memberCount :: Map Int Int
-      memberCount = Map.fromListWith (+) $
-        concatMap (\eq -> [(l, 1) | l <- eqLhs eq]) eqs
-      adjust (vals, ch) (EqR lhs rhs blame) =
-        let s = sum $ fmap (look vals) lhs
-            r = look vals rhs
-            giveUp what = throwError . EALSolverGaveUp $
-              what <> ": " <> show blame
-        in case compare s r of
-          EQ -> pure (vals, ch)
-          GT | isZeroForced rhs -> giveUp "sum exceeds an unboxed total"
-             | s > levelCap -> giveUp "assignment exceeded level cap"
-             | otherwise -> pure (Map.insert rhs s vals, True)
-          LT -> case filter (not . isZeroForced) lhs of
-            [] -> giveUp "no boxable position to absorb required boxes"
-            frees ->
-              let pick = minimumBy
-                    (comparing $ \l -> (look memberCount l, l)) frees
-                  v' = look vals pick + (r - s)
-              in if v' > levelCap
-                then giveUp "assignment exceeded level cap"
-                else pure (Map.insert pick v' vals, True)
-      loop n vals
-        | n <= 0 = throwError $ EALSolverGaveUp "assignment did not converge"
-        | otherwise = do
-            (vals', changed) <- foldM adjust (vals, False) eqs
-            if changed then loop (n - 1) vals' else pure vals'
-  final <- loop (length eqs * 4 + 16) vals0
-  -- verify the assignment exactly satisfies every equation
-  mapM_ (\(EqR lhs rhs blame) ->
-    when (sum (fmap (look final) lhs) /= look final rhs) .
-      throwError . EALSolverGaveUp $
-        "assignment verification failed: " <> show blame) eqs
-  pure final
+  let info r = fromMaybe Unrestricted (Map.lookup r classes)
+      lb = getLowerBound . info
+      zero = isForcedZero . info
+      live = [ EqR (filter (not . zero) lhs) rhs b
+             | EqR lhs rhs b <- eqs, not (zero rhs) ]
+  -- phase two of the solve minimizes total leaf depth: an edge weighs
+  -- as many leaf paths as run through it, plus one so nothing is free
+  leafRoots <- State.gets esLeafPaths >>= mapM (mapM findB . snd)
+  let multiplicity = Map.fromListWith (+) [ (r, 1 :: Integer) | p <- leafRoots, r <- p ]
+      weight r = 1 + Map.findWithDefault 0 r multiplicity
+  sol <- case solveLinear lb weight live of
+    Left bad -> throwError . EALUnsatisfiable $ fmap
+      (\e -> derivedBlame ("[eq " <> show (eqLhs e) <> " = " <> show (eqRhs e) <> "]")
+               (eqBlame e))
+      bad
+    Right s  -> pure s
+  let roots = Set.fromList $
+        Map.keys classes <> concatMap (\e -> eqRhs e : eqLhs e) eqs
+      value r
+        | zero r = 0
+        | otherwise = fromMaybe (lb r) (Map.lookup r sol)
+      vals = Map.fromSet value roots
+  forM_ eqs $ \(EqR lhs rhs blame) ->
+    when (sum (fmap value lhs) /= value rhs) . throwError . EALInternal $
+      "solver assignment violates an equation: " <> show blame
+  pure vals
+
+-- | Draw the arithmetic-free consequences of the constraints to a
+-- fixpoint. Merges and zero-forcings are finitely many; lower bounds
+-- only rise once the graph is acyclic (the cycle step runs first in
+-- every round), and then only along a DAG, so the loop terminates.
+presolve :: EALM ()
+presolve = do
+  changed <- or <$> sequence [zeroStep, equalityStep, cycleStep, boundStep]
+  when changed presolve
+
+derivedBlame :: String -> Blame -> Blame
+derivedBlame what (Blame l s) = Blame l (what <> ": " <> s)
+
+-- | Zeros propagate: an unboxed total has unboxed summands; a total whose
+-- summands are all unboxed (none, in particular) is unboxed.
+zeroStep :: EALM Bool
+zeroStep = resolveEqs >>= foldM step False where
+  step acc (EqR lhs rhs blame) = do
+    rhsZero <- isForcedZero <$> classInfo rhs
+    lhsZero <- mapM (fmap isForcedZero . classInfo) lhs
+    let eqNote = " [eq " <> show lhs <> " = " <> show rhs <> "]"
+    c1 <- if rhsZero
+      then foldM (\a l -> (a ||) <$> constrainB (BVar l)
+                   (ForcedZero (derivedBlame ("summand of an unboxed total" <> eqNote) blame)))
+             False lhs
+      else pure False
+    c2 <- if and lhsZero
+      then constrainB (BVar rhs)
+             (ForcedZero (derivedBlame ("all summands unboxed" <> eqNote) blame))
+      else pure False
+    pure (acc || c1 || c2)
+
+-- | A total with exactly one boxable summand equals it: merge the classes.
+equalityStep :: EALM Bool
+equalityStep = resolveEqs >>= foldM step False where
+  step acc (EqR lhs rhs _) = do
+    rhs' <- findB (BVar rhs)
+    lhs' <- mapM (findB . BVar) lhs
+    boxable <- filterM (fmap (not . isForcedZero) . classInfo) lhs'
+    case boxable of
+      [l] | l /= rhs' -> unionB (BVar l) (BVar rhs') >> pure True
+      _notLone -> pure acc
+
+-- | On the graph with an edge from every summand to its total (summand
+-- <= total), the members of a cycle are all equal. Merge them, and in
+-- every equation whose total is on a cycle: with one summand on the same
+-- cycle the other summands are zero; with two or more the total itself
+-- is zero.
+cycleStep :: EALM Bool
+cycleStep = do
+  eqs <- resolveEqs
+  classes <- State.gets esClasses
+  let zero r = maybe False isForcedZero (Map.lookup r classes)
+      live = [ EqR (filter (not . zero) lhs) rhs b
+             | EqR lhs rhs b <- eqs, not (zero rhs) ]
+      edges = Map.fromListWith (<>) [ (l, [eqRhs e]) | e <- live, l <- eqLhs e ]
+      nodes = Set.toList . Set.fromList $ concatMap (\e -> eqRhs e : eqLhs e) live
+      cyclic = [ ms | CyclicSCC ms <-
+                   stronglyConnComp [ (n, n, Map.findWithDefault [] n edges)
+                                    | n <- nodes ] ]
+      sccOf = Map.fromList [ (m, i) | (i, ms) <- zip [0 :: Int ..] cyclic, m <- ms ]
+  c1 <- foldM (\acc ms -> case ms of
+                  (m : rest) -> foldM (\a m' -> (a ||) <$> unionBChanged m m') acc rest
+                  [] -> pure acc)
+          False cyclic
+  c2 <- foldM (\acc (EqR lhs rhs blame) -> case Map.lookup rhs sccOf of
+          Nothing -> pure acc
+          Just i ->
+            let (members, others) = partition (\l -> Map.lookup l sccOf == Just i) lhs
+                ms = cyclic !! i
+                touching = [ (eqLhs e, eqRhs e, take 24 (let Blame _ s = eqBlame e in s))
+                           | e <- live, any (`elem` ms) (eqRhs e : eqLhs e) ]
+                cycleNote = " [cycle " <> show ms <> " through " <> show touching <> "]"
+            in case members of
+              [] -> pure acc
+              [_] -> foldM (\a l -> (a ||) <$> constrainB (BVar l)
+                             (ForcedZero (derivedBlame
+                               ("summand beside one equal to the total" <> cycleNote) blame)))
+                       acc others
+              _twoOrMore -> (acc ||) <$> constrainB (BVar rhs)
+                (ForcedZero (derivedBlame
+                  ("total equal to two of its own summands" <> cycleNote) blame)))
+          False live
+  pure (c1 || c2)
+  where
+    unionBChanged a b = do
+      ra <- findB (BVar a)
+      rb <- findB (BVar b)
+      if ra == rb then pure False else unionB (BVar a) (BVar b) >> pure True
+
+-- | Lower bounds add up: a total is at least the sum of its summands'
+-- lower bounds.
+boundStep :: EALM Bool
+boundStep = resolveEqs >>= foldM step False where
+  step acc (EqR lhs rhs blame) = do
+    s <- sum <$> mapM (fmap getLowerBound . classInfo) lhs
+    if s > 0
+      then (acc ||) <$> constrainB (BVar rhs)
+             (ForcedLevel s (derivedBlame ("sum of summand lower bounds [eq " <> show lhs <> " = " <> show rhs <> "]") blame))
+      else pure acc
+
+-- ** Exact linear solving
+
+-- | A linear row over the substituted variables @y_r = x_r - lb r@:
+-- @sum coef*y (= | <=) const@, with the equations it was derived from.
+data Row = Row
+  { rowCoefs :: IntMap Rational
+  , rowConst :: Rational
+  , rowIsEq  :: Bool
+  , rowFrom  :: [EqR]
+  }
+
+-- | A variable eliminated from the system: @y_v = max 0 ((const - sum
+-- coefs*y) / k)@, where the max only matters for a variable whose row
+-- was already an inequality.
+data Elim = Elim
+  { elVar   :: Int
+  , elCoefs :: IntMap Rational
+  , elConst :: Rational
+  , elK     :: Rational
+  }
+
+-- | Solve the live equations over naturals with the given lower bounds.
+-- Returns the value of every variable mentioned, or the equations of an
+-- inconsistent subsystem.
+solveLinear :: (Int -> Int) -> (Int -> Integer) -> [EqR] -> Either [EqR] (Map Int Int)
+solveLinear lb weight eqs = do
+  let rows0 = IntMap.fromList (zip [0 ..] (fmap toRow eqs))
+      (rows1, elims) = eliminate (const True) rows0
+      (trivial, residual0) = IntMap.partition (IntMap.null . rowCoefs) rows1
+      -- an inequality every nonnegative assignment satisfies (nonpositive
+      -- coefficients, nonnegative constant) says nothing
+      residual = IntMap.filter (not . vacuous) residual0
+      violated = concat [ rowFrom r | r <- IntMap.elems trivial, not (trivialOk r) ]
+  unless (null violated) $ Left violated
+  -- the residual splits into connected components; one that the all-zero
+  -- assignment satisfies needs no simplex (zero is also optimal, every
+  -- weight being positive), and the rest are solved separately
+  ys <- IntMap.unions <$> mapM (simplexSolve weight)
+    [ comp | comp <- components residual, not (all zeroSatisfies (IntMap.elems comp)) ]
+  -- elims holds the last elimination first; it depends only on
+  -- variables still in the residual, so substitute in that order
+  let ysAll = foldl (flip backSubstitute) ys elims
+      vars = Set.toList . Set.fromList $ concatMap (\e -> eqRhs e : eqLhs e) eqs
+      xs = [ (v, fromIntegral (lb v) + IntMap.findWithDefault 0 v ysAll) | v <- vars ]
+      scale = foldr (lcm . denominator . snd) 1 xs :: Integer
+  pure $ Map.fromList
+    [ (v, fromInteger (numerator (x * fromInteger scale))) | (v, x) <- xs ]
+  where
+    toRow e@(EqR lhs rhs _) = Row
+      { rowCoefs = IntMap.filter (/= 0) $ IntMap.fromListWith (+)
+          ([ (l, 1) | l <- lhs ] <> [ (rhs, -1) ])
+      , rowConst = fromIntegral (lb rhs) - sum (fmap (fromIntegral . lb) lhs)
+      , rowIsEq = True
+      , rowFrom = [e]
+      }
+    trivialOk r
+      | rowIsEq r = rowConst r == 0
+      | otherwise = rowConst r >= 0
+    zeroSatisfies = trivialOk
+    vacuous r = not (rowIsEq r) && rowConst r >= 0 && all (<= 0) (IntMap.elems (rowCoefs r))
+    backSubstitute (Elim v coefs c k) ys =
+      let s = sum [ a * IntMap.findWithDefault 0 u ys | (u, a) <- IntMap.toList coefs ]
+      in IntMap.insert v (max 0 ((c - s) / k)) ys
+
+-- | Sparse Gaussian elimination that keeps nonnegativity: every variable
+-- occurring in some equality is solved for from one of them (the
+-- shortest), substituted into every other row it occurs in, and the
+-- solving row becomes the inequality @y_v >= 0@ over the rest. Variables
+-- with the fewest occurrences go first to limit fill-in. Afterwards no
+-- equality has a variable left, so the residual is a system of
+-- inequalities over the free variables only. Each step removes one
+-- variable from the system, so this terminates.
+eliminate :: (Int -> Bool) -> IntMap Row -> (IntMap Row, [Elim])
+eliminate eligible rows0 = passes rows0 (occurrences rows0) [] where
+  occurrences rows = IntMap.fromListWith IntSet.union
+    [ (v, IntSet.singleton i) | (i, r) <- IntMap.toList rows
+    , v <- IntMap.keys (rowCoefs r) ]
+  passes rows occ elims =
+    let candidates = sortOn snd
+          [ (v, IntSet.size is) | (v, is) <- IntMap.toList occ, eligible v
+          , any (\i -> maybe False rowIsEq (IntMap.lookup i rows)) (IntSet.toList is) ]
+    in if null candidates
+      then (rows, elims)
+      else let (rows', occ', elims') = foldl step (rows, occ, elims) (fmap fst candidates)
+           in passes rows' occ' elims'
+  step (rows, occ, elims) v =
+    let is = IntSet.toList (IntMap.findWithDefault IntSet.empty v occ)
+        eqRows = [ (i, r) | i <- is, Just r <- [IntMap.lookup i rows], rowIsEq r
+                 , IntMap.member v (rowCoefs r) ]
+    in case sortOn (IntMap.size . rowCoefs . snd) eqRows of
+      [] -> (rows, occ, elims)
+      ((i, r) : _) ->
+        let k = rowCoefs r IntMap.! v
+            rest = IntMap.delete v (rowCoefs r)
+            c = rowConst r
+            pivotRow = if k > 0
+              then r { rowCoefs = rest, rowIsEq = False }
+              else r { rowCoefs = IntMap.map negate rest, rowConst = negate c
+                     , rowIsEq = False }
+            substitute (rs, oc) j = case IntMap.lookup j rs of
+              Just rj | Just a <- IntMap.lookup v (rowCoefs rj) ->
+                let f = a / k
+                    coefs' = IntMap.filter (/= 0) $ IntMap.unionWith (+)
+                      (IntMap.delete v (rowCoefs rj)) (IntMap.map (negate . (f *)) rest)
+                    rj' = rj { rowCoefs = coefs', rowConst = rowConst rj - f * c
+                             , rowFrom = rowFrom rj <> rowFrom r }
+                    gone = IntMap.keys (IntMap.difference (rowCoefs rj) coefs')
+                    new = IntMap.keys (IntMap.difference coefs' (rowCoefs rj))
+                    oc' = foldr (IntMap.insertWith IntSet.union `flip` IntSet.singleton j)
+                            (foldr (IntMap.adjust (IntSet.delete j)) oc gone) new
+                in (IntMap.insert j rj' rs, oc')
+              _unchanged -> (rs, oc)
+            (rows1, occ1) = foldl substitute (rows, occ) (filter (/= i) is)
+            rows2 = IntMap.insert i pivotRow rows1
+            occ2 = IntMap.delete v occ1
+        in (rows2, occ2, Elim v rest c k : elims)
+
+-- | Values of the residual system's variables from a two-phase exact
+-- simplex: phase one finds a feasible vertex or names the rows that
+-- cannot hold together, phase two minimizes the weighted sum of the
+-- variables.
+simplexSolve :: (Int -> Integer) -> IntMap Row -> Either [EqR] (IntMap Rational)
+simplexSolve weight rows
+  | IntMap.null rows = Right IntMap.empty
+  | not (any rowIsEq (IntMap.elems rows)) = dualSolve weight rows
+  | otherwise =
+      let vars = IntSet.toList . IntSet.unions $ fmap (IntMap.keysSet . rowCoefs) (IntMap.elems rows)
+          nVars = length vars
+          colOf = IntMap.fromList (zip vars [0 ..])
+          varOf = IntMap.fromList (zip [0 ..] vars)
+          rowList = zip [0 ..] (IntMap.elems rows)
+          rowByIndex = IntMap.fromList rowList
+          nRows = length rowList
+          slackBase = nVars
+          artBase = nVars + nRows
+          -- row i: coefs over var columns (+ slack column for an
+          -- inequality), rhs made nonnegative. An inequality with a
+          -- nonnegative constant starts from its slack; only the other
+          -- rows get an artificial column artBase+i, so phase one is as
+          -- small as the lower bounds make it
+          build (i, r) =
+            let base = IntMap.fromList [ (colOf IntMap.! v, a) | (v, a) <- IntMap.toList (rowCoefs r) ]
+                withSlack = if rowIsEq r then base else IntMap.insert (slackBase + i) 1 base
+                (coefs, b) = if rowConst r >= 0
+                  then (withSlack, rowConst r)
+                  else (IntMap.map negate withSlack, negate (rowConst r))
+                slackStarts = not (rowIsEq r) && rowConst r >= 0
+            in if slackStarts
+              then (i, ((coefs, b), slackBase + i))
+              else (i, ((IntMap.insert (artBase + i) 1 coefs, b), artBase + i))
+          built = fmap build rowList
+          tRows = IntMap.fromList [ (i, rb) | (i, (rb, _)) <- built ]
+          basis0 = IntMap.fromList [ (i, c) | (i, (_, c)) <- built ]
+          artRowsInit = [ i | (i, (_, c)) <- built, c >= artBase ]
+          obj1 = IntMap.filter (/= 0) . IntMap.unionsWith (+) $
+            [ IntMap.map negate (IntMap.filterWithKey (\c _ -> c < artBase) coefs)
+            | i <- artRowsInit, let (coefs, _) = tRows IntMap.! i ]
+          phase1 = if null artRowsInit
+            then Tab tRows basis0 IntMap.empty
+            else runSimplex (Tab tRows basis0 obj1)
+          blamed = concat
+            [ rowFrom (rowByIndex IntMap.! i)
+            | (i, (_, b)) <- IntMap.toList (tbRows phase1)
+            , tbBasis phase1 IntMap.! i >= artBase, b > 0 ]
+      in if not (null blamed)
+        then Left blamed
+        else
+          let cleaned = dropArtificials artBase phase1
+              cost c = if c < slackBase then fromInteger (weight (varOf IntMap.! c)) else 0 :: Rational
+              obj2 = IntMap.filter (/= 0) . IntMap.unionsWith (+) $
+                IntMap.fromList [ (c, cost c) | c <- [0 .. artBase - 1] ]
+                  : [ IntMap.map (negate . (cost (tbBasis cleaned IntMap.! i) *)) coefs
+                    | (i, (coefs, _)) <- IntMap.toList (tbRows cleaned)
+                    , cost (tbBasis cleaned IntMap.! i) /= 0 ]
+              obj2' = foldr IntMap.delete obj2 (IntMap.elems (tbBasis cleaned))
+              phase2 = runSimplex cleaned { tbObj = obj2' }
+              values = IntMap.fromList
+                [ (varOf IntMap.! c, b)
+                | (i, (_, b)) <- IntMap.toList (tbRows phase2)
+                , let c = tbBasis phase2 IntMap.! i, c < slackBase ]
+          in Right values
+
+data Tab = Tab
+  { tbRows  :: IntMap (IntMap Rational, Rational) -- ^ row: coefficients by column, rhs
+  , tbBasis :: IntMap Int                         -- ^ row: its basic column
+  , tbObj   :: IntMap Rational                    -- ^ reduced costs of nonbasic columns
+  }
+
+-- | Pivot row @r@ on column @c@.
+pivot :: Int -> Int -> Tab -> Tab
+pivot r c (Tab rows basis obj) =
+  let (prow, pb) = rows IntMap.! r
+      p = prow IntMap.! c
+      prow' = IntMap.map (/ p) prow
+      pb' = pb / p
+      combine a row = IntMap.filter (/= 0) $
+        IntMap.unionWith (+) row (IntMap.map (negate . (a *)) prow')
+      elim (row, b) = case IntMap.lookup c row of
+        Nothing -> (row, b)
+        Just a  -> (combine a row, b - a * pb')
+      rows' = IntMap.insert r (prow', pb') (IntMap.map elim (IntMap.delete r rows))
+      obj' = maybe obj (`combine` obj) (IntMap.lookup c obj)
+  in Tab rows' (IntMap.insert r c basis) obj'
+
+-- | Minimize. Pricing is Dantzig.s (the most negative reduced cost
+-- enters) while pivots are non-degenerate, and Bland.s (the
+-- lowest-numbered improving column enters, the minimum-ratio row with the
+-- lowest-numbered basic column leaves) after a degenerate pivot. Every
+-- non-degenerate pivot lowers an objective bounded below over finitely
+-- many vertices, and a run of degenerate pivots under Bland.s rule cannot
+-- cycle, so this terminates.
+runSimplex :: Tab -> Tab
+runSimplex = go False where
+  go bland tab = case entering of
+    Nothing -> tab
+    Just c -> case leaving c of
+      Nothing -> tab -- unbounded: impossible for a nonnegative objective
+      Just (r, degenerate) -> go degenerate (pivot r c tab)
+    where
+      improving = filter ((< 0) . snd) (IntMap.toAscList (tbObj tab))
+      entering = case improving of
+        [] -> Nothing
+        (first : _) | bland -> Just (fst first)
+        _ -> Just (fst (minimumBy (comparing snd) improving))
+      leaving c =
+        let candidates = [ (b / a, tbBasis tab IntMap.! i, i)
+                         | (i, (row, b)) <- IntMap.toList (tbRows tab)
+                         , Just a <- [IntMap.lookup c row], a > 0 ]
+        in case candidates of
+          [] -> Nothing
+          _  -> let (ratio, _, i) = minimum candidates in Just (i, ratio == 0)
+
+-- | After phase one, pivot every artificial column out of the basis (its
+-- value is zero, so any nonzero entry of a real column will do) or drop
+-- the row if it has none (it was redundant), then forget the artificial
+-- columns.
+dropArtificials :: Int -> Tab -> Tab
+dropArtificials artBase tab0 =
+  let tab1 = foldr step tab0 (IntMap.toList (tbBasis tab0))
+      step (i, c) tab
+        | c < artBase = tab
+        | otherwise = case IntMap.lookup i (tbRows tab) of
+            Nothing -> tab
+            Just (row, _) ->
+              case [ j | (j, a) <- IntMap.toAscList row, j < artBase, a /= 0 ] of
+                (j : _) -> pivot i j tab
+                [] -> tab { tbRows = IntMap.delete i (tbRows tab)
+                          , tbBasis = IntMap.delete i (tbBasis tab) }
+      strip = IntMap.filterWithKey (\c _ -> c < artBase)
+  in tab1 { tbRows = IntMap.map (first strip) (tbRows tab1)
+          , tbObj = strip (tbObj tab1) }
 
 -- * Entry points
 
@@ -1350,18 +1848,28 @@ analyzeTop = analyzeTopWith False
 analyzeTopWith :: Bool -> String -> Term3Lifting
                -> EALM (BVar, Tau, Sigma, Map Int Int)
 analyzeTopWith applyToInput what term = do
+  (bEnv, tEnv, sRes) <- walkTop applyToInput what term
+  vals <- solveConstraints
+  pure (bEnv, tEnv, sRes, vals)
+
+-- | The structural part of 'analyzeTopWith': walk, dispatch, and presolve
+-- (which is where type cycles and boxed/unboxed clashes surface, with
+-- blame), without the solve.
+walkTop :: Bool -> String -> Term3Lifting -> EALM (BVar, Tau, Sigma)
+walkTop applyToInput what term = do
+  unit <- freshB
+  void . constrainB unit . ForcedLevel 1 $
+    Blame (GeneratedLoc "EAL unit" Nothing) "the unit box count"
   bEnv <- freshB
   tEnv <- freshTau
-  case contractionSite (envUsageL term) of
-    Just (path, uloc) -> void . constrainB bEnv . ForcedLevel 1 $
-      Blame uloc (what <> " path " <> showSteps path <> " duplicated")
-    Nothing -> pure ()
-  sRes <- viewNode (DeferCtx bEnv tEnv) (Paths [] []) term
+  ctx <- frameContext unit Nothing what bEnv tEnv term
+  rootBase <- forcedZeroB $
+    Blame (GeneratedLoc "EAL root" Nothing) "the program's root sits at depth zero"
+  sRes <- viewNode ctx (Paths Nothing rootBase) term
   resolveApplies
   when applyToInput $ virtualMainApply sRes >> resolveApplies
-  propagate
-  vals <- assignValues
-  pure (bEnv, tEnv, sRes, vals)
+  presolve
+  pure (bEnv, tEnv, sRes)
 
 -- | The runtime applies the whole program to its input every iteration,
 -- so the certificate must cover main's body running against data — a
@@ -1400,14 +1908,23 @@ virtualMainApply (Sigma _ tRes) = walkTau tRes >>= \case
       so <- freshSigma
       State.modify $ \st -> st
         { esApplies = Map.insert (esNextApply st)
-            (ApplySite fnT env so [] vAnno mempty)
+            (ApplySite fnT env so vAnno mempty)
             (esApplies st)
         , esNextApply = esNextApply st + 1 }
 
 leafDepths :: Map Int Int -> EALM [Int]
-leafDepths vals = State.gets esLeafPaths >>= mapM depth where
+leafDepths vals = State.gets esLeafPaths >>= mapM (depth . snd) where
   value r = fromMaybe 0 $ Map.lookup r vals
   depth vs = sum . fmap value <$> mapM findB vs
+
+-- | The deepest leaf of each body, relative to its instances' bases: the
+-- max box depth inside the body as the global pass solved it.
+bodyLeafDepths :: Map Int Int -> EALM (Map FunctionIndex Int)
+bodyLeafDepths vals = do
+  leaves <- State.gets esLeafPaths
+  depths <- forM [ (fi, d) | (Just fi, [_, d]) <- leaves ] $ \(fi, d) ->
+    (,) fi . (\r -> fromMaybe 0 (Map.lookup r vals)) <$> findB d
+  pure (Map.fromListWith max depths)
 
 -- * Lifted inference
 
@@ -1436,17 +1953,15 @@ summarizeBody :: Map (Digest SHA256) (FunctionIndex, Term3Lifting)
               -> Either EALError CodeGuidance
 summarizeBody bodies fi body =
   State.evalState (runExceptT go) (initEALState { esBodies = bodies }) where
+    -- structure only: the body's levels are solved once, in the global
+    -- pass, and filled in from there (zero for a body main never applies)
     go = do
-      (bEnv, _, _, vals) <- analyzeTop
-        ("env of lifted body " <> show fi) body
-      let value r = fromMaybe 0 $ Map.lookup r vals
-      envBang <- value <$> findB bEnv
-      depths <- leafDepths vals
+      _ <- walkTop False ("env of lifted body " <> show fi) body
       pure CodeGuidance
         { cgIndex = fi
         , cgUsage = fmap fst (envUsageL body)
-        , cgEnvBang = envBang
-        , cgMaxLevel = maximum (0 : depths)
+        , cgEnvBang = 0
+        , cgMaxLevel = 0
         , cgSpeculatable = not (unsizedIn bodies body)
         , cgCaptureLayout = Nothing -- filled from the global pass
         }
@@ -1486,13 +2001,17 @@ inferEALLifted (DeferMap dm) mainTerm =
     summarize _h (fi, body) = withDeps body $ summarizeBody dm fi body
     -- capture layouts come from the global pass, which sees every
     -- certified construction site
-    layouts = case withDeps mainTerm (Right ()) of
-      Right () -> either (const mempty) snd runMain
-      Left _   -> mempty
+    (layouts, bodyBangs, bodyLevels) = case withDeps mainTerm (Right ()) of
+      Right () -> either (const (mempty, mempty, mempty))
+                    (\(r, s, l) -> (s, ealDeferBangs r, l)) runMain
+      Left _   -> (mempty, mempty, mempty)
     guidance = Map.mapWithKey
-      (\h -> fmap (\g -> g { cgCaptureLayout = Map.lookup h layouts }))
+      (\h -> fmap (\g -> g
+         { cgCaptureLayout = Map.lookup h layouts
+         , cgEnvBang = Map.findWithDefault 0 (cgIndex g) bodyBangs
+         , cgMaxLevel = Map.findWithDefault 0 (cgIndex g) bodyLevels }))
       bodyResults
-    mainResult = withDeps mainTerm (mergeStandalone . fst <$> runMain)
+    mainResult = withDeps mainTerm ((\(r, _, _) -> r) <$> runMain)
     resultOf d = case Map.lookup d bodyResults of
       Just r  -> r
       Nothing -> Left $ EALDependencyFailed d
@@ -1505,12 +2024,6 @@ inferEALLifted (DeferMap dm) mainTerm =
       case [d | d <- Set.toList (refsOf term), Left _ <- [resultOf d]] of
         (d:_) -> Left $ EALDependencyFailed d
         []    -> k
-    certified = rights (Map.elems bodyResults)
-    mergeStandalone r = r
-      { ealDeferBangs = Map.unionWith max (ealDeferBangs r) $
-          Map.fromListWith max [(cgIndex g, cgEnvBang g) | g <- certified]
-      , ealMaxLevel = maximum (ealMaxLevel r : fmap cgMaxLevel certified)
-      }
     runMain = State.evalState (runExceptT goMain)
       (initEALState { esBodies = dm })
     goMain = do
@@ -1520,6 +2033,7 @@ inferEALLifted (DeferMap dm) mainTerm =
       defers <- State.gets esDefers >>= fmap (Map.fromListWith max) .
         traverse (\(fi, b) -> (,) fi . value <$> findB b)
       depths <- leafDepths vals
+      levels <- bodyLeafDepths vals
       shapes <- groundCaptureShapes
       mainShape <- shapeOfSigma sRes
       pure ( EALResult
@@ -1528,7 +2042,7 @@ inferEALLifted (DeferMap dm) mainTerm =
                , ealMaxLevel = maximum (0 : depths)
                , ealMainShape = mainShape
                }
-           , shapes )
+           , shapes, levels )
 
 -- | The composed pipeline: lift, then infer over the lifted form.
 inferEALWithLifting :: Term3 -> EALLiftedResult
@@ -1564,3 +2078,74 @@ renderEALVerdict lr = case ealLiftedMain lr of
   Right r ->
     "certifies: max box level " <> show (ealMaxLevel r)
       <> ", input bang " <> show (ealTopLevelBang r)
+
+-- | Split rows into connected components (rows sharing a variable are
+-- connected), by union-find over the variables.
+components :: IntMap Row -> [IntMap Row]
+components rows =
+  let vars = IntSet.toList . IntSet.unions $ fmap (IntMap.keysSet . rowCoefs) (IntMap.elems rows)
+      parent0 = IntMap.fromList [ (v, v) | v <- vars ]
+      find p v = let q = p IntMap.! v in if q == v then v else find p q
+      union p a b = let ra = find p a; rb = find p b
+                    in if ra == rb then p else IntMap.insert ra rb p
+      joinRow p r = case IntMap.keys (rowCoefs r) of
+        (v : vs) -> foldl (`union` v) p vs
+        []       -> p
+      parent = foldl joinRow parent0 (IntMap.elems rows)
+      rootOfRow r = case IntMap.keys (rowCoefs r) of
+        (v : _) -> Just (find parent v)
+        []      -> Nothing
+      grouped = IntMap.fromListWith IntMap.union
+        [ (root, IntMap.singleton i r) | (i, r) <- IntMap.toList rows, Just root <- [rootOfRow r] ]
+  in IntMap.elems grouped
+
+-- | Dual simplex for a residual of inequalities only (what 'eliminate'
+-- leaves). The slack basis is dual feasible from the start, because every
+-- weight is positive and slacks cost nothing, and it is primal infeasible
+-- only on the rows a lower bound made negative. Each pivot repairs one
+-- such row: the infeasible basic variable with the lowest index leaves
+-- (Bland), and the column minimizing reduced cost over its negative entry
+-- enters, lowest index on ties; with that rule the dual simplex cannot
+-- cycle, so it terminates. A row with no negative entry cannot be
+-- repaired: the system is infeasible and the row's origins are blamed.
+dualSolve :: (Int -> Integer) -> IntMap Row -> Either [EqR] (IntMap Rational)
+dualSolve weight rows =
+  let vars = IntSet.toList . IntSet.unions $ fmap (IntMap.keysSet . rowCoefs) (IntMap.elems rows)
+      colOf = IntMap.fromList (zip vars [0 ..])
+      varOf = IntMap.fromList (zip [0 ..] vars)
+      rowList = zip [0 ..] (IntMap.elems rows)
+      rowByIndex = IntMap.fromList rowList
+      slackBase = length vars
+      build (i, r) =
+        ( i
+        , ( IntMap.insert (slackBase + i) 1
+              (IntMap.fromList [ (colOf IntMap.! v, a) | (v, a) <- IntMap.toList (rowCoefs r) ])
+          , rowConst r ) )
+      tRows = IntMap.fromList (fmap build rowList)
+      basis0 = IntMap.fromList [ (i, slackBase + i) | (i, _) <- rowList ]
+      obj0 = IntMap.fromList [ (colOf IntMap.! v, fromInteger (weight v)) | v <- vars ]
+      go tab =
+        case [ i | (i, (_, b)) <- IntMap.toList (tbRows tab), b < 0 ] of
+          [] -> Right tab
+          infeasible ->
+            let r = minimumBy (comparing (tbBasis tab IntMap.!)) infeasible
+                (row, _) = tbRows tab IntMap.! r
+                candidates =
+                  [ (IntMap.findWithDefault 0 j (tbObj tab) / negate a, j)
+                  | (j, a) <- IntMap.toList row, a < 0 ]
+            in case candidates of
+                 [] -> Left (rowFrom (rowByIndex IntMap.! r))
+                 _  -> go (pivot r (snd (minimum candidates)) tab)
+  in do
+    tab <- go (Tab tRows basis0 obj0)
+    pure $ IntMap.fromList
+      [ (varOf IntMap.! c, b)
+      | (i, (_, b)) <- IntMap.toList (tbRows tab)
+      , let c = tbBasis tab IntMap.! i, c < slackBase ]
+
+-- | A closed data tree: Zero, or a pair of closed data trees.
+dataLiteral :: Term3Lifting -> Bool
+dataLiteral (_ :< t) = case t of
+  BasicFW ZeroSF       -> True
+  BasicFW (PairSF a b) -> dataLiteral a && dataLiteral b
+  _notData             -> False
