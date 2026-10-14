@@ -682,15 +682,18 @@ Collected here so contributors see it in one place.
    shapes; `(\f -> f f) id`, which HM also rejects). Numeral-of-numeral composition
    and the same-arity gate join, the two former frontier programs, certify under the
    per-occurrence skeleton with the faithful box discipline and the exact solver.
-   Certification cost rose with exactness: a sized `listEqual` takes about 33
-   seconds end to end and `tictactoe.tel` about 11 minutes. The box constraints
-   are solved once, in the global pass; the standalone per-body passes do only the
-   structural work (walk, dispatch, presolve), which is where type cycles and
-   boxed/unboxed clashes are found and localized, and per-body levels are read off
-   the global solve. The remaining cost is the standalone walks themselves, which
-   instantiate each body's subtree once per ancestor (tictactoe has 3,054 bodies
-   and 30,123 instances in its main pass alone); an infeasibility only the solver
-   can see is reported on main rather than on the body. Interface
+   Certification cost rose with exactness, and the cost is the exact solver, not
+   the instancing (the walk, the template copies and dispatch are a few percent).
+   The box constraints are solved once, in the global pass, which is the only pass
+   a certifying program runs: a certified main has certified every body's
+   instances, and a body's own constraints are a subset of its instance's, so
+   per-body guidance is read off the global solve. The standalone per-body passes
+   (walk, dispatch, presolve — where type cycles and boxed/unboxed clashes are
+   found) run only when main fails, to localize the failure; they instantiate each
+   body's subtree once per ancestor, and their cost is almost entirely presolve
+   over those copies. An infeasibility only the solver can see is reported on
+   main rather than on the body. The solver's dual simplex admits rows lazily
+   (only the rows the current point violates are in the tableau). Interface
    projection was tried and reverted: the type structure mirrors the term's pair
    structure, so almost no bang variable is interior and nothing projects away.
 2. **Gate joins in EAL** — one pinned test: arms of disagreeing arity are rejected

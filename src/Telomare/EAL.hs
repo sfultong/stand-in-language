@@ -80,12 +80,15 @@ import Data.Bifunctor (first)
 import Control.Monad (filterM, foldM, forM, forM_, unless, void, when,
                       zipWithM_)
 import Control.Monad.Except
-import Control.Monad.State (State)
-import qualified Control.Monad.State as State
+import Control.Monad.State.Strict (State)
+import qualified Control.Monad.State.Strict as State
 import Crypto.Hash (Digest, SHA256)
 import Data.Graph (SCC (..), stronglyConnComp)
+import qualified Data.Graph as Graph
+import qualified Data.Tree as Tree
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
 import Data.List (isPrefixOf, minimumBy, partition, sortOn)
 import Data.Map (Map)
@@ -293,12 +296,14 @@ data EALResult = EALResult
     -- never consume input.
   } deriving (Eq, Show)
 
--- | Per-hash guidance from one lifted Defer body's standalone inference:
--- what a consumer — the IC runtime foremost — can use about this code,
--- keyed by the same content hash that keys the DeferMap, so analysis and
--- runtime share one namespace. Guidance exists only for bodies whose
--- derivation certified — with nothing assumed about the env, so the
--- promise covers the body's own work — and its presence is itself a
+-- | Per-hash guidance about one lifted Defer body: what a consumer — the
+-- IC runtime foremost — can use about this code, keyed by the same
+-- content hash that keys the DeferMap, so analysis and runtime share one
+-- namespace. Under a certified main every body's guidance is certified
+-- (main instantiated every body, and a body's own constraints are a
+-- subset of its instance's); under a failed main the guidance that
+-- survives is the standalone verdicts that localize the failure, not a
+-- certificate, and no consumer reads it as one. Presence is itself a
 -- whitelist (a consumer that would speculate or restructure sharing must
 -- treat absence as "keep to the semantics-preserving default"); the
 -- fields grade and localize that promise.
@@ -310,8 +315,8 @@ data CodeGuidance = CodeGuidance
     -- a path counted twice, or overlapping a used sub-path, is where
     -- duplication actually happens
   , cgEnvBang       :: Int       -- ^ solved bang on the body's env domain
-                                --   (this body's standalone derivation; a
-                                --   dispatch site's derivation may differ)
+                                --   (the max over its instances in the
+                                --   global pass)
   , cgMaxLevel      :: Int       -- ^ max box depth inside the body (including
                                 --   depths of bodies it applies)
   , cgSpeculatable  :: Bool
@@ -1425,9 +1430,14 @@ data EqR = EqR
   }
 
 resolveEqs :: EALM [EqR]
-resolveEqs = State.gets esSumEqs >>= mapM res where
-  res (SumEq lhs rhs blame) =
-    EqR <$> mapM findB lhs <*> findB rhs <*> pure blame
+resolveEqs = do
+  parents <- State.gets esParents
+  -- a read-only resolution: no path compression, so a pass over every
+  -- equation writes nothing
+  let root i = maybe i root (Map.lookup i parents)
+      res (SumEq lhs rhs blame) =
+        EqR (fmap (root . unBVar) lhs) (root (unBVar rhs)) blame
+  State.gets (fmap res . esSumEqs)
 
 -- | Solve the box constraints exactly: every sum equation holds, every
 -- unboxed class is zero, every boxed class meets its lower bound, and all
@@ -1489,7 +1499,14 @@ solveConstraints = do
 -- every round), and then only along a DAG, so the loop terminates.
 presolve :: EALM ()
 presolve = do
-  changed <- or <$> sequence [zeroStep, equalityStep, cycleStep, boundStep]
+  -- one resolution per round: a step that merges classes may leave a
+  -- later step in the same round looking at a stale root, which only
+  -- delays that consequence to the next round (the merge itself counts
+  -- as a change). A round without change saw no merge, so it saw every
+  -- root fresh and the fixpoint is genuine.
+  eqs <- resolveEqs
+  changed <- or <$> sequence
+    [zeroStep eqs, equalityStep eqs, cycleStep eqs, boundStep eqs]
   when changed presolve
 
 derivedBlame :: String -> Blame -> Blame
@@ -1497,8 +1514,8 @@ derivedBlame what (Blame l s) = Blame l (what <> ": " <> s)
 
 -- | Zeros propagate: an unboxed total has unboxed summands; a total whose
 -- summands are all unboxed (none, in particular) is unboxed.
-zeroStep :: EALM Bool
-zeroStep = resolveEqs >>= foldM step False where
+zeroStep :: [EqR] -> EALM Bool
+zeroStep eqs = foldM step False eqs where
   step acc (EqR lhs rhs blame) = do
     rhsZero <- isForcedZero <$> classInfo rhs
     lhsZero <- mapM (fmap isForcedZero . classInfo) lhs
@@ -1515,8 +1532,8 @@ zeroStep = resolveEqs >>= foldM step False where
     pure (acc || c1 || c2)
 
 -- | A total with exactly one boxable summand equals it: merge the classes.
-equalityStep :: EALM Bool
-equalityStep = resolveEqs >>= foldM step False where
+equalityStep :: [EqR] -> EALM Bool
+equalityStep eqs = foldM step False eqs where
   step acc (EqR lhs rhs _) = do
     rhs' <- findB (BVar rhs)
     lhs' <- mapM (findB . BVar) lhs
@@ -1530,9 +1547,8 @@ equalityStep = resolveEqs >>= foldM step False where
 -- every equation whose total is on a cycle: with one summand on the same
 -- cycle the other summands are zero; with two or more the total itself
 -- is zero.
-cycleStep :: EALM Bool
-cycleStep = do
-  eqs <- resolveEqs
+cycleStep :: [EqR] -> EALM Bool
+cycleStep eqs = do
   classes <- State.gets esClasses
   let zero r = maybe False isForcedZero (Map.lookup r classes)
       live = [ EqR (filter (not . zero) lhs) rhs b
@@ -1574,8 +1590,8 @@ cycleStep = do
 
 -- | Lower bounds add up: a total is at least the sum of its summands'
 -- lower bounds.
-boundStep :: EALM Bool
-boundStep = resolveEqs >>= foldM step False where
+boundStep :: [EqR] -> EALM Bool
+boundStep eqs = foldM step False eqs where
   step acc (EqR lhs rhs blame) = do
     s <- sum <$> mapM (fmap getLowerBound . classInfo) lhs
     if s > 0
@@ -1741,8 +1757,8 @@ simplexSolve weight rows
             [ IntMap.map negate (IntMap.filterWithKey (\c _ -> c < artBase) coefs)
             | i <- artRowsInit, let (coefs, _) = tRows IntMap.! i ]
           phase1 = if null artRowsInit
-            then Tab tRows basis0 IntMap.empty
-            else runSimplex (Tab tRows basis0 obj1)
+            then mkTab tRows basis0 IntMap.empty
+            else runSimplex (mkTab tRows basis0 obj1)
           blamed = concat
             [ rowFrom (rowByIndex IntMap.! i)
             | (i, (_, b)) <- IntMap.toList (tbRows phase1)
@@ -1769,23 +1785,64 @@ data Tab = Tab
   { tbRows  :: IntMap (IntMap Rational, Rational) -- ^ row: coefficients by column, rhs
   , tbBasis :: IntMap Int                         -- ^ row: its basic column
   , tbObj   :: IntMap Rational                    -- ^ reduced costs of nonbasic columns
+  , tbCols  :: IntMap IntSet                      -- ^ column: the rows with a nonzero
+                                                  --   entry in it (the sparse column
+                                                  --   index a pivot walks)
+  , tbNeg   :: IntSet                             -- ^ rows whose rhs is negative
   }
 
--- | Pivot row @r@ on column @c@.
+-- | A tableau with its indices built from the rows.
+mkTab :: IntMap (IntMap Rational, Rational) -> IntMap Int -> IntMap Rational -> Tab
+mkTab rows basis obj = Tab rows basis obj cols neg where
+  cols = IntMap.fromListWith IntSet.union
+    [ (c, IntSet.singleton i) | (i, (row, _)) <- IntMap.toList rows, c <- IntMap.keys row ]
+  neg = IntMap.keysSet (IntMap.filter ((< 0) . snd) rows)
+
+-- | Remove a row, keeping the indices consistent.
+deleteRow :: Int -> Tab -> Tab
+deleteRow i tab = case IntMap.lookup i (tbRows tab) of
+  Nothing -> tab
+  Just (row, _) -> tab
+    { tbRows = IntMap.delete i (tbRows tab)
+    , tbBasis = IntMap.delete i (tbBasis tab)
+    , tbCols = foldr (IntMap.adjust (IntSet.delete i)) (tbCols tab) (IntMap.keys row)
+    , tbNeg = IntSet.delete i (tbNeg tab)
+    }
+
+-- | Pivot row @r@ on column @c@. Only the rows with a nonzero entry in
+-- column @c@ change, and the column index says which those are, so a
+-- pivot costs the column's density times the pivot row's length rather
+-- than a pass over the whole tableau.
 pivot :: Int -> Int -> Tab -> Tab
-pivot r c (Tab rows basis obj) =
+pivot r c (Tab rows basis obj cols neg) =
   let (prow, pb) = rows IntMap.! r
       p = prow IntMap.! c
       prow' = IntMap.map (/ p) prow
       pb' = pb / p
       combine a row = IntMap.filter (/= 0) $
         IntMap.unionWith (+) row (IntMap.map (negate . (a *)) prow')
-      elim (row, b) = case IntMap.lookup c row of
-        Nothing -> (row, b)
-        Just a  -> (combine a row, b - a * pb')
-      rows' = IntMap.insert r (prow', pb') (IntMap.map elim (IntMap.delete r rows))
+      -- the column index is a superset: an entry that cancelled to zero
+      -- stays listed and is skipped here, which is cheaper than keeping
+      -- the index exact
+      affected = [ j | j <- IntSet.toList (IntMap.findWithDefault IntSet.empty c cols)
+                 , j /= r, IntMap.member c (fst (rows IntMap.! j)) ]
+      step (rs, cs, ng) j =
+        let (row, b) = rs IntMap.! j
+            a = row IntMap.! c
+            row' = combine a row
+            b' = b - a * pb'
+            new = IntMap.keys (IntMap.difference prow' row)
+            cs' = foldr (\k -> IntMap.insertWith IntSet.union k (IntSet.singleton j)) cs new
+            ng' = if b' < 0 then IntSet.insert j ng else IntSet.delete j ng
+        in (IntMap.insert j (row', b') rs, cs', ng')
+      (rows1, cols1, neg1) = foldl step (rows, cols, neg) affected
+      -- scaling the pivot row changes no sparsity pattern; afterwards
+      -- column c is nonzero in row r alone
+      rows' = IntMap.insert r (prow', pb') rows1
+      cols' = cols1
+      neg' = if pb' < 0 then IntSet.insert r neg1 else IntSet.delete r neg1
       obj' = maybe obj (`combine` obj) (IntMap.lookup c obj)
-  in Tab rows' (IntMap.insert r c basis) obj'
+  in Tab rows' (IntMap.insert r c basis) obj' cols' neg'
 
 -- | Minimize. Pricing is Dantzig.s (the most negative reduced cost
 -- enters) while pivots are non-degenerate, and Bland.s (the
@@ -1809,7 +1866,8 @@ runSimplex = go False where
         _ -> Just (fst (minimumBy (comparing snd) improving))
       leaving c =
         let candidates = [ (b / a, tbBasis tab IntMap.! i, i)
-                         | (i, (row, b)) <- IntMap.toList (tbRows tab)
+                         | i <- IntSet.toList (IntMap.findWithDefault IntSet.empty c (tbCols tab))
+                         , Just (row, b) <- [IntMap.lookup i (tbRows tab)]
                          , Just a <- [IntMap.lookup c row], a > 0 ]
         in case candidates of
           [] -> Nothing
@@ -1829,11 +1887,10 @@ dropArtificials artBase tab0 =
             Just (row, _) ->
               case [ j | (j, a) <- IntMap.toAscList row, j < artBase, a /= 0 ] of
                 (j : _) -> pivot i j tab
-                [] -> tab { tbRows = IntMap.delete i (tbRows tab)
-                          , tbBasis = IntMap.delete i (tbBasis tab) }
+                [] -> deleteRow i tab
       strip = IntMap.filterWithKey (\c _ -> c < artBase)
-  in tab1 { tbRows = IntMap.map (first strip) (tbRows tab1)
-          , tbObj = strip (tbObj tab1) }
+  in mkTab (IntMap.map (first strip) (tbRows tab1)) (tbBasis tab1)
+       (strip (tbObj tab1))
 
 -- * Entry points
 
@@ -1944,27 +2001,33 @@ unsizedIn bodies = go where
     Term3LDeferRef h -> maybe False (go . snd) (Map.lookup h bodies)
     x                -> any go x
 
+-- | The syntactic half of a body's guidance: usage and speculatability
+-- need no derivation. Bangs, levels and the capture layout are the
+-- global pass's to fill.
+syntacticGuidance :: Map (Digest SHA256) (FunctionIndex, Term3Lifting)
+                  -> FunctionIndex -> Term3Lifting -> CodeGuidance
+syntacticGuidance bodies fi body = CodeGuidance
+  { cgIndex = fi
+  , cgUsage = fmap fst (envUsageL body)
+  , cgEnvBang = 0
+  , cgMaxLevel = 0
+  , cgSpeculatable = not (unsizedIn bodies body)
+  , cgCaptureLayout = Nothing
+  }
+
 -- | Infer one lifted body standalone, dispatching the code it applies from
--- the DeferMap, and package the result as guidance. Failures are localized
--- per body; the solved env bang is this derivation's, and a dispatch
--- site's fresh derivation may solve differently.
+-- the DeferMap, and package the result as guidance. This localizes a
+-- failure of main to the bodies that fail on their own: structure only
+-- (walk, dispatch, presolve), since the standalone system is never
+-- solved and its levels are never reported.
 summarizeBody :: Map (Digest SHA256) (FunctionIndex, Term3Lifting)
               -> FunctionIndex -> Term3Lifting
               -> Either EALError CodeGuidance
 summarizeBody bodies fi body =
   State.evalState (runExceptT go) (initEALState { esBodies = bodies }) where
-    -- structure only: the body's levels are solved once, in the global
-    -- pass, and filled in from there (zero for a body main never applies)
     go = do
       _ <- walkTop False ("env of lifted body " <> show fi) body
-      pure CodeGuidance
-        { cgIndex = fi
-        , cgUsage = fmap fst (envUsageL body)
-        , cgEnvBang = 0
-        , cgMaxLevel = 0
-        , cgSpeculatable = not (unsizedIn bodies body)
-        , cgCaptureLayout = Nothing -- filled from the global pass
-        }
+      pure (syntacticGuidance bodies fi body)
 
 -- | Ground every package class into capture shapes, merged per hash over
 -- all the construction sites this run saw.
@@ -1988,30 +2051,35 @@ shapeOfSigma (Sigma _ t) = walkTau t >>= \case
   CodeT _   -> pure CapCode
   _other    -> pure CapOther
 
--- | Infer EAL annotations over a lifted program: each unique Defer body
--- first gets a standalone verdict (which bodies tag, which fail, and why),
--- then main is analyzed globally, deriving each applied body's constraints
--- fresh per apply site per tag. Bodies the program carries but never
--- applies contribute their standalone bangs and levels to the result — the
--- certificate covers all the code the program contains.
+-- | Infer EAL annotations over a lifted program. Main is analyzed
+-- globally first: every DeferRef occurrence instantiates its body there,
+-- so a certified main has certified every body's instances in the
+-- program, and bodies the program carries but never applies are covered
+-- too — the certificate covers all the code the program contains. A
+-- body's standalone constraints are a subset of its instance's (the
+-- standalone frame assumes nothing about the env, and every derivation
+-- step only adds constraints), so when main certifies no body can fail
+-- on its own and the per-body guidance is read off the global pass with
+-- no further derivation. Only when main fails does each unique body get
+-- a standalone verdict, to localize the failure (which bodies fail on
+-- their own, and why) and to blame main's own failure on a failing
+-- dependency.
 inferEALLifted :: DeferMap -> Term3Lifting -> EALLiftedResult
-inferEALLifted (DeferMap dm) mainTerm =
-  EALLiftedResult guidance mainResult where
+inferEALLifted (DeferMap dm) mainTerm = case runMain of
+  Right (r, layouts, bodyLevels) ->
+    let guidanceOf h (fi, body) = Right (syntacticGuidance dm fi body)
+          { cgCaptureLayout = Map.lookup h layouts
+          , cgEnvBang = Map.findWithDefault 0 fi (ealDeferBangs r)
+          , cgMaxLevel = Map.findWithDefault 0 fi bodyLevels }
+    in EALLiftedResult (Map.mapWithKey guidanceOf dm) (Right r)
+  Left mainError ->
+    EALLiftedResult bodyResults (withDeps mainTerm (Left mainError))
+  where
+    -- the localizing pass: structural per-body verdicts, with levels and
+    -- layouts left at their defaults (nothing here is a certificate; a
+    -- consumer only reads guidance under a certified main)
     bodyResults = Map.mapWithKey summarize dm
     summarize _h (fi, body) = withDeps body $ summarizeBody dm fi body
-    -- capture layouts come from the global pass, which sees every
-    -- certified construction site
-    (layouts, bodyBangs, bodyLevels) = case withDeps mainTerm (Right ()) of
-      Right () -> either (const (mempty, mempty, mempty))
-                    (\(r, s, l) -> (s, ealDeferBangs r, l)) runMain
-      Left _   -> (mempty, mempty, mempty)
-    guidance = Map.mapWithKey
-      (\h -> fmap (\g -> g
-         { cgCaptureLayout = Map.lookup h layouts
-         , cgEnvBang = Map.findWithDefault 0 (cgIndex g) bodyBangs
-         , cgMaxLevel = Map.findWithDefault 0 (cgIndex g) bodyLevels }))
-      bodyResults
-    mainResult = withDeps mainTerm ((\(r, _, _) -> r) <$> runMain)
     resultOf d = case Map.lookup d bodyResults of
       Just r  -> r
       Nothing -> Left $ EALDependencyFailed d
@@ -2084,20 +2152,16 @@ renderEALVerdict lr = case ealLiftedMain lr of
 components :: IntMap Row -> [IntMap Row]
 components rows =
   let vars = IntSet.toList . IntSet.unions $ fmap (IntMap.keysSet . rowCoefs) (IntMap.elems rows)
-      parent0 = IntMap.fromList [ (v, v) | v <- vars ]
-      find p v = let q = p IntMap.! v in if q == v then v else find p q
-      union p a b = let ra = find p a; rb = find p b
-                    in if ra == rb then p else IntMap.insert ra rb p
-      joinRow p r = case IntMap.keys (rowCoefs r) of
-        (v : vs) -> foldl (`union` v) p vs
-        []       -> p
-      parent = foldl joinRow parent0 (IntMap.elems rows)
-      rootOfRow r = case IntMap.keys (rowCoefs r) of
-        (v : _) -> Just (find parent v)
-        []      -> Nothing
-      grouped = IntMap.fromListWith IntMap.union
-        [ (root, IntMap.singleton i r) | (i, r) <- IntMap.toList rows, Just root <- [rootOfRow r] ]
-  in IntMap.elems grouped
+      -- a bipartite graph of rows and variables; 'Graph.components'
+      -- reads it undirected, so one direction of edge is enough
+      rowNodes = [ ((), (0 :: Int, i), [ (1, v) | v <- IntMap.keys (rowCoefs r) ])
+                 | (i, r) <- IntMap.toList rows, not (IntMap.null (rowCoefs r)) ]
+      varNodes = [ ((), (1, v), []) | v <- vars ]
+      (g, nodeFromVertex, _) = Graph.graphFromEdges (rowNodes <> varNodes)
+      keyOf v = let (_, k, _) = nodeFromVertex v in k
+      rowsOf t = IntMap.fromList
+        [ (i, rows IntMap.! i) | (0, i) <- fmap keyOf (Tree.flatten t) ]
+  in filter (not . IntMap.null) (fmap rowsOf (Graph.components g))
 
 -- | Dual simplex for a residual of inequalities only (what 'eliminate'
 -- leaves). The slack basis is dual feasible from the start, because every
@@ -2108,6 +2172,16 @@ components rows =
 -- enters, lowest index on ties; with that rule the dual simplex cannot
 -- cycle, so it terminates. A row with no negative entry cannot be
 -- repaired: the system is infeasible and the row's origins are blamed.
+--
+-- Rows enter the tableau lazily: only the rows the current point violates
+-- are in it (initially those a lower bound made negative), and once the
+-- active rows are satisfied the waiting rows are evaluated at the point,
+-- the violated ones are rewritten over the current nonbasic columns and
+-- added (primal infeasible, dual feasibility untouched), and the dual
+-- simplex resumes. The active set is a relaxation, so a point satisfying
+-- every row is optimal for the whole system, and each outer step adds at
+-- least one of finitely many rows. A pivot then touches the active rows
+-- alone, which stay a small fraction of the residual.
 dualSolve :: (Int -> Integer) -> IntMap Row -> Either [EqR] (IntMap Rational)
 dualSolve weight rows =
   let vars = IntSet.toList . IntSet.unions $ fmap (IntMap.keysSet . rowCoefs) (IntMap.elems rows)
@@ -2116,16 +2190,15 @@ dualSolve weight rows =
       rowList = zip [0 ..] (IntMap.elems rows)
       rowByIndex = IntMap.fromList rowList
       slackBase = length vars
-      build (i, r) =
-        ( i
-        , ( IntMap.insert (slackBase + i) 1
-              (IntMap.fromList [ (colOf IntMap.! v, a) | (v, a) <- IntMap.toList (rowCoefs r) ])
-          , rowConst r ) )
-      tRows = IntMap.fromList (fmap build rowList)
-      basis0 = IntMap.fromList [ (i, slackBase + i) | (i, _) <- rowList ]
+      coefsOf r = IntMap.fromList
+        [ (colOf IntMap.! v, a) | (v, a) <- IntMap.toList (rowCoefs r) ]
+      build (i, r) = (i, (IntMap.insert (slackBase + i) 1 (coefsOf r), rowConst r))
+      (active0, waiting0) = partition (\(_, r) -> rowConst r < 0) rowList
+      tRows = IntMap.fromList (fmap build active0)
+      basis0 = IntMap.fromList [ (i, slackBase + i) | (i, _) <- active0 ]
       obj0 = IntMap.fromList [ (colOf IntMap.! v, fromInteger (weight v)) | v <- vars ]
       go tab =
-        case [ i | (i, (_, b)) <- IntMap.toList (tbRows tab), b < 0 ] of
+        case IntSet.toList (tbNeg tab) of
           [] -> Right tab
           infeasible ->
             let r = minimumBy (comparing (tbBasis tab IntMap.!)) infeasible
@@ -2136,8 +2209,42 @@ dualSolve weight rows =
             in case candidates of
                  [] -> Left (rowFrom (rowByIndex IntMap.! r))
                  _  -> go (pivot r (snd (minimum candidates)) tab)
+      -- the current point: basic structural columns carry their row's
+      -- rhs, every other column is zero
+      pointOf tab = IntMap.fromList
+        [ (c, b) | (i, (_, b)) <- IntMap.toList (tbRows tab)
+        , let c = tbBasis tab IntMap.! i, c < slackBase ]
+      -- a waiting row over the current nonbasic columns: substitute every
+      -- basic structural column by its tableau row
+      addRow tab (i, r) =
+        let rowOfCol = IntMap.fromList [ (c, ri) | (ri, c) <- IntMap.toList (tbBasis tab) ]
+            coefs0 = coefsOf r
+            substitute (cs, b) (j, a) = case IntMap.lookup j rowOfCol of
+              Nothing -> (cs, b)
+              Just ri ->
+                let (prow, pb) = tbRows tab IntMap.! ri
+                in ( IntMap.filter (/= 0) $
+                       IntMap.unionWith (+) cs (IntMap.map (negate . (a *)) prow)
+                   , b - a * pb )
+            (coefs, b') = foldl substitute (coefs0, rowConst r)
+                            (IntMap.toList coefs0)
+            coefs' = IntMap.insert (slackBase + i) 1 coefs
+        in tab { tbRows = IntMap.insert i (coefs', b') (tbRows tab)
+               , tbBasis = IntMap.insert i (slackBase + i) (tbBasis tab)
+               , tbCols = foldr (\k -> IntMap.insertWith IntSet.union k (IntSet.singleton i))
+                            (tbCols tab) (IntMap.keys coefs')
+               , tbNeg = if b' < 0 then IntSet.insert i (tbNeg tab) else tbNeg tab }
+      loop tab waiting = do
+        tab' <- go tab
+        let point = pointOf tab'
+            value r = sum [ a * IntMap.findWithDefault 0 (colOf IntMap.! v) point
+                          | (v, a) <- IntMap.toList (rowCoefs r) ]
+            (violated, waiting') = partition (\(_, r) -> value r > rowConst r) waiting
+        if null violated
+          then pure tab'
+          else loop (foldl addRow tab' violated) waiting'
   in do
-    tab <- go (Tab tRows basis0 obj0)
+    tab <- loop (mkTab tRows basis0 obj0) waiting0
     pure $ IntMap.fromList
       [ (varOf IntMap.! c, b)
       | (i, (_, b)) <- IntMap.toList (tbRows tab)

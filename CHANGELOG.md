@@ -21,9 +21,14 @@
 * A closed data tree under a pair constructor is one data leaf in the analysis
   (one level of pair structure kept), not a node per pair: data is level-free,
   and the per-component view bangs were what every instance copied.
-* The box constraints are solved once, in the global pass; the standalone
-  per-body pass does only the structural work, and per-body levels and env
-  bangs come from the global solve (zero for a body main never applies).
+* The box constraints are solved once, in the global pass, and per-body levels
+  and env bangs are read off it. The standalone per-body passes run only when
+  main fails, to localize the failure: a certified main has certified every
+  body's instances, and a body's own constraints are a subset of its
+  instance's, so no body can fail on its own under a certified main. The
+  forced identity reading of an unresolved abort could previously fail a body
+  standalone and reject main through the dependency gate even though main's
+  own derivation certified; that false rejection is gone with the gate.
 * The box discipline is faithful EAL: occurrences sit exactly as deep as the
   bangs they open, boxes pass through applications, projections and gate
   switches instead of vanishing, a duplicated capture is contracted outside

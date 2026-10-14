@@ -118,7 +118,7 @@ data CompiledProgram = CompiledProgram
   , cpExpr     :: CompiledExpr
     -- ^ The sized program.
   , cpGuidance :: Map (Digest SHA256) CodeGuidance
-    -- ^ Per-hash guidance for every body that certified standalone,
+    -- ^ Per-hash guidance for every body (all of them, when the program certified),
     -- post-sizing — the map runtime strategies draw on.
   , cpVerdict  :: Either String EALResult
     -- ^ The post-sizing whole-program verdict. The reference evaluator
