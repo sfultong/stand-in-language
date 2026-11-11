@@ -58,8 +58,6 @@ timesByte = \a b -> d2c b (plusByte a) 0
 
 powByte = \a b -> d2c b (timesByte a) 1
 
-minus = \a b -> d2c (b (\x -> left x) (a succByte 0))
-
 numDec = \(x : NonZero) -> left x
 
 minusByte = \a b -> d2c b numDec a

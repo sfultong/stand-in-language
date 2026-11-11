@@ -9,6 +9,8 @@ times = \m n f -> m (n f)
 
 pow = \m n -> n m
 
+minus = \a b -> d2c (b (\x -> left x) (a succByte 0))
+
 factorial = \n -> foldr (\a b -> times (d2c a) b) $1 (range 1 (n,0))
 
 dFactorial = \n -> c2Byte (factorial n)
