@@ -20,16 +20,18 @@ import Telomare.IR.Loc
 import Telomare.Size (SizingReport (..), SizingSettings (SizingSettings),
                       renderSizingCertificate)
 import Telomare.Size.IR (SizedRecursion (..))
+import TestModules (libraryModules)
 
 limitsDir :: FilePath
 limitsDir = "test/programs/limits/"
 
--- |A program plus the prelude, as the CLI would load them.
+-- |A program plus the library modules it may import, as the CLI would load
+-- them.
 loadWith :: FilePath -> String -> IO [(String, String)]
 loadWith path moduleName = do
-  prelude <- Strict.readFile "Prelude.tel"
+  library <- libraryModules
   source <- Strict.readFile path
-  pure [("Prelude", prelude), (moduleName, source)]
+  pure $ library <> [(moduleName, source)]
 
 -- |Compile a program alongside the prelude, at a chosen sizing budget.
 compileProgram :: SizingOption -> FilePath -> String -> IO (Either String SizingReport)

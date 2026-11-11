@@ -133,6 +133,7 @@ test-suite telomare-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             Spec.hs
+  other-modules:       TestModules
   build-depends:       base
                      , hspec
                      , recursion-schemes
@@ -185,6 +186,7 @@ test-suite telomare-sizing-test
   other-modules:       ConformanceTests
                      , RunModeTests
                      , SizingTests
+                     , TestModules
   build-depends:       base
                      , bytestring
                      , containers
@@ -199,6 +201,7 @@ test-suite telomare-eal-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             EALTests.hs
+  other-modules:       TestModules
   build-depends:       base
                      , containers
                      , free
@@ -213,6 +216,7 @@ test-suite telomare-ic-test
   type:                exitcode-stdio-1.0
   hs-source-dirs:      test
   main-is:             ICTests.hs
+  other-modules:       TestModules
   build-depends:       base
                      , containers
                      , strict

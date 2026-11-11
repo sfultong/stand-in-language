@@ -5,7 +5,6 @@ import Data.Bifunctor
 import Data.Either (rights)
 import Data.List (isPrefixOf)
 import qualified Data.Map as Map
-import qualified System.IO.Strict as Strict
 import Telomare.Driver (compileUnitTest)
 import Telomare.EAL
 import Telomare.Error (EALError (..))
@@ -18,6 +17,7 @@ import Telomare.Parse (runParseModule)
 import Telomare.Resolve (DeferMap (..), deferLift, main2Term3)
 import Test.Tasty
 import Test.Tasty.HUnit
+import TestModules (auxImports, libraryModules)
 
 -- * Term construction helpers
 
@@ -82,16 +82,16 @@ gateTest =
   "       in g 1"
 main :: IO ()
 main = do
-  preludeFile <- Strict.readFile "Prelude.tel"
+  library <- libraryModules
   let
     expandNamed name content =
       case runParseModule name content
              >>= first renderExpansionError . expandModule of
         Right m -> m
         Left e  -> error e
-    prelude = [("Prelude", expandNamed "Prelude" preludeFile)]
+    prelude = [(name, expandNamed name src) | (name, src) <- library]
     parseAuxModule str =
-      ("AuxModule", expandNamed "AuxModule" ("import Prelude\n" <> str))
+      ("AuxModule", expandNamed "AuxModule" (auxImports <> str))
     parse :: String -> Either String Term3
     parse str = first show $ main2Term3 (parseAuxModule str:prelude) "AuxModule"
     unitTestEAL = unitTestEAL' parse

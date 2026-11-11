@@ -7,7 +7,6 @@ import Data.List (isInfixOf)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Set as Set
-import qualified System.IO.Strict as Strict
 import Telomare.Driver (CompiledProgram (..), SizingOption (..),
                         compileMainReporting, compileUnitTest, erasedChecks,
                         evalLoopCore, keepAccum, plainEval, programIteration,
@@ -32,6 +31,7 @@ import Telomare.Resolve (DeferKeys (..), DeferMap (..), deferLift, keyDefers,
 import Telomare.Size (SizingReport (..))
 import Test.Tasty
 import Test.Tasty.HUnit
+import TestModules (auxImports, libraryModules)
 
 -- * Term construction helpers
 
@@ -105,16 +105,16 @@ icDiff name t extra = testCase name $ do
 
 main :: IO ()
 main = do
-  preludeFile <- Strict.readFile "Prelude.tel"
+  library <- libraryModules
   let
     expandNamed name content =
       case runParseModule name content
              >>= first renderExpansionError . expandModule of
         Right m -> m
         Left e  -> error e
-    prelude = [("Prelude", expandNamed "Prelude" preludeFile)]
+    prelude = [(name, expandNamed name src) | (name, src) <- library]
     parseAuxModule str =
-      ("AuxModule", expandNamed "AuxModule" ("import Prelude\n" <> str))
+      ("AuxModule", expandNamed "AuxModule" (auxImports <> str))
     parse :: String -> Either String Term3
     parse str =
       first show $ main2Term3 (parseAuxModule str : prelude) "AuxModule"

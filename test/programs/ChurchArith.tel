@@ -1,0 +1,14 @@
+import Prelude
+
+-- Church-numeral arithmetic. Programs should use the Byte versions in the
+-- Prelude; these stay for the tests, whose higher-order sharing they stress.
+
+plus = \m n f x -> m f (n f x)
+
+times = \m n f -> m (n f)
+
+pow = \m n -> n m
+
+factorial = \n -> foldr (\a b -> times (d2c a) b) $1 (range 1 (n,0))
+
+dFactorial = \n -> c2Byte (factorial n)

@@ -221,6 +221,7 @@ unitTests = testGroup "Unit tests"
   , testCase "all shipped Telomare programs parse and expand" $ do
       let programs = [ "Prelude.tel"
                      , "test/programs/simpleplus.tel"
+                     , "test/programs/ChurchArith.tel"
                      , "tictactoe.tel"
                      , "test/programs/testchar.tel"
                      , "tc_ultra_minimal.tel"

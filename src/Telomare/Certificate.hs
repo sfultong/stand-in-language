@@ -13,7 +13,7 @@
 -- They are reported together, in one command, but /not/ merged into one table,
 -- because they do not index the same thing. Sizing allocates a count per
 -- __instantiation__: a `d2c` called from two places is sized separately at
--- each, so @simpleplus.tel@ line 12 holds two sized sites. The structural pass
+-- each, so @simpleplus.tel@ line 13 holds two sized sites. The structural pass
 -- indexes the __triple as written__, so it sees `d2c`'s one `{t, r, b}` where
 -- it is defined. Lining the two lists up row by row would be a fiction; the
 -- report says so rather than inventing a correspondence.

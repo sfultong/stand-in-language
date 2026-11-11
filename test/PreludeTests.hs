@@ -63,7 +63,6 @@ unitTestsNatArithmetic = testGroup "Unit tests on natural arithmetic expresions"
   , testCase "test exponentiation" $ assertExpr "powByte 2 3" (show (2 ^ (3 :: Integer) :: Integer))
   , testCase "test exponentiation with zero exponent" $ assertExpr "powByte 5 0" "1"
   , testCase "test raise zero to the zero power" $ assertExpr "powByte 0 0" "1"
-  , testCase "test factorial" $ assertExpr "dFactorial 5" (show (product [1..5] :: Integer))
   ]
 
 ---------------------

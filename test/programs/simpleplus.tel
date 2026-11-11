@@ -1,4 +1,5 @@
 import Prelude
+import ChurchArith
 
 validDigit = \x -> and (toBool ($47 left x)) (not (toBool ($57 left x)))
 

@@ -20,6 +20,7 @@ import Telomare.PrettyPrint
 import Telomare.Resolve
 import Telomare.Size (SizingSettings (SizingSettings))
 import Test.Hspec
+import TestModules (auxImports, libraryModules)
 
 import Data.Functor.Foldable (Corecursive (..))
 
@@ -330,6 +331,7 @@ unitTests parse = do
     unitTest2 "main = (\\a b -> if 0 then a b else b) (\\b -> times $2 b) $1 succByte 0" "1"
     unitTest2 "main = c2Byte (factorial 0)" "1"
     unitTest2 "main = c2Byte (factorial 4)" "24"
+    unitTest2 "main = dFactorial 5" "120"
 
   describe "main function tests" $ do
     testMain <- runIO $ Strict.readFile "test/programs/testchar.tel"
@@ -340,7 +342,7 @@ unitTests parse = do
     unitTestMainPlus <- buildMainTest testMainPlus
     unitTestMainPlus ZeroB "0 0" ("0 plus 0 is 0", Right ZeroB)
     unitTestMainPlus ZeroB "9 9" ("9 plus 9 is 18", Right ZeroB)
-    unitTestMainPlus ZeroB "9 a" ("runtime error:\nAborted, check failed on \"9 a\" (from refinement check at 16:38)", Left "Aborted, check failed on \"9 a\" (from refinement check at 16:38)")
+    unitTestMainPlus ZeroB "9 a" ("runtime error:\nAborted, check failed on \"9 a\" (from refinement check at 17:38)", Left "Aborted, check failed on \"9 a\" (from refinement check at 17:38)")
     -- a check is lazy: one whose value is never used does not abort
     unitTestUnused <- buildMainTest "main = \\input -> let x : (\\v -> not (toBool (left v))) = left input\n                 in (\"ok\", 0)"
     unitTestUnused ZeroB "" ("ok", Right ZeroB)
@@ -424,21 +426,19 @@ unitTestCertifiesTerm name i = it ("EAL certifies " <> name) $
 
 main :: IO ()
 main = do
-  preludeFile <- Strict.readFile "Prelude.tel"
+  library <- libraryModules
 
   let
-    prelude' = case runParseDefinitions "" preludeFile
-                      >>= first renderExpansionError . expandDefs of
-      Right p -> p
-      Left pe -> error pe
-    prelude :: ExpandedModules
-    prelude = [("Prelude", uncurry ExpandedModuleBinding <$> prelude')]
-    parseAuxModule :: String -> (String, ExpandedModule)
-    parseAuxModule str =
-      case runParseModule "" ("import Prelude\n" <> str)
+    expandNamed :: String -> String -> ExpandedModule
+    expandNamed name content =
+      case runParseModule name content
              >>= first renderExpansionError . expandModule of
-        Left e    -> error e
-        Right pam -> ("AuxModule", pam)
+        Left e  -> error e
+        Right m -> m
+    prelude :: ExpandedModules
+    prelude = [(name, expandNamed name src) | (name, src) <- library]
+    parseAuxModule :: String -> (String, ExpandedModule)
+    parseAuxModule str = ("AuxModule", expandNamed "" (auxImports <> str))
     parse :: String -> Either String Term3
     parse str = first show $ main2Term3 (parseAuxModule str:prelude) "AuxModule"
 
