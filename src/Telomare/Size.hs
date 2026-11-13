@@ -447,6 +447,54 @@ analyzeChecks budget input zeros prog =
 mayFailChecks :: Int -> UnsizedExpr -> Set Integer -> CompiledExpr -> Maybe (Set AbortOrigin)
 mayFailChecks budget input zeros prog = Map.keysSet . checkFires <$> analyzeChecks budget input zeros prog
 
+-- |The checks of a sized main that may fail on a call the loop can make
+-- ('Telomare.Driver.evalLoopCore'): the first, input-less one, or one on
+-- any input and a state that an iteration which did not abort made
+-- ('stepProgram'). Nothing when deciding that is over the budget.
+--
+-- A check on the state that fails on no such call holds of every state
+-- main makes, for no further assumption: the iteration making a state ran
+-- every check of main on its own input, so the state comes only from an
+-- earlier one that passed them all, and a check main's step preserves is
+-- never failed. Main need not make it, though no check of the input alone
+-- decides it.
+reachableFailures :: Int -> CompiledExpr -> Maybe (Set AbortOrigin)
+reachableFailures budget sized =
+  (<>) <$> (seenFailures <$> analyzeChecks budget ZeroB Set.empty sized)
+       <*> (seenFailures <$> analyzeChecks budget stepInput Set.empty (stepProgram sized))
+  where
+    stepInput = PairB (indexedEE $ IVarF 1) (indexedEE $ IVarF 2)
+
+-- |The checks that fail on some run where the failure is seen: where the
+-- result is not free of aborts. A check in the branch an @if@ does not
+-- take runs too ('runTree'), and its failure is never seen.
+seenFailures :: CheckAnalysis -> Set AbortOrigin
+seenFailures (CheckAnalysis fires result) = Map.keysSet $ Map.filter (any seen) fires where
+  seen (CheckFire path _) = case abortStatus path result of
+    AbortFree -> False
+    _         -> True
+
+-- |Two iterations of main as one program over (input, earlier): main's
+-- call on earlier, then, where that iteration did not end the loop, its
+-- call on input and the state the first made. The first call's aborts are
+-- 'hypothesisOrigin's, so that the checks seen to fail as themselves are
+-- the second call's, and the first call's only stop the runs on which the
+-- second could not happen.
+stepProgram :: CompiledExpr -> CompiledExpr
+stepProgram sized = lamB stepProgramInd $ appB (lamB stepNextInd next) earlier where
+  -- env: (x, _)
+  earlier = appB (cata hypothesis sized) (RightB (LeftB EnvB))
+  -- env: (main's result on earlier, (x, _)); a Zero state ends the loop
+  state = RightB (LeftB EnvB)
+  next = iteB state (appB sized (PairB (LeftB (LeftB (RightB EnvB))) state)) ZeroB
+  hypothesis = \case
+    AbortFW (AbortF _ m) -> AbortB hypothesisOrigin m
+    x                    -> embed x
+
+-- |The origin of the aborts in the first iteration of a 'stepProgram'.
+hypothesisOrigin :: AbortOrigin
+hypothesisOrigin = AbortOrigin UnknownAbort (GeneratedLoc "earlier iteration" Nothing)
+
 -- |Whether a check's result is something other than Zero on some path
 -- consistent with the given one: its superpositions are walked under what
 -- each branch knows, without building anything.
@@ -663,16 +711,23 @@ checkDecisionBudget :: Int
 checkDecisionBudget = 100000000
 
 -- |Where a sized main's refinement checks go ('checkVerdicts'): those
--- erased from main, because they can never fail, or every failure of
--- them that matters is decided before main, and main's input prologue.
--- When analyzing the checks is over budget, every check stays in main.
+-- erased from main, because they can never fail, fail on no call the loop
+-- can make ('reachableFailures'), or every failure of them that matters
+-- is decided before main, and main's input prologue. When analyzing the
+-- checks is over budget, every check stays in main; when only deciding
+-- them over the loop's calls is, the checks that main keeps stay.
 checkPlan :: CompiledExpr -> (AbortOrigin -> Bool, Maybe CompiledExpr)
 checkPlan sized = case analyzeChecks checkDecisionBudget (indexedEE $ IVarF 0) Set.empty sized of
   Nothing -> (const False, Nothing)
   Just analysis ->
     let verdicts = checkVerdicts analysis
-        erased o = maybe True (not . keptInMain) (Map.lookup o verdicts)
-    in (erased, inputPrologue verdicts)
+        -- the loop's calls are decided only when main keeps a check
+        reachable
+          | any keptInMain verdicts = reachableFailures checkDecisionBudget sized
+          | otherwise               = Nothing
+        planned = maybe verdicts (Map.restrictKeys verdicts) reachable
+        erased o = maybe True (not . keptInMain) (Map.lookup o planned)
+    in (erased, inputPrologue planned)
 
 -- |Substitute sized chains for a term's recursion holes.
 setSizes :: Map UnsizedRecursionToken (Maybe Int) -> UnsizedExpr -> UnsizedExpr

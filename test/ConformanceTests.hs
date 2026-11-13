@@ -21,6 +21,7 @@ corpus :: [(FilePath, String, [String])]
 corpus =
   [ ("test/programs/simpleplus.tel", "simpleplus", ["3 4"])
   , ("tc_ultra_minimal.tel", "tc_ultra_minimal", [])
+  , ("test/programs/state-invariant-halt.tel", "state-invariant-halt", ["", "x"])
   ]
 
 conformanceSpec :: Spec

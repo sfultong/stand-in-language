@@ -1,0 +1,8 @@
+import Prelude
+
+isPair = \x -> toBool x
+
+-- every state main makes is a pair, but the check also runs on the
+-- input-less first call, where there is no state
+main = \input -> let s : isPair = right input
+                 in ("step", (0, s))

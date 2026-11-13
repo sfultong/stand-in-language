@@ -1,0 +1,11 @@
+import Prelude
+
+LeftZero = \s -> not (toBool (left s))
+
+-- the check reads the state, so nothing about the input alone decides
+-- it, but every state main makes has a Zero left, so it never fails on a
+-- state main made
+main = \input -> if input
+  then let s : LeftZero = right input
+       in ("step", (0, right s))
+  else ("start", (0, 1))

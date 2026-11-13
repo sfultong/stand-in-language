@@ -149,6 +149,22 @@ sizingSpec = do
       kinds <- remainingChecks "test/programs/notinput.tel" "notinput"
       kinds `shouldBe` Right ([], [RefinementAbort])
 
+    it "erases a check on the state that every state main makes passes" $ do
+      kinds <- remainingChecks "test/programs/state-invariant.tel" "state-invariant"
+      kinds `shouldBe` Right ([], [])
+
+    it "keeps a check on the state that a state main makes fails" $ do
+      kinds <- remainingChecks "test/programs/state-invariant-broken.tel" "state-invariant-broken"
+      kinds `shouldBe` Right ([RefinementAbort], [])
+
+    it "keeps a check that every state main makes passes, but the first call fails" $ do
+      kinds <- remainingChecks "test/programs/state-invariant-first-call.tel" "state-invariant-first-call"
+      kinds `shouldBe` Right ([RefinementAbort], [])
+
+    it "erases a check on the state that every state the loop goes on with passes" $ do
+      kinds <- remainingChecks "test/programs/state-invariant-halt.tel" "state-invariant-halt"
+      kinds `shouldBe` Right ([], [])
+
   describe "a refinement bounds what its checked value flows into" $ do
     it "sizes a recursion by the check in its own case alternative" $ do
       result <- compileAtFullBudget "test/programs/branch-refinement.tel" "branch-refinement"

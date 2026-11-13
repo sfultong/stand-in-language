@@ -503,7 +503,7 @@ abortStepM handleOther x = f x where
     _ -> handleOther x
 
 -- list of defer indexes for functions generated during eval. Need to be unique (grammar under defer n should always be the same)
-twiddleInd, leftGateInd, rightGateInd, unsizedStepMEInd, unsizedStepMTInd, unsizedStepMa, unsizedStepMrfa, unsizedStepMrfb, unsizedStepMw, removeRefinementWrappersTC, refinementGateInd, refinementPassInd, inputPrologueInd :: Int
+twiddleInd, leftGateInd, rightGateInd, unsizedStepMEInd, unsizedStepMTInd, unsizedStepMa, unsizedStepMrfa, unsizedStepMrfb, unsizedStepMw, removeRefinementWrappersTC, refinementGateInd, refinementPassInd, inputPrologueInd, stepProgramInd, stepNextInd :: Int
 twiddleInd = -1
 leftGateInd = -2
 rightGateInd = -3
@@ -517,6 +517,8 @@ removeRefinementWrappersTC = -10
 refinementGateInd = -11
 refinementPassInd = -12
 inputPrologueInd = -13
+stepProgramInd = -14
+stepNextInd = -15
 
 deferB :: (Base g ~ f, StuckBase f, Recursive g, Corecursive g) => Int -> g -> g
 deferB n = StuckEE . DeferSF (toEnum n)

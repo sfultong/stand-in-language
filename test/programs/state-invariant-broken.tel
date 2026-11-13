@@ -1,0 +1,9 @@
+import Prelude
+
+LeftZero = \s -> not (toBool (left s))
+
+-- the first state passes the check, but the state made from it does not
+main = \input -> if input
+  then let s : LeftZero = right input
+       in ("step", (right s, 1))
+  else ("start", (0, 1))

@@ -1,0 +1,10 @@
+import Prelude
+
+isPair = \x -> toBool x
+
+-- a Zero state ends the loop, so a check that the state is a pair holds
+-- of every state the loop goes on with, though main makes Zero ones
+main = \input -> if input
+  then let s : isPair = right input
+       in ("step", if left input then 0 else s)
+  else ("start", (0, 0))
